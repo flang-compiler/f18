@@ -24,23 +24,26 @@ class Prescanner;
 
 // Just a const char pointer with an associated length; does not own the
 // referenced data.  Used to describe buffered tokens and hash table keys.
-struct CharPointerWithLength {
+class CharPointerWithLength {
+ public:
   CharPointerWithLength() {}
-  CharPointerWithLength(const char *x, size_t n) : data{x}, bytes{n} {}
+  CharPointerWithLength(const char *x, size_t n) : data_{x}, bytes_{n} {}
   CharPointerWithLength(const CharPointerWithLength &that)
-    : data{that.data}, bytes{that.bytes} {}
+    : data_{that.data_}, bytes_{that.bytes_} {}
   CharPointerWithLength &operator=(const CharPointerWithLength &that) {
-    data = that.data;
-    bytes = that.bytes;
+    data_ = that.data_;
+    bytes_ = that.bytes_;
     return *this;
   }
 
-  bool empty() const { return bytes == 0; }
-  size_t size() const { return bytes; }
-  const char &operator[](size_t j) const { return data[j]; }
+  bool empty() const { return bytes_ == 0; }
+  size_t size() const { return bytes_; }
+  const char *data() const { return data_; }
+  const char &operator[](size_t j) const { return data_[j]; }
 
-  const char *data{nullptr};
-  size_t bytes{0};
+ private:
+  const char *data_{nullptr};
+  size_t bytes_{0};
 };
 }  // namespace Fortran
 
@@ -48,7 +51,7 @@ struct CharPointerWithLength {
 template<> struct std::hash<Fortran::CharPointerWithLength> {
   size_t operator()(const Fortran::CharPointerWithLength &x) const {
     size_t hash{0};
-    const char *p{x.data}, *limit{p + x.bytes};
+    const char *p{x.data()}, *limit{p + x.size()};
     for (; p < limit; ++p) {
       hash = (hash * 31) ^ *p;
     }
@@ -59,10 +62,10 @@ template<> struct std::hash<Fortran::CharPointerWithLength> {
 template<> struct std::equal_to<Fortran::CharPointerWithLength> {
   bool operator()(const Fortran::CharPointerWithLength &x,
                   const Fortran::CharPointerWithLength &y) const {
-    return x.bytes == y.bytes &&
-           std::memcmp(static_cast<const void *>(x.data),
-                       static_cast<const void *>(y.data),
-                       x.bytes) == 0;
+    return x.size() == y.size() &&
+           std::memcmp(static_cast<const void *>(x.data()),
+                       static_cast<const void *>(y.data()),
+                       x.size()) == 0;
   }
 };
 
@@ -100,19 +103,27 @@ class TokenSequence {
   void AddChar(char ch) {
     char_.emplace_back(ch);
   }
+
   void EndToken() {
     // CHECK(char_.size() > nextStart_);
     start_.emplace_back(nextStart_);
     nextStart_ = char_.size();
   }
 
+  void ReopenLastToken() {
+    nextStart_ = start_.back();
+    start_.pop_back();
+  }
+
   void Append(const TokenSequence &);
 
-  void Emit(CharBuffer *);
+  void EmitWithCaseConversion(CharBuffer *);
 
   bool empty() const { return start_.empty(); }
 
   size_t size() const { return start_.size(); }
+
+  const char *data() const { return &char_[0]; }
 
   void clear() {
     start_.clear();
@@ -134,7 +145,8 @@ class TokenSequence {
   }
 
   void push_back(const CharPointerWithLength &t) {
-    for (size_t j{0}; j < t.bytes; ++j) {
+    size_t bytes{t.size()};
+    for (size_t j{0}; j < bytes; ++j) {
       AddChar(t[j]);
     }
     EndToken();
