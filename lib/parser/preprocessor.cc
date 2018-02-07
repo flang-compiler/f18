@@ -13,6 +13,7 @@
 #include <utility>
 
 namespace Fortran {
+namespace parser {
 
 bool CharPointerWithLength::IsBlank() const {
   for (size_t j{0}; j < bytes_; ++j) {
@@ -616,8 +617,7 @@ bool Preprocessor::SkipDisabledConditionalCode(
         ifStack_.push(CanDeadElseAppear::No);
         return true;
       }
-      if (dn == "elif" &&
-          IsIfPredicateTrue(*line, rest, line->size() - rest)) {
+      if (dn == "elif" && IsIfPredicateTrue(*line, rest, line->size() - rest)) {
         ifStack_.push(CanDeadElseAppear::Yes);
         return true;
       }
@@ -937,4 +937,5 @@ bool Preprocessor::IsIfPredicateTrue(
   }
   return result;
 }
+}  // namespace parser
 }  // namespace Fortran
