@@ -73,6 +73,7 @@ template<typename A> bool operator!(const std::optional<A> &x) {
       (Fortran::parser::die( \
            "CHECK(" #x ") failed at " __FILE__ "(%d)", __LINE__), \
           false))
+#endif
 
 // To make error messages more informative, wrap some type information
 // around a false compile-time value, e.g.
