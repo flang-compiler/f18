@@ -3,24 +3,22 @@
 namespace Fortran {
 namespace parser {
 
-std::ostream &operator<<(std::ostream &o, const Message &msg) {
-  if (msg.context()) {
-    o << *msg.context();
+Provenance Message::Emit(
+    std::ostream &o, const AllSources &sources, bool echoSourceLine) const {
+  if (!context_ || context_->Emit(o, sources, false) != provenance_) {
+    sources.Identify(o, provenance_, "", echoSourceLine);
   }
-  o << "at line " << msg.position().lineNumber();
-  int column = msg.position().column();
-  if (column > 0) {
-    o << "(column " << column << ")";
-  }
-  o << ": " << msg.message() << '\n';
-  return o;
+  o << "   " << message_ << '\n';
+  return provenance_;
 }
 
-std::ostream &operator<<(std::ostream &o, const Messages &ms) {
-  for (const auto &msg : ms) {
-    o << msg;
+void Messages::Emit(std::ostream &o) const {
+  for (const auto &msg : messages_) {
+    if (msg.context()) {
+      o << "In the context ";
+    }
+    msg.Emit(o, allSources_);
   }
-  return o;
 }
 }  // namespace parser
 }  // namespace Fortran

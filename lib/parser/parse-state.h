@@ -2,14 +2,14 @@
 #define FORTRAN_PARSE_STATE_H_
 
 // Defines the ParseState type used as the argument for every parser's
-// Parse member or static function.  Tracks position, context, accumulated
-// messages, and an arbitrary UserState instance for parsing attempts.
-// Must be efficient to duplicate and assign for backtracking and recovery
-// during parsing!
+// Parse member or static function.  Tracks source provenance, context,
+// accumulated messages, and an arbitrary UserState instance for parsing
+// attempts.  Must be efficient to duplicate and assign for backtracking
+// and recovery during parsing!
 
 #include "idioms.h"
 #include "message.h"
-#include "position.h"
+#include "provenance.h"
 #include <cstring>
 #include <list>
 #include <memory>
@@ -23,11 +23,13 @@ class UserState;
 
 class ParseState {
 public:
-  ParseState() {}
-  ParseState(const char *str) : p_{str}, remaining_{std::strlen(str)} {}
-  ParseState(const char *str, size_t bytes) : p_{str}, remaining_{bytes} {}
+  // TODO: Add a constructor for parsing a normalized module file.
+  ParseState(const CookedSource &cooked)
+    : cooked_{cooked}, p_{&cooked[0]}, limit_{p_ + cooked.size()},
+      messages_{*cooked.allSources()} {}
   ParseState(const ParseState &that)
-    : p_{that.p_}, remaining_{that.remaining_}, position_{that.position_},
+    : cooked_{that.cooked_}, p_{that.p_}, limit_{that.limit_},
+      column_{that.column_}, messages_{*that.cooked_.allSources()},
       userState_{that.userState_}, inCharLiteral_{that.inCharLiteral_},
       inFortran_{that.inFortran_}, inFixedForm_{that.inFixedForm_},
       enableOldDebugLines_{that.enableOldDebugLines_}, columns_{that.columns_},
@@ -41,10 +43,11 @@ public:
       anyErrorRecovery_{that.anyErrorRecovery_}, prescanned_{that.prescanned_} {
   }
   ParseState(ParseState &&that)
-    : p_{that.p_}, remaining_{that.remaining_}, position_{that.position_},
-      messages_{std::move(that.messages_)}, context_{std::move(that.context_)},
-      userState_{that.userState_}, inCharLiteral_{that.inCharLiteral_},
-      inFortran_{that.inFortran_}, inFixedForm_{that.inFixedForm_},
+    : cooked_{that.cooked_}, p_{that.p_}, limit_{that.limit_},
+      column_{that.column_}, messages_{std::move(that.messages_)},
+      context_{std::move(that.context_)}, userState_{that.userState_},
+      inCharLiteral_{that.inCharLiteral_}, inFortran_{that.inFortran_},
+      inFixedForm_{that.inFixedForm_},
       enableOldDebugLines_{that.enableOldDebugLines_}, columns_{that.columns_},
       enableBackslashEscapesInCharLiterals_{
           that.enableBackslashEscapesInCharLiterals_},
@@ -68,7 +71,9 @@ public:
     std::memcpy(&that, buffer, bytes);
   }
 
-  Position position() const { return position_; }
+  const CookedSource &cooked() const { return cooked_; }
+  int column() const { return column_; }
+  Messages *messages() { return &messages_; }
 
   bool anyErrorRecovery() const { return anyErrorRecovery_; }
   void set_anyErrorRecovery() { anyErrorRecovery_ = true; }
@@ -76,23 +81,90 @@ public:
   UserState *userState() const { return userState_; }
   void set_userState(UserState *u) { userState_ = u; }
 
-  Messages *messages() { return &messages_; }
-
   MessageContext context() const { return context_; }
-  MessageContext set_context(MessageContext c) {
-    MessageContext was{context_};
+  ParseState &set_context(MessageContext c) {
     context_ = c;
-    return was;
+    return *this;
   }
+
+  bool inCharLiteral() const { return inCharLiteral_; }
+  ParseState &set_inCharLiteral(bool yes) {
+    inCharLiteral_ = yes;
+    return *this;
+  }
+
+  bool inFortran() const { return inFortran_; }
+  ParseState &set_inFortran(bool yes) {
+    inFortran_ = yes;
+    return *this;
+  }
+
+  bool inFixedForm() const { return inFixedForm_; }
+  ParseState &set_inFixedForm(bool yes) {
+    inFixedForm_ = yes;
+    return *this;
+  }
+
+  bool enableOldDebugLines() const { return enableOldDebugLines_; }
+  ParseState &set_enableOldDebugLines(bool yes) {
+    enableOldDebugLines_ = yes;
+    return *this;
+  }
+
+  int columns() const { return columns_; }
+  ParseState &set_columns(int cols) {
+    columns_ = cols;
+    return *this;
+  }
+
+  bool enableBackslashEscapesInCharLiterals() const {
+    return enableBackslashEscapesInCharLiterals_;
+  }
+  ParseState &set_enableBackslashEscapesInCharLiterals(bool yes) {
+    enableBackslashEscapesInCharLiterals_ = yes;
+    return *this;
+  }
+
+  bool strictConformance() const { return strictConformance_; }
+  ParseState &set_strictConformance(bool yes) {
+    strictConformance_ = yes;
+    return *this;
+  }
+
+  bool warnOnNonstandardUsage() const { return warnOnNonstandardUsage_; }
+  ParseState &set_warnOnNonstandardUsage(bool yes) {
+    warnOnNonstandardUsage_ = yes;
+    return *this;
+  }
+
+  bool warnOnDeprecatedUsage() const { return warnOnDeprecatedUsage_; }
+  ParseState &set_warnOnDeprecatedUsage(bool yes) {
+    warnOnDeprecatedUsage_ = yes;
+    return *this;
+  }
+
+  int skippedNewLines() const { return skippedNewLines_; }
+  void set_skippedNewLines(int n) { skippedNewLines_ = n; }
+
+  bool prescanned() const { return prescanned_; }  // TODO: always true, remove
+
+  bool tabInCurrentLine() const { return tabInCurrentLine_; }
+
+  const char *GetLocation() const { return p_; }
+  Provenance GetProvenance(const char *at) const {
+    return cooked_.GetProvenance(at).LocalOffsetToProvenance(0);
+  }
+  Provenance GetProvenance() const { return GetProvenance(p_); }
 
   void PushContext(const std::string &str) {
-    context_ = std::make_shared<Message>(position_, str, context_);
+    context_ = std::make_shared<Message>(GetProvenance(), str, context_);
   }
   void PushContext(std::string &&str) {
-    context_ = std::make_shared<Message>(position_, std::move(str), context_);
+    context_ =
+        std::make_shared<Message>(GetProvenance(), std::move(str), context_);
   }
   void PushContext(const char *str) {
-    context_ = std::make_shared<Message>(position_, str, context_);
+    context_ = std::make_shared<Message>(GetProvenance(), str, context_);
   }
 
   void PopContext() {
@@ -101,110 +173,58 @@ public:
     }
   }
 
-  bool inCharLiteral() const { return inCharLiteral_; }
-  bool set_inCharLiteral(bool yes) {
-    bool was{inCharLiteral_};
-    inCharLiteral_ = yes;
-    return was;
+  void PutMessage(Provenance at, const std::string &msg) {
+    messages_.Put(Message{at, msg, context_});
   }
-
-  bool inFortran() const { return inFortran_; }
-  bool set_inFortran(bool yes) {
-    bool was{inFortran_};
-    inFortran_ = yes;
-    return was;
+  void PutMessage(const char *at, const std::string &msg) {
+    PutMessage(GetProvenance(at), msg);
   }
-
-  bool inFixedForm() const { return inFixedForm_; }
-  bool set_inFixedForm(bool yes) {
-    bool was{inFixedForm_};
-    inFixedForm_ = yes;
-    return was;
+  void PutMessage(const std::string &msg) { PutMessage(p_, msg); }
+  void PutMessage(Provenance at, std::string &&msg) {
+    messages_.Put(Message{at, std::move(msg), context_});
   }
-
-  bool enableOldDebugLines() const { return enableOldDebugLines_; }
-  bool set_enableOldDebugLines(bool yes) {
-    bool was{enableOldDebugLines_};
-    enableOldDebugLines_ = yes;
-    return was;
+  void PutMessage(const char *at, std::string &&msg) {
+    PutMessage(GetProvenance(at), std::move(msg));
   }
-
-  int columns() const { return columns_; }
-  int set_columns(int cols) {
-    int was{columns_};
-    columns_ = cols;
-    return was;
+  void PutMessage(std::string &&msg) { PutMessage(p_, std::move(msg)); }
+  void PutMessage(Provenance at, const char *msg) {
+    PutMessage(at, std::string{msg});
   }
-
-  bool enableBackslashEscapesInCharLiterals() const {
-    return enableBackslashEscapesInCharLiterals_;
+  void PutMessage(const char *at, const char *msg) {
+    PutMessage(GetProvenance(at), msg);
   }
-  bool set_enableBackslashEscapesInCharLiterals(bool yes) {
-    bool was{enableBackslashEscapesInCharLiterals_};
-    enableBackslashEscapesInCharLiterals_ = yes;
-    return was;
-  }
+  void PutMessage(const char *msg) { PutMessage(p_, msg); }
 
-  bool strictConformance() const { return strictConformance_; }
-  bool set_strictConformance(bool yes) {
-    bool was{strictConformance_};
-    strictConformance_ = yes;
-    return was;
-  }
-
-  bool warnOnNonstandardUsage() const { return warnOnNonstandardUsage_; }
-  bool set_warnOnNonstandardUsage(bool yes) {
-    bool was{warnOnNonstandardUsage_};
-    warnOnNonstandardUsage_ = yes;
-    return was;
-  }
-
-  bool warnOnDeprecatedUsage() const { return warnOnDeprecatedUsage_; }
-  bool set_warnOnDeprecatedUsage(bool yes) {
-    bool was{warnOnDeprecatedUsage_};
-    warnOnDeprecatedUsage_ = yes;
-    return was;
-  }
-
-  int skippedNewLines() const { return skippedNewLines_; }
-  void set_skippedNewLines(int n) { skippedNewLines_ = n; }
-
-  bool prescanned() const { return prescanned_; }
-  void set_prescanned(bool yes) { prescanned_ = yes; }
-
-  bool tabInCurrentLine() const { return tabInCurrentLine_; }
-
-  bool IsAtEnd() const { return remaining_ == 0; }
+  bool IsAtEnd() const { return p_ >= limit_; }
 
   std::optional<char> GetNextRawChar() const {
-    if (remaining_ > 0) {
+    if (p_ < limit_) {
       return {*p_};
     }
     return {};
   }
 
   void Advance() {
-    CHECK(remaining_ > 0);
-    --remaining_;
+    CHECK(p_ < limit_);
     if (*p_ == '\n') {
-      position_.AdvanceLine();
+      column_ = 1;
       tabInCurrentLine_ = false;
     } else if (*p_ == '\t') {
-      position_.TabAdvanceColumn();
+      column_ = ((column_ + 7) & -8) + 1;
       tabInCurrentLine_ = true;
     } else {
-      position_.AdvanceColumn();
+      ++column_;
     }
     ++p_;
   }
 
-  void AdvancePositionForPadding() { position_.AdvanceColumn(); }
+  void AdvanceColumnForPadding() { ++column_; }
 
 private:
   // Text remaining to be parsed
-  const char *p_{nullptr};
-  size_t remaining_{0};
-  Position position_;
+  const CookedSource &cooked_;
+  const char *p_{nullptr}, *limit_{nullptr};
+  int column_{1};
 
   // Accumulated messages and current nested context.
   Messages messages_;
@@ -224,7 +244,7 @@ private:
   int skippedNewLines_{0};
   bool tabInCurrentLine_{false};
   bool anyErrorRecovery_{false};
-  bool prescanned_{false};
+  bool prescanned_{true};
   // NOTE: Any additions or modifications to these data members must also be
   // reflected in the copy and move constructors defined at the top of this
   // class definition!

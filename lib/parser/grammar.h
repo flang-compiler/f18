@@ -180,15 +180,15 @@ template<typename PA>
 using statementConstructor = construct<Statement<typename PA::resultType>>;
 
 template<typename PA> inline constexpr auto unterminatedStatement(const PA &p) {
-  return skipMany("\n"_tok) >> statementConstructor<PA>{}(getPosition,
+  return skipMany("\n"_tok) >> statementConstructor<PA>{}(getProvenance,
                                    maybe(label), isLabelOk, spaces >> p);
 }
 
-constexpr auto endOfLine =
-    CharMatch<'\n'>{} || fail<char>("expected end of line");
+constexpr auto endOfLine = CharMatch<'\n'>{} / skipMany("\n"_tok) ||
+    fail<char>("expected end of line");
 
-constexpr auto
-    endOfStmt = spaces >> CharMatch<';'>{} / skipMany(";"_tok) || endOfLine;
+constexpr auto endOfStmt = spaces >>
+    (CharMatch<';'>{} / skipMany(";"_tok) / maybe(endOfLine) || endOfLine);
 
 template<typename PA> inline constexpr auto statement(const PA &p) {
   return unterminatedStatement(p) / endOfStmt;
@@ -372,8 +372,10 @@ struct StartNewSubprogram {
 } startNewSubprogram;
 
 TYPE_PARSER(construct<Program>{}(
-                some(startNewSubprogram >> Parser<ProgramUnit>{} / endOfLine)) /
-    skipMany(endOfLine) / consumedAllInput)
+    // statements consume only trailing noise; consume leading noise here.
+    skipMany("\n"_tok) >>
+    some(startNewSubprogram >> Parser<ProgramUnit>{} / endOfLine) /
+        consumedAllInput))
 
 // R502 program-unit ->
 //        main-program | external-subprogram | module | submodule | block-data
@@ -553,7 +555,7 @@ TYPE_CONTEXT_PARSER("execution part construct",
                 statement(indirect(dataStmt))) ||
             extension(construct<ExecutionPartConstruct>{}(
                 statement(indirect(Parser<NamelistStmt>{})))),
-        construct<ExecutionPartConstruct>{}(executionPartErrorRecovery)));
+        construct<ExecutionPartConstruct>{}(executionPartErrorRecovery)))
 
 // R509 execution-part -> executable-construct [execution-part-construct]...
 constexpr auto executionPart =
@@ -1674,7 +1676,7 @@ constexpr auto vectorSubscript = intExpr;
 // "vector-subscript" is deferred to semantic analysis.
 TYPE_PARSER(construct<SectionSubscript>{}(Parser<SubscriptTriplet>{}) ||
     construct<SectionSubscript>{}(vectorSubscript) ||
-    construct<SectionSubscript>{}(subscript));
+    construct<SectionSubscript>{}(subscript))
 
 // R921 subscript-triplet -> [subscript] : [subscript] [: stride]
 TYPE_PARSER(construct<SubscriptTriplet>{}(
@@ -3412,12 +3414,11 @@ std::optional<FunctionReference> Parser<FunctionReference>::Parse(
         return {FunctionReference{std::move(call.value())}};
       }
     }
-    state->messages()->Add(
-        Message{state->position(), "expected (arguments)", state->context()});
+    state->PutMessage("expected (arguments)");
   }
   state->PopContext();
   return {};
-};
+}
 
 // R1521 call-stmt -> CALL procedure-designator [( [actual-arg-spec-list] )]
 template<> std::optional<CallStmt> Parser<CallStmt>::Parse(ParseState *state) {
@@ -3435,7 +3436,7 @@ template<> std::optional<CallStmt> Parser<CallStmt>::Parse(ParseState *state) {
     }
   }
   return {};
-};
+}
 
 // R1522 procedure-designator ->
 //         procedure-name | proc-component-ref | data-ref % binding-name
