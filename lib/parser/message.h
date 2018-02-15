@@ -5,7 +5,7 @@
 // Supports nested contextualization.
 
 #include "idioms.h"
-#include "position.h"
+#include "provenance.h"
 #include <forward_list>
 #include <memory>
 #include <optional>
@@ -24,28 +24,29 @@ public:
   Message(const Message &) = default;
   Message(Message &&) = default;
 
-  Message(Position pos, const std::string &msg, MessageContext ctx = nullptr)
-    : position_{pos}, message_{msg}, context_{ctx} {}
-  Message(Position pos, std::string &&msg, MessageContext ctx = nullptr)
-    : position_{pos}, message_{std::move(msg)}, context_{ctx} {}
-  Message(Position pos, const char *msg, MessageContext ctx = nullptr)
-    : position_{pos}, message_{msg}, context_{ctx} {}
-  Message(Position pos, char ch, MessageContext ctx = nullptr)
-    : position_{pos}, message_{"expected '"s + ch + '\''}, context_{ctx} {}
+  Message(Provenance at, const std::string &msg, MessageContext ctx = nullptr)
+    : provenance_{at}, message_{msg}, context_{ctx} {}
+  Message(Provenance at, std::string &&msg, MessageContext ctx = nullptr)
+    : provenance_{at}, message_{std::move(msg)}, context_{ctx} {}
+  Message(Provenance at, const char *msg, MessageContext ctx = nullptr)
+    : provenance_{at}, message_{msg}, context_{ctx} {}
 
   Message &operator=(const Message &that) = default;
   Message &operator=(Message &&that) = default;
 
-  Position position() const { return position_; }
+  bool operator<(const Message &that) const {
+    return provenance_ < that.provenance_;
+  }
+
+  Provenance provenance() const { return provenance_; }
   std::string message() const { return message_; }
   MessageContext context() const { return context_; }
 
-  bool operator<(const Message &that) const {
-    return position_ < that.position_;
-  }
+  Provenance Emit(
+      std::ostream &, const AllSources &, bool echoSourceLine = true) const;
 
 private:
-  Position position_;
+  Provenance provenance_;
   std::string message_;
   MessageContext context_;
 };
@@ -57,9 +58,10 @@ public:
   using iterator = list_type::iterator;
   using const_iterator = list_type::const_iterator;
 
-  Messages() {}
+  explicit Messages(const AllSources &sources) : allSources_{sources} {}
   Messages(Messages &&that)
-    : messages_{std::move(that.messages_)}, last_{that.last_} {}
+    : allSources_{that.allSources_}, messages_{std::move(that.messages_)},
+      last_{that.last_} {}
   Messages &operator=(Messages &&that) {
     swap(that);
     return *this;
@@ -77,7 +79,10 @@ public:
   const_iterator cbegin() const { return messages_.cbegin(); }
   const_iterator cend() const { return messages_.cend(); }
 
-  void Add(Message &&m) {
+  const AllSources &allSources() const { return allSources_; }
+
+  void Put(Message &&m) {
+    CHECK(m.provenance() < allSources_.size());
     if (messages_.empty()) {
       messages_.emplace_front(std::move(m));
       last_ = messages_.begin();
@@ -97,13 +102,13 @@ public:
     }
   }
 
+  void Emit(std::ostream &) const;
+
 private:
+  const AllSources &allSources_;
   list_type messages_;
   iterator last_;  // valid iff messages_ nonempty
 };
-
-std::ostream &operator<<(std::ostream &, const Message &);
-std::ostream &operator<<(std::ostream &, const Messages &);
 }  // namespace parser
 }  // namespace Fortran
 #endif  // FORTRAN_MESSAGE_H_

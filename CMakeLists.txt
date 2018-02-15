@@ -5,8 +5,11 @@ set(CMAKE_CXX_COMPILER "${GCC}/bin/g++")
 set(CMAKE_INSTALL_RPATH "${GCC}/lib64")
 set(CMAKE_BUILD_WITH_INSTALL_RPATH true)
 
-project(f18)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -std=c++17")
+# project(f18)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DDEBUG")
+set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -DDEBUG")
 
 set(SOURCES_F18
   tools/f18/f18.cc
@@ -14,10 +17,11 @@ set(SOURCES_F18
   lib/parser/idioms.cc
   lib/parser/message.cc
   lib/parser/parse-tree.cc
-  lib/parser/position.cc
   lib/parser/preprocessor.cc
   lib/parser/prescan.cc
+  lib/parser/provenance.cc
   lib/parser/source.cc
+  lib/parser/token-sequence.cc
 )
 add_executable(f18 ${SOURCES_F18})
 
@@ -29,9 +33,10 @@ set(SOURCES_TEST_TYPE
   lib/parser/idioms.cc
   lib/parser/message.cc
   lib/parser/parse-tree.cc
-  lib/parser/position.cc
   lib/parser/preprocessor.cc
   lib/parser/prescan.cc
+  lib/parser/provenance.cc
   lib/parser/source.cc
+  lib/parser/token-sequence.cc
 )
 add_executable(test-type ${SOURCES_TEST_TYPE})

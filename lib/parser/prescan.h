@@ -5,32 +5,26 @@
 // character-level features of the language that can be inefficient to
 // support directly in a backtracking parser.  This phase handles Fortran
 // line continuation, comment removal, card image margins, padding out
-// fixed form character literals on truncated card images, and drives the
-// Fortran source preprocessor.
-//
-// It is possible to run the Fortran parser without running this prescan
-// phase, using only the parsers defined in cooked-chars.h, so long as
-// preprocessing and INCLUDE lines need not be handled.
+// fixed form character literals on truncated card images, file
+// inclusion, and driving the Fortran source preprocessor.
 
-#include "char-buffer.h"
-#include "message.h"
-#include "position.h"
-#include "preprocessor.h"
-#include "source.h"
+#include "provenance.h"
+#include "token-sequence.h"
 #include <optional>
+#include <string>
 
 namespace Fortran {
 namespace parser {
 
+class Messages;
+class Preprocessor;
+
 class Prescanner {
 public:
-  explicit Prescanner(Messages &messages)
-    : messages_{messages}, preprocessor_{*this} {}
+  Prescanner(Messages *, CookedSource *, Preprocessor *);
+  Prescanner(const Prescanner &);
 
-  Messages &messages() const { return messages_; }
-  const SourceFile &sourceFile() const { return *sourceFile_; }
-  Position position() const { return atPosition_; }
-  bool anyFatalErrors() const { return anyFatalErrors_; }
+  Messages *messages() const { return messages_; }
 
   Prescanner &set_fixedForm(bool yes) {
     inFixedForm_ = yes;
@@ -49,13 +43,17 @@ public:
     return *this;
   }
 
-  CharBuffer Prescan(const SourceFile &source);
+  bool Prescan(ProvenanceRange);
+
+  // Callbacks for use by Preprocessor.
   std::optional<TokenSequence> NextTokenizedLine();
+  Provenance GetCurrentProvenance() const { return GetProvenance(at_); }
+  void Complain(const std::string &message);
 
 private:
   void BeginSourceLine(const char *at) {
     at_ = at;
-    atPosition_ = lineStartPosition_;
+    column_ = 1;
     tabInCurrentLine_ = false;
     preventHollerith_ = false;
     delimiterNesting_ = 0;
@@ -66,8 +64,16 @@ private:
     NextLine();
   }
 
+  Provenance GetProvenance(const char *sourceChar) const {
+    return startProvenance_ + (sourceChar - start_);
+  }
+
+  void EmitChar(TokenSequence *tokens, char ch) {
+    tokens->PutNextTokenChar(ch, GetCurrentProvenance());
+  }
+
   char EmitCharAndAdvance(TokenSequence *tokens, char ch) {
-    tokens->AddChar(ch);
+    EmitChar(tokens, ch);
     NextChar();
     return *at_;
   }
@@ -84,31 +90,37 @@ private:
   bool CommentLinesAndPreprocessorDirectives();
   bool IsFixedFormCommentLine(const char *);
   bool IsFreeFormComment(const char *);
+  bool IncludeLine(const char *);
   bool IsPreprocessorDirectiveLine(const char *);
   const char *FixedFormContinuationLine();
   bool FixedFormContinuation();
   bool FreeFormContinuation();
-  void PayNewlineDebt(CharBuffer *);
+  void PayNewlineDebt(Provenance);
 
-  Messages &messages_;
-  bool anyFatalErrors_{false};
-  const char *lineStart_{nullptr};  // next line to process; <= limit_
+  Messages *messages_;
+  CookedSource *cooked_;
+  Preprocessor *preprocessor_;
+
+  Provenance startProvenance_;
+  const char *start_{nullptr};  // beginning of current source file content
+  const char *limit_{nullptr};  // first address after end of current source
   const char *at_{nullptr};  // next character to process; < lineStart_
   int column_{1};  // card image column position of next character
-  const char *limit_{nullptr};  // first address after end of source
-  int newlineDebt_{0};  // newline characters consumed but not yet emitted
-  const SourceFile *sourceFile_{nullptr};
-  Position atPosition_, lineStartPosition_;
-  bool inCharLiteral_{false};
-  bool inPreprocessorDirective_{false};
-  bool inFixedForm_{true};
-  int fixedFormColumnLimit_{72};
+  const char *lineStart_{nullptr};  // next line to process; <= limit_
   bool tabInCurrentLine_{false};
   bool preventHollerith_{false};
+
+  bool anyFatalErrors_{false};
+  int newlineDebt_{0};  // newline characters consumed but not yet emitted
+  bool inCharLiteral_{false};
+  bool inPreprocessorDirective_{false};
+  bool inFixedForm_{false};
+  int fixedFormColumnLimit_{72};
   bool enableOldDebugLines_{false};
   bool enableBackslashEscapesInCharLiterals_{true};
   int delimiterNesting_{0};
-  Preprocessor preprocessor_;
+  Provenance spaceProvenance_{
+      cooked_->allSources()->CompilerInsertionProvenance(' ')};
 };
 }  // namespace parser
 }  // namespace Fortran
