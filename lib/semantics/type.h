@@ -3,7 +3,6 @@
 
 #include "../parser/idioms.h"
 #include "attr.h"
-#include <algorithm>
 #include <list>
 #include <map>
 #include <memory>
@@ -12,7 +11,6 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
 /*
 
@@ -34,10 +32,6 @@ is a limited number of instances -- one for each kind.
 A DerivedTypeSpec is based on a DerivedTypeDef (from a derived type statement)
 with kind and len parameter values provided.
 
-Attributes:
-The enum class Attr contains all possible attributes. DerivedTypeDef checks
-that supplied attributes are among the allowed ones using checkAttrs().
-
 */
 
 namespace Fortran {
@@ -48,22 +42,19 @@ using Name = std::string;
 // TODO
 class IntExpr {
 public:
-  virtual const IntExpr *clone() const { return new IntExpr{*this}; }
-  virtual std::ostream &output(std::ostream &o) const { return o << "IntExpr"; }
+  virtual const IntExpr *Clone() const { return new IntExpr{*this}; }
+  virtual std::ostream &Output(std::ostream &o) const { return o << "IntExpr"; }
 };
-std::ostream &operator<<(std::ostream &o, const IntExpr &x) {
-  return x.output(o);
-}
 
 // TODO
 class IntConst : public IntExpr {
 public:
-  static const IntConst &make(int value);
-  virtual const IntExpr *clone() const { return &make(value_); }
+  static const IntConst &Make(int value);
+  const IntExpr *Clone() const override { return &Make(value_); }
   bool operator==(const IntConst &x) const { return value_ == x.value_; }
   bool operator!=(const IntConst &x) const { return !operator==(x); }
   bool operator<(const IntConst &x) const { return value_ < x.value_; }
-  virtual std::ostream &output(std::ostream &o) const {
+  std::ostream &Output(std::ostream &o) const override {
     return o << this->value_;
   }
 
@@ -76,7 +67,7 @@ private:
 // The value of a kind type parameter
 class KindParamValue {
 public:
-  KindParamValue(int value) : value_{IntConst::make(value)} {}
+  KindParamValue(int value = 0) : value_{IntConst::Make(value)} {}
   bool operator==(const KindParamValue &x) const { return value_ == x.value_; }
   bool operator!=(const KindParamValue &x) const { return !operator==(x); }
   bool operator<(const KindParamValue &x) const { return value_ < x.value_; }
@@ -86,28 +77,76 @@ private:
   friend std::ostream &operator<<(std::ostream &, const KindParamValue &);
 };
 
-// The value of a len type parameter
-class LenParamValue {
+// An array spec bound: an explicit integer expression or ASSUMED or DEFERRED
+class Bound {
 public:
-  static const LenParamValue ASSUMED;
-  static const LenParamValue DEFERRED;
-  LenParamValue(const IntExpr &value) : category_{Expr}, value_{value} {}
+  static const Bound ASSUMED;
+  static const Bound DEFERRED;
+  Bound(const IntExpr &expr) : category_{Explicit}, expr_{expr.Clone()} {}
+  bool isExplicit() const { return category_ == Explicit; }
+  bool isAssumed() const { return category_ == Assumed; }
+  bool isDeferred() const { return category_ == Deferred; }
+  const IntExpr &getExplicit() const { return *expr_; }
 
 private:
-  enum Category { Assumed, Deferred, Expr };
-  LenParamValue(Category category) : category_{category} {}
+  enum Category { Explicit, Deferred, Assumed };
+  Bound(Category category) : category_{category}, expr_{&IntConst::Make(0)} {}
   const Category category_;
-  const std::optional<const IntExpr> value_;
-  friend std::ostream &operator<<(std::ostream &, const LenParamValue &);
+  const IntExpr *const expr_;
+  friend std::ostream &operator<<(std::ostream &, const Bound &);
+};
+
+// The value of a len type parameter
+using LenParamValue = Bound;
+
+class IntrinsicTypeSpec;
+class DerivedTypeSpec;
+class DeclTypeSpec {
+public:
+  // intrinsic-type-spec or TYPE(intrinsic-type-spec)
+  static DeclTypeSpec MakeIntrinsic(
+      const IntrinsicTypeSpec *intrinsicTypeSpec) {
+    return DeclTypeSpec{Intrinsic, intrinsicTypeSpec};
+  }
+  // TYPE(derived-type-spec)
+  static DeclTypeSpec MakeTypeDerivedType(
+      const DerivedTypeSpec *derivedTypeSpec) {
+    return DeclTypeSpec{TypeDerived, nullptr, derivedTypeSpec};
+  }
+  // CLASS(derived-type-spec)
+  static DeclTypeSpec MakeClassDerivedType(
+      const DerivedTypeSpec *derivedTypeSpec) {
+    return DeclTypeSpec{ClassDerived, nullptr, derivedTypeSpec};
+  }
+  // TYPE(*)
+  static DeclTypeSpec MakeTypeStar() { return DeclTypeSpec{TypeStar}; }
+  // CLASS(*)
+  static DeclTypeSpec MakeClassStar() { return DeclTypeSpec{ClassStar}; }
+
+  enum Category { Intrinsic, TypeDerived, ClassDerived, TypeStar, ClassStar };
+  Category category() const { return category_; }
+  const IntrinsicTypeSpec *intrinsicTypeSpec() const {
+    return intrinsicTypeSpec_;
+  }
+  const DerivedTypeSpec *derivedTypeSpec() const { return derivedTypeSpec_; }
+
+private:
+  DeclTypeSpec(Category category,
+      const IntrinsicTypeSpec *intrinsicTypeSpec = nullptr,
+      const DerivedTypeSpec *derivedTypeSpec = nullptr)
+    : category_{category}, intrinsicTypeSpec_{intrinsicTypeSpec},
+      derivedTypeSpec_{derivedTypeSpec} {}
+  const Category category_;
+  const IntrinsicTypeSpec *const intrinsicTypeSpec_;
+  const DerivedTypeSpec *const derivedTypeSpec_;
+  friend std::ostream &operator<<(std::ostream &, const DeclTypeSpec &);
 };
 
 // Root of the *TypeSpec hierarchy
 class TypeSpec {
-protected:
-  TypeSpec() {}
-  virtual ~TypeSpec() = 0;
+public:
+  virtual std::ostream &Output(std::ostream &o) const = 0;
 };
-TypeSpec::~TypeSpec() {}
 
 class IntrinsicTypeSpec : public TypeSpec {
 public:
@@ -115,17 +154,13 @@ public:
 
 protected:
   IntrinsicTypeSpec(KindParamValue kind) : kind_{kind} {}
-  virtual ~IntrinsicTypeSpec() = 0;
   const KindParamValue kind_;
 };
-IntrinsicTypeSpec::~IntrinsicTypeSpec() {}
 
 class NumericTypeSpec : public IntrinsicTypeSpec {
 protected:
   NumericTypeSpec(KindParamValue kind) : IntrinsicTypeSpec(kind) {}
-  virtual ~NumericTypeSpec() = 0;
 };
-NumericTypeSpec::~NumericTypeSpec() {}
 
 namespace {
 
@@ -135,15 +170,15 @@ public:
   std::map<KindParamValue, T> cache;
   KindedTypeHelper(Name name, KindParamValue defaultValue)
     : name_{name}, defaultValue_{defaultValue} {}
-  const T &make() { return make(defaultValue_); }
-  const T &make(KindParamValue kind) {
+  const T &Make() { return Make(defaultValue_); }
+  const T &Make(KindParamValue kind) {
     auto it = cache.find(kind);
     if (it == cache.end()) {
       it = cache.insert(std::make_pair(kind, T{kind})).first;
     }
     return it->second;
   }
-  std::ostream &output(std::ostream &o, const T &x) {
+  std::ostream &Output(std::ostream &o, const T &x) {
     o << name_;
     if (x.kind_ != defaultValue_) o << '(' << x.kind_ << ')';
     return o;
@@ -159,10 +194,9 @@ private:
 // One unique instance of LogicalTypeSpec for each kind.
 class LogicalTypeSpec : public IntrinsicTypeSpec {
 public:
-  static const LogicalTypeSpec &make() { return helper.make(); }
-  static const LogicalTypeSpec &make(KindParamValue kind) {
-    return helper.make(kind);
-  }
+  static const LogicalTypeSpec *Make();
+  static const LogicalTypeSpec *Make(KindParamValue kind);
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   friend class KindedTypeHelper<LogicalTypeSpec>;
@@ -174,10 +208,9 @@ private:
 // One unique instance of IntegerTypeSpec for each kind.
 class IntegerTypeSpec : public NumericTypeSpec {
 public:
-  static const IntegerTypeSpec &make() { return helper.make(); }
-  static const IntegerTypeSpec &make(KindParamValue kind) {
-    return helper.make(kind);
-  }
+  static const IntegerTypeSpec *Make();
+  static const IntegerTypeSpec *Make(KindParamValue kind);
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   friend class KindedTypeHelper<IntegerTypeSpec>;
@@ -189,10 +222,9 @@ private:
 // One unique instance of RealTypeSpec for each kind.
 class RealTypeSpec : public NumericTypeSpec {
 public:
-  static const RealTypeSpec &make() { return helper.make(); }
-  static const RealTypeSpec &make(KindParamValue kind) {
-    return helper.make(kind);
-  }
+  static const RealTypeSpec *Make();
+  static const RealTypeSpec *Make(KindParamValue kind);
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   friend class KindedTypeHelper<RealTypeSpec>;
@@ -204,10 +236,9 @@ private:
 // One unique instance of ComplexTypeSpec for each kind.
 class ComplexTypeSpec : public NumericTypeSpec {
 public:
-  static const ComplexTypeSpec &make() { return helper.make(); }
-  static const ComplexTypeSpec &make(KindParamValue kind) {
-    return helper.make(kind);
-  }
+  static const ComplexTypeSpec *Make();
+  static const ComplexTypeSpec *Make(KindParamValue kind);
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   friend class KindedTypeHelper<ComplexTypeSpec>;
@@ -221,6 +252,7 @@ public:
   static const int DefaultKind = 0;
   CharacterTypeSpec(LenParamValue len, KindParamValue kind = DefaultKind)
     : IntrinsicTypeSpec{kind}, len_{len} {}
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   const LenParamValue len_;
@@ -243,24 +275,148 @@ private:
   const std::optional<IntConst> defaultValue_;
 };
 
-using TypeParamDefs = std::vector<TypeParamDef>;
+using TypeParamDefs = std::list<TypeParamDef>;
+
+class ShapeSpec {
+public:
+  // lb:ub
+  static ShapeSpec MakeExplicit(const Bound &lb, const Bound &ub) {
+    return ShapeSpec(lb, ub);
+  }
+  // 1:ub
+  static const ShapeSpec MakeExplicit(const Bound &ub) {
+    return MakeExplicit(IntConst::Make(1), ub);
+  }
+  // 1: or lb:
+  static ShapeSpec MakeAssumed(const Bound &lb = IntConst::Make(1)) {
+    return ShapeSpec(lb, Bound::DEFERRED);
+  }
+  // :
+  static ShapeSpec MakeDeferred() {
+    return ShapeSpec(Bound::DEFERRED, Bound::DEFERRED);
+  }
+  // 1:* or lb:*
+  static ShapeSpec MakeImplied(const Bound &lb) {
+    return ShapeSpec(lb, Bound::ASSUMED);
+  }
+  // ..
+  static ShapeSpec MakeAssumedRank() {
+    return ShapeSpec(Bound::ASSUMED, Bound::ASSUMED);
+  }
+
+  bool isExplicit() const { return ub_.isExplicit(); }
+  bool isDeferred() const { return lb_.isDeferred(); }
+
+private:
+  ShapeSpec(const Bound &lb, const Bound &ub) : lb_{lb}, ub_{ub} {}
+  const Bound lb_;
+  const Bound ub_;
+  friend std::ostream &operator<<(std::ostream &, const ShapeSpec &);
+};
+
+using ComponentArraySpec = std::list<ShapeSpec>;
+
+class DataComponentDef {
+public:
+  // TODO: character-length - should be in DeclTypeSpec (overrides what is
+  // there)
+  // TODO: coarray-spec
+  // TODO: component-initialization
+  DataComponentDef(
+      const DeclTypeSpec &type, const Name &name, const Attrs &attrs)
+    : DataComponentDef(type, name, attrs, ComponentArraySpec{}) {}
+  DataComponentDef(const DeclTypeSpec &type, const Name &name,
+      const Attrs &attrs, const ComponentArraySpec &arraySpec);
+
+private:
+  const DeclTypeSpec type_;
+  const Name name_;
+  const Attrs attrs_;
+  const ComponentArraySpec arraySpec_;
+  friend std::ostream &operator<<(std::ostream &, const DataComponentDef &);
+};
+
+class ProcDecl {
+public:
+  ProcDecl(const Name &name) : name_{name} {}
+  // TODO: proc-pointer-init
+private:
+  const Name name_;
+  friend std::ostream &operator<<(std::ostream &, const ProcDecl &);
+};
+
+class ProcComponentDef {
+public:
+  ProcComponentDef(ProcDecl decl, Attrs attrs)
+    : ProcComponentDef(decl, attrs, std::nullopt, std::nullopt) {}
+  ProcComponentDef(ProcDecl decl, Attrs attrs, const Name &interfaceName)
+    : ProcComponentDef(decl, attrs, interfaceName, std::nullopt) {}
+  ProcComponentDef(ProcDecl decl, Attrs attrs, const DeclTypeSpec &typeSpec)
+    : ProcComponentDef(decl, attrs, std::nullopt, typeSpec) {}
+
+private:
+  ProcComponentDef(ProcDecl decl, Attrs attrs,
+      const std::optional<Name> &interfaceName,
+      const std::optional<DeclTypeSpec> &typeSpec);
+  const ProcDecl decl_;
+  const Attrs attrs_;
+  const std::optional<Name> interfaceName_;
+  const std::optional<DeclTypeSpec> typeSpec_;
+  friend std::ostream &operator<<(std::ostream &, const ProcComponentDef &);
+};
+
+class DerivedTypeDefBuilder;
 
 // Definition of a derived type
 class DerivedTypeDef {
 public:
-  DerivedTypeDef(const Name &name, const Attrs &attrs = {},
-      const TypeParamDefs &lenParams = {}, const TypeParamDefs &kindParams = {},
-      bool private_ = false, bool sequence = false);
-  const Name name_;
-  const std::optional<Name> parent_ = {};
-  const Attrs attrs_;
-  const TypeParamDefs lenParams_;
-  const TypeParamDefs kindParams_;
-  const bool private_ = false;
-  const bool sequence_ = false;
-  // TODO: components
+  const Name &name() const { return data_.name; }
+  const std::optional<Name> &extends() const { return data_.extends; }
+  const TypeParamDefs &lenParams() const { return data_.lenParams; }
+  const TypeParamDefs &kindParams() const { return data_.kindParams; }
+  const std::list<DataComponentDef> &dataComponents() const {
+    return data_.dataComps;
+  }
+  const std::list<ProcComponentDef> &procComponents() const {
+    return data_.procComps;
+  }
+
+private:
+  struct Data {
+    Name name;
+    std::optional<Name> extends;
+    Attrs attrs;
+    bool Private{false};
+    bool sequence{false};
+    TypeParamDefs lenParams;
+    TypeParamDefs kindParams;
+    std::list<DataComponentDef> dataComps;
+    std::list<ProcComponentDef> procComps;
+  };
+  friend class DerivedTypeDefBuilder;
+  explicit DerivedTypeDef(const Data &x);
+  const Data data_;
   // TODO: type-bound procedures
   friend std::ostream &operator<<(std::ostream &, const DerivedTypeDef &);
+};
+
+class DerivedTypeDefBuilder {
+public:
+  DerivedTypeDefBuilder(const Name &name) { data_.name = name; }
+  operator DerivedTypeDef() const { return DerivedTypeDef(data_); }
+  DerivedTypeDefBuilder &extends(const Name &x);
+  DerivedTypeDefBuilder &attr(const Attr &x);
+  DerivedTypeDefBuilder &attrs(const Attrs &x);
+  DerivedTypeDefBuilder &lenParam(const TypeParamDef &x);
+  DerivedTypeDefBuilder &kindParam(const TypeParamDef &x);
+  DerivedTypeDefBuilder &dataComponent(const DataComponentDef &x);
+  DerivedTypeDefBuilder &procComponent(const ProcComponentDef &x);
+  DerivedTypeDefBuilder &Private(bool x = true);
+  DerivedTypeDefBuilder &sequence(bool x = true);
+
+private:
+  DerivedTypeDef::Data data_;
+  friend class DerivedTypeDef;
 };
 
 using KindParamValues = std::map<Name, KindParamValue>;
@@ -269,125 +425,15 @@ using LenParamValues = std::map<Name, LenParamValue>;
 // Instantiation of a DerivedTypeDef with kind and len parameter values
 class DerivedTypeSpec : public TypeSpec {
 public:
-  DerivedTypeSpec(DerivedTypeDef def, KindParamValues kindParamValues = {},
-      LenParamValues lenParamValues = {});
+  std::ostream &Output(std::ostream &o) const override { return o << *this; }
 
 private:
   const DerivedTypeDef def_;
   const KindParamValues kindParamValues_;
   const LenParamValues lenParamValues_;
+  DerivedTypeSpec(DerivedTypeDef def, const KindParamValues &kindParamValues,
+      const LenParamValues &lenParamValues);
   friend std::ostream &operator<<(std::ostream &, const DerivedTypeSpec &);
-};
-
-class DeclTypeSpec {
-public:
-  // intrinsic-type-spec or TYPE(intrinsic-type-spec)
-  static DeclTypeSpec makeIntrinsic(
-      const IntrinsicTypeSpec *intrinsicTypeSpec) {
-    return DeclTypeSpec{Intrinsic, intrinsicTypeSpec};
-  }
-  // TYPE(derived-type-spec)
-  static DeclTypeSpec makeTypeDerivedType(
-      const DerivedTypeSpec *derivedTypeSpec) {
-    return DeclTypeSpec{TypeDerived, nullptr, derivedTypeSpec};
-  }
-  // CLASS(derived-type-spec)
-  static DeclTypeSpec makeClassDerivedType(
-      const DerivedTypeSpec *derivedTypeSpec) {
-    return DeclTypeSpec{ClassDerived, nullptr, derivedTypeSpec};
-  }
-  // TYPE(*)
-  static DeclTypeSpec makeTypeStar() { return DeclTypeSpec{TypeStar}; }
-  // CLASS(*)
-  static DeclTypeSpec makeClassStar() { return DeclTypeSpec{ClassStar}; }
-
-  enum Category { Intrinsic, TypeDerived, ClassDerived, TypeStar, ClassStar };
-  Category category() const { return category_; }
-  const IntrinsicTypeSpec &intrinsicTypeSpec() const {
-    return *intrinsicTypeSpec_;
-  }
-  const DerivedTypeSpec &derivedTypeSpec() const { return *derivedTypeSpec_; }
-
-private:
-  DeclTypeSpec(Category category,
-      const IntrinsicTypeSpec *intrinsicTypeSpec = nullptr,
-      const DerivedTypeSpec *derivedTypeSpec = nullptr)
-    : category_{category}, intrinsicTypeSpec_{intrinsicTypeSpec},
-      derivedTypeSpec_{derivedTypeSpec} {}
-  const Category category_;
-  const IntrinsicTypeSpec *const intrinsicTypeSpec_;
-  const DerivedTypeSpec *const derivedTypeSpec_;
-};
-
-class DataComponentDef {
-public:
-  // component-array-spec
-  // coarray-spec
-  DataComponentDef(
-      const DeclTypeSpec &type, const Name &name, const Attrs &attrs)
-    : type_{type}, name_{name}, attrs_{attrs} {
-    checkAttrs("DataComponentDef", attrs,
-        Attrs{Attr::PUBLIC, Attr::PRIVATE, Attr::ALLOCATABLE, Attr::CONTIGUOUS,
-            Attr::POINTER});
-  }
-
-private:
-  const DeclTypeSpec type_;
-  const Name name_;
-  const Attrs attrs_;
-};
-
-// An array spec bound: an explicit integer expression or ASSUMED or DEFERRED
-class Bound {
-public:
-  static const Bound ASSUMED;
-  static const Bound DEFERRED;
-  Bound(const IntExpr &expr) : category_{Explicit}, expr_{expr.clone()} {}
-  bool isExplicit() const { return category_ == Explicit; }
-  bool isAssumed() const { return category_ == Assumed; }
-  bool isDeferred() const { return category_ == Deferred; }
-  const IntExpr &getExplicit() const { return *expr_; }
-
-private:
-  enum Category { Explicit, Deferred, Assumed };
-  Bound(Category category) : category_{category}, expr_{&IntConst::make(0)} {}
-  const Category category_;
-  const IntExpr *const expr_;
-  friend std::ostream &operator<<(std::ostream &, const Bound &);
-};
-
-class ShapeSpec {
-public:
-  // lb:ub
-  static ShapeSpec makeExplicit(const Bound &lb, const Bound &ub) {
-    return ShapeSpec(lb, ub);
-  }
-  // 1:ub
-  static const ShapeSpec makeExplicit(const Bound &ub) {
-    return makeExplicit(IntConst::make(1), ub);
-  }
-  // 1: or lb:
-  static ShapeSpec makeAssumed(const Bound &lb = IntConst::make(1)) {
-    return ShapeSpec(lb, Bound::DEFERRED);
-  }
-  // :
-  static ShapeSpec makeDeferred() {
-    return ShapeSpec(Bound::DEFERRED, Bound::DEFERRED);
-  }
-  // 1:* or lb:*
-  static ShapeSpec makeImplied(const Bound &lb) {
-    return ShapeSpec(lb, Bound::ASSUMED);
-  }
-  // ..
-  static ShapeSpec makeAssumedRank() {
-    return ShapeSpec(Bound::ASSUMED, Bound::ASSUMED);
-  }
-  friend std::ostream &operator<<(std::ostream &, const ShapeSpec &);
-
-private:
-  ShapeSpec(const Bound &lb, const Bound &ub) : lb_{lb}, ub_{ub} {}
-  const Bound lb_;
-  const Bound ub_;
 };
 
 }  // namespace semantics
