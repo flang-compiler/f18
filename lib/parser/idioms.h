@@ -65,7 +65,7 @@ template<typename A> bool operator!(const std::optional<A> &x) {
 #define CRASH_NO_CASE die("no case at " __FILE__ "(%d)", __LINE__)
 
 // For cheap assertions that should be applied in production.
-// To disable all CHECK tests, compile with -DCHECK.
+// To disable, compile with '-DCHECK=(void)'
 #ifndef CHECK
 #define CHECK(x) \
   ((x) || (die("CHECK(" #x ") failed at " __FILE__ "(%d)", __LINE__), false))
