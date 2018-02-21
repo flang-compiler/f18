@@ -115,15 +115,9 @@ public:
   }
   Provenance GetProvenance() const { return GetProvenance(p_); }
 
-  void PushContext(const std::string &str) {
-    context_ = std::make_shared<Message>(GetProvenance(), str, context_);
-  }
-  void PushContext(std::string &&str) {
-    context_ =
-        std::make_shared<Message>(GetProvenance(), std::move(str), context_);
-  }
-  void PushContext(const char *str) {
-    context_ = std::make_shared<Message>(GetProvenance(), str, context_);
+  MessageContext &PushContext(MessageFixedText text) {
+    context_ = std::make_shared<Message>(GetProvenance(), text, context_);
+    return context_;
   }
 
   void PopContext() {
@@ -132,27 +126,31 @@ public:
     }
   }
 
-  void PutMessage(Provenance at, const std::string &msg) {
-    messages_.Put(Message{at, msg, context_});
+  Message &PutMessage(MessageFixedText t) { return PutMessage(p_, t); }
+  Message &PutMessage(MessageFormattedText &&t) {
+    return PutMessage(p_, std::move(t));
   }
-  void PutMessage(const char *at, const std::string &msg) {
-    PutMessage(GetProvenance(at), msg);
+  Message &PutMessage(MessageExpectedText &&t) {
+    return PutMessage(p_, std::move(t));
   }
-  void PutMessage(const std::string &msg) { PutMessage(p_, msg); }
-  void PutMessage(Provenance at, std::string &&msg) {
-    messages_.Put(Message{at, std::move(msg), context_});
+  Message &PutMessage(const char *at, MessageFixedText t) {
+    return PutMessage(GetProvenance(at), t);
   }
-  void PutMessage(const char *at, std::string &&msg) {
-    PutMessage(GetProvenance(at), std::move(msg));
+  Message &PutMessage(const char *at, MessageFormattedText &&t) {
+    return PutMessage(GetProvenance(at), std::move(t));
   }
-  void PutMessage(std::string &&msg) { PutMessage(p_, std::move(msg)); }
-  void PutMessage(Provenance at, const char *msg) {
-    PutMessage(at, std::string{msg});
+  Message &PutMessage(const char *at, MessageExpectedText &&t) {
+    return PutMessage(GetProvenance(at), std::move(t));
   }
-  void PutMessage(const char *at, const char *msg) {
-    PutMessage(GetProvenance(at), msg);
+  Message &PutMessage(Provenance at, MessageFixedText t) {
+    return messages_.Put(Message{at, t, context_});
   }
-  void PutMessage(const char *msg) { PutMessage(p_, msg); }
+  Message &PutMessage(Provenance at, MessageFormattedText &&t) {
+    return messages_.Put(Message{at, std::move(t), context_});
+  }
+  Message &PutMessage(Provenance at, MessageExpectedText &&t) {
+    return messages_.Put(Message{at, std::move(t), context_});
+  }
 
   bool IsAtEnd() const { return p_ >= limit_; }
 
