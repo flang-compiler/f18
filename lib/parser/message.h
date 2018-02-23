@@ -15,6 +15,56 @@
 namespace Fortran {
 namespace parser {
 
+// Use "..."_en_US literals to define the static text of a message.
+class MessageFixedText {
+public:
+  MessageFixedText() {}
+  constexpr MessageFixedText(const char str[], size_t n)
+    : str_{str}, bytes_{n} {}
+  constexpr MessageFixedText(const MessageFixedText &) = default;
+  MessageFixedText(MessageFixedText &&) = default;
+  constexpr MessageFixedText &operator=(const MessageFixedText &) = default;
+  MessageFixedText &operator=(MessageFixedText &&) = default;
+
+  const char *str() const { return str_; }
+  size_t size() const { return bytes_; }
+  bool empty() const { return bytes_ == 0; }
+
+  std::string ToString() const;
+
+private:
+  const char *str_{nullptr};
+  size_t bytes_{0};
+};
+
+constexpr MessageFixedText operator""_en_US(const char str[], size_t n) {
+  return MessageFixedText{str, n};
+}
+
+std::ostream &operator<<(std::ostream &, const MessageFixedText &);
+
+class MessageFormattedText {
+public:
+  MessageFormattedText(MessageFixedText, ...);
+  std::string MoveString() { return std::move(string_); }
+
+private:
+  std::string string_;
+};
+
+// Represents a formatted rendition of "expected '%s'"_en_US on a constant text.
+class MessageExpectedText {
+public:
+  MessageExpectedText(const char *s, size_t n) : str_{s}, bytes_{n} {}
+  explicit MessageExpectedText(char ch) : singleton_{ch} {}
+  MessageFixedText AsMessageFixedText() const;
+
+private:
+  const char *str_{nullptr};
+  char singleton_;
+  size_t bytes_{1};
+};
+
 class Message;
 using MessageContext = std::shared_ptr<Message>;
 
@@ -22,15 +72,14 @@ class Message {
 public:
   Message() {}
   Message(const Message &) = default;
+  Message(Provenance p, MessageFixedText t, MessageContext c = nullptr)
+    : provenance_{p}, text_{t}, context_{c} {}
+  Message(Provenance p, MessageFormattedText &&s, MessageContext c = nullptr)
+    : provenance_{p}, string_{s.MoveString()}, context_{c} {}
+  Message(Provenance p, MessageExpectedText t, MessageContext c = nullptr)
+    : provenance_{p}, text_{t.AsMessageFixedText()},
+      isExpectedText_{true}, context_{c} {}
   Message(Message &&) = default;
-
-  Message(Provenance at, const std::string &msg, MessageContext ctx = nullptr)
-    : provenance_{at}, message_{msg}, context_{ctx} {}
-  Message(Provenance at, std::string &&msg, MessageContext ctx = nullptr)
-    : provenance_{at}, message_{std::move(msg)}, context_{ctx} {}
-  Message(Provenance at, const char *msg, MessageContext ctx = nullptr)
-    : provenance_{at}, message_{msg}, context_{ctx} {}
-
   Message &operator=(const Message &that) = default;
   Message &operator=(Message &&that) = default;
 
@@ -39,7 +88,6 @@ public:
   }
 
   Provenance provenance() const { return provenance_; }
-  std::string message() const { return message_; }
   MessageContext context() const { return context_; }
 
   Provenance Emit(
@@ -47,7 +95,9 @@ public:
 
 private:
   Provenance provenance_;
-  std::string message_;
+  MessageFixedText text_;
+  bool isExpectedText_{false};  // implies "expected '%s'"_en_US
+  std::string string_;
   MessageContext context_;
 };
 
@@ -81,7 +131,7 @@ public:
 
   const AllSources &allSources() const { return allSources_; }
 
-  void Put(Message &&m) {
+  Message &Put(Message &&m) {
     CHECK(m.provenance() < allSources_.size());
     if (messages_.empty()) {
       messages_.emplace_front(std::move(m));
@@ -89,6 +139,7 @@ public:
     } else {
       last_ = messages_.emplace_after(last_, std::move(m));
     }
+    return *last_;
   }
 
   void Annex(Messages *that) {
