@@ -40,3 +40,17 @@ set(SOURCES_TEST_TYPE
   lib/parser/token-sequence.cc
 )
 add_executable(test-type ${SOURCES_TEST_TYPE})
+
+set(SOURCES_TEST_VISITOR
+  tools/f18/test-visitor.cc
+  lib/parser/char-buffer.cc
+  lib/parser/idioms.cc
+  lib/parser/message.cc
+  lib/parser/parse-tree.cc
+  lib/parser/preprocessor.cc
+  lib/parser/prescan.cc
+  lib/parser/provenance.cc
+  lib/parser/source.cc
+  lib/parser/token-sequence.cc
+)
+add_executable(test-visitor ${SOURCES_TEST_VISITOR})
