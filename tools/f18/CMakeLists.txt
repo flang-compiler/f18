@@ -18,7 +18,3 @@ target_link_libraries( test-type
   FlangParser
   FlangSemantics
   )
-
-######## test-visitor ##########
-add_executable(test-visitor test-visitor.cc)
-target_link_libraries(test-visitor FlangParser FlangSemantics)
