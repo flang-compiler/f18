@@ -361,12 +361,6 @@ template<typename V> void Walk(const Suffix &x, V &visitor) {
     visitor.Post(x);
   }
 }
-template<typename V> void Walk(const TypeAttrSpec::Extends &x, V &visitor) {
-  if (visitor.Pre(x)) {
-    Walk(x.name, visitor);
-    visitor.Post(x);
-  }
-}
 template<typename V>
 void Walk(const TypeBoundProcedureStmt::WithInterface &x, V &visitor) {
   if (visitor.Pre(x)) {
