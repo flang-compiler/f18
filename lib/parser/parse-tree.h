@@ -34,10 +34,26 @@
 // although a C++ compiler wouldn't default them anyway due to the presence
 // of move constructors and move assignments.
 
+
 CLASS_TRAIT(EmptyTrait);
 CLASS_TRAIT(WrapperTrait);
 CLASS_TRAIT(UnionTrait);
 CLASS_TRAIT(TupleTrait);
+
+//
+// An empty class to attach semantic information to each class in 
+// the parse-tree. In practice, each parser-tree 'classname' shall 
+// implement a member:
+//
+//    Semantic<classname> * s = nullptr; 
+// 
+// The actual implementation of each Sema<classname> will be provided 
+// later thus allowing the parser to be build without an dependency 
+// with the Sema library
+//  
+template <typename T> struct Semantic {
+   Semantic(T*) {}
+};
 
 // Most non-template classes in this file use these default definitions
 // for their move constructor and move assignment operator=, and should
@@ -48,7 +64,8 @@ CLASS_TRAIT(TupleTrait);
   friend std::ostream &operator<<(std::ostream &, const classname &); \
   classname() = delete; \
   classname(const classname &) = delete; \
-  classname &operator=(const classname &) = delete
+  classname &operator=(const classname &) = delete; \
+  Semantic<classname> * s = nullptr \
 
 // Empty classes are often used below as alternatives in std::variant<>
 // discriminated unions.
@@ -61,6 +78,7 @@ CLASS_TRAIT(TupleTrait);
     classname &operator=(classname &&) { return *this; }; \
     friend std::ostream &operator<<(std::ostream &, const classname &); \
     using EmptyTrait = std::true_type; \
+    Semantic<classname> * s = nullptr ; \
   }
 
 // Many classes below simply wrap a std::variant<> discriminated union,
@@ -292,15 +310,20 @@ using ScalarDefaultCharConstantExpr = Scalar<DefaultChar<ConstantExpr>>;
 // R611 label -> digit [digit]...
 using Label = std::uint64_t;  // validated later, must be in [1..99999]
 
-// A wrapper for xzy-stmt productions that are statements, so that
-// source provenances and labels have a uniform representation.
-template<typename A> struct Statement {
-  Statement(Provenance &&at, std::optional<long> &&lab, bool &&accept, A &&s)
-    : provenance(at), label(std::move(lab)), isLabelInAcceptableField{accept},
-      statement(std::move(s)) {}
+struct StatementBase {
+  StatementBase(Provenance &&at, std::optional<long> &&lab, bool &&accept) 
+    : provenance(at), label(std::move(lab)), isLabelInAcceptableField{accept}
+  {}
   Provenance provenance;
   std::optional<Label> label;
   bool isLabelInAcceptableField{true};
+};
+
+// A wrapper for xzy-stmt productions that are statements, so that
+// source provenances and labels have a uniform representation.
+  template<typename A> struct Statement : public StatementBase {
+  Statement(Provenance &&at, std::optional<long> &&lab, bool &&accept, A &&s)
+    : StatementBase(std::move(at),std::move(lab),std::move(accept)) , statement(std::move(s)) {}  
   A statement;
 };
 
