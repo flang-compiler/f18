@@ -64,21 +64,20 @@ public:
   }
 };
 
-constexpr struct Space {
+// Skips over spaces.  Always succeeds.
+constexpr struct Spaces {
   using resultType = Success;
-  constexpr Space() {}
+  constexpr Spaces() {}
   static std::optional<Success> Parse(ParseState *state) {
-    std::optional<char> ch{nextChar.Parse(state)};
-    if (ch) {
-      if (ch == ' ' || ch == '\t') {
-        return {Success{}};
+    while (std::optional<char> ch{state->PeekAtNextChar()}) {
+      if (ch != ' ' && ch != '\t') {
+        break;
       }
+      state->UncheckedAdvance();
     }
-    return {};
+    return {Success{}};
   }
-} space;
-
-constexpr auto spaces = skipMany(space);
+} spaces;
 
 class TokenStringMatch {
 public:
@@ -89,9 +88,7 @@ public:
   constexpr TokenStringMatch(const char *str) : str_{str} {}
   std::optional<Success> Parse(ParseState *state) const {
     auto at = state->GetLocation();
-    if (!spaces.Parse(state)) {
-      return {};
-    }
+    spaces.Parse(state);
     const char *p{str_};
     std::optional<char> ch;  // initially empty
     for (size_t j{0}; j < bytes_ && *p != '\0'; ++j, ++p) {
@@ -198,7 +195,8 @@ struct CharLiteralChar {
       for (int j = (ch > 3 ? 1 : 2); j-- > 0;) {
         static constexpr auto octalDigit = attempt(CharPredicateGuardParser{
             IsOctalDigit, "expected octal digit"_en_US});
-        if ((och = octalDigit.Parse(state)).has_value()) {
+        och = octalDigit.Parse(state);
+        if (och.has_value()) {
           ch = 8 * ch + *och - '0';
         }
       }
@@ -207,7 +205,8 @@ struct CharLiteralChar {
       for (int j = 0; j++ < 2;) {
         static constexpr auto hexDigit = attempt(CharPredicateGuardParser{
             IsHexadecimalDigit, "expected hexadecimal digit"_en_US});
-        if ((och = hexDigit.Parse(state)).has_value()) {
+        och = hexDigit.Parse(state);
+        if (och.has_value()) {
           ch = 16 * ch + HexadecimalDigitValue(*och);
         }
       }
@@ -236,9 +235,20 @@ template<char quote> struct CharLiteral {
   }
 };
 
+static bool IsNonstandardUsageOk(ParseState *state) {
+  if (state->strictConformance()) {
+    return false;
+  }
+  state->set_anyConformanceViolation();
+  if (state->warnOnNonstandardUsage()) {
+    state->PutMessage("nonstandard usage"_en_US);
+  }
+  return true;
+}
+
 // Parse "BOZ" binary literal quoted constants.
 // As extensions, support X as an alternate hexadecimal marker, and allow
-// BOZX markers to appear as synonyms.
+// BOZX markers to appear as suffixes.
 struct BOZLiteral {
   using resultType = std::uint64_t;
   static std::optional<std::uint64_t> Parse(ParseState *state) {
@@ -253,15 +263,12 @@ struct BOZLiteral {
       }
     };
 
-    if (!spaces.Parse(state)) {
-      return {};
-    }
-
+    spaces.Parse(state);
     auto ch = nextChar.Parse(state);
     if (!ch) {
       return {};
     }
-    if (toupper(*ch) == 'X' && state->strictConformance()) {
+    if (toupper(*ch) == 'X' && !IsNonstandardUsageOk(state)) {
       return {};
     }
     if (baseChar(*ch) && !(ch = nextChar.Parse(state))) {
@@ -282,15 +289,19 @@ struct BOZLiteral {
       if (*ch == quote) {
         break;
       }
+      if (*ch == ' ') {
+        continue;
+      }
       if (!IsHexadecimalDigit(*ch)) {
         return {};
       }
       content += *ch;
     }
 
-    if (!shift && !state->strictConformance()) {
-      // extension: base allowed to appear as suffix
-      if (!(ch = nextChar.Parse(state)) || !baseChar(*ch)) {
+    if (!shift) {
+      // extension: base allowed to appear as suffix, too
+      if (!IsNonstandardUsageOk(state) || !(ch = nextChar.Parse(state)) ||
+          !baseChar(*ch)) {
         return {};
       }
     }
@@ -353,9 +364,7 @@ struct DigitString {
 struct HollerithLiteral {
   using resultType = std::string;
   static std::optional<std::string> Parse(ParseState *state) {
-    if (!spaces.Parse(state)) {
-      return {};
-    }
+    spaces.Parse(state);
     auto at = state->GetLocation();
     std::optional<std::uint64_t> charCount{DigitString{}.Parse(state)};
     if (!charCount || *charCount < 1) {
@@ -367,13 +376,39 @@ struct HollerithLiteral {
     }
     std::string content;
     for (auto j = *charCount; j-- > 0;) {
-      std::optional<char> ch{nextChar.Parse(state)};
-      if (!ch || !isprint(*ch)) {
-        state->PutMessage(
-            at, "insufficient or bad characters in Hollerith"_en_US);
-        return {};
+      int bytes{1};
+      const char *p{state->GetLocation()};
+      if (state->encoding() == Encoding::EUC_JP) {
+        std::optional<int> chBytes{EUC_JPCharacterBytes(p)};
+        if (!chBytes.has_value()) {
+          state->PutMessage(at, "bad EUC_JP characters in Hollerith"_en_US);
+          return {};
+        }
+        bytes = *chBytes;
+      } else if (state->encoding() == Encoding::UTF8) {
+        std::optional<int> chBytes{UTF8CharacterBytes(p)};
+        if (!chBytes.has_value()) {
+          state->PutMessage(at, "bad UTF-8 characters in Hollerith"_en_US);
+          return {};
+        }
+        bytes = *chBytes;
       }
-      content += *ch;
+      if (bytes == 1) {
+        std::optional<char> ch{nextChar.Parse(state)};
+        if (!ch.has_value() || !isprint(*ch)) {
+          state->PutMessage(
+              at, "insufficient or bad characters in Hollerith"_en_US);
+          return {};
+        }
+        content += *ch;
+      } else {
+        // Multi-byte character
+        while (bytes-- > 0) {
+          std::optional<char> byte{nextChar.Parse(state)};
+          CHECK(byte.has_value());
+          content += *byte;
+        }
+      }
     }
     return {content};
   }
@@ -413,7 +448,7 @@ template<char goal> struct SkipTo {
       if (*ch == goal) {
         return {Success{}};
       }
-      state->GetNextChar();
+      state->UncheckedAdvance();
     }
     return {};
   }
@@ -426,8 +461,13 @@ template<char goal> struct SkipTo {
 //   [[, xyz] ::]     is  optionalBeforeColons(xyz)
 //   [[, xyz]... ::]  is  optionalBeforeColons(nonemptyList(xyz))
 template<typename PA> inline constexpr auto optionalBeforeColons(const PA &p) {
-  return "," >> p / "::" || "::" >> construct<typename PA::resultType>{} ||
-      !","_tok >> construct<typename PA::resultType>{};
+  return "," >> construct<std::optional<typename PA::resultType>>{}(p) / "::" ||
+      ("::"_tok || !","_tok) >> defaulted(cut >> maybe(p));
+}
+template<typename PA>
+inline constexpr auto optionalListBeforeColons(const PA &p) {
+  return "," >> nonemptyList(p) / "::" ||
+      ("::"_tok || !","_tok) >> defaulted(cut >> nonemptyList(p));
 }
 }  // namespace parser
 }  // namespace Fortran
