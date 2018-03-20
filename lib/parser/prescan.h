@@ -26,6 +26,8 @@ public:
   Prescanner(Messages *, CookedSource *, Preprocessor *);
   Prescanner(const Prescanner &);
 
+  bool anyFatalErrors() const { return anyFatalErrors_; }
+  void set_anyFatalErrors() { anyFatalErrors_ = true; }
   Messages *messages() const { return messages_; }
 
   Prescanner &set_fixedForm(bool yes) {
@@ -50,12 +52,20 @@ public:
   }
 
   bool Prescan(ProvenanceRange);
+  void NextLine();
 
   // Callbacks for use by Preprocessor.
-  std::optional<TokenSequence> NextTokenizedLine();
+  bool IsAtEnd() const { return lineStart_ >= limit_; }
+  bool IsNextLinePreprocessorDirective() const;
+  TokenSequence TokenizePreprocessorDirective();
   Provenance GetCurrentProvenance() const { return GetProvenance(at_); }
-  Message &Complain(MessageFixedText);
-  Message &Complain(MessageFormattedText &&);
+
+  Message &Error(Message &&);
+  Message &Error(MessageFixedText, Provenance);
+  Message &Error(MessageFormattedText &&, Provenance);
+  Message &Complain(Message &&);
+  Message &Complain(MessageFixedText, Provenance);
+  Message &Complain(MessageFormattedText &&, Provenance);
 
 private:
   void BeginSourceLine(const char *at) {
@@ -91,7 +101,6 @@ private:
     return *at_;
   }
 
-  void NextLine();
   void LabelField(TokenSequence *);
   void NextChar();
   void SkipSpaces();
@@ -105,11 +114,10 @@ private:
   bool IsFixedFormCommentLine(const char *);
   bool IsFreeFormComment(const char *);
   bool IncludeLine(const char *);
-  bool IsPreprocessorDirectiveLine(const char *);
+  bool IsPreprocessorDirectiveLine(const char *) const;
   const char *FixedFormContinuationLine();
   bool FixedFormContinuation();
   bool FreeFormContinuation();
-  void PayNewlineDebt(Provenance);
 
   Messages *messages_;
   CookedSource *cooked_;
@@ -123,9 +131,7 @@ private:
   const char *lineStart_{nullptr};  // next line to process; <= limit_
   bool tabInCurrentLine_{false};
   bool preventHollerith_{false};
-
   bool anyFatalErrors_{false};
-  int newlineDebt_{0};  // newline characters consumed but not yet emitted
   bool inCharLiteral_{false};
   bool inPreprocessorDirective_{false};
   bool inFixedForm_{false};
