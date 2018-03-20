@@ -332,13 +332,13 @@ public:
   }
   bool Pre(const TypeBoundProcedureStmt::WithoutInterface &x) {  // R749
     Word("PROCEDURE"), Walk(", ", x.attributes, ", ");
-    Put(" :: "), Walk(x.declarations);
+    Put(" :: "), Walk(x.declarations, ", ");
     return false;
   }
   bool Pre(const TypeBoundProcedureStmt::WithInterface &x) {
     Word("PROCEDURE("), Walk(x.interfaceName), Put("), ");
     Walk(x.attributes);
-    Put(" :: "), Walk(x.bindingNames);
+    Put(" :: "), Walk(x.bindingNames, ", ");
     return false;
   }
   bool Pre(const TypeBoundProcDecl &x) {  // R750
@@ -433,14 +433,51 @@ public:
     const auto &attrs = std::get<std::list<AttrSpec>>(x.t);
     const auto &decls = std::get<std::list<EntityDecl>>(x.t);
     Walk(dts), Walk(", ", attrs, ", ");
-    if (!attrs.empty() ||
-        (!std::holds_alternative<DeclarationTypeSpec::Record>(dts.u) &&
-            std::none_of(decls.begin(), decls.end(), [](const EntityDecl &d) {
-              const auto &init = std::get<std::optional<Initialization>>(d.t);
-              return init.has_value() &&
-                  std::holds_alternative<std::list<Indirection<DataStmtValue>>>(
-                      init->u);
-            }))) {
+
+    static const auto isInitializerOldStyle = [](const Initialization &i) {
+      return std::holds_alternative<std::list<Indirection<DataStmtValue>>>(i.u);
+    };
+    static const auto hasAssignmentInitializer = [](const EntityDecl &d) {
+      // Does a declaration have a new-style =x initializer?
+      const auto &init = std::get<std::optional<Initialization>>(d.t);
+      return init.has_value() && !isInitializerOldStyle(*init);
+    };
+    static const auto hasSlashDelimitedInitializer = [](const EntityDecl &d) {
+      // Does a declaration have an old-style /x/ initializer?
+      const auto &init = std::get<std::optional<Initialization>>(d.t);
+      return init.has_value() && isInitializerOldStyle(*init);
+    };
+    const auto useDoubledColons = [&]() {
+      bool isRecord{std::holds_alternative<DeclarationTypeSpec::Record>(dts.u)};
+      if (!attrs.empty()) {
+        // Attributes after the type require :: before the entities.
+        CHECK(!isRecord);
+        return true;
+      }
+      if (std::any_of(decls.begin(), decls.end(), hasAssignmentInitializer)) {
+        // Always use :: with new style standard initializers (=x),
+        // since the standard requires them to appear (even in free form,
+        // where mandatory spaces already disambiguate INTEGER J=666).
+        CHECK(!isRecord);
+        return true;
+      }
+      if (isRecord) {
+        // Never put :: in a legacy extension RECORD// statement.
+        return false;
+      }
+      // The :: is optional for this declaration.  Avoid usage that can
+      // crash the pgf90 compiler.
+      if (std::any_of(
+              decls.begin(), decls.end(), hasSlashDelimitedInitializer)) {
+        // Don't use :: when a declaration uses legacy DATA-statement-like
+        // /x/ initialization.
+        return false;
+      }
+      // Don't use :: with intrinsic types.  Otherwise, use it.
+      return !std::holds_alternative<IntrinsicTypeSpec>(dts.u);
+    };
+
+    if (useDoubledColons()) {
       Put(" ::");
     }
     Put(' '), Walk(std::get<std::list<EntityDecl>>(x.t), ", ");
@@ -637,7 +674,7 @@ public:
     return false;
   }
   bool Pre(const PointerStmt &x) {  // R853
-    Word("POINTER :: "), Walk(x.v, ", ");
+    Word("POINTER"), Walk(x.v, ", ");
     return false;
   }
   bool Pre(const ProtectedStmt &x) {  // R855
@@ -689,13 +726,10 @@ public:
   bool Pre(const ImportStmt &x) {  // R867
     Word("IMPORT");
     switch (x.kind) {
-    case ImportStmt::Kind::Default:
-      Put(" :: ");
-      Walk(x.names);
-      break;
+    case ImportStmt::Kind::Default: Walk(" :: ", x.names, ", "); break;
     case ImportStmt::Kind::Only:
       Put(", "), Word("ONLY: ");
-      Walk(x.names);
+      Walk(x.names, ", ");
       break;
     case ImportStmt::Kind::None: Word(", NONE"); break;
     case ImportStmt::Kind::All: Word(", ALL"); break;
@@ -920,6 +954,10 @@ public:
   }
   bool Pre(const Expr::NEQV &x) {
     Walk(x.t, ".NEQV.");
+    return false;
+  }
+  bool Pre(const Expr::XOR &x) {
+    Walk(x.t, ".XOR.");
     return false;
   }
   bool Pre(const Expr::ComplexConstructor &x) {
@@ -1365,6 +1403,7 @@ public:
       if (x.format) {
         Put(", "), Walk(x.format);
       }
+      Walk(", ", x.controls, ", ");
       Put(')');
     } else if (x.format) {
       Walk(x.format);
@@ -1372,7 +1411,7 @@ public:
         Put(", ");
       }
     } else {
-      Put('('), Walk(x.controls), Put(')');
+      Put('('), Walk(x.controls, ", "), Put(')');
     }
     Walk(" ", x.items, ", ");
     return false;
@@ -1384,9 +1423,9 @@ public:
       if (x.format) {
         Put(", "), Walk(x.format);
       }
-      Walk(", ", x.controls);
+      Walk(", ", x.controls, ", ");
     } else {
-      Walk(x.controls);
+      Walk(x.controls, ", ");
     }
     Put(')'), Walk(" ", x.items, ", ");
     return false;
@@ -1491,6 +1530,14 @@ public:
   bool Pre(const RewindStmt &x) {  // R1226
     Word("REWIND ("), Walk(x.v, ", "), Put(')');
     return false;
+  }
+  bool Pre(const PositionOrFlushSpec &x) {  // R1227 & R1229
+    std::visit(visitors{[&](const FileUnitNumber &) { Word("UNIT="); },
+                   [&](const MsgVariable &) { Word("IOMSG="); },
+                   [&](const StatVariable &) { Word("IOSTAT="); },
+                   [&](const ErrLabel &) { Word("ERR="); }},
+        x.u);
+    return true;
   }
   bool Pre(const FlushStmt &x) {  // R1228
     Word("FLUSH ("), Walk(x.v, ", "), Put(')');
@@ -1780,8 +1827,16 @@ public:
     return false;
   }
   bool Pre(const CallStmt &x) {  // R1521
-    Word("CALL "), Walk(std::get<ProcedureDesignator>(x.v.t));
-    Walk("(", std::get<std::list<ActualArgSpec>>(x.v.t), ", ", ")");
+    const auto &pd = std::get<ProcedureDesignator>(x.v.t);
+    const auto &args = std::get<std::list<ActualArgSpec>>(x.v.t);
+    Word("CALL "), Walk(pd);
+    if (args.empty()) {
+      if (std::holds_alternative<ProcComponentRef>(pd.u)) {
+        Put("()");  // pgf90 crashes on CALL to tbp without parentheses
+      }
+    } else {
+      Walk("(", args, ", ", ")");
+    }
     return false;
   }
   bool Pre(const ActualArgSpec &x) {  // R1523
