@@ -22,6 +22,12 @@ bool Parsing::Prescan(const std::string &path, Options options) {
     anyFatalError_ = true;
     return false;
   }
+  if (sourceFile->bytes() == 0) {
+    ProvenanceRange range{allSources_.AddCompilerInsertion(path)};
+    messages_.Put(Message{range.start(), "file is empty"_en_US});
+    anyFatalError_ = true;
+    return false;
+  }
 
   for (const auto &path : options.searchDirectories) {
     allSources_.PushSearchPathDirectory(path);
@@ -41,6 +47,7 @@ bool Parsing::Prescan(const std::string &path, Options options) {
       .set_encoding(options.encoding)
       .set_enableBackslashEscapesInCharLiterals(options.enableBackslashEscapes)
       .set_enableOldDebugLines(options.enableOldDebugLines);
+// TODO in development      .AddCompilerDirectiveSentinel("dir$");
   ProvenanceRange range{
       allSources_.AddIncludedFile(*sourceFile, ProvenanceRange{})};
   anyFatalError_ = !prescanner.Prescan(range);
