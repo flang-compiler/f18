@@ -9,8 +9,7 @@
 #include <memory>
 #include <set>
 
-namespace Fortran {
-namespace semantics {
+namespace Fortran::semantics {
 
 static KindParamValue GetKindParamValue(
     const std::optional<parser::KindSelector> &kind);
@@ -317,8 +316,8 @@ private:
 };
 
 void MakeTypes(std::ostream &out, const parser::Program &program) {
-  MakeTypesVisitor visitor{out};
-  parser::Walk(program, visitor);
+  void ResolveNames(const parser::Program &program);
+  ResolveNames(program);
 }
 
 static KindParamValue GetKindParamValue(
@@ -353,5 +352,4 @@ static Bound GetBound(const parser::SpecificationExpr &x) {
   return Bound(*GetIntExpr(x.v));
 }
 
-}  // namespace semantics
-}  // namespace Fortran
+}
