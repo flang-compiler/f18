@@ -134,17 +134,16 @@ public:
     return true;
   }
   bool Pre(const KindSelector &x) {  // R706
-    std::visit(
-        visitors{[&](const ScalarIntConstantExpr &y) {
-                   Put('('), Word("KIND="), Walk(y), Put(')');
-                 },
-            [&](const KindSelector::StarSize &y) { Put('*'), Walk(y.v); }},
-        x.u);
+    x.visit(
+        [&](const ScalarIntConstantExpr &y) {
+          Put('('), Word("KIND="), Walk(y), Put(')');
+        },
+        [&](const KindSelector::StarSize &y) { Put('*'), Walk(y.v); });
     return false;
   }
   bool Pre(const SignedIntLiteralConstant &x) {  // R707
-    Walk(std::get<std::int64_t>(x.t));
-    Walk("_", std::get<std::optional<KindParam>>(x.t));
+    Walk(x.get<std::int64_t>());
+    Walk("_", x.get<std::optional<KindParam>>());
     return false;
   }
   bool Pre(const IntLiteralConstant &x) {  // R708
@@ -170,11 +169,11 @@ public:
     return false;
   }
   bool Pre(const LengthSelector &x) {  // R722
-    std::visit(visitors{[&](const TypeParamValue &y) {
-                          Put('('), Word("LEN="), Walk(y), Put(')');
-                        },
-                   [&](const CharLength &y) { Put('*'), Walk(y); }},
-        x.u);
+    x.visit(
+        [&](const TypeParamValue &y) {
+          Put('('), Word("LEN="), Walk(y), Put(')');
+        },
+        [&](const CharLength &y) { Put('*'), Walk(y); });
     return false;
   }
   bool Pre(const CharLength &x) {  // R723
@@ -185,14 +184,14 @@ public:
     return false;
   }
   bool Pre(const CharLiteralConstant &x) {  // R724
-    if (const auto &k = std::get<std::optional<KindParam>>(x.t)) {
-      if (std::holds_alternative<KindParam::Kanji>(k->u)) {
+    if (const auto &k = x.get<std::optional<KindParam>>()) {
+      if (k->holds<KindParam::Kanji>()) {
         Word("NC");
       } else {
         Walk(*k), Put('_');
       }
     }
-    PutQuoted(std::get<std::string>(x.t));
+    PutQuoted(x.get<std::string>());
     return false;
   }
   bool Pre(const HollerithLiteralConstant &x) {

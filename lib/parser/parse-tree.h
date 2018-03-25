@@ -71,6 +71,15 @@ CLASS_TRAIT(TupleTrait);
 #define UNION_CLASS_BOILERPLATE(classname) \
   template<typename A> classname(A &&x) : u(std::move(x)) {} \
   using UnionTrait = std::true_type; \
+  template<typename... LAMBDAS> void visit(LAMBDAS... x) { \
+    std::visit(visitors<LAMBDAS...>{x...}, u); \
+  } \
+  template<typename... LAMBDAS> void visit(LAMBDAS... x) const { \
+    std::visit(visitors<LAMBDAS...>{x...}, u); \
+  } \
+  template<typename T> bool holds() const { \
+    return std::holds_alternative<T>(u); \
+  } \
   BOILERPLATE(classname)
 
 // Many other classes below simply wrap a std::tuple<> structure, which
@@ -79,6 +88,8 @@ CLASS_TRAIT(TupleTrait);
   template<typename... Ts> \
   classname(Ts &&... args) : t(std::forward<Ts>(args)...) {} \
   using TupleTrait = std::true_type; \
+  template<typename T> T &get() { return std::get<T>(t); } \
+  template<typename T> const T &get() const { return std::get<T>(t); } \
   BOILERPLATE(classname)
 
 // Many other classes below simply wrap a single data member, which is
@@ -751,7 +762,7 @@ struct SignedComplexLiteralConstant {
 struct CharLiteralConstant {
   TUPLE_CLASS_BOILERPLATE(CharLiteralConstant);
   std::tuple<std::optional<KindParam>, std::string> t;
-  std::string GetString() const { return std::get<std::string>(t); }
+  std::string GetString() const { return get<std::string>(); }
 };
 
 // legacy extension
