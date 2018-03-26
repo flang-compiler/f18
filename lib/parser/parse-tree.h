@@ -144,11 +144,13 @@ template<typename... Ts> struct UnionClass {
   template<typename T> bool holds() const {
     return std::holds_alternative<T>(u);
   }
-  template<typename... LAMBDAS> void visit(LAMBDAS... x) {
-    std::visit(visitors<LAMBDAS...>{x...}, u);
+  template<typename... LAMBDAS>
+  constexpr decltype(auto) visit(LAMBDAS... x) {
+    return std::visit(visitors<LAMBDAS...>{x...}, u);
   }
-  template<typename... LAMBDAS> void visit(LAMBDAS... x) const {
-    std::visit(visitors<LAMBDAS...>{x...}, u);
+  template<typename... LAMBDAS>
+  constexpr decltype(auto) visit(LAMBDAS... x) const {
+    return std::visit(visitors<LAMBDAS...>{x...}, u);
   }
 
   Union u;
@@ -1561,11 +1563,10 @@ struct SubscriptTriplet {
 using VectorSubscript = IntExpr;
 
 // R920 section-subscript -> subscript | subscript-triplet | vector-subscript
-struct SectionSubscript {
-  UNION_CLASS_BOILERPLATE(SectionSubscript);
+struct SectionSubscript : UnionClass<Subscript, SubscriptTriplet, VectorSubscript> {
+  using UnionClass::UnionClass;
   bool CanConvertToActualArgument() const;
   ActualArg ConvertToActualArgument();
-  std::variant<Subscript, SubscriptTriplet, VectorSubscript> u;
 };
 
 // R925 cosubscript -> scalar-int-expr

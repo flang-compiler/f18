@@ -116,24 +116,21 @@ DataReference::DataReference(std::list<PartRef> &&prl)
 
 // R920 section-subscript
 bool SectionSubscript::CanConvertToActualArgument() const {
-  return std::visit(visitors{[](const VectorSubscript &) { return true; },
-                        [](const ScalarIntExpr &) { return true; },
-                        [](const SubscriptTriplet &) { return false; }},
-      u);
+  return !holds<SubscriptTriplet>();
 }
 
 ActualArg SectionSubscript::ConvertToActualArgument() {
-  return std::visit(visitors{[](VectorSubscript &vs) -> ActualArg {
-                               return vs.thing->ConvertToActualArgument();
-                             },
-                        [](ScalarIntExpr &vs) -> ActualArg {
-                          return vs.thing.thing->ConvertToActualArgument();
-                        },
-                        [](SubscriptTriplet &) -> ActualArg {
-                          CHECK(!"can't happen");
-                          return {Name{}};
-                        }},
-      u);
+  return visit(
+      [](VectorSubscript &vs) -> ActualArg {
+        return vs.thing->ConvertToActualArgument();
+      },
+      [](ScalarIntExpr &vs) -> ActualArg {
+        return vs.thing.thing->ConvertToActualArgument();
+      },
+      [](SubscriptTriplet &) -> ActualArg {
+        CHECK(!"can't happen");
+        return {Name{}};
+      });
 }
 
 // R1001 - R1022 expression
