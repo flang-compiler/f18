@@ -67,6 +67,10 @@ int main(int argc, char *const argv[]) {
     state.messages()->Emit(std::cerr);
     return EXIT_FAILURE;
   }
+<<<<<<< HEAD
   DoSemanticAnalysis(state,*result) ;
+=======
+  DoSemanticAnalysis(*result) ;
+>>>>>>> ee6dab25cf9a9ac16ce5c542fe1338692e351fd1
   return EXIT_SUCCESS;
 }
