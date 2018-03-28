@@ -14,6 +14,14 @@
 namespace sm  = Fortran::semantics ;
 namespace psr = Fortran::parser ;
 
+// The purpose of GetValue(x) is to provide a shortcut to the actual
+// parse-tree node by skiping the qualifiers Indirection<>, Scalar<>, 
+// Constant<>, Logical<>, Integer<> and DefaultChar<> 
+//
+// That name is quite ambigous and will likely be changed but 
+// for now, use SkipQualifiers() as an alias. 
+// 
+#define SkipQualifiers(x) GetValue(x) 
 
 #define INTERNAL_ERROR(msg) ctxt.InternalError(__FILE__ , __LINE__, msg)
 
@@ -80,7 +88,7 @@ static bool DoAnalysis(const Context &ctxt, const psr::FunctionReference &expr)
 static bool DoAnalysis(const Context &ctxt, const psr::Expr::Parentheses &expr) 
 {
   bool ok = true;
-  const psr::Expr & arg = GetValue(expr.v); 
+  const psr::Expr & arg = SkipQualifiers(expr.v); 
 
   ok &= TypeAnalysis( ctxt.sub(), arg  );   
 
@@ -139,7 +147,7 @@ static bool DoBinaryAnalysis(const Context &ctxt,
   const psr::Expr & arg1 = *std::get<0>(expr.t) ;
   const psr::Expr & arg2 = *std::get<1>(expr.t) ;
 
-  ok &= TypeAnalysis( ctxt.sub(), arg1  ); 
+  ok &= TypeAnalysis( ctxt.sub(), arg1 ); 
   ok &= TypeAnalysis( ctxt.sub(), arg2 ); 
 
   if (ok) {
@@ -377,7 +385,7 @@ bool TypeAnalysis(const Context &ctxt, const psr::Expr &expr)
   // Now, perform the analysis recursively 
   std::visit( 
       [&](const auto &x) { 
-        ok &= DoAnalysis(ctxt, GetValue(x) ); 
+        ok &= DoAnalysis(ctxt, SkipQualifiers(x) ); 
       }
       , expr.u);
 
@@ -385,12 +393,146 @@ bool TypeAnalysis(const Context &ctxt, const psr::Expr &expr)
 }
 
 
-const ExpressionType& GetType(const psr::Expr &expr)
+bool TypeAnalysis(const Context &ctxt, const psr::LogicalExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetLogical(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::DefaultCharExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetDefaultChar(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::IntExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetInteger(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ConstantExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetConstant(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::IntConstantExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetInteger(true);
+  subctxt.SetConstant(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarLogicalExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetScalar(true);
+  subctxt.SetLogical(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarIntExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetInteger(true);
+  subctxt.SetScalar(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarIntConstantExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetScalar(true);
+  subctxt.SetInteger(true);
+  subctxt.SetConstant(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarDefaultCharExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetScalar(true);
+  subctxt.SetDefaultChar(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarDefaultCharConstantExpr &expr)
+{
+  Context subctxt(ctxt);
+  subctxt.SetScalar(true);
+  subctxt.SetDefaultChar(true);
+  subctxt.SetConstant(true);
+  return TypeAnalysis( subctxt, SkipQualifiers(expr) ); 
+}
+
+
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt,const psr::ScalarIntConstantExpr &expr) 
+{
+  return EvaluateAsInt( ctxt, SkipQualifiers(expr) ) ; 
+}
+
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt,const psr::ScalarIntExpr &expr) 
+{
+  return EvaluateAsInt( ctxt, SkipQualifiers(expr) ) ; 
+}
+
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt,const psr::Expr &expr) 
+{ 
+  bool constant_mode = ctxt.IsConstant() ;
+
+  // For now, perform a simple evaluation of literal constants.
+  // TODO: perform a complete recursive evaluation of the expression.
+  // TODO: the type of the expression should be known to be integer scalar.
+
+  // For now, only perform a simple evaluation of literal constants.
+  if (std::holds_alternative<parser::LiteralConstant>(expr.u)) {
+    auto &lc = std::get<parser::LiteralConstant>(expr.u);
+    if (std::holds_alternative<parser::IntLiteralConstant>(lc.u)) {
+      auto &ilc = std::get<parser::IntLiteralConstant>(lc.u);
+      return std::get<std::uint64_t>(ilc.t) ;
+    }
+  }
+
+  if ( constant_mode ) {
+    INTERNAL_ERROR("constant evaluation was not possible in EvaluateAsInt");
+  }
+  return {};
+}
+
+
+std::optional<std::string> 
+EvaluateAsString(const Context &ctxt,const psr::ScalarDefaultCharConstantExpr &expr)
+{
+  // TODO
+  return {} ; 
+}
+
+
+
+std::optional<std::string> 
+EvaluateAsString(const Context &ctxt,const psr::Expr &expr)
+{
+  // TODO 
+  return {} ; 
+}
+
+
+const ExpressionType& 
+GetType(const psr::Expr &expr)
 {
   const ExpressionType * type = NULL ; 
   std::visit( 
       [&](const auto &x) { 
-        auto & node = GetValue(x); // TODO: GetValue is a bad name!!!!
+        auto & node = SkipQualifiers(x); 
         auto & sema = GetSema(node);
         type = sema.expr_type; 
       }
@@ -399,22 +541,83 @@ const ExpressionType& GetType(const psr::Expr &expr)
   return *type; 
 } 
 
-const ReferenceType& GetType(const psr::Designator &) 
+const ExpressionType& 
+GetType(const psr::LogicalExpr &expr)
 {
-  const ReferenceType * type = NULL ;
-  // TODO
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::DefaultCharExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::IntExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::ConstantExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::IntConstantExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::ScalarLogicalExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::ScalarIntConstantExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::ScalarDefaultCharExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+const ExpressionType& 
+GetType(const psr::ScalarDefaultCharConstantExpr &expr)
+{
+  const psr::Expr & node = SkipQualifiers(expr) ;
+  return GetType(node) ;  
+}
+
+
+const ReferenceType& 
+GetType(const psr::Designator &ref) 
+{
+  const ReferenceType * type = GetSema(ref).ref_type ;
   assert(type) ; 
   return *type;
 }
 
-const ReferenceType& GetType(const psr::Variable &) {
-  const ReferenceType * type = NULL ; 
-  // TODO
+const ReferenceType& 
+GetType(const psr::Variable &ref) {
+  const ReferenceType * type = GetSema(ref).ref_type ;
   assert(type) ; 
   return *type;
 }
-
-
-
 
 }

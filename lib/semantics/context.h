@@ -114,10 +114,6 @@ public:
   }
 
 private:
-  
-  Context( const Context & ) = default ;
-
-private:
     
   std::ostream & err_ ; 
 

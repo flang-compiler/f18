@@ -242,6 +242,17 @@ private:
 //
 bool TypeAnalysis(const Context &ctxt, const psr::Expr &);
 
+bool TypeAnalysis(const Context &ctxt, const psr::LogicalExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::DefaultCharExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::IntExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ConstantExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::IntConstantExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarLogicalExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarIntExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarIntConstantExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarDefaultCharExpr &);
+bool TypeAnalysis(const Context &ctxt, const psr::ScalarDefaultCharConstantExpr &);
+
 // 
 // Perform the Semantic analysis of a Designator 
 //
@@ -275,6 +286,17 @@ bool TypeAnalysis(const Context &ctxt, const psr::Variable &);
 // 
 const ExpressionType& GetType(const psr::Expr &); 
 
+// Various helpers to access the type of the underlying Expr
+const ExpressionType& GetType(const psr::LogicalExpr &); 
+const ExpressionType& GetType(const psr::DefaultCharExpr &); 
+const ExpressionType& GetType(const psr::IntExpr &); 
+const ExpressionType& GetType(const psr::ConstantExpr &); 
+const ExpressionType& GetType(const psr::IntConstantExpr &); 
+const ExpressionType& GetType(const psr::ScalarLogicalExpr &); 
+const ExpressionType& GetType(const psr::ScalarIntConstantExpr &); 
+const ExpressionType& GetType(const psr::ScalarDefaultCharExpr &); 
+const ExpressionType& GetType(const psr::ScalarDefaultCharConstantExpr &); 
+
 //
 // Provide the type of a designator.
 // 
@@ -291,6 +313,57 @@ const ReferenceType& GetType(const psr::Designator &);
 // type analysis was applied to the varible. 
 // 
 const ReferenceType& GetType(const psr::Variable &);
+
+// 
+// Attempt to evaluate a scalar integer constant expression. 
+//
+// An unset result indicates that the evaluation could not be performed. 
+// In that case, an error message should already have been emited.
+//
+// Remark: All type related errors are supposed to have been catched 
+// earlier but other errors can happen during the evaluation of expressions.
+//
+// Typical examples of illegal evaluations are divisions by zero or 
+// the sqrt of a negative value.
+//
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt, const psr::ScalarIntConstantExpr &) ;
+
+// Attempt to evaluate a scalar integer expression. 
+// 
+// The evaluation context can be set to be Constant in which case, the evaluation will be 
+// subject to the constant expression rules.
+//
+// If the evaluation contect is not set to be Constant, a unset result may indicate that
+// the expression can only be evaluated at runtime.
+// 
+// If the evaluation contect is set to be Constant then the evaluation is mandatory and
+// a unset result indicates that at least one error message was emited  
+//
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt, const psr::ScalarIntExpr &) ;
+
+
+// Attempt to evaluate an expression as a scalar integer. 
+//
+// The type of the expression must be scalar integer else an internal error occurs. 
+//
+// If the evaluation contect is not set to be Constant, a unset result may indicate that
+// the expression can only be evaluated at runtime.
+// 
+// If the evaluation contect is set to be Constant then the evaluation is mandatory and
+// a unset result indicates that at least one error message was emited  
+//
+std::optional<int64_t> 
+EvaluateAsInt(const Context &ctxt, const psr::Expr &) ;
+
+
+
+std::optional<std::string> 
+EvaluateAsString(const Context &ctxt, const psr::ScalarDefaultCharConstantExpr &) ;
+
+std::optional<std::string> 
+EvaluateAsString(const Context &ctxt, const psr::Expr &) ;
 
 } // end of namespace Fortran::semantics
 
