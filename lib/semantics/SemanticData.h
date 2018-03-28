@@ -2,6 +2,11 @@
 #define FORTRAN_SEMA_DATA_H_
 
 #include <cassert> 
+#include <iostream> 
+
+//#include "StatementMap.h" 
+//#include "expr-types.h" 
+
 
 //
 // 
@@ -21,45 +26,18 @@
 
 namespace Fortran::semantics {
 
-// Initialize the semantic information attached to a parser-tree node
-//
-// Ideally, the function should be called once at the begining of the corresponding Pre() 
-// member in Pass1. However, for the few cases where the semantic data need to be 
-// initialize earlier the strict argument can be set to false. 
-//
-template <typename T>  Semantic<T> & InitSema(const T &node, bool strict=true) { 
-
-  // Do not use the default implementation!
-  // If the following assert fails, then a DECLARE_SEMANTIC_DATA is 
-  // missing below
-  assert(Semantic<T>::IS_DECLARED);
-
-  if (node.s) {
-    if (strict) {
-      // TODO: emit proper message
-      std::cerr << "Duplicate call of " << __PRETTY_FUNCTION__ << "\n" ;
-      exit(1);
-    } else {
-      return *(node.s); 
-    }
-  }
-  auto s = new Semantic<T>( const_cast<T*>(&node) ) ;
-  const_cast<T&>(node).s = s; 
-  return *s ; 
-} 
-
-
-// Retreive the semantic information attached to a parser-tree node
-template <typename T> Semantic<T> & GetSema(const T &node) { 
-  // Do not use the default implementation!
-  // If the following assert fails, then a DECLARE_SEMANTIC is missing above 
-  assert(Semantic<T>::IS_DECLARED); 
-  assert(node.s) ;
-  return *(node.s) ;
-} 
+class StatementMap;
+class ExpressionType;
+class ReferenceType;
+class Scope;
+class LabelTable;
 
 
 #define DEFINE_SEMANTIC_DATA(Class) \
+  inline Semantic<Fortran::parser::Class> & GetSema(const Fortran::parser::Class &node) { \
+    assert(node.s) ;                  \
+    return *(node.s) ;                \
+  }  \
   template <> struct Semantic<Fortran::parser::Class> { \
     Semantic<Fortran::parser::Class>(Fortran::parser::Class *node) {} \
     enum {IS_DECLARED=1};
@@ -584,10 +562,149 @@ DEFINE_SEMANTIC_DATA(EndCriticalStmt)
   SEMANTIC_STMT_FIELDS;
 END_SEMANTIC_DATA;
 
+DEFINE_SEMANTIC_DATA(CharLiteralConstantSubstring)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(LiteralConstant)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(Designator)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(ArrayConstructor)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(StructureConstructor)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(TypeParamInquiry)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(FunctionReference)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+// Reminder:  Semantic<Expr::IntrinsicUnary> is used by
+//            Expr::Parentheses. Expr::UnaryPlus, Expr::Negate,
+//            amd Expr::NOT
+DEFINE_SEMANTIC_DATA(Expr::IntrinsicUnary)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+// Reminder:  Semantic<Expr::IntrinsicBinary> is used by
+//             Expr::Power, Expr::Multiply, Expr::Divide, Expr::Add, 
+//             Expr::Subtract, Expr::Concat, Expr::LT, Expr::LE, 
+//             Expr::EQ, Expr::NE, Expr::GE, Expr::GT, Expr::AND, 
+//             Expr::EQV, Expr::EQV, Expr::NEQV, Expr::XOR
+DEFINE_SEMANTIC_DATA(Expr::IntrinsicBinary)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(Expr::PercentLoc)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(Expr::DefinedUnary)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
+DEFINE_SEMANTIC_DATA(Expr::DefinedBinary)
+  ExpressionType *expr_type ;
+END_SEMANTIC_DATA;
+
 
 #undef DEFINE_SEMANTIC_DATA
 #undef END_SEMANTIC_DATA_SEMANTIC
 #undef SEMANTIC_STMT_FIELDS
+
+
+// Initialize the semantic information attached to a parser-tree node
+//
+// Ideally, the function should be called once to initialize the data structure 
+// used to hold Semantic data in each node of the parse tree. 
+// By default, calling that function twice on the same parse-tree node is incorrect
+// but the 'strict' argument can be set to false to allow for the reuse of pre-existing 
+// data. 
+//
+template <typename T>  Semantic<T> & InitSema(const T &node, bool strict=true) { 
+
+  // Do not use the default implementation!
+  // If the following assert fails, then a DECLARE_SEMANTIC_DATA is 
+  // missing below
+  assert(Semantic<T>::IS_DECLARED);
+
+  if (node.s) {
+    if (strict) {
+      // TODO: emit proper message
+      std::cerr << "Duplicate call of " << __PRETTY_FUNCTION__ << "\n" ;
+      exit(1);
+    } else {
+      return *(node.s); 
+    }
+  }
+  auto s = new Semantic<T>( const_cast<T*>(&node) ) ;
+  const_cast<T&>(node).s = s; 
+  return *s ; 
+} 
+
+#if 0
+// A few parse-tree node classes are struct derived from a
+// base class. For those classes, the Semantic<T> is already  
+// provided by the base class. 
+//
+// For instance, GetSema() applied to a Expr::Add node will
+// note return a Semantic<Expr::Add> but a Semantic<Expr::IntrinsicUnary>
+// 
+// This is handled by the macro DERIVED_GET_SEMA
+//
+
+#define DERIVED_GET_SEMA( FROM , TO )                    \
+inline Semantic<Fortran::parser::FROM> &           \
+GetSema(const Fortran::parser::TO &node) {               \
+  assert(Semantic<Fortran::parser::FROM>::IS_DECLARED); \
+  assert(node.s) ; \
+  return *(node.s) ;\
+}
+
+DERIVED_GET_SEMA( Expr::IntrinsicUnary, Expr::Parentheses) 
+DERIVED_GET_SEMA( Expr::IntrinsicUnary, Expr::UnaryPlus) 
+DERIVED_GET_SEMA( Expr::IntrinsicUnary, Expr::Negate) 
+DERIVED_GET_SEMA( Expr::IntrinsicUnary, Expr::NOT) 
+
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Power) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Multiply) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Divide) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Add) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Subtract) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::Concat) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::LT) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::LE) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::GT) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::GE) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::NE) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::EQ) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::EQV) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::NEQV) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::XOR) 
+DERIVED_GET_SEMA( Expr::IntrinsicBinary, Expr::ComplexConstructor) 
+#endif
+
+// // Retreive the semantic information attached to a parser-tree node.
+// template <typename T> Semantic<T> & GetSema(const T &node) { 
+//   // Do not use the default implementation!
+//   // If the following assert fails, then a DECLARE_SEMANTIC is missing above 
+//   assert(Semantic<T>::IS_DECLARED); 
+//   assert(node.s) ;
+//   return *(node.s) ;
+// } 
+
+
 
 } // of namespace Fortran::semantics
 

@@ -15,7 +15,6 @@
 // The purpose of those function is to provide easier access to the
 // parse-tree by ignoring some wrapper classes/
 //
-//
 // GET_VALUE(x) provides a reference to the value that x is holding.
 //
 // The following wrapper classes are ignored unless the corresponding

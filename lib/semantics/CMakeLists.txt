@@ -9,4 +9,5 @@ add_library(FlangSemantics
   ParseTreeDump.cc
   StatementMap.cc
   pass1.cc
+  expr-analysis.cc
 )
