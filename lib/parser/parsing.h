@@ -34,7 +34,7 @@ public:
   Parsing() {}
 
   bool consumedWholeFile() const { return consumedWholeFile_; }
-  Provenance finalRestingPlace() const { return finalRestingPlace_; }
+  const char *finalRestingPlace() const { return finalRestingPlace_; }
   Messages &messages() { return messages_; }
   Program &parseTree() { return *parseTree_; }
 
@@ -43,19 +43,20 @@ public:
   void DumpProvenance(std::ostream &) const;
   bool Parse();
 
-  void Identify(std::ostream &o, Provenance p, const std::string &prefix,
+  void Identify(std::ostream &o, const char *at, const std::string &prefix,
       bool echoSourceLine = false) const {
-    allSources_.Identify(o, p, prefix, echoSourceLine);
+    allSources_.Identify(
+        o, cooked_.GetProvenance(at).start(), prefix, echoSourceLine);
   }
 
 private:
   Options options_;
   AllSources allSources_;
-  Messages messages_{allSources_};
-  CookedSource cooked_{&allSources_};
+  CookedSource cooked_{allSources_};
+  Messages messages_{cooked_};
   bool anyFatalError_{false};
   bool consumedWholeFile_{false};
-  Provenance finalRestingPlace_;
+  const char *finalRestingPlace_{nullptr};
   std::optional<Program> parseTree_;
 };
 }  // namespace parser

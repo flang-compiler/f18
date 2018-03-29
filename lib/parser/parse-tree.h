@@ -35,31 +35,30 @@
 // although a C++ compiler wouldn't default them anyway due to the presence
 // of move constructors and move assignments.
 
-
 CLASS_TRAIT(EmptyTrait);
 CLASS_TRAIT(WrapperTrait);
 CLASS_TRAIT(UnionTrait);
 CLASS_TRAIT(TupleTrait);
 
 //
-// An empty class to attach semantic information to each class in 
-// the parse-tree. In practice, each parser-tree 'classname' shall 
+// An empty class to attach semantic information to each class in
+// the parse-tree. In practice, each parser-tree 'classname' shall
 // implement a member:
 //
-//    Semantic<classname> * s = nullptr; 
-// 
-// The actual implementation of each Sema<classname> will be provided 
-// later thus allowing the parser to be build without an dependency 
+//    Semantic<classname> * s = nullptr;
+//
+// The actual implementation of each Sema<classname> will be provided
+// later thus allowing the parser to be build without an dependency
 // with the Sema library
-//  
+//
 
 namespace Fortran {
 namespace semantics {
-  template <typename T> struct Semantic {
-   Semantic(T*) {}
+template<typename T> struct Semantic {
+  Semantic(T *) {}
 };
-}
-}
+}  // namespace semantics
+}  // namespace Fortran
 
 // Most non-template classes in this file use these default definitions
 // for their move constructor and move assignment operator=, and disable
@@ -69,7 +68,7 @@ namespace semantics {
   classname &operator=(classname &&) = default; \
   classname(const classname &) = delete; \
   classname &operator=(const classname &) = delete; \
-  Fortran::semantics::Semantic<classname> * s = nullptr \
+  Fortran::semantics::Semantic<classname> *s = nullptr
 
 // Almost all classes in this file have no default constructor.
 #define BOILERPLATE(classname) \
@@ -86,7 +85,7 @@ namespace semantics {
     classname &operator=(const classname &) { return *this; }; \
     classname &operator=(classname &&) { return *this; }; \
     using EmptyTrait = std::true_type; \
-    Fortran::semantics::Semantic<classname> * s = nullptr ; \
+    Fortran::semantics::Semantic<classname> *s = nullptr; \
   }
 
 // Many classes below simply wrap a std::variant<> discriminated union,
@@ -243,7 +242,8 @@ struct EntryStmt;  // R1541
 struct ReturnStmt;  // R1542
 struct StmtFunctionStmt;  // R1544
 
-// Extension and deprecated statements
+// Directives, extensions, and deprecated statements
+struct CompilerDirective;
 struct BasedPointerStmt;
 struct StructureDef;
 struct ArithmeticIfStmt;
@@ -314,15 +314,12 @@ using Label = std::uint64_t;  // validated later, must be in [1..99999]
 // A wrapper for xzy-stmt productions that are statements, so that
 // source provenances and labels have a uniform representation.
 template<typename A> struct Statement {
-  Statement(std::optional<long> &&lab, bool &&accept, A &&s)
-    : label(std::move(lab)), isLabelInAcceptableField{accept},
-      statement(std::move(s)) {}
+  Statement(std::optional<long> &&lab, A &&s)
+    : label(std::move(lab)), statement(std::move(s)) {}
   CharBlock source;
   std::optional<Label> label;
-  bool isLabelInAcceptableField{true};
   A statement;
 };
-
 
 // Error recovery marker
 EMPTY_CLASS(ErrorRecovery);
@@ -361,7 +358,8 @@ struct SpecificationConstruct {
       Statement<Indirection<OldParameterStmt>>,
       Statement<Indirection<ProcedureDeclarationStmt>>,
       Statement<OtherSpecificationStmt>,
-      Statement<Indirection<TypeDeclarationStmt>>, Indirection<StructureDef>>
+      Statement<Indirection<TypeDeclarationStmt>>, Indirection<StructureDef>,
+      Indirection<CompilerDirective>>
       u;
 };
 
@@ -470,7 +468,8 @@ struct ExecutableConstruct {
       Statement<Indirection<LabelDoStmt>>, Statement<Indirection<EndDoStmt>>,
       Indirection<DoConstruct>, Indirection<IfConstruct>,
       Indirection<SelectRankConstruct>, Indirection<SelectTypeConstruct>,
-      Indirection<WhereConstruct>, Indirection<ForallConstruct>>
+      Indirection<WhereConstruct>, Indirection<ForallConstruct>,
+      Indirection<CompilerDirective>>
       u;
 };
 
@@ -2150,21 +2149,21 @@ struct LoopControl {
     TUPLE_CLASS_BOILERPLATE(Concurrent);
     std::tuple<ConcurrentHeader, std::list<LocalitySpec>> t;
   };
-  std::variant<LoopBounds<ScalarIntExpr>, ScalarLogicalExpr, Concurrent> u;  
+  std::variant<LoopBounds<ScalarIntExpr>, ScalarLogicalExpr, Concurrent> u;
 };
 
 // R1121 label-do-stmt -> [do-construct-name :] DO label [loop-control]
 struct LabelDoStmt {
   TUPLE_CLASS_BOILERPLATE(LabelDoStmt);
   std::tuple<std::optional<Name>, Label, std::optional<LoopControl>> t;
-  enum {NAME,LABEL,CONTROL} ;
+  enum { NAME, LABEL, CONTROL };
 };
 
 // R1122 nonlabel-do-stmt -> [do-construct-name :] DO [loop-control]
 struct NonLabelDoStmt {
   TUPLE_CLASS_BOILERPLATE(NonLabelDoStmt);
   std::tuple<std::optional<Name>, std::optional<LoopControl>> t;
-  enum {NAME,CONTROL} ;
+  enum { NAME, CONTROL };
 };
 
 // R1132 end-do-stmt -> END DO [do-construct-name]
@@ -2749,7 +2748,7 @@ struct MainProgram {
       ExecutionPart, std::optional<InternalSubprogramPart>,
       Statement<EndProgramStmt>>
       t;
-  enum { PROG, SPEC, EXEC, INTERNAL, END } ; 
+  enum { PROG, SPEC, EXEC, INTERNAL, END };
 };
 
 // R1405 module-stmt -> MODULE module-name
@@ -2781,8 +2780,8 @@ struct Module {
   TUPLE_CLASS_BOILERPLATE(Module);
   std::tuple<Statement<ModuleStmt>, SpecificationPart,
       std::optional<ModuleSubprogramPart>, Statement<EndModuleStmt>>
-      t;  
-  enum { MOD, SPEC, INTERNAL, END } ; 
+      t;
+  enum { MOD, SPEC, INTERNAL, END };
 };
 
 // R1411 rename ->
@@ -3075,7 +3074,7 @@ struct FunctionSubprogram {
   std::tuple<Statement<FunctionStmt>, SpecificationPart, ExecutionPart,
       std::optional<InternalSubprogramPart>, Statement<EndFunctionStmt>>
       t;
-  enum { FUNC, SPEC, EXEC, INTERNAL, END } ; 
+  enum { FUNC, SPEC, EXEC, INTERNAL, END };
 };
 
 // R1534 subroutine-subprogram ->
@@ -3086,7 +3085,7 @@ struct SubroutineSubprogram {
   std::tuple<Statement<SubroutineStmt>, SpecificationPart, ExecutionPart,
       std::optional<InternalSubprogramPart>, Statement<EndSubroutineStmt>>
       t;
-  enum { SUBR, SPEC, EXEC, INTERNAL, END } ; 
+  enum { SUBR, SPEC, EXEC, INTERNAL, END };
 };
 
 // R1539 mp-subprogram-stmt -> MODULE PROCEDURE procedure-name
@@ -3119,6 +3118,20 @@ WRAPPER_CLASS(ReturnStmt, std::optional<ScalarIntExpr>);
 struct StmtFunctionStmt {
   TUPLE_CLASS_BOILERPLATE(StmtFunctionStmt);
   std::tuple<Name, std::list<Name>, Scalar<Expr>> t;
+};
+
+// Compiler directives
+// !DIR$ IVDEP
+// !DIR$ IGNORE_TKR [ [(tkr...)] name ]...
+struct CompilerDirective {
+  UNION_CLASS_BOILERPLATE(CompilerDirective);
+  struct IgnoreTKR {
+    TUPLE_CLASS_BOILERPLATE(IgnoreTKR);
+    std::tuple<std::list<const char *>, Name> t;
+  };
+  EMPTY_CLASS(IVDEP);
+  CharBlock source;
+  std::variant<std::list<IgnoreTKR>, IVDEP> u;
 };
 
 // Legacy extensions

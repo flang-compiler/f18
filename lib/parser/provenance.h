@@ -166,16 +166,20 @@ private:
 
 class CookedSource {
 public:
-  explicit CookedSource(AllSources *sources) : allSources_{sources} {}
+  explicit CookedSource(AllSources &sources) : allSources_{sources} {}
 
   std::size_t size() const { return data_.size(); }
   const char &operator[](std::size_t n) const { return data_[n]; }
   const char &at(std::size_t n) const { return data_.at(n); }
 
-  AllSources *allSources() const { return allSources_; }
+  AllSources &allSources() const { return allSources_; }
+
+  bool IsValid(const char *p) const {
+    return p >= &data_.front() && p <= &data_.back() + 1;
+  }
+  bool IsValid(Provenance p) const { return allSources_.IsValid(p); }
 
   ProvenanceRange GetProvenance(const char *) const;
-  void Identify(std::ostream &, const char *) const;
 
   void Put(const char *data, std::size_t bytes) { buffer_.Put(data, bytes); }
   void Put(char ch) { buffer_.Put(&ch, 1); }
@@ -190,7 +194,7 @@ public:
   void Dump(std::ostream &) const;
 
 private:
-  AllSources *allSources_;
+  AllSources &allSources_;
   CharBuffer buffer_;  // before Marshal()
   std::vector<char> data_;  // all of it, prescanned and preprocessed
   OffsetToProvenanceMappings provenanceMap_;
