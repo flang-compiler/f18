@@ -119,6 +119,65 @@ template<typename T> struct Semantic {
 namespace Fortran {
 namespace parser {
 
+// Parent class for classes wrapping an std::tuple
+template<typename... Ts> struct TupleClass {
+  using TupleTrait = std::true_type;
+  using Tuple = std::tuple<Ts...>;
+
+  TupleClass(Ts &&... args) : t(std::forward<Ts>(args)...) {}
+  TupleClass(TupleClass &&) = default;
+  TupleClass &operator=(TupleClass &&) = default;
+  TupleClass(const TupleClass &) = delete;
+  TupleClass &operator=(const TupleClass &) = delete;
+
+  template<typename T> T &get() { return std::get<T>(t); }
+  template<typename T> const T &get() const { return std::get<T>(t); }
+  template<size_t I> typename std::tuple_element<I, Tuple>::type &get() {
+    return std::get<I>(t);
+  }
+  template<size_t I>
+  const typename std::tuple_element<I, Tuple>::type &get() const {
+    return std::get<I>(t);
+  }
+
+  Tuple t;
+};
+
+// Parent class for classes wrapping an std::variant.
+template<typename... Ts> struct UnionClass {
+  using UnionTrait = std::true_type;
+  using Union = std::variant<Ts...>;
+
+  template<typename A> UnionClass(A &&x) : u(std::move(x)) {}
+  UnionClass(UnionClass &&) = default;
+  UnionClass &operator=(UnionClass &&) = default;
+  UnionClass(const UnionClass &) = delete;
+  UnionClass &operator=(const UnionClass &) = delete;
+
+  template<typename T> T *get_if() { return std::get_if<T>(&u); }
+  template<typename T> const T *get_if() const { return std::get_if<T>(&u); }
+  template<size_t I> typename std::variant_alternative_t<I, Union> *get_if() {
+    return std::get_if<I>(&u);
+  }
+  template<size_t I>
+  const typename std::variant_alternative_t<I, Union> *get_if() const {
+    return std::get_if<I>(&u);
+  }
+  template<typename T> bool holds() const {
+    return std::holds_alternative<T>(u);
+  }
+  template<typename... LAMBDAS>
+  constexpr decltype(auto) visit(LAMBDAS... x) {
+    return std::visit(visitors<LAMBDAS...>{x...}, u);
+  }
+  template<typename... LAMBDAS>
+  constexpr decltype(auto) visit(LAMBDAS... x) const {
+    return std::visit(visitors<LAMBDAS...>{x...}, u);
+  }
+
+  Union u;
+};
+
 // These are the unavoidable recursively-defined productions of Fortran.
 // Some references to the representations of their parses require
 // indirection.  The Indirect<> pointer wrapper class is used to
@@ -577,10 +636,10 @@ struct TypeParamValue {
 // R706 kind-selector -> ( [KIND =] scalar-int-constant-expr )
 // Legacy extension: kind-selector -> * digit-string
 // TODO: These are probably not semantically identical, at least for COMPLEX.
-struct KindSelector {
-  UNION_CLASS_BOILERPLATE(KindSelector);
-  WRAPPER_CLASS(StarSize, std::uint64_t);
-  std::variant<ScalarIntConstantExpr, StarSize> u;
+WRAPPER_CLASS(StarSize, std::uint64_t);
+struct KindSelector : UnionClass<ScalarIntConstantExpr, StarSize> {
+  using UnionClass::UnionClass;
+  using StarSize = parser::StarSize;
 };
 
 // R705 integer-type-spec -> INTEGER [kind-selector]
@@ -593,10 +652,7 @@ struct CharLength {
 };
 
 // R722 length-selector -> ( [LEN =] type-param-value ) | * char-length [,]
-struct LengthSelector {
-  UNION_CLASS_BOILERPLATE(LengthSelector);
-  std::variant<TypeParamValue, CharLength> u;
-};
+using LengthSelector = UnionClass<TypeParamValue, CharLength>;
 
 // R721 char-selector ->
 //        length-selector |
@@ -696,17 +752,16 @@ struct DeclarationTypeSpec {
 };
 
 // R709 kind-param -> digit-string | scalar-int-constant-name
-struct KindParam {
-  UNION_CLASS_BOILERPLATE(KindParam);
-  EMPTY_CLASS(Kanji);
-  std::variant<std::uint64_t, Scalar<Integer<Constant<Name>>>, Kanji> u;
+EMPTY_CLASS(Kanji);
+struct KindParam : UnionClass<std::uint64_t, Scalar<Integer<Constant<Name>>>, Kanji> {
+  using UnionClass::UnionClass;
+  using Kanji = parser::Kanji;
 };
 
 // R707 signed-int-literal-constant -> [sign] int-literal-constant
-struct SignedIntLiteralConstant {
-  TUPLE_CLASS_BOILERPLATE(SignedIntLiteralConstant);
+struct SignedIntLiteralConstant : TupleClass<std::int64_t, std::optional<KindParam>> {
+  using TupleClass::TupleClass;
   CharBlock source;
-  std::tuple<std::int64_t, std::optional<KindParam>> t;
 };
 
 // R708 int-literal-constant -> digit-string [_ kind-param]
@@ -771,10 +826,9 @@ struct SignedComplexLiteralConstant {
 // R724 char-literal-constant ->
 //        [kind-param _] ' [rep-char]... ' |
 //        [kind-param _] " [rep-char]... "
-struct CharLiteralConstant {
-  TUPLE_CLASS_BOILERPLATE(CharLiteralConstant);
-  std::tuple<std::optional<KindParam>, std::string> t;
-  std::string GetString() const { return std::get<std::string>(t); }
+struct CharLiteralConstant : TupleClass<std::optional<KindParam>, std::string> {
+  using TupleClass::TupleClass;
+  std::string GetString() const { return get<std::string>(); }
 };
 
 // legacy extension
@@ -1533,11 +1587,10 @@ struct SubscriptTriplet {
 using VectorSubscript = IntExpr;
 
 // R920 section-subscript -> subscript | subscript-triplet | vector-subscript
-struct SectionSubscript {
-  UNION_CLASS_BOILERPLATE(SectionSubscript);
+struct SectionSubscript : UnionClass<Subscript, SubscriptTriplet, VectorSubscript> {
+  using UnionClass::UnionClass;
   bool CanConvertToActualArgument() const;
   ActualArg ConvertToActualArgument();
-  std::variant<Subscript, SubscriptTriplet, VectorSubscript> u;
 };
 
 // R925 cosubscript -> scalar-int-expr
