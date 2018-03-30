@@ -157,7 +157,7 @@ template<typename PA> inline constexpr auto indirect(const PA &p) {
 }
 
 // R711 digit-string -> digit [digit]...
-// N.B. not a token -- no spaces are skipped
+// N.B. not a token -- no space is skipped
 constexpr auto digitString = DigitString{};
 
 // statement(p) parses Statement<P> for some statement type P that is the
@@ -165,20 +165,20 @@ constexpr auto digitString = DigitString{};
 // end-of-statement markers.
 
 // R611 label -> digit [digit]...
-constexpr auto label = spaces >> digitString / spaceCheck;
+constexpr auto label = space >> digitString / spaceCheck;
 
 template<typename PA>
 using statementConstructor = construct<Statement<typename PA::resultType>>;
 
 template<typename PA> inline constexpr auto unterminatedStatement(const PA &p) {
   return skipEmptyLines >>
-      sourced(statementConstructor<PA>{}(maybe(label), spaces >> p));
+      sourced(statementConstructor<PA>{}(maybe(label), space >> p));
 }
 
 constexpr auto endOfLine = "\n"_ch / skipEmptyLines ||
     fail<const char *>("expected end of line"_en_US);
 
-constexpr auto endOfStmt = spaces >>
+constexpr auto endOfStmt = space >>
     (";"_ch / skipMany(";"_tok) / maybe(endOfLine) || endOfLine);
 
 template<typename PA> inline constexpr auto statement(const PA &p) {
@@ -186,7 +186,7 @@ template<typename PA> inline constexpr auto statement(const PA &p) {
 }
 
 constexpr auto ignoredStatementPrefix = skipEmptyLines >>
-    maybe(label) >> spaces;
+    (label >> ok || space);
 
 // Error recovery within statements: skip to the end of the line,
 // but not over an END or CONTAINS statement.
@@ -461,7 +461,7 @@ constexpr auto actionStmt = construct<ActionStmt>{}(
     construct<ActionStmt>{}(indirect(Parser<EventPostStmt>{})) ||
     construct<ActionStmt>{}(indirect(Parser<EventWaitStmt>{})) ||
     construct<ActionStmt>{}(indirect(Parser<ExitStmt>{})) ||
-    "FAIL IMAGE" >> construct<ActionStmt>{}(construct<FailImageStmt>{}) ||
+    "FAIL IMAGE"_sptok >> construct<ActionStmt>{}(construct<FailImageStmt>{}) ||
     construct<ActionStmt>{}(indirect(Parser<FlushStmt>{})) ||
     construct<ActionStmt>{}(indirect(Parser<FormTeamStmt>{})) ||
     construct<ActionStmt>{}(indirect(Parser<GotoStmt>{})) ||
@@ -595,7 +595,7 @@ constexpr auto underscore = "_"_ch;
 constexpr auto otherIdChar = underscore / !"'\""_ch || extension("$@"_ch);
 constexpr auto nonDigitIdChar = letter || otherIdChar;
 constexpr auto rawName = nonDigitIdChar >> many(nonDigitIdChar || digit);
-TYPE_PARSER(spaces >> sourced(attempt(rawName) >> construct<Name>{}))
+TYPE_PARSER(space >> sourced(attempt(rawName) >> construct<Name>{}))
 constexpr auto keyword = construct<Keyword>{}(name);
 
 // R605 literal-constant ->
@@ -603,7 +603,7 @@ constexpr auto keyword = construct<Keyword>{}(name);
 //        complex-literal-constant | logical-literal-constant |
 //        char-literal-constant | boz-literal-constant
 TYPE_PARSER(construct<LiteralConstant>{}(Parser<HollerithLiteralConstant>{}) ||
-    construct<LiteralConstant>{}(spaces >> realLiteralConstant) ||
+    construct<LiteralConstant>{}(space >> realLiteralConstant) ||
     construct<LiteralConstant>{}(intLiteralConstant) ||
     construct<LiteralConstant>{}(Parser<ComplexLiteralConstant>{}) ||
     construct<LiteralConstant>{}(Parser<BOZLiteralConstant>{}) ||
@@ -696,10 +696,10 @@ TYPE_PARSER(construct<IntegerTypeSpec>{}("INTEGER" >> maybe(kindSelector)))
 TYPE_PARSER(construct<KindSelector>{}(
                 parenthesized(maybe("KIND ="_tok) >> scalarIntConstantExpr)) ||
     extension(construct<KindSelector>{}(
-        construct<KindSelector::StarSize>{}("*" >> digitString))))
+        construct<KindSelector::StarSize>{}("*" >> digitString / spaceCheck))))
 
 // R710 signed-digit-string -> [sign] digit-string
-// N.B. Not a complete token -- no spaces are skipped.
+// N.B. Not a complete token -- no space is skipped.
 static inline std::int64_t negate(std::uint64_t &&n) {
   return -n;  // TODO: check for overflow
 }
@@ -713,12 +713,12 @@ constexpr auto signedDigitString = "-"_ch >>
     maybe("+"_ch) >> applyFunction(castToSigned, digitString);
 
 // R707 signed-int-literal-constant -> [sign] int-literal-constant
-TYPE_PARSER(spaces >> sourced(construct<SignedIntLiteralConstant>{}(
-                          signedDigitString, maybe(underscore >> kindParam))))
+TYPE_PARSER(space >> sourced(construct<SignedIntLiteralConstant>{}(
+                         signedDigitString, maybe(underscore >> kindParam))))
 
 // R708 int-literal-constant -> digit-string [_ kind-param]
 TYPE_PARSER(construct<IntLiteralConstant>{}(
-    spaces >> digitString, maybe(underscore >> kindParam)))
+    space >> digitString, maybe(underscore >> kindParam)))
 
 // R709 kind-param -> digit-string | scalar-int-constant-name
 TYPE_PARSER(construct<KindParam>{}(digitString) ||
@@ -730,7 +730,7 @@ constexpr auto sign = "+"_ch >> pure(Sign::Positive) ||
     "-"_ch >> pure(Sign::Negative);
 
 // R713 signed-real-literal-constant -> [sign] real-literal-constant
-constexpr auto signedRealLiteralConstant = spaces >>
+constexpr auto signedRealLiteralConstant = space >>
     construct<SignedRealLiteralConstant>{}(maybe(sign), realLiteralConstant);
 
 // R714 real-literal-constant ->
@@ -740,7 +740,7 @@ constexpr auto signedRealLiteralConstant = spaces >>
 // R716 exponent-letter -> E | D
 // Extension: Q
 // R717 exponent -> signed-digit-string
-// N.B. Preceding spaces are not skipped.
+// N.B. Preceding space is not skipped.
 constexpr auto exponentPart =
     ("ed"_ch || extension("q"_ch)) >> signedDigitString;
 
@@ -762,7 +762,7 @@ TYPE_CONTEXT_PARSER("COMPLEX literal constant"_en_US,
 
 // PGI/Intel extension: signed complex literal constant
 TYPE_PARSER(construct<SignedComplexLiteralConstant>{}(
-    spaces >> sign, Parser<ComplexLiteralConstant>{}))
+    space >> sign, Parser<ComplexLiteralConstant>{}))
 
 // R719 real-part ->
 //        signed-int-literal-constant | signed-real-literal-constant |
@@ -798,7 +798,7 @@ TYPE_PARSER(construct<LengthSelector>{}(
 
 // R723 char-length -> ( type-param-value ) | digit-string
 TYPE_PARSER(construct<CharLength>{}(parenthesized(typeParamValue)) ||
-    construct<CharLength>{}(spaces >> digitString))
+    construct<CharLength>{}(space >> digitString / spaceCheck))
 
 // R724 char-literal-constant ->
 //        [kind-param _] ' [rep-char]... ' |
@@ -806,7 +806,7 @@ TYPE_PARSER(construct<CharLength>{}(parenthesized(typeParamValue)) ||
 // "rep-char" is any non-control character.  Doubled interior quotes are
 // combined.  Backslash escapes can be enabled.
 // PGI extension: nc'...' is Kanji.
-// N.B. charLiteralConstantWithoutKind does not skip preceding spaces.
+// N.B. charLiteralConstantWithoutKind does not skip preceding space.
 // N.B. the parsing of "name" takes care to not consume the '_'.
 constexpr auto charLiteralConstantWithoutKind =
     "'"_ch >> CharLiteral<'\''>{} || "\""_ch >> CharLiteral<'"'>{};
@@ -815,7 +815,7 @@ TYPE_CONTEXT_PARSER("CHARACTER literal constant"_en_US,
     construct<CharLiteralConstant>{}(
         kindParam / underscore, charLiteralConstantWithoutKind) ||
         construct<CharLiteralConstant>{}(construct<std::optional<KindParam>>{},
-            spaces >> charLiteralConstantWithoutKind) ||
+            space >> charLiteralConstantWithoutKind) ||
         construct<CharLiteralConstant>{}(
             "NC" >> construct<std::optional<KindParam>>{}(
                         construct<KindParam>{}(construct<KindParam::Kanji>{})),
@@ -1466,9 +1466,9 @@ TYPE_PARSER(construct<ImplicitSpec>{}(declarationTypeSpec,
         parenthesized(nonemptyList(Parser<LetterSpec>{}))))
 
 // R865 letter-spec -> letter [- letter]
-TYPE_PARSER(spaces >> (construct<LetterSpec>{}(letter, maybe("-" >> letter)) ||
-                          construct<LetterSpec>{}(otherIdChar,
-                              construct<std::optional<const char *>>{})))
+TYPE_PARSER(space >> (construct<LetterSpec>{}(letter, maybe("-" >> letter)) ||
+                         construct<LetterSpec>{}(otherIdChar,
+                             construct<std::optional<const char *>>{})))
 
 // R867 import-stmt ->
 //        IMPORT [[::] import-name-list] |
@@ -1626,7 +1626,7 @@ TYPE_PARSER(construct<SubstringRange>{}(
 // R1414 local-defined-operator -> defined-unary-op | defined-binary-op
 // R1415 use-defined-operator -> defined-unary-op | defined-binary-op
 // N.B. The name of the operator is captured without the periods around it.
-TYPE_PARSER(spaces >> "."_ch >>
+TYPE_PARSER(space >> "."_ch >>
     construct<DefinedOpName>{}(sourced(some(letter) >> construct<Name>{})) /
         "."_ch)
 
@@ -2166,12 +2166,12 @@ TYPE_PARSER(construct<WhereBodyConstruct>{}(statement(assignmentStmt)) ||
 // R1047 masked-elsewhere-stmt ->
 //         ELSEWHERE ( mask-expr ) [where-construct-name]
 TYPE_CONTEXT_PARSER("masked ELSEWHERE statement"_en_US,
-    "ELSEWHERE" >> construct<MaskedElsewhereStmt>{}(
-                       parenthesized(logicalExpr), maybe(name)))
+    "ELSE WHERE" >> construct<MaskedElsewhereStmt>{}(
+                        parenthesized(logicalExpr), maybe(name)))
 
 // R1048 elsewhere-stmt -> ELSEWHERE [where-construct-name]
 TYPE_CONTEXT_PARSER("ELSEWHERE statement"_en_US,
-    "ELSEWHERE" >> construct<ElsewhereStmt>{}(maybe(name)))
+    "ELSE WHERE" >> construct<ElsewhereStmt>{}(maybe(name)))
 
 // R1049 end-where-stmt -> ENDWHERE [where-construct-name]
 TYPE_CONTEXT_PARSER("END WHERE statement"_en_US,
@@ -2271,7 +2271,7 @@ TYPE_CONTEXT_PARSER("CHANGE TEAM construct"_en_US,
 //         ( team-variable [, coarray-association-list] [, sync-stat-list] )
 TYPE_CONTEXT_PARSER("CHANGE TEAM statement"_en_US,
     construct<ChangeTeamStmt>{}(maybe(name / ":"),
-        "CHANGE TEAM (" >> teamVariable,
+        "CHANGE TEAM"_sptok >> "("_tok >> teamVariable,
         defaulted("," >> nonemptyList(Parser<CoarrayAssociation>{})),
         defaulted("," >> nonemptyList(statOrErrmsg))) /
         ")")
@@ -2282,7 +2282,7 @@ TYPE_PARSER(construct<CoarrayAssociation>{}(
 
 // R1114 end-change-team-stmt ->
 //         END TEAM [( [sync-stat-list] )] [team-construct-name]
-TYPE_CONTEXT_PARSER("END CHANGE TEAM statement"_en_US,
+TYPE_CONTEXT_PARSER("END TEAM statement"_en_US,
     "END TEAM" >>
         construct<EndChangeTeamStmt>{}(
             defaulted(parenthesized(optionalList(statOrErrmsg))), maybe(name)))
@@ -2348,7 +2348,7 @@ TYPE_PARSER(construct<ConcurrentControl>{}(name / "=", scalarIntExpr / ":",
 TYPE_PARSER(
     "LOCAL" >> construct<LocalitySpec>{}(construct<LocalitySpec::Local>{}(
                    parenthesized(nonemptyList(name)))) ||
-    "LOCAL INIT" >>
+    "LOCAL INIT"_sptok >>
         construct<LocalitySpec>{}(construct<LocalitySpec::LocalInit>{}(
             parenthesized(nonemptyList(name)))) ||
     "SHARED" >> construct<LocalitySpec>{}(construct<LocalitySpec::Shared>{}(
@@ -2470,7 +2470,7 @@ TYPE_CONTEXT_PARSER("SELECT RANK construct"_en_US,
 //         ( [associate-name =>] selector )
 TYPE_CONTEXT_PARSER("SELECT RANK statement"_en_US,
     construct<SelectRankStmt>{}(maybe(name / ":"),
-        "SELECT RANK (" >> maybe(name / "=>"), selector / ")"))
+        "SELECT RANK"_sptok >> "("_tok >> maybe(name / "=>"), selector / ")"))
 
 // R1150 select-rank-case-stmt ->
 //         RANK ( scalar-int-constant-expr ) [select-construct-name] |
@@ -2504,10 +2504,10 @@ TYPE_CONTEXT_PARSER("SELECT TYPE statement"_en_US,
 //         CLASS IS ( derived-type-spec ) [select-construct-name] |
 //         CLASS DEFAULT [select-construct-name]
 TYPE_CONTEXT_PARSER("type guard statement"_en_US,
-    construct<TypeGuardStmt>{}("TYPE IS" >>
+    construct<TypeGuardStmt>{}("TYPE IS"_sptok >>
                 parenthesized(construct<TypeGuardStmt::Guard>{}(typeSpec)) ||
-            "CLASS IS" >> parenthesized(construct<TypeGuardStmt::Guard>{}(
-                              derivedTypeSpec)) ||
+            "CLASS IS"_sptok >> parenthesized(construct<TypeGuardStmt::Guard>{}(
+                                    derivedTypeSpec)) ||
             "CLASS" >> construct<TypeGuardStmt::Guard>{}(defaultKeyword),
         maybe(name)))
 
@@ -2529,7 +2529,7 @@ TYPE_CONTEXT_PARSER("computed GOTO statement"_en_US,
 //         ERROR STOP [stop-code] [, QUIET = scalar-logical-expr]
 TYPE_CONTEXT_PARSER("STOP statement"_en_US,
     construct<StopStmt>{}("STOP" >> pure(StopStmt::Kind::Stop) ||
-            "ERROR STOP" >> pure(StopStmt::Kind::ErrorStop),
+            "ERROR STOP"_sptok >> pure(StopStmt::Kind::ErrorStop),
         maybe(Parser<StopCode>{}), maybe(", QUIET =" >> scalarLogicalExpr)))
 
 // R1162 stop-code -> scalar-default-char-expr | scalar-int-expr
@@ -2538,37 +2538,38 @@ TYPE_PARSER(construct<StopCode>{}(scalarDefaultCharExpr) ||
 
 // R1164 sync-all-stmt -> SYNC ALL [( [sync-stat-list] )]
 TYPE_CONTEXT_PARSER("SYNC ALL statement"_en_US,
-    "SYNC ALL" >> construct<SyncAllStmt>{}(
-                      defaulted(parenthesized(optionalList(statOrErrmsg)))))
+    "SYNC ALL"_sptok >> construct<SyncAllStmt>{}(defaulted(
+                            parenthesized(optionalList(statOrErrmsg)))))
 
 // R1166 sync-images-stmt -> SYNC IMAGES ( image-set [, sync-stat-list] )
 // R1167 image-set -> int-expr | *
 TYPE_CONTEXT_PARSER("SYNC IMAGES statement"_en_US,
-    "SYNC IMAGES" >> parenthesized(construct<SyncImagesStmt>{}(
-                         construct<SyncImagesStmt::ImageSet>{}(intExpr) ||
-                             construct<SyncImagesStmt::ImageSet>{}(star),
-                         defaulted("," >> nonemptyList(statOrErrmsg)))))
+    "SYNC IMAGES"_sptok >> parenthesized(construct<SyncImagesStmt>{}(
+                               construct<SyncImagesStmt::ImageSet>{}(intExpr) ||
+                                   construct<SyncImagesStmt::ImageSet>{}(star),
+                               defaulted("," >> nonemptyList(statOrErrmsg)))))
 
 // R1168 sync-memory-stmt -> SYNC MEMORY [( [sync-stat-list] )]
 TYPE_CONTEXT_PARSER("SYNC MEMORY statement"_en_US,
-    "SYNC MEMORY" >> construct<SyncMemoryStmt>{}(
-                         defaulted(parenthesized(optionalList(statOrErrmsg)))))
+    "SYNC MEMORY"_sptok >> construct<SyncMemoryStmt>{}(defaulted(
+                               parenthesized(optionalList(statOrErrmsg)))))
 
 // R1169 sync-team-stmt -> SYNC TEAM ( team-variable [, sync-stat-list] )
 TYPE_CONTEXT_PARSER("SYNC TEAM statement"_en_US,
-    "SYNC TEAM" >> parenthesized(construct<SyncTeamStmt>{}(teamVariable,
-                       defaulted("," >> nonemptyList(statOrErrmsg)))))
+    "SYNC TEAM"_sptok >> parenthesized(construct<SyncTeamStmt>{}(teamVariable,
+                             defaulted("," >> nonemptyList(statOrErrmsg)))))
 
 // R1170 event-post-stmt -> EVENT POST ( event-variable [, sync-stat-list] )
 // R1171 event-variable -> scalar-variable
 TYPE_CONTEXT_PARSER("EVENT POST statement"_en_US,
-    "EVENT POST" >> parenthesized(construct<EventPostStmt>{}(scalar(variable),
-                        defaulted("," >> nonemptyList(statOrErrmsg)))))
+    "EVENT POST"_sptok >>
+        parenthesized(construct<EventPostStmt>{}(
+            scalar(variable), defaulted("," >> nonemptyList(statOrErrmsg)))))
 
 // R1172 event-wait-stmt ->
 //         EVENT WAIT ( event-variable [, event-wait-spec-list] )
 TYPE_CONTEXT_PARSER("EVENT WAIT statement"_en_US,
-    "EVENT WAIT" >>
+    "EVENT WAIT"_sptok >>
         parenthesized(construct<EventWaitStmt>{}(scalar(variable),
             defaulted(
                 "," >> nonemptyList(Parser<EventWaitStmt::EventWaitSpec>{})))))
@@ -2584,7 +2585,7 @@ TYPE_PARSER(construct<EventWaitStmt::EventWaitSpec>{}(untilSpec) ||
 //         FORM TEAM ( team-number , team-variable [, form-team-spec-list] )
 // R1176 team-number -> scalar-int-expr
 TYPE_CONTEXT_PARSER("FORM TEAM statement"_en_US,
-    "FORM TEAM" >>
+    "FORM TEAM"_sptok >>
         parenthesized(construct<FormTeamStmt>{}(scalarIntExpr,
             "," >> teamVariable,
             defaulted(
@@ -3069,19 +3070,19 @@ TYPE_CONTEXT_PARSER("FORMAT statement"_en_US,
 
 // R1321 char-string-edit-desc
 // N.B. C1313 disallows any kind parameter on the character literal.
-constexpr auto charStringEditDesc = spaces >>
+constexpr auto charStringEditDesc = space >>
     (charLiteralConstantWithoutKind || rawHollerithLiteral);
 
 // R1303 format-items -> format-item [[,] format-item]...
 constexpr auto formatItems =
-    nonemptySeparated(Parser<format::FormatItem>{}, maybe(","_tok));
+    nonemptySeparated(space >> Parser<format::FormatItem>{}, maybe(","_tok));
 
 // R1306 r -> digit-string
 static inline int castU64ToInt(std::uint64_t &&n) {
   return n;  // TODO: check for overflow
 }
 
-constexpr auto repeat = spaces >> applyFunction(castU64ToInt, digitString);
+constexpr auto repeat = space >> applyFunction(castU64ToInt, digitString);
 
 // R1304 format-item ->
 //         [r] data-edit-desc | control-edit-desc | char-string-edit-desc |
@@ -3117,62 +3118,66 @@ constexpr auto mandatoryDigits = "." >> construct<std::optional<int>>{}(width);
 //         G w [. d [E e]] | L w | A [w] | D w . d |
 //         DT [char-literal-constant] [( v-list )]
 // (part 1 of 2)
-TYPE_PARSER(construct<format::IntrinsicTypeDataEditDesc>{}(
-                "I" >> pure(format::IntrinsicTypeDataEditDesc::Kind::I) ||
-                    "B" >> pure(format::IntrinsicTypeDataEditDesc::Kind::B) ||
-                    "O" >> pure(format::IntrinsicTypeDataEditDesc::Kind::O) ||
-                    "Z" >> pure(format::IntrinsicTypeDataEditDesc::Kind::Z),
-                mandatoryWidth, maybe("." >> digits), noInt) ||
+TYPE_PARSER(
     construct<format::IntrinsicTypeDataEditDesc>{}(
-        "F" >> pure(format::IntrinsicTypeDataEditDesc::Kind::F) ||
-            "D" >> pure(format::IntrinsicTypeDataEditDesc::Kind::D),
+        "I"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::I) ||
+            "B"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::B) ||
+            "O"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::O) ||
+            "Z"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::Z),
+        mandatoryWidth, maybe("." >> digits), noInt) ||
+    construct<format::IntrinsicTypeDataEditDesc>{}(
+        "F"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::F) ||
+            "D"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::D),
         mandatoryWidth, mandatoryDigits, noInt) ||
+    construct<format::IntrinsicTypeDataEditDesc>{}("E"_ch >>
+            ("N"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::EN) ||
+                "S"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::ES) ||
+                "X"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::EX) ||
+                pure(format::IntrinsicTypeDataEditDesc::Kind::E)),
+        mandatoryWidth, mandatoryDigits, maybe("E"_ch >> digits)) ||
     construct<format::IntrinsicTypeDataEditDesc>{}(
-        "EN" >> pure(format::IntrinsicTypeDataEditDesc::Kind::EN) ||
-            "ES" >> pure(format::IntrinsicTypeDataEditDesc::Kind::ES) ||
-            "EX" >> pure(format::IntrinsicTypeDataEditDesc::Kind::EX) ||
-            "E" >> pure(format::IntrinsicTypeDataEditDesc::Kind::E),
-        mandatoryWidth, mandatoryDigits, maybe("E" >> digits)) ||
+        "G"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::G),
+        mandatoryWidth, mandatoryDigits, maybe("E"_ch >> digits)) ||
     construct<format::IntrinsicTypeDataEditDesc>{}(
-        "G" >> pure(format::IntrinsicTypeDataEditDesc::Kind::G), mandatoryWidth,
-        mandatoryDigits, maybe("E" >> digits)) ||
-    construct<format::IntrinsicTypeDataEditDesc>{}(
-        "G" >> pure(format::IntrinsicTypeDataEditDesc::Kind::G) ||
-            "L" >> pure(format::IntrinsicTypeDataEditDesc::Kind::L),
+        "G"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::G) ||
+            "L"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::L),
         mandatoryWidth, noInt, noInt) ||
     construct<format::IntrinsicTypeDataEditDesc>{}(
-        "A" >> pure(format::IntrinsicTypeDataEditDesc::Kind::A), maybe(width),
-        noInt, noInt) ||
+        "A"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::A),
+        maybe(width), noInt, noInt) ||
     // PGI/Intel extension: omitting width (and all else that follows)
     extension(construct<format::IntrinsicTypeDataEditDesc>{}(
-        "I" >> pure(format::IntrinsicTypeDataEditDesc::Kind::I) ||
-            ("B"_tok / !letter /* don't occlude BN & BZ */) >>
+        "I"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::I) ||
+            ("B"_ch / !letter /* don't occlude BN & BZ */) >>
                 pure(format::IntrinsicTypeDataEditDesc::Kind::B) ||
-            "O" >> pure(format::IntrinsicTypeDataEditDesc::Kind::O) ||
-            "Z" >> pure(format::IntrinsicTypeDataEditDesc::Kind::Z) ||
-            "F" >> pure(format::IntrinsicTypeDataEditDesc::Kind::F) ||
-            ("D"_tok / !letter /* don't occlude DC & DP */) >>
+            "O"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::O) ||
+            "Z"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::Z) ||
+            "F"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::F) ||
+            ("D"_ch / !letter /* don't occlude DC & DP */) >>
                 pure(format::IntrinsicTypeDataEditDesc::Kind::D) ||
-            "EN" >> pure(format::IntrinsicTypeDataEditDesc::Kind::EN) ||
-            "ES" >> pure(format::IntrinsicTypeDataEditDesc::Kind::ES) ||
-            "EX" >> pure(format::IntrinsicTypeDataEditDesc::Kind::EX) ||
-            "E" >> pure(format::IntrinsicTypeDataEditDesc::Kind::E) ||
-            "G" >> pure(format::IntrinsicTypeDataEditDesc::Kind::G) ||
-            "L" >> pure(format::IntrinsicTypeDataEditDesc::Kind::L),
+            "E"_ch >>
+                ("N"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::EN) ||
+                    "S"_ch >>
+                        pure(format::IntrinsicTypeDataEditDesc::Kind::ES) ||
+                    "X"_ch >>
+                        pure(format::IntrinsicTypeDataEditDesc::Kind::EX) ||
+                    pure(format::IntrinsicTypeDataEditDesc::Kind::E)) ||
+            "G"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::G) ||
+            "L"_ch >> pure(format::IntrinsicTypeDataEditDesc::Kind::L),
         noInt, noInt, noInt)))
 
 // R1307 data-edit-desc (part 2 of 2)
 // R1312 v -> [sign] digit-string
-TYPE_PARSER("DT" >>
+TYPE_PARSER("D"_ch >> "T"_ch >>
     construct<format::DerivedTypeDataEditDesc>{}(
-        spaces >> defaulted(charLiteralConstantWithoutKind),
-        defaulted(parenthesized(nonemptyList(spaces >> signedDigitString)))))
+        space >> defaulted(charLiteralConstantWithoutKind),
+        defaulted(parenthesized(nonemptyList(space >> signedDigitString)))))
 
 // R1314 k -> [sign] digit-string
 static inline int castS64ToInt(std::int64_t &&n) {
   return n;  // TODO: check for overflow
 }
-constexpr auto scaleFactor = spaces >>
+constexpr auto scaleFactor = space >>
     applyFunction(castS64ToInt, signedDigitString);
 
 // R1313 control-edit-desc ->
@@ -3184,47 +3189,47 @@ constexpr auto scaleFactor = spaces >>
 // R1318 blank-interp-edit-desc -> BN | BZ
 // R1319 round-edit-desc -> RU | RD | RZ | RN | RC | RP
 // R1320 decimal-edit-desc -> DC | DP
-TYPE_PARSER(construct<format::ControlEditDesc>{}(
-                "TL" >> pure(format::ControlEditDesc::Kind::TL) ||
-                    "TR" >> pure(format::ControlEditDesc::Kind::TR) ||
-                    "T" >> pure(format::ControlEditDesc::Kind::T),
+TYPE_PARSER(construct<format::ControlEditDesc>{}("T"_ch >>
+                    ("L"_ch >> pure(format::ControlEditDesc::Kind::TL) ||
+                        "R"_ch >> pure(format::ControlEditDesc::Kind::TR) ||
+                        pure(format::ControlEditDesc::Kind::T)),
                 repeat) ||
     construct<format::ControlEditDesc>{}(repeat,
-        "X" >> pure(format::ControlEditDesc::Kind::X) ||
-            "/" >> pure(format::ControlEditDesc::Kind::Slash)) ||
+        "X"_ch >> pure(format::ControlEditDesc::Kind::X) ||
+            "/"_ch >> pure(format::ControlEditDesc::Kind::Slash)) ||
     construct<format::ControlEditDesc>{}(
-        "X" >> pure(format::ControlEditDesc::Kind::X) ||
-        "/" >> pure(format::ControlEditDesc::Kind::Slash)) ||
+        "X"_ch >> pure(format::ControlEditDesc::Kind::X) ||
+        "/"_ch >> pure(format::ControlEditDesc::Kind::Slash)) ||
     construct<format::ControlEditDesc>{}(
-        scaleFactor, "P" >> pure(format::ControlEditDesc::Kind::P)) ||
-    ":" >> construct<format::ControlEditDesc>{}(
-               pure(format::ControlEditDesc::Kind::Colon)) ||
-    "SS" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::SS)) ||
-    "SP" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::SP)) ||
-    "S" >> construct<format::ControlEditDesc>{}(
-               pure(format::ControlEditDesc::Kind::S)) ||
-    "BN" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::BN)) ||
-    "BZ" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::BZ)) ||
-    "RU" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RU)) ||
-    "RD" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RD)) ||
-    "RZ" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RZ)) ||
-    "RN" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RN)) ||
-    "RC" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RC)) ||
-    "RP" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::RP)) ||
-    "DC" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::DC)) ||
-    "DP" >> construct<format::ControlEditDesc>{}(
-                pure(format::ControlEditDesc::Kind::DP)))
+        scaleFactor, "P"_ch >> pure(format::ControlEditDesc::Kind::P)) ||
+    ":"_ch >> construct<format::ControlEditDesc>{}(
+                  pure(format::ControlEditDesc::Kind::Colon)) ||
+    "S"_ch >> ("S"_ch >> construct<format::ControlEditDesc>{}(
+                             pure(format::ControlEditDesc::Kind::SS)) ||
+                  "P"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::SP)) ||
+                  construct<format::ControlEditDesc>{}(
+                      pure(format::ControlEditDesc::Kind::S))) ||
+    "B"_ch >> ("N"_ch >> construct<format::ControlEditDesc>{}(
+                             pure(format::ControlEditDesc::Kind::BN)) ||
+                  "Z"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::BZ))) ||
+    "R"_ch >> ("U"_ch >> construct<format::ControlEditDesc>{}(
+                             pure(format::ControlEditDesc::Kind::RU)) ||
+                  "D"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::RD)) ||
+                  "Z"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::RZ)) ||
+                  "N"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::RN)) ||
+                  "C"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::RC)) ||
+                  "P"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::RP))) ||
+    "D"_ch >> ("C"_ch >> construct<format::ControlEditDesc>{}(
+                             pure(format::ControlEditDesc::Kind::DC)) ||
+                  "P"_ch >> construct<format::ControlEditDesc>{}(
+                                pure(format::ControlEditDesc::Kind::DP))))
 
 // R1401 main-program ->
 //         [program-stmt] [specification-part] [execution-part]
@@ -3241,8 +3246,9 @@ TYPE_CONTEXT_PARSER("PROGRAM statement"_en_US,
         "PROGRAM" >> name / maybe(extension(parenthesized(ok)))))
 
 // R1403 end-program-stmt -> END [PROGRAM [program-name]]
+constexpr auto bareEnd = "END" >> defaulted(cut >> maybe(name));
 TYPE_CONTEXT_PARSER("END PROGRAM statement"_en_US,
-    construct<EndProgramStmt>{}("END" >> defaulted("PROGRAM" >> maybe(name))))
+    construct<EndProgramStmt>{}("END PROGRAM" >> maybe(name) || bareEnd))
 
 // R1404 module ->
 //         module-stmt [specification-part] [module-subprogram-part]
@@ -3258,7 +3264,7 @@ TYPE_CONTEXT_PARSER(
 
 // R1406 end-module-stmt -> END [MODULE [module-name]]
 TYPE_CONTEXT_PARSER("END MODULE statement"_en_US,
-    "END" >> construct<EndModuleStmt>{}(defaulted("MODULE" >> maybe(name))))
+    construct<EndModuleStmt>{}("END MODULE" >> maybe(name) || bareEnd))
 
 // R1407 module-subprogram-part -> contains-stmt [module-subprogram]...
 TYPE_CONTEXT_PARSER("module subprogram part"_en_US,
@@ -3318,8 +3324,7 @@ TYPE_PARSER(construct<ParentIdentifier>{}(name, maybe(":" >> name)))
 
 // R1419 end-submodule-stmt -> END [SUBMODULE [submodule-name]]
 TYPE_CONTEXT_PARSER("END SUBMODULE statement"_en_US,
-    "END" >>
-        construct<EndSubmoduleStmt>{}(defaulted("SUBMODULE" >> maybe(name))))
+    construct<EndSubmoduleStmt>{}("END SUBMODULE" >> maybe(name) || bareEnd))
 
 // R1420 block-data -> block-data-stmt [specification-part] end-block-data-stmt
 TYPE_CONTEXT_PARSER("BLOCK DATA subprogram"_en_US,
@@ -3332,8 +3337,7 @@ TYPE_CONTEXT_PARSER("BLOCK DATA statement"_en_US,
 
 // R1422 end-block-data-stmt -> END [BLOCK DATA [block-data-name]]
 TYPE_CONTEXT_PARSER("END BLOCK DATA statement"_en_US,
-    "END" >>
-        construct<EndBlockDataStmt>{}(defaulted("BLOCK DATA" >> maybe(name))))
+    construct<EndBlockDataStmt>{}("END BLOCK DATA" >> maybe(name) || bareEnd))
 
 // R1501 interface-block ->
 //         interface-stmt [interface-specification]... end-interface-stmt
@@ -3347,7 +3351,8 @@ TYPE_PARSER(construct<InterfaceSpecification>{}(Parser<InterfaceBody>{}) ||
 
 // R1503 interface-stmt -> INTERFACE [generic-spec] | ABSTRACT INTERFACE
 TYPE_PARSER("INTERFACE" >> construct<InterfaceStmt>{}(maybe(genericSpec)) ||
-    "ABSTRACT INTERFACE" >> construct<InterfaceStmt>{}(construct<Abstract>{}))
+    "ABSTRACT INTERFACE"_sptok >>
+        construct<InterfaceStmt>{}(construct<Abstract>{}))
 
 // R1504 end-interface-stmt -> END INTERFACE [generic-spec]
 TYPE_PARSER(
@@ -3368,7 +3373,7 @@ TYPE_CONTEXT_PARSER("interface body"_en_US,
 constexpr auto specificProcedure = name;
 
 // R1506 procedure-stmt -> [MODULE] PROCEDURE [::] specific-procedure-list
-TYPE_PARSER(construct<ProcedureStmt>{}("MODULE PROCEDURE" >>
+TYPE_PARSER(construct<ProcedureStmt>{}("MODULE PROCEDURE"_sptok >>
                     pure(ProcedureStmt::Kind::ModuleProcedure),
                 maybe("::"_tok) >> nonemptyList(specificProcedure)) ||
     construct<ProcedureStmt>{}(
@@ -3575,7 +3580,7 @@ TYPE_PARSER(construct<Suffix>{}(
 
 // R1533 end-function-stmt -> END [FUNCTION [function-name]]
 TYPE_PARSER(
-    "END" >> construct<EndFunctionStmt>{}(defaulted("FUNCTION" >> maybe(name))))
+    construct<EndFunctionStmt>{}("END FUNCTION" >> maybe(name) || bareEnd))
 
 // R1534 subroutine-subprogram ->
 //         subroutine-stmt [specification-part] [execution-part]
@@ -3599,8 +3604,8 @@ TYPE_PARSER(
 TYPE_PARSER(construct<DummyArg>{}(name) || construct<DummyArg>{}(star))
 
 // R1537 end-subroutine-stmt -> END [SUBROUTINE [subroutine-name]]
-TYPE_PARSER("END" >>
-    construct<EndSubroutineStmt>{}(defaulted("SUBROUTINE" >> maybe(name))))
+TYPE_PARSER(
+    construct<EndSubroutineStmt>{}("END SUBROUTINE" >> maybe(name) || bareEnd))
 
 // R1538 separate-module-subprogram ->
 //         mp-subprogram-stmt [specification-part] [execution-part]
@@ -3612,12 +3617,11 @@ TYPE_CONTEXT_PARSER("separate module subprogram"_en_US,
 
 // R1539 mp-subprogram-stmt -> MODULE PROCEDURE procedure-name
 TYPE_CONTEXT_PARSER("MODULE PROCEDURE statement"_en_US,
-    construct<MpSubprogramStmt>{}("MODULE PROCEDURE" >> name))
+    construct<MpSubprogramStmt>{}("MODULE PROCEDURE"_sptok >> name))
 
 // R1540 end-mp-subprogram-stmt -> END [PROCEDURE [procedure-name]]
 TYPE_CONTEXT_PARSER("END PROCEDURE statement"_en_US,
-    "END" >>
-        construct<EndMpSubprogramStmt>{}(defaulted("PROCEDURE" >> maybe(name))))
+    construct<EndMpSubprogramStmt>{}("END PROCEDURE" >> maybe(name) || bareEnd))
 
 // R1541 entry-stmt -> ENTRY entry-name [( [dummy-arg-list] ) [suffix]]
 TYPE_PARSER("ENTRY" >>
@@ -3641,8 +3645,8 @@ TYPE_PARSER(construct<StmtFunctionStmt>{}(
 // Directives, extensions, and deprecated statements
 // !DIR$ IVDEP
 // !DIR$ IGNORE_TKR [ [(tkr...)] name ]...
-constexpr auto beginDirective = skipEmptyLines >> spaces >> "!"_ch;
-constexpr auto endDirective = spaces >> endOfLine;
+constexpr auto beginDirective = skipEmptyLines >> space >> "!"_ch;
+constexpr auto endDirective = space >> endOfLine;
 constexpr auto ivdep = "DIR$ IVDEP" >> construct<CompilerDirective::IVDEP>{};
 constexpr auto ignore_tkr = "DIR$ IGNORE_TKR" >>
     optionalList(construct<CompilerDirective::IgnoreTKR>{}(
