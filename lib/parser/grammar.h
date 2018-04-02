@@ -1633,35 +1633,26 @@ TYPE_PARSER(space >> "."_ch >>
 // R911 data-ref -> part-ref [% part-ref]...
 // R914 coindexed-named-object -> data-ref
 // R917 array-element -> data-ref
-constexpr struct DefinedOperatorName {
-  using resultType = Success;
-  static std::optional<Success> Parse(ParseState *state) {
-    if (std::optional<DefinedOpName> n{definedOpName.Parse(state)}) {
+constexpr struct StructureComponentName {
+  using resultType = Name;
+  static std::optional<Name> Parse(ParseState *state) {
+    if (std::optional<Name> n{name.Parse(state)}) {
       if (const auto *user = state->userState()) {
-        if (user->IsDefinedOperator(n->v.source)) {
-          return {Success{}};
+        if (user->IsOldStructureComponent(n->source)) {
+          return n;
         }
       }
     }
     return {};
   }
-} definedOperatorName;
+} structureComponentName;
 
 constexpr auto percentOrDot = "%"_tok ||
     // legacy VAX extension for RECORD field access
-    // TODO: this clashes with user-defined operators in modern Fortran!
-    // This work-around is incomplete; it can't see into modules.
-    extension(!namedIntrinsicOperator >> !definedOperatorName >> "."_tok);
+    extension("."_tok / lookAhead(structureComponentName));
 
-template<>
-std::optional<DataReference> Parser<DataReference>::Parse(ParseState *state) {
-  static constexpr auto partRefs =
-      nonemptySeparated(Parser<PartRef>{}, percentOrDot);
-  if (auto parts = partRefs.Parse(state)) {
-    return {DataReference(std::move(*parts))};
-  }
-  return {};
-}
+TYPE_PARSER(construct<DataReference>{}(
+    nonemptySeparated(Parser<PartRef>{}, percentOrDot)))
 
 // R912 part-ref -> part-name [( section-subscript-list )] [image-selector]
 TYPE_PARSER(construct<PartRef>{}(name,
@@ -3386,24 +3377,8 @@ TYPE_PARSER(construct<ProcedureStmt>{}("MODULE PROCEDURE"_sptok >>
 // R1509 defined-io-generic-spec ->
 //         READ ( FORMATTED ) | READ ( UNFORMATTED ) |
 //         WRITE ( FORMATTED ) | WRITE ( UNFORMATTED )
-constexpr struct NoteOperatorDefinition {
-  using resultType = DefinedOperator;
-  static std::optional<DefinedOperator> Parse(ParseState *state) {
-    static constexpr auto definedOperator = Parser<DefinedOperator>{};
-    std::optional<DefinedOperator> op{definedOperator.Parse(state)};
-    if (op.has_value()) {
-      if (auto ustate = state->userState()) {
-        if (const auto *name = std::get_if<DefinedOpName>(&op->u)) {
-          ustate->NoteDefinedOperator(name->v.source);
-        }
-      }
-    }
-    return op;
-  }
-} noteOperatorDefinition;
-
 TYPE_PARSER(construct<GenericSpec>{}(
-                "OPERATOR" >> parenthesized(noteOperatorDefinition)) ||
+                "OPERATOR" >> parenthesized(Parser<DefinedOperator>{})) ||
     construct<GenericSpec>{}(
         "ASSIGNMENT ( = )" >> construct<GenericSpec::Assignment>{}) ||
     construct<GenericSpec>{}(
@@ -3478,7 +3453,7 @@ std::optional<FunctionReference> Parser<FunctionReference>::Parse(
       return {std::move(**funcref)};
     }
     Designator *desig{&*std::get<Indirection<Designator>>(var->u)};
-    if (std::optional<Call> call{desig->ConvertToCall()}) {
+    if (std::optional<Call> call{desig->ConvertToCall(state->userState())}) {
       if (!std::get<std::list<ActualArgSpec>>(call.value().t).empty()) {
         // Parsed a designator that ended with a nonempty list of subscripts
         // that have all been converted to actual arguments.
@@ -3503,7 +3478,7 @@ template<> std::optional<CallStmt> Parser<CallStmt>::Parse(ParseState *state) {
       return {CallStmt{std::move((*funcref)->v)}};
     }
     Designator *desig{&*std::get<Indirection<Designator>>(var->u)};
-    if (std::optional<Call> call{desig->ConvertToCall()}) {
+    if (std::optional<Call> call{desig->ConvertToCall(state->userState())}) {
       return {CallStmt{std::move(call.value())}};
     }
   }
@@ -3664,8 +3639,23 @@ TYPE_PARSER(construct<StructureStmt>{}("STRUCTURE /" >> name / "/", pure(true),
     construct<StructureStmt>{}(
         "STRUCTURE" >> name, pure(false), defaulted(cut >> many(entityDecl))))
 
-TYPE_PARSER(
-    construct<StructureField>{}(statement(Parser<DataComponentDefStmt>{})) ||
+constexpr struct StructureComponents {
+  using resultType = DataComponentDefStmt;
+  static std::optional<DataComponentDefStmt> Parse(ParseState *state) {
+    static constexpr auto stmt = Parser<DataComponentDefStmt>{};
+    std::optional<DataComponentDefStmt> defs{stmt.Parse(state)};
+    if (defs.has_value()) {
+      if (auto ustate = state->userState()) {
+        for (const auto &decl : std::get<std::list<ComponentDecl>>(defs->t)) {
+          ustate->NoteOldStructureComponent(std::get<Name>(decl.t).source);
+        }
+      }
+    }
+    return defs;
+  }
+} structureComponents;
+
+TYPE_PARSER(construct<StructureField>{}(statement(structureComponents)) ||
     construct<StructureField>{}(indirect(Parser<Union>{})) ||
     construct<StructureField>{}(indirect(Parser<StructureDef>{})))
 
