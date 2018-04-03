@@ -10,23 +10,21 @@
 namespace Fortran {
 namespace parser {
 
-bool Parsing::Prescan(const std::string &path, Options options) {
+void Parsing::Prescan(const std::string &path, Options options) {
   options_ = options;
 
   std::stringstream fileError;
   const auto *sourceFile = allSources_.Open(path, &fileError);
   if (sourceFile == nullptr) {
     ProvenanceRange range{allSources_.AddCompilerInsertion(path)};
-    MessageFormattedText msg("%s"_en_US, fileError.str().data());
+    MessageFormattedText msg("%s"_err_en_US, fileError.str().data());
     messages_.Put(Message(range.start(), std::move(msg)));
-    anyFatalError_ = true;
-    return false;
+    return;
   }
   if (sourceFile->bytes() == 0) {
     ProvenanceRange range{allSources_.AddCompilerInsertion(path)};
-    messages_.Put(Message{range.start(), "file is empty"_en_US});
-    anyFatalError_ = true;
-    return false;
+    messages_.Put(Message{range.start(), "file is empty"_err_en_US});
+    return;
   }
 
   for (const auto &path : options.searchDirectories) {
@@ -51,33 +49,22 @@ bool Parsing::Prescan(const std::string &path, Options options) {
       .AddCompilerDirectiveSentinel("dir$");
   ProvenanceRange range{
       allSources_.AddIncludedFile(*sourceFile, ProvenanceRange{})};
-  anyFatalError_ = !prescanner.Prescan(range);
-  if (anyFatalError_) {
-    return false;
-  }
-
+  prescanner.Prescan(range);
   cooked_.Marshal();
-  return true;
 }
 
 void Parsing::DumpCookedChars(std::ostream &out) const {
-  if (anyFatalError_) {
-    return;
-  }
   UserState userState;
   ParseState parseState{cooked_};
   parseState.set_inFixedForm(options_.isFixedForm).set_userState(&userState);
-  while (std::optional<char> ch{parseState.GetNextChar()}) {
-    out << *ch;
+  while (std::optional<const char *> p{parseState.GetNextChar()}) {
+    out << **p;
   }
 }
 
 void Parsing::DumpProvenance(std::ostream &out) const { cooked_.Dump(out); }
 
-bool Parsing::Parse() {
-  if (anyFatalError_) {
-    return false;
-  }
+void Parsing::Parse() {
   UserState userState;
   ParseState parseState{cooked_};
   parseState.set_inFixedForm(options_.isFixedForm)
@@ -86,11 +73,32 @@ bool Parsing::Parse() {
       .set_warnOnDeprecatedUsage(options_.isStrictlyStandard)
       .set_userState(&userState);
   parseTree_ = program.Parse(&parseState);
-  anyFatalError_ = parseState.anyErrorRecovery();
+  CHECK(
+      !parseState.anyErrorRecovery() || parseState.messages()->AnyFatalError());
   consumedWholeFile_ = parseState.IsAtEnd();
   finalRestingPlace_ = parseState.GetLocation();
   messages_.Annex(parseState.messages());
-  return parseTree_.has_value() && !anyFatalError_;
+}
+
+bool Parsing::ForTesting(std::string path, std::ostream &err) {
+  Prescan(path, Options{});
+  if (messages_.AnyFatalError()) {
+    messages_.Emit(err);
+    err << "could not scan " << path << '\n';
+    return false;
+  }
+  Parse();
+  messages_.Emit(err);
+  if (!consumedWholeFile_) {
+    err << "f18 parser FAIL; final position: ";
+    Identify(err, finalRestingPlace_, "   ");
+    return false;
+  }
+  if (messages_.AnyFatalError() || !parseTree_.has_value()) {
+    err << "could not parse " << path << '\n';
+    return false;
+  }
+  return true;
 }
 }  // namespace parser
 }  // namespace Fortran
