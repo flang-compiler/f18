@@ -29,7 +29,7 @@
 namespace Fortran {
 namespace parser {
 
-// fail<A>("..."_en_US) returns a parser that never succeeds.  It reports an
+// fail<A>("..."_err_en_US) returns a parser that never succeeds.  It reports an
 // error message at the current position.  The result type is unused,
 // but might have to be specified at the point of call for satisfy
 // the type checker.  The state remains valid.
@@ -39,7 +39,7 @@ public:
   constexpr FailParser(const FailParser &) = default;
   constexpr explicit FailParser(MessageFixedText t) : text_{t} {}
   std::optional<A> Parse(ParseState *state) const {
-    state->PutMessage(text_);
+    state->Say(text_);
     return {};
   }
 
@@ -1187,13 +1187,11 @@ constexpr struct NextCh {
   using resultType = const char *;
   constexpr NextCh() {}
   std::optional<const char *> Parse(ParseState *state) const {
-    if (state->IsAtEnd()) {
-      state->PutMessage("end of file"_en_US);
-      return {};
+    if (std::optional<const char *> result{state->GetNextChar()}) {
+      return std::move(result);
     }
-    const char *at{state->GetLocation()};
-    state->UncheckedAdvance();
-    return {at};
+    state->Say("end of file"_err_en_US);
+    return {};
   }
 } nextCh;
 
@@ -1214,7 +1212,7 @@ public:
     if (result.has_value()) {
       state->set_anyConformanceViolation();
       if (state->warnOnNonstandardUsage()) {
-        state->PutMessage(at, "nonstandard usage"_en_US);
+        state->Say(at, "nonstandard usage"_en_US);
       }
     }
     return result;
@@ -1245,7 +1243,7 @@ public:
     if (result) {
       state->set_anyConformanceViolation();
       if (state->warnOnDeprecatedUsage()) {
-        state->PutMessage(at, "deprecated usage"_en_US);
+        state->Say(at, "deprecated usage"_en_US);
       }
     }
     return result;
