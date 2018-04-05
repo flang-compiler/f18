@@ -263,6 +263,7 @@ void ImplicitRules::SetType(const DeclTypeSpec &type, parser::Location lo,
   int loIndex = CharToIndex(*lo);
   CHECK(loIndex >= 0 && "not a letter");
   int hiIndex = CharToIndex(*hi);
+  CHECK(hiIndex >= 0 && "not a letter");
   for (int i = loIndex; i <= hiIndex; ++i) {
     if (!map_[i]) {
       map_[i] = &types_.back();
@@ -319,6 +320,7 @@ std::ostream &operator<<(std::ostream &o, const ImplicitRules &implicitRules) {
   }
   return o;
 }
+
 
 // AttrsVisitor implementation
 
