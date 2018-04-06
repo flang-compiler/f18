@@ -540,7 +540,7 @@ std::optional<std::size_t> Prescanner::IsIncludeLine(const char *start) const {
   return {};
 }
 
-bool Prescanner::FortranInclude(const char *firstQuote) {
+void Prescanner::FortranInclude(const char *firstQuote) {
   const char *p{firstQuote};
   while (*p != '"' && *p != '\'') {
     ++p;
@@ -558,7 +558,7 @@ bool Prescanner::FortranInclude(const char *firstQuote) {
   }
   if (*p != quote) {
     Say("malformed path name string"_err_en_US, GetProvenance(p));
-    return true;
+    return;
   }
   for (++p; *p == ' ' || *p == '\t'; ++p) {
   }
@@ -579,17 +579,13 @@ bool Prescanner::FortranInclude(const char *firstQuote) {
   if (included == nullptr) {
     Say(MessageFormattedText("INCLUDE: %s"_err_en_US, error.str().data()),
         provenance);
-    return true;
+  } else if (included->bytes() > 0) {
+    ProvenanceRange includeLineRange{
+        provenance, static_cast<std::size_t>(p - lineStart_)};
+    ProvenanceRange fileRange{
+        allSources.AddIncludedFile(*included, includeLineRange)};
+    Prescanner{*this}.Prescan(fileRange);
   }
-  if (included->bytes() == 0) {
-    return true;
-  }
-  ProvenanceRange includeLineRange{
-      provenance, static_cast<std::size_t>(p - lineStart_)};
-  ProvenanceRange fileRange{
-      allSources.AddIncludedFile(*included, includeLineRange)};
-  Prescanner{*this}.Prescan(fileRange);
-  return true;
 }
 
 bool Prescanner::IsPreprocessorDirectiveLine(const char *start) const {
