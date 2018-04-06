@@ -153,7 +153,7 @@ TokenSequence Definition::Apply(
     } else if (pasting && token.IsBlank()) {
       // Delete whitespace immediately following ## in the body.
     } else if (bytes == 11 && isVariadic_ &&
-        token.ToString() == "__VA_ARGs__") {
+        token.ToString() == "__VA_ARGS__") {
       Provenance commaProvenance{allSources.CompilerInsertionProvenance(',')};
       for (std::size_t k{argumentCount_}; k < args.size(); ++k) {
         if (k > argumentCount_) {
@@ -575,14 +575,11 @@ void Preprocessor::Directive(const TokenSequence &dir, Prescanner *prescanner) {
       prescanner->Say(
           MessageFormattedText("#include: %s"_err_en_US, error.str().data()),
           dir.GetTokenProvenance(dirOffset));
-      return;
+    } else if (included->bytes() > 0) {
+      ProvenanceRange fileRange{
+          allSources_.AddIncludedFile(*included, dir.GetProvenanceRange())};
+      Prescanner{*prescanner}.Prescan(fileRange);
     }
-    if (included->bytes() == 0) {
-      return;
-    }
-    ProvenanceRange fileRange{
-        allSources_.AddIncludedFile(*included, dir.GetProvenanceRange())};
-    Prescanner{*prescanner}.Prescan(fileRange);
   } else {
     prescanner->Say(MessageFormattedText(
                         "#%s: unknown or unimplemented directive"_err_en_US,

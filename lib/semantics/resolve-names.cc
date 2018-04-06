@@ -51,7 +51,7 @@ public:
 // Simple case: encountering CLASSNAME causes ATTRNAME to be set.
 #define HANDLE_ATTR_CLASS(CLASSNAME, ATTRNAME) \
   bool Pre(const parser::CLASSNAME &) { \
-    attrs_->Set(Attr::ATTRNAME); \
+    attrs_->set(Attr::ATTRNAME); \
     return false; \
   }
   HANDLE_ATTR_CLASS(PrefixSpec::Elemental, ELEMENTAL)
@@ -297,7 +297,6 @@ void ShowImplicitRule(
   }
 }
 
-
 // AttrsVisitor implementation
 
 void AttrsVisitor::beginAttrs() {
@@ -311,26 +310,26 @@ Attrs AttrsVisitor::endAttrs() {
   return result;
 }
 void AttrsVisitor::Post(const parser::LanguageBindingSpec &x) {
-  attrs_->Set(Attr::BIND_C);
+  attrs_->set(Attr::BIND_C);
   if (x.v) {
     // TODO: set langBindingName_ from ScalarDefaultCharConstantExpr
   }
 }
 bool AttrsVisitor::Pre(const parser::AccessSpec &x) {
   switch (x.v) {
-  case parser::AccessSpec::Kind::Public: attrs_->Set(Attr::PUBLIC); break;
-  case parser::AccessSpec::Kind::Private: attrs_->Set(Attr::PRIVATE); break;
+  case parser::AccessSpec::Kind::Public: attrs_->set(Attr::PUBLIC); break;
+  case parser::AccessSpec::Kind::Private: attrs_->set(Attr::PRIVATE); break;
   default: CRASH_NO_CASE;
   }
   return false;
 }
 bool AttrsVisitor::Pre(const parser::IntentSpec &x) {
   switch (x.v) {
-  case parser::IntentSpec::Intent::In: attrs_->Set(Attr::INTENT_IN); break;
-  case parser::IntentSpec::Intent::Out: attrs_->Set(Attr::INTENT_OUT); break;
+  case parser::IntentSpec::Intent::In: attrs_->set(Attr::INTENT_IN); break;
+  case parser::IntentSpec::Intent::Out: attrs_->set(Attr::INTENT_OUT); break;
   case parser::IntentSpec::Intent::InOut:
-    attrs_->Set(Attr::INTENT_IN);
-    attrs_->Set(Attr::INTENT_OUT);
+    attrs_->set(Attr::INTENT_IN);
+    attrs_->set(Attr::INTENT_OUT);
     break;
   default: CRASH_NO_CASE;
   }
@@ -583,7 +582,7 @@ void ResolveNamesVisitor::Post(const parser::EntityDecl &x) {
   const auto &name{std::get<parser::ObjectName>(x.t)};
   // TODO: optional ArraySpec, CoarraySpec, CharLength, Initialization
   Symbol &symbol{CurrScope().GetOrMakeSymbol(name.ToString())};
-  symbol.attrs().Add(*attrs_);  // TODO: check attribute consistency
+  symbol.attrs() |= *attrs_;  // TODO: check attribute consistency
   if (symbol.has<UnknownDetails>()) {
     symbol.set_details(EntityDetails());
   }
