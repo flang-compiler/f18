@@ -131,7 +131,6 @@ constexpr Parser<InputImpliedDo> inputImpliedDo;  // R1218, R1219
 constexpr Parser<OutputImpliedDo> outputImpliedDo;  // R1218, R1219
 constexpr Parser<PositionOrFlushSpec> positionOrFlushSpec;  // R1227 & R1229
 constexpr Parser<FormatStmt> formatStmt;  // R1301
-constexpr Parser<EndProgramStmt> endProgramStmt;  // R1403
 constexpr Parser<InterfaceBlock> interfaceBlock;  // R1501
 constexpr Parser<GenericSpec> genericSpec;  // R1508
 constexpr Parser<ProcInterface> procInterface;  // R1513
@@ -207,11 +206,11 @@ constexpr auto executionPartErrorRecovery = errorRecoveryStart >> !"END"_tok >>
 // R507 declaration-construct ->
 //        specification-construct | data-stmt | format-stmt |
 //        entry-stmt | stmt-function-stmt
-constexpr auto execPartLookAhead = errorRecoveryStart /
-    (actionStmt >> ok || "ASSOCIATE ("_tok || "BLOCK"_tok || "SELECT"_tok ||
-        "CHANGE TEAM"_sptok || "CRITICAL"_tok || "DO"_tok || "IF ("_tok ||
-        "WHERE ("_tok || "FORALL ("_tok);
-constexpr auto declErrorRecovery = !execPartLookAhead >> stmtErrorRecovery;
+constexpr auto execPartLookAhead = actionStmt >> ok || "ASSOCIATE ("_tok ||
+    "BLOCK"_tok || "SELECT"_tok || "CHANGE TEAM"_sptok || "CRITICAL"_tok ||
+    "DO"_tok || "IF ("_tok || "WHERE ("_tok || "FORALL ("_tok;
+constexpr auto declErrorRecovery =
+    errorRecoveryStart >> !execPartLookAhead >> stmtErrorRecovery;
 TYPE_CONTEXT_PARSER("declaration construct"_en_US,
     recovery(construct<DeclarationConstruct>{}(specificationConstruct) ||
             construct<DeclarationConstruct>{}(statement(indirect(dataStmt))) ||
@@ -276,8 +275,10 @@ TYPE_PARSER(
 
 // R604 constant ->  literal-constant | named-constant
 // Used only via R607 int-constant and R845 data-stmt-constant.
+// The look-ahead check prevents occlusion of constant-subobject in
+// data-stmt-constant.
 TYPE_PARSER(construct<ConstantValue>{}(literalConstant) ||
-    construct<ConstantValue>{}(namedConstant))
+    construct<ConstantValue>{}(namedConstant / !"%"_tok / !"("_tok))
 
 // R608 intrinsic-operator ->
 //        power-op | mult-op | add-op | concat-op | rel-op |
@@ -714,8 +715,10 @@ TYPE_PARSER(space >> sourced(construct<SignedIntLiteralConstant>{}(
                          signedDigitString, maybe(underscore >> kindParam))))
 
 // R708 int-literal-constant -> digit-string [_ kind-param]
+// The negated look-ahead for a trailing underscore prevents misrecognition
+// when the digit string is a numeric kind parameter of a character literal.
 TYPE_PARSER(construct<IntLiteralConstant>{}(
-    space >> digitString, maybe(underscore >> kindParam)))
+    space >> digitString, maybe(underscore >> kindParam) / !underscore))
 
 // R709 kind-param -> digit-string | scalar-int-constant-name
 TYPE_PARSER(construct<KindParam>{}(digitString) ||
@@ -1034,14 +1037,16 @@ TYPE_PARSER(construct<DerivedTypeSpec>{}(
 TYPE_PARSER(construct<TypeParamSpec>{}(maybe(keyword / "="), typeParamValue))
 
 // R756 structure-constructor -> derived-type-spec ( [component-spec-list] )
-TYPE_PARSER(construct<StructureConstructor>{}(derivedTypeSpec,
-                parenthesized(optionalList(Parser<ComponentSpec>{}))) ||
-    // This alternative corrects misrecognition of the component-spec-list as
-    // the type-param-spec-list in derived-type-spec.
-    construct<StructureConstructor>{}(
-        construct<DerivedTypeSpec>{}(
-            name, construct<std::list<TypeParamSpec>>{}),
-        parenthesized(optionalList(Parser<ComponentSpec>{}))))
+TYPE_PARSER((construct<StructureConstructor>{}(derivedTypeSpec,
+                 parenthesized(optionalList(Parser<ComponentSpec>{}))) ||
+                // This alternative corrects misrecognition of the
+                // component-spec-list as the type-param-spec-list in
+                // derived-type-spec.
+                construct<StructureConstructor>{}(
+                    construct<DerivedTypeSpec>{}(
+                        name, construct<std::list<TypeParamSpec>>{}),
+                    parenthesized(optionalList(Parser<ComponentSpec>{})))) /
+    !"("_tok)
 
 // R757 component-spec -> [keyword =] component-data-source
 TYPE_PARSER(construct<ComponentSpec>{}(
@@ -1099,7 +1104,7 @@ TYPE_CONTEXT_PARSER("array constructor"_en_US,
 // R770 ac-spec -> type-spec :: | [type-spec ::] ac-value-list
 TYPE_PARSER(construct<AcSpec>{}(maybe(indirect(typeSpec) / "::"),
                 nonemptyList(Parser<AcValue>{})) ||
-    construct<AcSpec>{}(indirect(typeSpec)))
+    construct<AcSpec>{}(indirect(typeSpec) / "::"))
 
 // R773 ac-value -> expr | ac-implied-do
 TYPE_PARSER(
@@ -1172,7 +1177,7 @@ TYPE_PARSER(construct<EntityDecl>{}(objectName, maybe(arraySpec),
 
 // R806 null-init -> function-reference
 // TODO: confirm in semantics that NULL still intrinsic in this scope
-TYPE_PARSER("NULL ( )" >> construct<NullInit>{})
+TYPE_PARSER("NULL ( )" >> construct<NullInit>{} / !"("_tok)
 
 // R807 access-spec -> PUBLIC | PRIVATE
 TYPE_PARSER(
@@ -1348,14 +1353,16 @@ TYPE_PARSER(construct<DataStmtRepeat>{}(intLiteralConstant) ||
 //        scalar-constant | scalar-constant-subobject |
 //        signed-int-literal-constant | signed-real-literal-constant |
 //        null-init | initial-data-target | structure-constructor
-TYPE_PARSER(construct<DataStmtConstant>{}(Parser<StructureConstructor>{}) ||
-    construct<DataStmtConstant>{}(scalar(Parser<ConstantValue>{})) ||
+// TODO: Some structure constructors can be misrecognized as array
+// references into constant subobjects.
+TYPE_PARSER(construct<DataStmtConstant>{}(scalar(Parser<ConstantValue>{})) ||
+    construct<DataStmtConstant>{}(nullInit) ||
+    construct<DataStmtConstant>{}(Parser<StructureConstructor>{}) ||
     construct<DataStmtConstant>{}(scalar(constantSubobject)) ||
     construct<DataStmtConstant>{}(signedRealLiteralConstant) ||
     construct<DataStmtConstant>{}(signedIntLiteralConstant) ||
     extension(construct<DataStmtConstant>{}(
         Parser<SignedComplexLiteralConstant>{})) ||
-    construct<DataStmtConstant>{}(nullInit) ||
     construct<DataStmtConstant>{}(initialDataTarget))
 
 // R848 dimension-stmt ->
@@ -2689,9 +2696,11 @@ TYPE_PARSER(maybe("UNIT ="_tok) >> construct<ConnectSpec>{}(fileUnitNumber) ||
         construct<ConnectSpec>{}(construct<ConnectSpec::CharExpr>{}(
             pure(ConnectSpec::CharExpr::Kind::Sign), scalarDefaultCharExpr)) ||
     "STATUS =" >> construct<ConnectSpec>{}(statusExpr) ||
-    extension("DISPOSE =" >>
+    extension(construct<ConnectSpec>{}(construct<ConnectSpec::CharExpr>{}(
+                  "CONVERT =" >> pure(ConnectSpec::CharExpr::Kind::Convert),
+                  scalarDefaultCharExpr)) ||
         construct<ConnectSpec>{}(construct<ConnectSpec::CharExpr>{}(
-            pure(ConnectSpec::CharExpr::Kind::Dispose),
+            "DISPOSE =" >> pure(ConnectSpec::CharExpr::Kind::Dispose),
             scalarDefaultCharExpr))))
 
 // R1209 close-spec ->
@@ -2702,6 +2711,7 @@ constexpr auto closeSpec = maybe("UNIT ="_tok) >>
         construct<CloseStmt::CloseSpec>{}(fileUnitNumber) ||
     "IOSTAT =" >> construct<CloseStmt::CloseSpec>{}(statVariable) ||
     "IOMSG =" >> construct<CloseStmt::CloseSpec>{}(msgVariable) ||
+    "ERR =" >> construct<CloseStmt::CloseSpec>{}(errLabel) ||
     "STATUS =" >> construct<CloseStmt::CloseSpec>{}(statusExpr);
 
 // R1208 close-stmt -> CLOSE ( close-spec-list )
@@ -3088,9 +3098,9 @@ TYPE_PARSER(construct<format::FormatItem>{}(
 //         ( [format-items] ) | ( [format-items ,] unlimited-format-item )
 // R1305 unlimited-format-item -> * ( format-items )
 TYPE_PARSER(parenthesized(
-    construct<format::FormatSpecification>{}(defaulted(formatItems)) ||
     construct<format::FormatSpecification>{}(
-        defaulted(formatItems / ","), "*" >> parenthesized(formatItems))))
+        defaulted(formatItems / ","), "*" >> parenthesized(formatItems)) ||
+    construct<format::FormatSpecification>{}(defaulted(formatItems))))
 // R1308 w -> digit-string
 // R1309 m -> digit-string
 // R1310 d -> digit-string
@@ -3164,7 +3174,7 @@ TYPE_PARSER("D"_ch >> "T"_ch >>
 
 // R1314 k -> [sign] digit-string
 constexpr auto count = space >> DigitStringAsPositive{};
-constexpr auto scaleFactor = count;
+constexpr auto scaleFactor = space >> signedDigitString;
 
 // R1313 control-edit-desc ->
 //         position-edit-desc | [r] / | : | sign-edit-desc | k P |
@@ -3223,7 +3233,7 @@ TYPE_PARSER(construct<format::ControlEditDesc>{}("T"_ch >>
 TYPE_CONTEXT_PARSER("main program"_en_US,
     construct<MainProgram>{}(maybe(statement(Parser<ProgramStmt>{})),
         specificationPart, executionPart, maybe(internalSubprogramPart),
-        unterminatedStatement(endProgramStmt)))
+        unterminatedStatement(Parser<EndProgramStmt>{})))
 
 // R1402 program-stmt -> PROGRAM program-name
 // PGI allows empty parentheses after the name.
