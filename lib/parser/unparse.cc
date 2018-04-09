@@ -576,7 +576,11 @@ public:
     Walk(x.t, "=");
   }
   void Unparse(const PointerStmt &x) {  // R853
-    Word("POINTER"), Walk(x.v, ", ");
+    Word("POINTER :: "), Walk(x.v, ", ");
+  }
+  void Unparse(const PointerDecl &x) {  // R854
+    Walk(std::get<Name>(x.t));
+    Walk("(", std::get<std::optional<DeferredShapeSpecList>>(x.t), ")");
   }
   void Unparse(const ProtectedStmt &x) {  // R855
     Word("PROTECTED :: "), Walk(x.v, ", ");
@@ -1433,8 +1437,7 @@ public:
   void Unparse(const Rename &x) {  // R1411
     std::visit(visitors{[&](const Rename::Names &y) { Walk(y.t, " => "); },
                    [&](const Rename::Operators &y) {
-                     Word("OPERATOR(."), Walk(y.t, ".) => OPERATOR(."),
-                         Put(".)");
+                     Word("OPERATOR("), Walk(y.t, ") => OPERATOR("), Put(")");
                    }},
         x.u);
   }
@@ -1592,8 +1595,8 @@ public:
     EndSubprogram("PROCEDURE", x.v);
   }
   void Unparse(const EntryStmt &x) {  // R1541
-    Word("ENTRY "), Walk(std::get<Name>(x.t));
-    Walk("(", std::get<std::list<DummyArg>>(x.t), ", ", ")");
+    Word("ENTRY "), Walk(std::get<Name>(x.t)), Put("(");
+    Walk(std::get<std::list<DummyArg>>(x.t), ", "), Put(")");
     Walk(" ", std::get<std::optional<Suffix>>(x.t));
   }
   void Unparse(const ReturnStmt &x) {  // R1542
