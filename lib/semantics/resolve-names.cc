@@ -934,8 +934,10 @@ bool ResolveNamesVisitor::Pre(const parser::AccessStmt &x) {
           },
           accessId.u);
     }
+  } else {
+    Say(name, "'%s' is already declared in this scoping unit"_err_en_US);
+    Say(symbol.name(), "Previous declaration of '%s'"_en_US);
   }
-  return false;
 }
 
 // Set the access specification for this name.
