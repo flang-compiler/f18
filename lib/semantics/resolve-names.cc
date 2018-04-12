@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +15,9 @@
 
 #include "resolve-names.h"
 #include "rewrite-parse-tree.h"
+=======
+#include "resolve-names.h"
+>>>>>>> Add -fdebug-dump-parse-tree and -fdebug-resolve-names
 #include "attr.h"
 #include "scope.h"
 #include "symbol.h"
