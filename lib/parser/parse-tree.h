@@ -172,7 +172,7 @@ struct EquivalenceStmt;  // R870
 struct CommonStmt;  // R873
 struct Substring;  // R908
 struct CharLiteralConstantSubstring;
-struct DataReference;  // R911
+struct DataRef;  // R911
 struct StructureComponent;  // R913
 struct CoindexedNamedObject;  // R914
 struct TypeParamInquiry;  // R916
@@ -1536,8 +1536,6 @@ using VectorSubscript = IntExpr;
 // R920 section-subscript -> subscript | subscript-triplet | vector-subscript
 struct SectionSubscript {
   UNION_CLASS_BOILERPLATE(SectionSubscript);
-  bool CanConvertToActualArgument() const;
-  ActualArg ConvertToActualArgument();
   std::variant<Subscript, SubscriptTriplet, VectorSubscript> u;
 };
 
@@ -1659,9 +1657,6 @@ struct Expr {
   explicit Expr(Designator &&);
   explicit Expr(FunctionReference &&);
 
-  std::optional<Variable> ConvertToVariable();
-  ActualArg ConvertToActualArgument();
-
   std::variant<Indirection<CharLiteralConstantSubstring>, LiteralConstant,
       Indirection<Designator>, ArrayConstructor, StructureConstructor,
       Indirection<TypeParamInquiry>, Indirection<FunctionReference>,
@@ -1684,9 +1679,9 @@ struct PartRef {
 };
 
 // R911 data-ref -> part-ref [% part-ref]...
-struct DataReference {
-  UNION_CLASS_BOILERPLATE(DataReference);
-  explicit DataReference(std::list<PartRef> &&);
+struct DataRef {
+  UNION_CLASS_BOILERPLATE(DataRef);
+  explicit DataRef(std::list<PartRef> &&);
   std::variant<Name, Indirection<StructureComponent>, Indirection<ArrayElement>,
       Indirection<CoindexedNamedObject>>
       u;
@@ -1702,7 +1697,7 @@ struct DataReference {
 // other than a primary expression.
 struct Substring {
   TUPLE_CLASS_BOILERPLATE(Substring);
-  std::tuple<DataReference, SubstringRange> t;
+  std::tuple<DataRef, SubstringRange> t;
 };
 
 struct CharLiteralConstantSubstring {
@@ -1716,9 +1711,7 @@ struct CharLiteralConstantSubstring {
 struct Designator {
   UNION_CLASS_BOILERPLATE(Designator);
   bool EndsInBareName() const;
-  ProcedureDesignator ConvertToProcedureDesignator();
-  std::optional<Call> ConvertToCall(const UserState *ustate = nullptr);
-  std::variant<ObjectName, DataReference, Substring> u;
+  std::variant<ObjectName, DataRef, Substring> u;
 };
 
 // R902 variable -> designator | function-reference
@@ -1742,27 +1735,27 @@ using ScalarDefaultCharVariable = Scalar<DefaultChar<Variable>>;
 // Appears only as part of scalar-int-variable.
 using ScalarIntVariable = Scalar<Integer<Variable>>;
 
-// R1039 proc-component-ref -> scalar-variable % procedure-component-name
-struct ProcComponentRef {
-  TUPLE_CLASS_BOILERPLATE(ProcComponentRef);
-  std::tuple<Scalar<Variable>, Name> t;
-};
-
 // R913 structure-component -> data-ref
 struct StructureComponent {
   BOILERPLATE(StructureComponent);
-  StructureComponent(DataReference &&dr, Name &&n)
+  StructureComponent(DataRef &&dr, Name &&n)
     : base{std::move(dr)}, component(std::move(n)) {}
-  DataReference base;
+  DataRef base;
   Name component;
+};
+
+// R1039 proc-component-ref -> scalar-variable % procedure-component-name
+// C1027 constrains the scalar-variable to be a data-ref without coindices.
+struct ProcComponentRef {
+  WRAPPER_CLASS_BOILERPLATE(ProcComponentRef, Scalar<StructureComponent>);
 };
 
 // R914 coindexed-named-object -> data-ref
 struct CoindexedNamedObject {
   BOILERPLATE(CoindexedNamedObject);
-  CoindexedNamedObject(DataReference &&dr, ImageSelector &&is)
+  CoindexedNamedObject(DataRef &&dr, ImageSelector &&is)
     : base{std::move(dr)}, imageSelector{std::move(is)} {}
-  DataReference base;
+  DataRef base;
   ImageSelector imageSelector;
 };
 
@@ -1779,9 +1772,9 @@ struct TypeParamInquiry {
 // R917 array-element -> data-ref
 struct ArrayElement {
   BOILERPLATE(ArrayElement);
-  ArrayElement(DataReference &&dr, std::list<SectionSubscript> &&ss)
+  ArrayElement(DataRef &&dr, std::list<SectionSubscript> &&ss)
     : base{std::move(dr)}, subscripts(std::move(ss)) {}
-  DataReference base;
+  DataRef base;
   std::list<SectionSubscript> subscripts;
 };
 
@@ -1907,7 +1900,7 @@ struct PointerAssignmentStmt {
     std::variant<std::list<BoundsRemapping>, std::list<BoundsSpec>> u;
   };
   TUPLE_CLASS_BOILERPLATE(PointerAssignmentStmt);
-  std::tuple<Variable, Bounds, Expr> t;
+  std::tuple<DataRef, Bounds, Expr> t;
 };
 
 // R1041 where-stmt -> WHERE ( mask-expr ) where-assignment-stmt
