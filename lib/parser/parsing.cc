@@ -83,10 +83,10 @@ void Parsing::Parse() {
       .set_userState(&userState);
   parseTree_ = program.Parse(&parseState);
   CHECK(
-      !parseState.anyErrorRecovery() || parseState.messages()->AnyFatalError());
+      !parseState.anyErrorRecovery() || parseState.messages().AnyFatalError());
   consumedWholeFile_ = parseState.IsAtEnd();
-  finalRestingPlace_ = parseState.GetLocation();
   messages_.Annex(parseState.messages());
+  finalRestingPlace_ = parseState.GetLocation();
 }
 
 bool Parsing::ForTesting(std::string path, std::ostream &err) {
