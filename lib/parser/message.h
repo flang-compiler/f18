@@ -6,12 +6,13 @@
 
 #include "idioms.h"
 #include "provenance.h"
+#include "reference-counted.h"
 #include <cstddef>
 #include <forward_list>
-#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
+#include <utility>
 
 namespace Fortran {
 namespace parser {
@@ -80,34 +81,31 @@ private:
   std::size_t bytes_{1};
 };
 
-class Message;
-using MessageContext = std::shared_ptr<Message>;
-
-class Message {
+class Message : public ReferenceCounted<Message> {
 public:
+  using Context = CountedReference<Message>;
+
   Message() {}
-  Message(const Message &) = default;
   Message(Message &&) = default;
-  Message &operator=(const Message &that) = default;
   Message &operator=(Message &&that) = default;
 
   // TODO: Change these to cover ranges of provenance
-  Message(Provenance p, MessageFixedText t, MessageContext c = nullptr)
+  Message(Provenance p, MessageFixedText t, Message *c = nullptr)
     : provenance_{p}, text_{t}, context_{c}, isFatal_{t.isFatal()} {}
-  Message(Provenance p, MessageFormattedText &&s, MessageContext c = nullptr)
+  Message(Provenance p, MessageFormattedText &&s, Message *c = nullptr)
     : provenance_{p}, string_{s.MoveString()}, context_{c}, isFatal_{
                                                                 s.isFatal()} {}
-  Message(Provenance p, MessageExpectedText t, MessageContext c = nullptr)
+  Message(Provenance p, MessageExpectedText t, Message *c = nullptr)
     : provenance_{p}, text_{t.AsMessageFixedText()},
       isExpectedText_{true}, context_{c}, isFatal_{true} {}
 
-  Message(const char *csl, MessageFixedText t, MessageContext c = nullptr)
+  Message(const char *csl, MessageFixedText t, Message *c = nullptr)
     : cookedSourceLocation_{csl}, text_{t}, context_{c}, isFatal_{t.isFatal()} {
   }
-  Message(const char *csl, MessageFormattedText &&s, MessageContext c = nullptr)
+  Message(const char *csl, MessageFormattedText &&s, Message *c = nullptr)
     : cookedSourceLocation_{csl}, string_{s.MoveString()}, context_{c},
       isFatal_{s.isFatal()} {}
-  Message(const char *csl, MessageExpectedText t, MessageContext c = nullptr)
+  Message(const char *csl, MessageExpectedText t, Message *c = nullptr)
     : cookedSourceLocation_{csl}, text_{t.AsMessageFixedText()},
       isExpectedText_{true}, context_{c}, isFatal_{true} {}
 
@@ -123,7 +121,7 @@ public:
 
   Provenance provenance() const { return provenance_; }
   const char *cookedSourceLocation() const { return cookedSourceLocation_; }
-  MessageContext context() const { return context_; }
+  Context context() const { return context_; }
   bool isFatal() const { return isFatal_; }
 
   Provenance Emit(
@@ -135,7 +133,7 @@ private:
   MessageFixedText text_;
   bool isExpectedText_{false};  // implies "expected '%s'"_err_en_US
   std::string string_;
-  MessageContext context_;
+  Context context_;
   bool isFatal_{false};
 };
 
@@ -148,16 +146,21 @@ public:
 
   explicit Messages(const CookedSource &cooked) : cooked_{cooked} {}
   Messages(Messages &&that)
-    : cooked_{that.cooked_}, messages_{std::move(that.messages_)},
-      last_{that.last_} {}
-  Messages &operator=(Messages &&that) {
-    swap(that);
-    return *this;
+    : cooked_{that.cooked_}, messages_{std::move(that.messages_)} {
+    if (!messages_.empty()) {
+      last_ = that.last_;
+      that.last_ = that.messages_.before_begin();
+    }
   }
-
-  void swap(Messages &that) {
-    messages_.swap(that.messages_);
-    std::swap(last_, that.last_);
+  Messages &operator=(Messages &&that) {
+    messages_ = std::move(that.messages_);
+    if (messages_.empty()) {
+      last_ = messages_.before_begin();
+    } else {
+      last_ = that.last_;
+      that.last_ = that.messages_.before_begin();
+    }
+    return *this;
   }
 
   bool empty() const { return messages_.empty(); }
@@ -178,25 +181,20 @@ public:
     }
   }
 
-  Message &Put(Message &&m) {
+  void Put(Message &&m) {
     CHECK(IsValidLocation(m));
-    if (messages_.empty()) {
-      messages_.emplace_front(std::move(m));
-      last_ = messages_.begin();
-    } else {
-      last_ = messages_.emplace_after(last_, std::move(m));
-    }
-    return *last_;
+    last_ = messages_.emplace_after(last_, std::move(m));
   }
 
-  void Annex(Messages *that) {
-    if (!that->messages_.empty()) {
-      if (messages_.empty()) {
-        messages_ = std::move(that->messages_);
-      } else {
-        messages_.splice_after(last_, that->messages_);
-      }
-      last_ = that->last_;
+  template<typename... A> void Say(A &&... args) {
+    last_ = messages_.emplace_after(last_, std::forward<A>(args)...);
+  }
+
+  void Annex(Messages &that) {
+    if (!that.messages_.empty()) {
+      messages_.splice_after(last_, that.messages_);
+      last_ = that.last_;
+      that.last_ = that.messages_.before_begin();
     }
   }
 
@@ -208,7 +206,7 @@ public:
 private:
   const CookedSource &cooked_;
   listType messages_;
-  iterator last_;  // valid iff messages_ nonempty
+  iterator last_{messages_.before_begin()};
 };
 }  // namespace parser
 }  // namespace Fortran
