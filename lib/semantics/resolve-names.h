@@ -6,5 +6,8 @@ class CookedSource;
 }  // namespace Fortran::parser
 
 namespace Fortran::semantics {
-void ResolveNames(const parser::Program &, const parser::CookedSource &);
+
+void ResolveNames(parser::Program &, const parser::CookedSource &);
+void DumpSymbols(std::ostream &);
+
 }  // namespace Fortran::semantics
