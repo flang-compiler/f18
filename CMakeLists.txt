@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.9.0)
 
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
 #
 # Reminder: The normal way to set the compiler is via the CXX environment variable
 #  
@@ -29,13 +32,63 @@ project(f18 CXX)
 if( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE Debug )
 endif()
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
+
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
+
+#find_package( Clang REQUIRED CONFIG)
+find_package( Clang )
+
+message(STATUS "===== ${LLVM_INSTALL}")
+find_package(LLVM  REQUIRED CONFIG  )
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+
+include_directories(${LLVM_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
+
+
+#
+# Get names for the LLVM libraries
+#
+# The full list of LLVM components can be obtained with
+#
+#   llvm-config --components
+#
+# Similarly, the (static) libraries corresponding to some
+# components (default is 'all') can be obtained with
+#
+#   llvm-config --libs --link-static [component ...]
+#
+# See also
+#  http://llvm.org/docs/CMake.html#embedding-llvm-in-your-project
+#  https://stackoverflow.com/questions/41924375/llvm-how-to-specify-all-link-libraries-as-input-to-llvm-map-components-to-libna
+#  https://stackoverflow.com/questions/33948633/how-do-i-link-when-building-with-llvm-libraries
+
+# Those are ate
+llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
+
+
+#
+# Provide access to the C++ CLANG Libraries (not the C api) 
+#
+
+#find_package(LibClang REQUIRED )
+#message(STATUS "Using LIBCLANG_INCLUDE_DIR = ${LIBCLANG_INCLUDE_DIR}")
+#message(STATUS "Using LIBCLANG_LIBRARY_DIR = ${LIBCLANG_LIBRARY_DIR}")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBCLANG_INCLUDE_DIR}")
+
+
+
+
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
 
 if(CMAKE_COMPILER_IS_GNUCXX)
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
    set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
-   set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
+
+set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
    set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
 endif()
 
