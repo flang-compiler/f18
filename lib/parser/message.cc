@@ -1,8 +1,10 @@
 #include "message.h"
+#include "char-set.h"
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace Fortran {
 namespace parser {
@@ -35,19 +37,56 @@ MessageFormattedText::MessageFormattedText(MessageFixedText text, ...)
   string_ = buffer;
 }
 
-MessageFixedText MessageExpectedText::AsMessageFixedText() const {
-  if (str_ != nullptr) {
-    return {str_, bytes_};
+void Message::Incorporate(Message &that) {
+  if (provenance_ == that.provenance_ &&
+      cookedSourceLocation_ == that.cookedSourceLocation_ &&
+      !expected_.empty()) {
+    expected_ = expected_.Union(that.expected_);
   }
-  static char chars[256];
-  if (chars[1] == '\0') {
-    // one-time initialization of array used for permanant single-byte string
-    // pointers
-    for (std::size_t j{0}; j < sizeof chars; ++j) {
-      chars[j] = j;
+}
+
+std::string Message::ToString() const {
+  std::string s{string_};
+  bool isExpected{isExpected_};
+  if (string_.empty()) {
+    if (fixedText_ != nullptr) {
+      if (fixedBytes_ > 0 && fixedBytes_ < std::string::npos) {
+        s = std::string(fixedText_, fixedBytes_);
+      } else {
+        s = std::string{fixedText_};  // NUL-terminated
+      }
+    } else {
+      SetOfChars expect{expected_};
+      if (expect.Has('\n')) {
+        expect = expect.Difference('\n');
+        if (expect.empty()) {
+          return "expected end of line"_err_en_US.ToString();
+        } else {
+          s = expect.ToString();
+          if (s.size() == 1) {
+            return MessageFormattedText(
+                "expected end of line or '%s'"_err_en_US, s.data())
+                .MoveString();
+          } else {
+            return MessageFormattedText(
+                "expected end of line or one of '%s'"_err_en_US, s.data())
+                .MoveString();
+          }
+        }
+      }
+      s = expect.ToString();
+      if (s.size() != 1) {
+        return MessageFormattedText("expected one of '%s'"_err_en_US, s.data())
+            .MoveString();
+      }
+      isExpected = true;
     }
   }
-  return {&chars[static_cast<unsigned char>(singleton_)], 1};
+  if (isExpected) {
+    return MessageFormattedText("expected '%s'"_err_en_US, s.data())
+        .MoveString();
+  }
+  return s;
 }
 
 Provenance Message::Emit(
@@ -63,23 +102,16 @@ Provenance Message::Emit(
   if (isFatal_) {
     o << "ERROR: ";
   }
-  if (string_.empty()) {
-    if (isExpectedText_) {
-      std::string goal{text_.ToString()};
-      if (goal == "\n") {
-        o << "expected end of line"_err_en_US;
-      } else {
-        o << MessageFormattedText("expected '%s'"_err_en_US, goal.data())
-                 .MoveString();
-      }
-    } else {
-      o << text_;
-    }
-  } else {
-    o << string_;
-  }
-  o << '\n';
+  o << ToString() << '\n';
   return provenance;
+}
+
+void Messages::Incorporate(Messages &that) {
+  if (messages_.empty()) {
+    *this = std::move(that);
+  } else if (!that.messages_.empty()) {
+    last_->Incorporate(*that.last_);
+  }
 }
 
 void Messages::Emit(
