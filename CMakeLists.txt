@@ -87,6 +87,56 @@ llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
 
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
+
+#find_package( Clang REQUIRED CONFIG)
+find_package( Clang )
+
+message(STATUS "===== ${LLVM_INSTALL}")
+find_package(LLVM  REQUIRED CONFIG  )
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+
+include_directories(${LLVM_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
+
+
+#
+# Get names for the LLVM libraries
+#
+# The full list of LLVM components can be obtained with
+#
+#   llvm-config --components
+#
+# Similarly, the (static) libraries corresponding to some
+# components (default is 'all') can be obtained with
+#
+#   llvm-config --libs --link-static [component ...]
+#
+# See also
+#  http://llvm.org/docs/CMake.html#embedding-llvm-in-your-project
+#  https://stackoverflow.com/questions/41924375/llvm-how-to-specify-all-link-libraries-as-input-to-llvm-map-components-to-libna
+#  https://stackoverflow.com/questions/33948633/how-do-i-link-when-building-with-llvm-libraries
+
+# Those are ate
+llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
+
+
+#
+# Provide access to the C++ CLANG Libraries (not the C api) 
+#
+
+#find_package(LibClang REQUIRED )
+#message(STATUS "Using LIBCLANG_INCLUDE_DIR = ${LIBCLANG_INCLUDE_DIR}")
+#message(STATUS "Using LIBCLANG_LIBRARY_DIR = ${LIBCLANG_LIBRARY_DIR}")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBCLANG_INCLUDE_DIR}")
+
+
+
+
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
+
 if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
      set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
