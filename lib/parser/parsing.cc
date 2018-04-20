@@ -1,5 +1,6 @@
 #include "parsing.h"
 #include "grammar.h"
+#include "instrumented-parser.h"
 #include "message.h"
 #include "preprocessor.h"
 #include "prescan.h"
@@ -73,8 +74,13 @@ void Parsing::DumpCookedChars(std::ostream &out) const {
 
 void Parsing::DumpProvenance(std::ostream &out) const { cooked_.Dump(out); }
 
+void Parsing::DumpParsingLog(std::ostream &out) const {
+  log_.Dump(out, cooked_);
+}
+
 void Parsing::Parse() {
   UserState userState;
+  userState.set_instrumentedParse(options_.instrumentedParse).set_log(&log_);
   ParseState parseState{cooked_};
   parseState.set_inFixedForm(options_.isFixedForm)
       .set_encoding(options_.encoding)
@@ -89,15 +95,17 @@ void Parsing::Parse() {
   finalRestingPlace_ = parseState.GetLocation();
 }
 
+void Parsing::ClearLog() { log_.clear(); }
+
 bool Parsing::ForTesting(std::string path, std::ostream &err) {
   Prescan(path, Options{});
   if (messages_.AnyFatalError()) {
-    messages_.Emit(err);
+    messages_.Emit(err, cooked_);
     err << "could not scan " << path << '\n';
     return false;
   }
   Parse();
-  messages_.Emit(err);
+  messages_.Emit(err, cooked_);
   if (!consumedWholeFile_) {
     err << "f18 parser FAIL; final position: ";
     Identify(err, finalRestingPlace_, "   ");

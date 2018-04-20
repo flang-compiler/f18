@@ -114,8 +114,15 @@ void Messages::Incorporate(Messages &that) {
   }
 }
 
-void Messages::Emit(
-    std::ostream &o, const char *prefix, bool echoSourceLines) const {
+void Messages::Copy(const Messages &that) {
+  for (const Message &m : that.messages_) {
+    Message copy{m};
+    Put(std::move(copy));
+  }
+}
+
+void Messages::Emit(std::ostream &o, const CookedSource &cooked,
+    const char *prefix, bool echoSourceLines) const {
   for (const auto &msg : messages_) {
     if (prefix) {
       o << prefix;
@@ -123,7 +130,7 @@ void Messages::Emit(
     if (msg.context()) {
       o << "In the context ";
     }
-    msg.Emit(o, cooked_, echoSourceLines);
+    msg.Emit(o, cooked, echoSourceLines);
   }
 }
 
