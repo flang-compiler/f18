@@ -133,77 +133,73 @@ void AllSources::Identify(std::ostream &o, Provenance at,
   CHECK(IsValid(at));
   static const std::string indented{prefix + "  "};
   const Origin &origin{MapToOrigin(at)};
-  std::visit(
-      visitors{
-          [&](const Inclusion &inc) {
-            std::size_t offset{origin.covers.MemberOffset(at)};
-            std::pair<int, int> pos{inc.source.FindOffsetLineAndColumn(offset)};
-            o << prefix << "at line " << pos.first << ", column " << pos.second;
-            if (echoSourceLine) {
-              o << ":\n" << indented << "  ";
-              const char *text{inc.source.content() +
-                  inc.source.GetLineStartOffset(pos.first)};
-              for (const char *p{text}; *p != '\n'; ++p) {
-                o << *p;
-              }
-              o << '\n' << indented << "  ";
-              for (int j{1}; j < pos.second; ++j) {
-                char ch{text[j - 1]};
-                o << (ch == '\t' ? '\t' : ' ');
-              }
-              o << "^\n" << prefix;
-            } else {
-              o << ' ';
-            }
-            o << "in the " << (inc.isModule ? "module " : "file ")
-              << inc.source.path();
-            if (IsValid(origin.replaces)) {
-              o << (inc.isModule ? " used\n" : " included\n");
-              Identify(o, origin.replaces.start(), indented);
-            } else {
-              o << '\n';
-            }
-          },
-          [&](const Macro &mac) {
-            o << prefix << "in the expansion of a macro that was defined\n";
-            Identify(o, mac.definition.start(), indented, echoSourceLine);
-            o << prefix << "and called\n";
-            Identify(o, origin.replaces.start(), indented, echoSourceLine);
-            if (echoSourceLine) {
-              o << prefix << "and expanded to\n"
-                << indented << "  " << mac.expansion << '\n'
-                << indented << "  ";
-              for (std::size_t j{0}; origin.covers.OffsetMember(j) < at; ++j) {
-                o << (mac.expansion[j] == '\t' ? '\t' : ' ');
-              }
-              o << "^\n";
-            }
-          },
-          [&](const CompilerInsertion &ins) {
-            o << prefix << ins.text << '\n';
-          }},
-      origin.u);
+  Visit(origin.u,
+      [&](const Inclusion &inc) {
+        std::size_t offset{origin.covers.MemberOffset(at)};
+        std::pair<int, int> pos{inc.source.FindOffsetLineAndColumn(offset)};
+        o << prefix << "at line " << pos.first << ", column " << pos.second;
+        if (echoSourceLine) {
+          o << ":\n" << indented << "  ";
+          const char *text{
+              inc.source.content() + inc.source.GetLineStartOffset(pos.first)};
+          for (const char *p{text}; *p != '\n'; ++p) {
+            o << *p;
+          }
+          o << '\n' << indented << "  ";
+          for (int j{1}; j < pos.second; ++j) {
+            char ch{text[j - 1]};
+            o << (ch == '\t' ? '\t' : ' ');
+          }
+          o << "^\n" << prefix;
+        } else {
+          o << ' ';
+        }
+        o << "in the " << (inc.isModule ? "module " : "file ")
+          << inc.source.path();
+        if (IsValid(origin.replaces)) {
+          o << (inc.isModule ? " used\n" : " included\n");
+          Identify(o, origin.replaces.start(), indented);
+        } else {
+          o << '\n';
+        }
+      },
+      [&](const Macro &mac) {
+        o << prefix << "in the expansion of a macro that was defined\n";
+        Identify(o, mac.definition.start(), indented, echoSourceLine);
+        o << prefix << "and called\n";
+        Identify(o, origin.replaces.start(), indented, echoSourceLine);
+        if (echoSourceLine) {
+          o << prefix << "and expanded to\n"
+            << indented << "  " << mac.expansion << '\n'
+            << indented << "  ";
+          for (std::size_t j{0}; origin.covers.OffsetMember(j) < at; ++j) {
+            o << (mac.expansion[j] == '\t' ? '\t' : ' ');
+          }
+          o << "^\n";
+        }
+      },
+      [&](const CompilerInsertion &ins) { o << prefix << ins.text << '\n'; });
 }
 
 const SourceFile *AllSources::GetSourceFile(
     Provenance at, std::size_t *offset) const {
   const Origin &origin{MapToOrigin(at)};
-  return std::visit(visitors{[&](const Inclusion &inc) {
-                               if (offset != nullptr) {
-                                 *offset = origin.covers.MemberOffset(at);
-                               }
-                               return &inc.source;
-                             },
-                        [&](const Macro &mac) {
-                          return GetSourceFile(origin.replaces.start(), offset);
-                        },
-                        [offset](const CompilerInsertion &) {
-                          if (offset != nullptr) {
-                            *offset = 0;
-                          }
-                          return static_cast<const SourceFile *>(nullptr);
-                        }},
-      origin.u);
+  return Visit(origin.u,
+      [&](const Inclusion &inc) {
+        if (offset != nullptr) {
+          *offset = origin.covers.MemberOffset(at);
+        }
+        return &inc.source;
+      },
+      [&](const Macro &mac) {
+        return GetSourceFile(origin.replaces.start(), offset);
+      },
+      [offset](const CompilerInsertion &) {
+        if (offset != nullptr) {
+          *offset = 0;
+        }
+        return static_cast<const SourceFile *>(nullptr);
+      });
 }
 
 ProvenanceRange AllSources::GetContiguousRangeAround(
@@ -248,15 +244,14 @@ AllSources::Origin::Origin(ProvenanceRange r, const std::string &text)
   : u{CompilerInsertion{text}}, covers{r} {}
 
 const char &AllSources::Origin::operator[](std::size_t n) const {
-  return std::visit(
-      visitors{[n](const Inclusion &inc) -> const char & {
-                 return inc.source.content()[n];
-               },
-          [n](const Macro &mac) -> const char & { return mac.expansion[n]; },
-          [n](const CompilerInsertion &ins) -> const char & {
-            return ins.text[n];
-          }},
-      u);
+  return Visit(u,
+      [n](const Inclusion &inc) -> const char & {
+        return inc.source.content()[n];
+      },
+      [n](const Macro &mac) -> const char & { return mac.expansion[n]; },
+      [n](const CompilerInsertion &ins) -> const char & {
+        return ins.text[n];
+      });
 }
 
 const AllSources::Origin &AllSources::MapToOrigin(Provenance at) const {
@@ -313,22 +308,21 @@ void AllSources::Dump(std::ostream &o) const {
     o << "   ";
     DumpRange(o, m.covers);
     o << " -> ";
-    std::visit(visitors{[&](const Inclusion &inc) {
-                          if (inc.isModule) {
-                            o << "module ";
-                          }
-                          o << "file " << inc.source.path();
-                        },
-                   [&](const Macro &mac) { o << "macro " << mac.expansion; },
-                   [&](const CompilerInsertion &ins) {
-                     o << "compiler '" << ins.text << '\'';
-                     if (ins.text.length() == 1) {
-                       int ch = ins.text[0];
-                       o << " (0x" << std::hex << (ch & 0xff) << std::dec
-                         << ")";
-                     }
-                   }},
-        m.u);
+    Visit(m.u,
+        [&](const Inclusion &inc) {
+          if (inc.isModule) {
+            o << "module ";
+          }
+          o << "file " << inc.source.path();
+        },
+        [&](const Macro &mac) { o << "macro " << mac.expansion; },
+        [&](const CompilerInsertion &ins) {
+          o << "compiler '" << ins.text << '\'';
+          if (ins.text.length() == 1) {
+            int ch = ins.text[0];
+            o << " (0x" << std::hex << (ch & 0xff) << std::dec << ")";
+          }
+        });
     o << '\n';
   }
 }

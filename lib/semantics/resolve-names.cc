@@ -345,15 +345,12 @@ public:
     return std::get_if<parser::Name>(&x.u);
   }
   const parser::Name *GetVariableName(const parser::Designator &x) {
-    return std::visit(
-        parser::visitors{
-            [&](const parser::ObjectName &x) { return &x; },
-            [&](const parser::DataRef &x) { return GetVariableName(x); },
-            [&](const auto &) {
-              return static_cast<const parser::Name *>(nullptr);
-            },
-        },
-        x.u);
+    return parser::Visit(x.u,
+        [&](const parser::DataRef &y) { return GetVariableName(y); },
+        [&](const parser::ObjectName &y) { return &y; },
+        [&](const auto &) {
+          return static_cast<const parser::Name *>(nullptr);
+        });
   }
   const parser::Name *GetVariableName(const parser::Expr &x) {
     if (const auto *designator =
@@ -581,15 +578,12 @@ void DeclTypeSpecVisitor::Post(const parser::TypeParamSpec &x) {
   typeParamValue_.reset();
 }
 bool DeclTypeSpecVisitor::Pre(const parser::TypeParamValue &x) {
-  typeParamValue_ = std::make_unique<ParamValue>(std::visit(
-      parser::visitors{
-          [&](const parser::ScalarIntExpr &x) { return Bound{IntExpr{x}}; },
-          [&](const parser::Star &x) { return Bound::ASSUMED; },
-          [&](const parser::TypeParamValue::Deferred &x) {
-            return Bound::DEFERRED;
-          },
-      },
-      x.u));
+  typeParamValue_ = std::make_unique<ParamValue>(parser::Visit(x.u,
+      [&](const parser::ScalarIntExpr &x) { return Bound{IntExpr{x}}; },
+      [&](const parser::Star &x) { return Bound::ASSUMED; },
+      [&](const parser::TypeParamValue::Deferred &x) {
+        return Bound::DEFERRED;
+      }));
   return false;
 }
 
@@ -679,21 +673,18 @@ void ImplicitRulesVisitor::Post(const parser::ParameterStmt &x) {
 }
 
 bool ImplicitRulesVisitor::Pre(const parser::ImplicitStmt &x) {
-  bool res = std::visit(
-      parser::visitors{
-          [&](const std::list<ImplicitNoneNameSpec> &x) {
-            return HandleImplicitNone(x);
-          },
-          [&](const std::list<parser::ImplicitSpec> &x) {
-            if (prevImplicitNoneType_) {
-              Say("IMPLICIT statement after IMPLICIT NONE or "
-                  "IMPLICIT NONE(TYPE) statement"_err_en_US);
-              return false;
-            }
-            return true;
-          },
+  bool res = parser::Visit(x.u,
+      [&](const std::list<ImplicitNoneNameSpec> &x) {
+        return HandleImplicitNone(x);
       },
-      x.u);
+      [&](const std::list<parser::ImplicitSpec> &x) {
+        if (prevImplicitNoneType_) {
+          Say("IMPLICIT statement after IMPLICIT NONE or "
+              "IMPLICIT NONE(TYPE) statement"_err_en_US);
+          return false;
+        }
+        return true;
+      });
   prevImplicit_ = currStmtSource();
   return res;
 }
