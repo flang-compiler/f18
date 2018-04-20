@@ -50,6 +50,20 @@ template<typename... LAMBDAS> struct visitors : LAMBDAS... {
 
 template<typename... LAMBDAS> visitors(LAMBDAS... x)->visitors<LAMBDAS...>;
 
+// Helper function for common case of std::vist with visitors.
+// E.g.: Visit(structure.unionMember,
+//         [&](const UnaryExpr &x) { ... },
+//         [&](const BinaryExpr &x) { ... },
+//         ...);
+template<typename... Ts, typename... LAMBDAS>
+constexpr decltype(auto) Visit(std::variant<Ts...> &u, LAMBDAS... x) {
+  return std::visit(visitors<LAMBDAS...>{x...}, u);
+}
+template<typename... Ts, typename... LAMBDAS>
+constexpr decltype(auto) Visit(const std::variant<Ts...> &u, LAMBDAS... x) {
+  return std::visit(visitors<LAMBDAS...>{x...}, u);
+}
+
 // Calls std::fprintf(stderr, ...), then abort().
 [[noreturn]] void die(const char *, ...);
 
