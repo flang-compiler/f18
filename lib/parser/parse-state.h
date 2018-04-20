@@ -27,12 +27,11 @@ class ParseState {
 public:
   // TODO: Add a constructor for parsing a normalized module file.
   ParseState(const CookedSource &cooked)
-    : p_{&cooked[0]}, limit_{p_ + cooked.size()}, messages_{cooked} {}
+    : p_{&cooked[0]}, limit_{p_ + cooked.size()} {}
   ParseState(const ParseState &that)
-    : p_{that.p_}, limit_{that.limit_}, messages_{that.messages_.cooked()},
-      context_{that.context_}, userState_{that.userState_},
-      inFixedForm_{that.inFixedForm_}, encoding_{that.encoding_},
-      strictConformance_{that.strictConformance_},
+    : p_{that.p_}, limit_{that.limit_}, context_{that.context_},
+      userState_{that.userState_}, inFixedForm_{that.inFixedForm_},
+      encoding_{that.encoding_}, strictConformance_{that.strictConformance_},
       warnOnNonstandardUsage_{that.warnOnNonstandardUsage_},
       warnOnDeprecatedUsage_{that.warnOnDeprecatedUsage_},
       anyErrorRecovery_{that.anyErrorRecovery_},
@@ -75,6 +74,7 @@ public:
     return *this;
   }
 
+  const Messages &messages() const { return messages_; }
   Messages &messages() { return messages_; }
 
   bool anyErrorRecovery() const { return anyErrorRecovery_; }
@@ -126,6 +126,7 @@ public:
   }
 
   bool anyDeferredMessages() const { return anyDeferredMessages_; }
+  void set_anyDeferredMessages(bool yes) { anyDeferredMessages_ = yes; }
 
   const char *GetLocation() const { return p_; }
 

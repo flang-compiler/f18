@@ -44,8 +44,7 @@ void MeasureParseTree(const Fortran::parser::Program &program) {
   MeasurementVisitor visitor;
   Fortran::parser::Walk(program, visitor);
   std::cout << "Parse tree comprises " << visitor.objects
-            << " objects and occupies " << visitor.bytes
-            << " total bytes.\n";
+            << " objects and occupies " << visitor.bytes << " total bytes.\n";
 }
 
 std::vector<std::string> filesToDelete;
@@ -84,8 +83,7 @@ bool ParentProcess() {
   }
   int childStat{0};
   wait(&childStat);
-  if (!WIFEXITED(childStat) ||
-      WEXITSTATUS(childStat) != 0) {
+  if (!WIFEXITED(childStat) || WEXITSTATUS(childStat) != 0) {
     exit(EXIT_FAILURE);
   }
   return true;
@@ -100,8 +98,8 @@ void Exec(std::vector<char *> &argv, bool verbose = false) {
   }
   argv.push_back(nullptr);
   execvp(argv[0], &argv[0]);
-  std::cerr << "execvp(" << argv[0] << ") failed: "
-            << std::strerror(errno) << '\n';
+  std::cerr << "execvp(" << argv[0] << ") failed: " << std::strerror(errno)
+            << '\n';
   exit(EXIT_FAILURE);
 }
 
@@ -136,8 +134,10 @@ std::string RelocatableName(const DriverOptions &driver, std::string path) {
   return relo;
 }
 
-std::string CompileFortran(std::string path, Fortran::parser::Options options,
-                           DriverOptions &driver) {
+int exitStatus{EXIT_SUCCESS};
+
+std::string CompileFortran(
+    std::string path, Fortran::parser::Options options, DriverOptions &driver) {
   if (!driver.forcedForm) {
     auto dot = path.rfind(".");
     if (dot != std::string::npos) {
@@ -150,8 +150,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   if (!parsing.messages().empty() &&
       (driver.warningsAreErrors || parsing.messages().AnyFatalError())) {
     std::cerr << driver.prefix << "could not scan " << path << '\n';
-    parsing.messages().Emit(std::cerr, driver.prefix);
-    exit(EXIT_FAILURE);
+    parsing.messages().Emit(std::cerr, parsing.cooked(), driver.prefix);
+    exitStatus = EXIT_FAILURE;
+    return {};
   }
   if (driver.dumpProvenance) {
     parsing.DumpProvenance(std::cout);
@@ -162,24 +163,30 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     return {};
   }
   parsing.Parse();
-  parsing.messages().Emit(std::cerr, driver.prefix);
+  if (options.instrumentedParse) {
+    parsing.DumpParsingLog(std::cout);
+    return {};
+  }
+  parsing.ClearLog();
+  parsing.messages().Emit(std::cerr, parsing.cooked(), driver.prefix);
   if (!parsing.consumedWholeFile()) {
     std::cerr << "f18 parser FAIL; final position: ";
     parsing.Identify(std::cerr, parsing.finalRestingPlace(), "   ");
-    exit(EXIT_FAILURE);
+    exitStatus = EXIT_FAILURE;
+    return {};
   }
   if ((!parsing.messages().empty() &&
-       (driver.warningsAreErrors || parsing.messages().AnyFatalError())) ||
+          (driver.warningsAreErrors || parsing.messages().AnyFatalError())) ||
       !parsing.parseTree().has_value()) {
     std::cerr << driver.prefix << "could not parse " << path << '\n';
-    exit(EXIT_FAILURE);
+    exitStatus = EXIT_FAILURE;
+    return {};
   }
   if (driver.measureTree) {
     MeasureParseTree(*parsing.parseTree());
   }
   if (driver.debugResolveNames || driver.dumpSymbols) {
-    Fortran::semantics::ResolveNames(
-        *parsing.parseTree(), parsing.messages().cooked());
+    Fortran::semantics::ResolveNames(*parsing.parseTree(), parsing.cooked());
     if (driver.dumpSymbols) {
       Fortran::semantics::DumpSymbols(std::cout);
     }
@@ -188,8 +195,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     Fortran::parser::DumpTree(*parsing.parseTree());
   }
   if (driver.dumpUnparse) {
-    Unparse(std::cout, *parsing.parseTree(), driver.encoding,
-            true /*capitalize*/);
+    Unparse(
+        std::cout, *parsing.parseTree(), driver.encoding, true /*capitalize*/);
     return {};
   }
   if (driver.parseOnly) {
@@ -200,8 +207,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 
   char tmpSourcePath[32];
   std::snprintf(tmpSourcePath, sizeof tmpSourcePath, "/tmp/f18-%lx.f90",
-                static_cast<unsigned long>(getpid()));
-  { std::ofstream tmpSource;
+      static_cast<unsigned long>(getpid()));
+  {
+    std::ofstream tmpSource;
     tmpSource.open(tmpSourcePath);
     Unparse(tmpSource, *parsing.parseTree(), driver.encoding);
   }
@@ -280,9 +288,8 @@ int main(int argc, char *const argv[]) {
         driver.pgf90Args.push_back(arg);
       } else {
         std::string suffix{arg.substr(dot + 1)};
-        if (suffix == "f" || suffix == "F" ||
-            suffix == "f90" || suffix == "F90" ||
-            suffix == "cuf" || suffix == "CUF" ||
+        if (suffix == "f" || suffix == "F" || suffix == "f90" ||
+            suffix == "F90" || suffix == "cuf" || suffix == "CUF" ||
             suffix == "f18" || suffix == "F18") {
           fortranSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
@@ -329,6 +336,8 @@ int main(int argc, char *const argv[]) {
       driver.debugResolveNames = true;
     } else if (arg == "-fdebug-measure-parse-tree") {
       driver.measureTree = true;
+    } else if (arg == "-fdebug-instrumented-parse") {
+      options.instrumentedParse = true;
     } else if (arg == "-funparse") {
       driver.dumpUnparse = true;
     } else if (arg == "-fparse-only") {
@@ -343,34 +352,38 @@ int main(int argc, char *const argv[]) {
       if (eq == std::string::npos) {
         options.predefinitions.emplace_back(arg.substr(2), "1");
       } else {
-        options.predefinitions.emplace_back(arg.substr(2, eq-2),
-                                            arg.substr(eq+1));
+        options.predefinitions.emplace_back(
+            arg.substr(2, eq - 2), arg.substr(eq + 1));
       }
-    } else if  (arg.substr(0, 2) == "-U") {
-      options.predefinitions.emplace_back(arg.substr(2), std::optional<std::string>{});
+    } else if (arg.substr(0, 2) == "-U") {
+      options.predefinitions.emplace_back(
+          arg.substr(2), std::optional<std::string>{});
     } else if (arg == "-help" || arg == "--help" || arg == "-?") {
-      std::cerr << "f18 options:\n"
-        << "  -Mfixed | -Mfree     force the source form\n"
-        << "  -Mextend             132-column fixed form\n"
-        << "  -M[no]backslash      disable[enable] \\escapes in literals\n"
-        << "  -Mstandard           enable conformance warnings\n"
-        << "  -Mx,125,4            set bit 2 in xflag[125] (all Kanji mode)\n"
-        << "  -Werror              treat warnings as errors\n"
-        << "  -ed                  enable fixed form D lines\n"
-        << "  -E                   prescan & preprocess only\n"
-        << "  -fparse-only         parse only, no output except messages\n"
-        << "  -funparse            parse & reformat only, no code generation\n"
-        << "  -fdebug-measure-parse-tree\n"
-        << "  -fdebug-dump-provenance\n"
-        << "  -fdebug-dump-parse-tree\n"
-        << "  -fdebug-resolve-names\n"
-        << "  -v -c -o -I -D -U    have their usual meanings\n"
-        << "  -help                print this again\n"
-        << "Other options are passed through to the compiler.\n";
-      return EXIT_SUCCESS;
+      std::cerr
+          << "f18 options:\n"
+          << "  -Mfixed | -Mfree     force the source form\n"
+          << "  -Mextend             132-column fixed form\n"
+          << "  -M[no]backslash      disable[enable] \\escapes in literals\n"
+          << "  -Mstandard           enable conformance warnings\n"
+          << "  -Mx,125,4            set bit 2 in xflag[125] (all Kanji mode)\n"
+          << "  -Werror              treat warnings as errors\n"
+          << "  -ed                  enable fixed form D lines\n"
+          << "  -E                   prescan & preprocess only\n"
+          << "  -fparse-only         parse only, no output except messages\n"
+          << "  -funparse            parse & reformat only, no code "
+             "generation\n"
+          << "  -fdebug-measure-parse-tree\n"
+          << "  -fdebug-dump-provenance\n"
+          << "  -fdebug-dump-parse-tree\n"
+          << "  -fdebug-resolve-names\n"
+          << "  -fdebug-instrumented-parse\n"
+          << "  -v -c -o -I -D -U    have their usual meanings\n"
+          << "  -help                print this again\n"
+          << "Other options are passed through to the compiler.\n";
+      return exitStatus;
     } else if (arg == "-V") {
       std::cerr << "\nf18 compiler (under development)\n";
-      return EXIT_SUCCESS;
+      return exitStatus;
     } else {
       driver.pgf90Args.push_back(arg);
       if (arg == "-v") {
@@ -392,7 +405,7 @@ int main(int argc, char *const argv[]) {
     driver.measureTree = true;
     driver.dumpUnparse = true;
     CompileFortran("-", options, driver);
-    return EXIT_SUCCESS;
+    return exitStatus;
   }
   for (const auto &path : fortranSources) {
     std::string relo{CompileFortran(path, options, driver)};
@@ -409,5 +422,5 @@ int main(int argc, char *const argv[]) {
   if (!relocatables.empty()) {
     Link(relocatables, driver);
   }
-  return EXIT_SUCCESS;
+  return exitStatus;
 }

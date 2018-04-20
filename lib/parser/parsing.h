@@ -2,6 +2,7 @@
 #define FORTRAN_PARSER_PARSING_H_
 
 #include "characters.h"
+#include "instrumented-parser.h"
 #include "message.h"
 #include "parse-tree.h"
 #include "provenance.h"
@@ -27,6 +28,7 @@ struct Options {
   Encoding encoding{Encoding::UTF8};
   std::vector<std::string> searchDirectories;
   std::vector<Predefinition> predefinitions;
+  bool instrumentedParse{false};
 };
 
 class Parsing {
@@ -35,13 +37,16 @@ public:
 
   bool consumedWholeFile() const { return consumedWholeFile_; }
   const char *finalRestingPlace() const { return finalRestingPlace_; }
+  CookedSource &cooked() { return cooked_; }
   Messages &messages() { return messages_; }
   std::optional<Program> &parseTree() { return parseTree_; }
 
   void Prescan(const std::string &path, Options);
   void DumpCookedChars(std::ostream &) const;
   void DumpProvenance(std::ostream &) const;
+  void DumpParsingLog(std::ostream &) const;
   void Parse();
+  void ClearLog();
 
   void Identify(std::ostream &o, const char *at, const std::string &prefix,
       bool echoSourceLine = false) const {
@@ -55,10 +60,11 @@ private:
   Options options_;
   AllSources allSources_;
   CookedSource cooked_{allSources_};
-  Messages messages_{cooked_};
+  Messages messages_;
   bool consumedWholeFile_{false};
   const char *finalRestingPlace_{nullptr};
   std::optional<Program> parseTree_;
+  ParsingLog log_;
 };
 }  // namespace parser
 }  // namespace Fortran
