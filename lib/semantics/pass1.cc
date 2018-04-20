@@ -597,7 +597,7 @@ public:
 
   template <typename T> bool Pre(const T &x) { 
     if ( ENV("TRACE_FALLBACK")  )  
-      TRACE( "*** fallback Pre(" << sm::GetTypeName(x) << ")" )  ;
+      TRACE( "*** fallback Pre(" << sm::GetParserNodeName(x) << ")" )  ;
     
     //  TRACE( "*** fallback " << __PRETTY_FUNCTION__  ) ; 
     return true ;
