@@ -41,11 +41,7 @@ message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 
 find_package(Clang REQUIRED CONFIG)
 include_directories(${CLANG_INSTALL_PREFIX/include})
-message(STATUS "CLANG_INSTALL_PREFIX = ${CLANG_INSTALL_PREFIX}")
-       
-
-#message(STATUS "===== ${LLVM_INSTALL}")
-#find_package(LLVM  REQUIRED CONFIG  )
+message(STATUS "Found Clang in ${CLANG_INSTALL_PREFIX}")
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
@@ -68,19 +64,8 @@ add_definitions(${LLVM_DEFINITIONS})
 #  http://llvm.org/docs/CMake.html#embedding-llvm-in-your-project
 #  https://stackoverflow.com/questions/41924375/llvm-how-to-specify-all-link-libraries-as-input-to-llvm-map-components-to-libna
 #  https://stackoverflow.com/questions/33948633/how-do-i-link-when-building-with-llvm-libraries
-
-# Those are ate
-#llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
-
-
-#
-# Provide access to the C++ CLANG Libraries (not the C api) 
-#
-
-#find_package(LibClang REQUIRED )
-#message(STATUS "Using LIBCLANG_INCLUDE_DIR = ${LIBCLANG_INCLUDE_DIR}")
-#message(STATUS "Using LIBCLANG_LIBRARY_DIR = ${LIBCLANG_LIBRARY_DIR}")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBCLANG_INCLUDE_DIR}")
+# 
+#  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
 
 
 list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
