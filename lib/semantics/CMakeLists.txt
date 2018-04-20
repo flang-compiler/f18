@@ -26,7 +26,5 @@ add_library(FlangSemantics
 )
 
 target_link_libraries( FlangSemantics
-  ${llvm_libs}
-#  ${llvm_support}
-#  ${llvm_target}
+  clangBasic 
 )

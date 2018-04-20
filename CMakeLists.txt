@@ -39,17 +39,18 @@ endif()
 
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 
-#find_package( Clang REQUIRED CONFIG)
-find_package( Clang )
+find_package(Clang REQUIRED CONFIG)
+include_directories(${CLANG_INSTALL_PREFIX/include})
+message(STATUS "CLANG_INSTALL_PREFIX = ${CLANG_INSTALL_PREFIX}")
+       
 
-message(STATUS "===== ${LLVM_INSTALL}")
-find_package(LLVM  REQUIRED CONFIG  )
+#message(STATUS "===== ${LLVM_INSTALL}")
+#find_package(LLVM  REQUIRED CONFIG  )
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
-
 
 #
 # Get names for the LLVM libraries
@@ -69,7 +70,7 @@ add_definitions(${LLVM_DEFINITIONS})
 #  https://stackoverflow.com/questions/33948633/how-do-i-link-when-building-with-llvm-libraries
 
 # Those are ate
-llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
+#llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
 
 
 #
@@ -82,7 +83,7 @@ llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option)
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBCLANG_INCLUDE_DIR}")
 
 
-
+list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
 
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
