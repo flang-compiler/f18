@@ -65,7 +65,6 @@ add_definitions(${LLVM_DEFINITIONS})
 #  https://stackoverflow.com/questions/41924375/llvm-how-to-specify-all-link-libraries-as-input-to-llvm-map-components-to-libna
 #  https://stackoverflow.com/questions/33948633/how-do-i-link-when-building-with-llvm-libraries
 
-# Those are ate
 #llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
 
 
@@ -78,7 +77,8 @@ add_definitions(${LLVM_DEFINITIONS})
 #message(STATUS "Using LIBCLANG_LIBRARY_DIR = ${LIBCLANG_LIBRARY_DIR}")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${LIBCLANG_INCLUDE_DIR}")
 
-
+# RTTI mush be disabled locally in order to be able to used the
+# LLVM libraries (else link errors due to missing 'typeinfo' symbols)
 list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
 
 

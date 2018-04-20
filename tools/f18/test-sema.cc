@@ -48,7 +48,6 @@ public:
 };
 
 static const char * float_name(const llvm::fltSemantics *sem) {
-  
   if ( !sem ) {
     return "NULL";
   } else if ( sem == &llvm::APFloat::IEEEhalf() ) {
