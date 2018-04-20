@@ -21,7 +21,7 @@ can be done now or while calling cmake
 ## Installation of LLVM 6.0
 
     ############ Extract LLVM and Clang from git in current directory. 
-    ############       
+    ############ 
 
     ROOT=$(pwd)
     REL=release_60
@@ -62,10 +62,9 @@ can be done now or while calling cmake
    
     F18_PREFIX=$ROOT/usr   
 
-    ######### Add $LLVM_PREFIX/bin to PATH so that cmake finds llvm-config   
-
-    export "PATH=$LLVM_PREFIX/bin:$PATH"
-
+    ######## Provide CMake with the installation path for CLang & LLVM packages
+    export CMAKE_MODULE_PATH=$LLVM_PREFIX/lib/cmake:$CMAKE_MODULE_PATH
+    
     ######## Get Flang sources 
     git clone https://github.com/ThePortlandGroup/f18.git
 
