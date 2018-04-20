@@ -18,5 +18,5 @@ add_executable( test-sema
 target_link_libraries( test-sema
   FortranParser
   FlangSemantics
+  clangBasic
 )
-

@@ -70,7 +70,8 @@ template<typename T> struct Semantic {
   classname &operator=(classname &&) = default; \
   classname(const classname &) = delete; \
   classname &operator=(const classname &) = delete; \
-  Fortran::semantics::Semantic<classname> *s = nullptr
+  Fortran::semantics::Semantic<classname> *s = nullptr; \
+  static const char *className() { return #classname; }
 
 // Almost all classes in this file have no default constructor.
 #define BOILERPLATE(classname) \
@@ -88,6 +89,7 @@ template<typename T> struct Semantic {
     classname &operator=(classname &&) { return *this; }; \
     using EmptyTrait = std::true_type; \
     Fortran::semantics::Semantic<classname> *s = nullptr; \
+    static const char *className() { return #classname; } \
   }
 
 // Many classes below simply wrap a std::variant<> discriminated union,

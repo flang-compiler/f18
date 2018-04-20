@@ -36,6 +36,7 @@ struct IntrinsicTypeDataEditDesc {
       std::optional<int> &&d, std::optional<int> &&e)
     : kind{k}, width{std::move(w)}, digits{std::move(d)}, exponentWidth{
                                                               std::move(e)} {}
+  static const char *className() { return "IntrinsicTypeDataEditDesc"; }
   Kind kind;
   std::optional<int> width;  // w
   std::optional<int> digits;  // m or d
@@ -51,6 +52,7 @@ struct DerivedTypeDataEditDesc {
   DerivedTypeDataEditDesc &operator=(DerivedTypeDataEditDesc &&) = default;
   DerivedTypeDataEditDesc(std::string &&t, std::list<std::int64_t> &&p)
     : type{std::move(t)}, parameters{std::move(p)} {}
+  static const char *className() { return "DerivedTypeDataEditDesc"; }
   std::string type;
   std::list<std::int64_t> parameters;
 };
@@ -93,6 +95,7 @@ struct ControlEditDesc {
   explicit ControlEditDesc(Kind k) : kind{k} {}
   ControlEditDesc(Kind k, std::int64_t ct) : kind{k}, count{ct} {}
   ControlEditDesc(std::int64_t ct, Kind k) : kind{k}, count{ct} {}
+  static const char *className() { return "ControlEditDesc"; }
   Kind kind;
   std::int64_t count{1};  // r, k, or n
 };
@@ -110,6 +113,7 @@ struct FormatItem {
   FormatItem(std::optional<std::uint64_t> &&r, A &&x)
     : repeatCount{std::move(r)}, u{std::move(x)} {}
   template<typename A> explicit FormatItem(A &&x) : u{std::move(x)} {}
+  static const char *className() { return "FormatItem"; }
   std::optional<std::uint64_t> repeatCount;
   std::variant<IntrinsicTypeDataEditDesc, DerivedTypeDataEditDesc,
       ControlEditDesc, std::string, std::list<FormatItem>>
@@ -128,6 +132,7 @@ struct FormatSpecification {
     : items(std::move(is)) {}
   FormatSpecification(std::list<FormatItem> &&is, std::list<FormatItem> &&us)
     : items(std::move(is)), unlimitedItems(std::move(us)) {}
+  static const char *className() { return "FormatSpecification"; }
   std::list<FormatItem> items, unlimitedItems;
 };
 }  // namespace format

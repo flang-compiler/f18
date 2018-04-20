@@ -11,3 +11,7 @@ add_library(FlangSemantics
   StatementMap.cc
   pass1.cc
 )
+
+target_link_libraries( FlangSemantics
+  clangBasic 
+)

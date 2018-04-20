@@ -14,38 +14,72 @@
 
 namespace Fortran::semantics {
 
+// Provide a name for the each type of parse-tree node. 
+// For nodes that are implemented as a struct the 
+// name is provided by the className() static member.
+// 
+// For other types, we need to to 
 
-std::string DemangleCxxName(const char* name) ;
-
-template <typename T> std::string GetTypeName_base() {
-  return DemangleCxxName( typeid(T).name() ) ;
+template <typename T> inline std::string GetParserNodeName_base() {
+  // The more pactical way of getting a type name is via typeid
+  //    return DemangleCxxName( typeid(T).name() ) ;
+  // but that is not possible here since LLVM requires no-rtti. 
+  // 
+  // For classes defined in parse-tree.h, use the name provided by
+  // the static className() member. 
+  return T::className(); 
 }
 
-template <typename T> std::string GetTypeName() {
-  return GetTypeName_base< 
+// But for other types, we need to provide them manually.
+
+#define  FLANG_PARSER_PROVIDE_TYPE_NAME(TYPE,NAME) \
+template <> inline std::string GetParserNodeName_base<TYPE>() { \
+  return NAME;\
+}
+
+FLANG_PARSER_PROVIDE_TYPE_NAME(long unsigned int,"long unsigned int")
+FLANG_PARSER_PROVIDE_TYPE_NAME(long int,"long int")
+FLANG_PARSER_PROVIDE_TYPE_NAME(int,"int")
+FLANG_PARSER_PROVIDE_TYPE_NAME(bool,"bool")
+FLANG_PARSER_PROVIDE_TYPE_NAME(const char*,"const char*")
+
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::format::ControlEditDesc::Kind,"ControlEditDesc::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::format::IntrinsicTypeDataEditDesc::Kind,"IntrinsicTypeDataEditDesc::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::AccessSpec::Kind,"AccessSpec::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::BindEntity::Kind,"BindEntity::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::ConnectSpec::CharExpr::Kind,"ConnectSpec::CharExpr::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::DefinedOperator::IntrinsicOperator,"DefinedOperator::IntrinsicOperator")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::ImplicitStmt::ImplicitNoneNameSpec,"ImplicitStmt::ImplicitNoneNameSpec")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::InquireSpec::CharVar::Kind,"InquireSpec::CharVar::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::InquireSpec::IntVar::Kind,"InquireSpec::IntVar::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::InquireSpec::LogVar::Kind,"InquireSpec::LogVar::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::IntentSpec::Intent,"IntentSpec::Intent")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::IoControlSpec::CharExpr::Kind,"IoControlSpec::CharExpr::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::ProcedureStmt::Kind,"ProcedureStmt::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::SavedEntity::Kind,"SavedEntity::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::Sign,"Sign")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::StopStmt::Kind,"StopStmt::Kind")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::TypeParamDefStmt::KindOrLen,"TypeParamDefStmt::KindOrLen")
+FLANG_PARSER_PROVIDE_TYPE_NAME(Fortran::parser::UseStmt::ModuleNature,"UseStmt::ModuleNature")
+FLANG_PARSER_PROVIDE_TYPE_NAME( Fortran::parser::LoopBounds<Fortran::parser::ScalarIntConstantExpr> ,
+             "LoopBounds<Expr>")
+FLANG_PARSER_PROVIDE_TYPE_NAME( Fortran::parser::LoopBounds<Fortran::parser::ScalarIntExpr> ,
+             "LoopBounds<Expr>")
+
+template <typename T> inline std::string GetParserNodeName() {
+  return GetParserNodeName_base< 
     typename std::remove_cv<
       typename std::remove_reference<        
         T
         >::type
       >::type
-    > ();   
+    >();   
 } 
 
-// Make it usable on 
-template <typename T> std::string GetTypeName(const T &x) {
-  return GetTypeName<decltype(x)>() ;
+// Make it usable on objects
+template <typename T> std::string GetParserNodeName(const T &x) {
+  return GetParserNodeName<decltype(x)>() ;
 } 
-
-// Simplify the name of some types
- 
-#define FLANG_PARSER_RENAME_TYPE( TYPE, NAME ) \
-  template <> inline std::string GetTypeName_base<TYPE>() { return NAME; }  
-
-FLANG_PARSER_RENAME_TYPE( Fortran::parser::LoopBounds<Fortran::parser::ScalarIntConstantExpr> ,
-             "LoopBounds<Expr>")
-
-FLANG_PARSER_RENAME_TYPE( Fortran::parser::LoopBounds<Fortran::parser::ScalarIntExpr> ,
-             "LoopBounds<Expr>")
 
 
 } // end of namespace
@@ -89,10 +123,11 @@ public:
       emptyline = false ;
     }
     if ( UnionTrait<T> || WrapperTrait<T> ) {
-      out << cleanup(Fortran::semantics::GetTypeName<decltype(x)>()) << " -> "  ;
+      out << cleanup(Fortran::semantics::GetParserNodeName<decltype(x)>()) << " -> "  ;
+      //out << cleanup(Fortran::semantics::GetParserNodeName<decltype(x)>()) << " -> "  ;
       emptyline = false ;
     } else {
-      out << cleanup(Fortran::semantics::GetTypeName<decltype(x)>())    ;
+      out << cleanup(Fortran::semantics::GetParserNodeName<decltype(x)>())    ;
       out << "\n" ; 
       indent++ ;
       emptyline = true ;
