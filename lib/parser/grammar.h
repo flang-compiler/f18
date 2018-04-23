@@ -4,13 +4,16 @@
 // Top-level grammar specification for Fortran.  These parsers drive
 // the tokenization parsers in cooked-tokens.h to consume characters,
 // recognize the productions of Fortran, and to construct a parse tree.
-// See parser-combinators.txt for documentation on the parser combinator
+// See ParserCombinators.md for documentation on the parser combinator
 // library used here to implement an LL recursive descent recognizer.
 
 #include "basic-parsers.h"
 #include "characters.h"
+#include "debug-parser.h"
 #include "parse-tree.h"
+#include "stmt-parser.h"
 #include "token-parsers.h"
+#include "type-parsers.h"
 #include "user-state.h"
 #include <cinttypes>
 #include <cstdio>
@@ -29,177 +32,6 @@ namespace parser {
 // and some generalization in order to defer cases where parses depend
 // on the definitions of symbols.  The "Rxxx" numbers that appear in
 // comments refer to these numbered requirements in the Fortran standard.
-
-// Many parsers in this grammar are defined as instances of this Parser<>
-// template class.  This usage requires that their Parse() member functions
-// be defined separately, typically with a parsing expression wrapped up
-// in an TYPE_PARSER() macro call.
-template<typename A> struct Parser {
-  using resultType = A;
-  constexpr Parser() {}
-  static inline std::optional<A> Parse(ParseState *);
-};
-
-#define TYPE_PARSER(pexpr) \
-  template<> \
-  inline std::optional<typename decltype(pexpr)::resultType> \
-  Parser<typename decltype(pexpr)::resultType>::Parse(ParseState *state) { \
-    static const auto parser = (pexpr); \
-    return parser.Parse(state); \
-  }
-
-#define TYPE_CONTEXT_PARSER(contextText, pexpr) \
-  TYPE_PARSER(instrumented((contextText), inContext((contextText), (pexpr))))
-
-// Some specializations of Parser<> are used multiple times, or are
-// of some special importance, so we instantiate them once here and
-// give them names rather than referencing them as anonymous Parser<T>{}
-// objects in the right-hand sides of productions.
-constexpr Parser<Program> program;  //  R501 - the "top level" production
-constexpr Parser<SpecificationPart> specificationPart;  //  R504
-constexpr Parser<ImplicitPart> implicitPart;  //  R505
-constexpr Parser<DeclarationConstruct> declarationConstruct;  //  R507
-constexpr Parser<SpecificationConstruct> specificationConstruct;  //  R508
-constexpr Parser<ExecutionPart> executionPart;  //  R509
-constexpr Parser<ExecutionPartConstruct> executionPartConstruct;  //  R510
-constexpr Parser<InternalSubprogramPart> internalSubprogramPart;  //  R511
-constexpr Parser<ActionStmt> actionStmt;  // R515
-constexpr Parser<Name> name;  // R603
-constexpr Parser<LiteralConstant> literalConstant;  // R605
-constexpr Parser<NamedConstant> namedConstant;  // R606
-constexpr Parser<TypeParamValue> typeParamValue;  // R701
-constexpr Parser<TypeSpec> typeSpec;  // R702
-constexpr Parser<DeclarationTypeSpec> declarationTypeSpec;  // R703
-constexpr Parser<IntrinsicTypeSpec> intrinsicTypeSpec;  // R704
-constexpr Parser<IntegerTypeSpec> integerTypeSpec;  // R705
-constexpr Parser<KindSelector> kindSelector;  // R706
-constexpr Parser<SignedIntLiteralConstant> signedIntLiteralConstant;  // R707
-constexpr Parser<IntLiteralConstant> intLiteralConstant;  // R708
-constexpr Parser<KindParam> kindParam;  // R709
-constexpr Parser<RealLiteralConstant> realLiteralConstant;  // R714
-constexpr Parser<CharLength> charLength;  // R723
-constexpr Parser<CharLiteralConstant> charLiteralConstant;  // R724
-constexpr Parser<Initialization> initialization;  // R743 & R805
-constexpr Parser<DerivedTypeSpec> derivedTypeSpec;  // R754
-constexpr Parser<TypeDeclarationStmt> typeDeclarationStmt;  // R801
-constexpr Parser<NullInit> nullInit;  // R806
-constexpr Parser<AccessSpec> accessSpec;  // R807
-constexpr Parser<LanguageBindingSpec> languageBindingSpec;  // R808, R1528
-constexpr Parser<EntityDecl> entityDecl;  // R803
-constexpr Parser<CoarraySpec> coarraySpec;  // R809
-constexpr Parser<ArraySpec> arraySpec;  // R815
-constexpr Parser<ExplicitShapeSpec> explicitShapeSpec;  // R816
-constexpr Parser<DeferredShapeSpecList> deferredShapeSpecList;  // R820
-constexpr Parser<AssumedImpliedSpec> assumedImpliedSpec;  // R821
-constexpr Parser<IntentSpec> intentSpec;  // R826
-constexpr Parser<DataStmt> dataStmt;  // R837
-constexpr Parser<DataImpliedDo> dataImpliedDo;  // R840
-constexpr Parser<ParameterStmt> parameterStmt;  // R851
-constexpr Parser<OldParameterStmt> oldParameterStmt;
-constexpr Parser<Designator> designator;  // R901
-constexpr Parser<Variable> variable;  // R902
-constexpr Parser<Substring> substring;  // R908
-constexpr Parser<DataRef> dataRef;  // R911, R914, R917
-constexpr Parser<StructureComponent> structureComponent;  // R913
-constexpr Parser<StatVariable> statVariable;  // R929
-constexpr Parser<StatOrErrmsg> statOrErrmsg;  // R942 & R1165
-constexpr Parser<DefinedOpName> definedOpName;  // R1003, R1023, R1414, & R1415
-constexpr Parser<Expr> expr;  // R1022
-constexpr Parser<SpecificationExpr> specificationExpr;  // R1028
-constexpr Parser<AssignmentStmt> assignmentStmt;  // R1032
-constexpr Parser<PointerAssignmentStmt> pointerAssignmentStmt;  // R1033
-constexpr Parser<WhereStmt> whereStmt;  // R1041, R1045, R1046
-constexpr Parser<WhereConstruct> whereConstruct;  // R1042
-constexpr Parser<WhereBodyConstruct> whereBodyConstruct;  // R1044
-constexpr Parser<ForallConstruct> forallConstruct;  // R1050
-constexpr Parser<ForallAssignmentStmt> forallAssignmentStmt;  // R1053
-constexpr Parser<ForallStmt> forallStmt;  // R1055
-constexpr Parser<Selector> selector;  // R1105
-constexpr Parser<EndSelectStmt> endSelectStmt;  // R1143 & R1151 & R1155
-constexpr Parser<LoopControl> loopControl;  // R1123
-constexpr Parser<ConcurrentHeader> concurrentHeader;  // R1125
-constexpr Parser<EndDoStmt> endDoStmt;  // R1132
-constexpr Parser<IoUnit> ioUnit;  // R1201, R1203
-constexpr Parser<FileUnitNumber> fileUnitNumber;  // R1202
-constexpr Parser<IoControlSpec> ioControlSpec;  // R1213, R1214
-constexpr Parser<Format> format;  // R1215
-constexpr Parser<InputItem> inputItem;  // R1216
-constexpr Parser<OutputItem> outputItem;  // R1217
-constexpr Parser<InputImpliedDo> inputImpliedDo;  // R1218, R1219
-constexpr Parser<OutputImpliedDo> outputImpliedDo;  // R1218, R1219
-constexpr Parser<PositionOrFlushSpec> positionOrFlushSpec;  // R1227 & R1229
-constexpr Parser<FormatStmt> formatStmt;  // R1301
-constexpr Parser<InterfaceBlock> interfaceBlock;  // R1501
-constexpr Parser<GenericSpec> genericSpec;  // R1508
-constexpr Parser<ProcInterface> procInterface;  // R1513
-constexpr Parser<ProcDecl> procDecl;  // R1515
-constexpr Parser<FunctionReference> functionReference;  // R1520
-constexpr Parser<ActualArgSpec> actualArgSpec;  // R1523
-constexpr Parser<PrefixSpec> prefixSpec;  // R1527
-constexpr Parser<FunctionSubprogram> functionSubprogram;  // R1529
-constexpr Parser<FunctionStmt> functionStmt;  // R1530
-constexpr Parser<Suffix> suffix;  // R1532
-constexpr Parser<EndFunctionStmt> endFunctionStmt;  // R1533
-constexpr Parser<SubroutineSubprogram> subroutineSubprogram;  // R1534
-constexpr Parser<SubroutineStmt> subroutineStmt;  // R1535
-constexpr Parser<DummyArg> dummyArg;  // R1536
-constexpr Parser<EndSubroutineStmt> endSubroutineStmt;  // R1537
-constexpr Parser<EntryStmt> entryStmt;  // R1541
-constexpr Parser<ContainsStmt> containsStmt;  // R1543
-constexpr Parser<CompilerDirective> compilerDirective;
-
-// For a parser p, indirect(p) returns a parser that builds an indirect
-// reference to p's return type.
-template<typename PA> inline constexpr auto indirect(const PA &p) {
-  return construct<Indirection<typename PA::resultType>>{}(p);
-}
-
-// R711 digit-string -> digit [digit]...
-// N.B. not a token -- no space is skipped
-constexpr DigitString digitString;
-
-// statement(p) parses Statement<P> for some statement type P that is the
-// result type of the argument parser p, while also handling labels and
-// end-of-statement markers.
-
-// R611 label -> digit [digit]...
-constexpr auto label = space >> digitString / spaceCheck;
-
-template<typename PA>
-using statementConstructor = construct<Statement<typename PA::resultType>>;
-
-template<typename PA> inline constexpr auto unterminatedStatement(const PA &p) {
-  return skipEmptyLines >>
-      sourced(statementConstructor<PA>{}(maybe(label), space >> p));
-}
-
-constexpr auto endOfLine = "\n"_ch / skipEmptyLines ||
-    fail<const char *>("expected end of line"_err_en_US);
-
-constexpr auto endOfStmt = space >>
-    (";"_ch / skipMany(";"_tok) / maybe(endOfLine) || endOfLine);
-
-template<typename PA> inline constexpr auto statement(const PA &p) {
-  return unterminatedStatement(p) / endOfStmt;
-}
-
-constexpr auto ignoredStatementPrefix = skipEmptyLines >> maybe(label) >>
-    maybe(name / ":") >> space;
-
-// Error recovery within statements: skip to the end of the line,
-// but not over an END or CONTAINS statement.
-constexpr auto errorRecovery = construct<ErrorRecovery>{};
-constexpr auto skipToEndOfLine = SkipTo<'\n'>{} >> errorRecovery;
-constexpr auto stmtErrorRecovery =
-    !"END"_tok >> !"CONTAINS"_tok >> skipToEndOfLine;
-
-// Error recovery across statements: skip the line, unless it looks
-// like it might end the containing construct.
-constexpr auto errorRecoveryStart = ignoredStatementPrefix;
-constexpr auto skipBadLine = SkipPast<'\n'>{} >> errorRecovery;
-constexpr auto executionPartErrorRecovery = errorRecoveryStart >> !"END"_tok >>
-    !"CONTAINS"_tok >> !"ELSE"_tok >> !"CASE"_tok >> !"TYPE IS"_tok >>
-    !"CLASS"_tok >> !"RANK"_tok >> skipBadLine;
 
 // R507 declaration-construct ->
 //        specification-construct | data-stmt | format-stmt |
@@ -381,16 +213,7 @@ constexpr auto scalarIntConstantExpr = scalar(intConstantExpr);
 
 // R501 program -> program-unit [program-unit]...
 // This is the top-level production for the Fortran language.
-struct StartNewSubprogram {
-  using resultType = Success;
-  static std::optional<Success> Parse(ParseState *state) {
-    if (auto ustate = state->userState()) {
-      ustate->NewSubprogram();
-    }
-    return {Success{}};
-  }
-} startNewSubprogram;
-
+constexpr StartNewSubprogram startNewSubprogram;
 TYPE_PARSER(
     construct<Program>{}(
         // statements consume only trailing noise; consume leading noise here.
@@ -504,37 +327,6 @@ TYPE_PARSER(construct<ActionStmt>{}(indirect(Parser<AllocateStmt>{})) ||
 // END DO statements appear only at the ends of do-constructs that begin
 // with a nonlabel-do-stmt, so care must be taken to recognize this case and
 // essentially treat them like CONTINUE statements.
-struct CapturedLabelDoStmt {
-  static constexpr auto parser = statement(indirect(Parser<LabelDoStmt>{}));
-  using resultType = Statement<Indirection<LabelDoStmt>>;
-  static std::optional<resultType> Parse(ParseState *state) {
-    auto result = parser.Parse(state);
-    if (result) {
-      if (auto ustate = state->userState()) {
-        ustate->NewDoLabel(std::get<Label>(result->statement->t));
-      }
-    }
-    return result;
-  }
-} capturedLabelDoStmt;
-
-struct EndDoStmtForCapturedLabelDoStmt {
-  static constexpr auto parser = statement(indirect(endDoStmt));
-  using resultType = Statement<Indirection<EndDoStmt>>;
-  static std::optional<resultType> Parse(ParseState *state) {
-    if (auto enddo = parser.Parse(state)) {
-      if (enddo->label.has_value()) {
-        if (auto ustate = state->userState()) {
-          if (!ustate->InNonlabelDoConstruct() &&
-              ustate->IsDoLabel(enddo->label.value())) {
-            return enddo;
-          }
-        }
-      }
-    }
-    return {};
-  }
-} endDoStmtForCapturedLabelDoStmt;
 
 // R514 executable-construct ->
 //        action-stmt | associate-construct | block-construct |
@@ -548,8 +340,8 @@ constexpr auto executableConstruct =
     construct<ExecutableConstruct>{}(indirect(Parser<CaseConstruct>{})) ||
     construct<ExecutableConstruct>{}(indirect(Parser<ChangeTeamConstruct>{})) ||
     construct<ExecutableConstruct>{}(indirect(Parser<CriticalConstruct>{})) ||
-    construct<ExecutableConstruct>{}(capturedLabelDoStmt) ||
-    construct<ExecutableConstruct>{}(endDoStmtForCapturedLabelDoStmt) ||
+    construct<ExecutableConstruct>{}(CapturedLabelDoStmt{}) ||
+    construct<ExecutableConstruct>{}(EndDoStmtForCapturedLabelDoStmt{}) ||
     construct<ExecutableConstruct>{}(indirect(Parser<DoConstruct>{})) ||
     construct<ExecutableConstruct>{}(indirect(Parser<IfConstruct>{})) ||
     construct<ExecutableConstruct>{}(indirect(Parser<SelectRankConstruct>{})) ||
@@ -586,23 +378,6 @@ TYPE_CONTEXT_PARSER("execution part construct"_en_US,
 // R509 execution-part -> executable-construct [execution-part-construct]...
 TYPE_CONTEXT_PARSER("execution part"_en_US,
     construct<ExecutionPart>{}(many(executionPartConstruct)))
-
-// R602 underscore -> _
-constexpr auto underscore = "_"_ch;
-
-// R516 keyword -> name
-// R601 alphanumeric-character -> letter | digit | underscore
-// R603 name -> letter [alphanumeric-character]...
-// N.B. Don't accept an underscore if it is immediately followed by a
-// quotation mark, so that kindParameter_"character literal" is parsed properly.
-// PGI and ifort accept '$' in identifiers, even as the initial character.
-// Cray and gfortran accept '$', but not as the first character.
-// Cray accepts '@' as well.
-constexpr auto otherIdChar = underscore / !"'\""_ch || extension("$@"_ch);
-constexpr auto nonDigitIdChar = letter || otherIdChar;
-constexpr auto rawName = nonDigitIdChar >> many(nonDigitIdChar || digit);
-TYPE_PARSER(space >> sourced(attempt(rawName) >> construct<Name>{}))
-constexpr auto keyword = construct<Keyword>{}(name);
 
 // R605 literal-constant ->
 //        int-literal-constant | real-literal-constant |
@@ -1197,7 +972,7 @@ TYPE_PARSER(
 
 // R810 deferred-coshape-spec -> :
 // deferred-coshape-spec-list - just a list of colons
-int listLength(std::list<Success> &&xs) { return xs.size(); }
+inline int listLength(std::list<Success> &&xs) { return xs.size(); }
 
 TYPE_PARSER(construct<DeferredCoshapeSpecList>{}(
     applyFunction(listLength, nonemptyList(":"_tok))))
@@ -1536,23 +1311,9 @@ TYPE_PARSER(construct<CommonBlockObject>{}(name, maybe(arraySpec)))
 TYPE_CONTEXT_PARSER("designator"_en_US,
     construct<Designator>{}(substring) || construct<Designator>{}(dataRef))
 
-constexpr struct OldStructureComponentName {
-  using resultType = Name;
-  static std::optional<Name> Parse(ParseState *state) {
-    if (std::optional<Name> n{name.Parse(state)}) {
-      if (const auto *user = state->userState()) {
-        if (user->IsOldStructureComponent(n->source)) {
-          return n;
-        }
-      }
-    }
-    return {};
-  }
-} oldStructureComponentName;
-
 constexpr auto percentOrDot = "%"_tok ||
     // legacy VAX extension for RECORD field access
-    extension("."_tok / lookAhead(oldStructureComponentName));
+    extension("."_tok / lookAhead(OldStructureComponentName{}));
 
 // R902 variable -> designator | function-reference
 // This production appears to be left-recursive in the grammar via
@@ -1787,10 +1548,10 @@ constexpr auto level1Expr = construct<Expr>{}(construct<Expr::DefinedUnary>{}(
 constexpr struct MultOperand {
   using resultType = Expr;
   constexpr MultOperand() {}
-  static std::optional<Expr> Parse(ParseState *);
+  static inline std::optional<Expr> Parse(ParseState &);
 } multOperand;
 
-std::optional<Expr> MultOperand::Parse(ParseState *state) {
+inline std::optional<Expr> MultOperand::Parse(ParseState &state) {
   std::optional<Expr> result{level1Expr.Parse(state)};
   if (result) {
     static constexpr auto op = attempt("**"_tok);
@@ -1810,7 +1571,7 @@ std::optional<Expr> MultOperand::Parse(ParseState *state) {
 constexpr struct AddOperand {
   using resultType = Expr;
   constexpr AddOperand() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{multOperand.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> multiply{[&result](Expr &&right) {
@@ -1841,7 +1602,7 @@ constexpr struct AddOperand {
 constexpr struct Level2Expr {
   using resultType = Expr;
   constexpr Level2Expr() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     static constexpr auto unary =
         "+" >> construct<Expr>{}(construct<Expr::UnaryPlus>{}(addOperand)) ||
         "-" >> construct<Expr>{}(construct<Expr::Negate>{}(addOperand)) ||
@@ -1872,7 +1633,7 @@ constexpr struct Level2Expr {
 constexpr struct Level3Expr {
   using resultType = Expr;
   constexpr Level3Expr() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{level2Expr.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> concat{[&result](Expr &&right) {
@@ -1895,7 +1656,7 @@ constexpr struct Level3Expr {
 constexpr struct Level4Expr {
   using resultType = Expr;
   constexpr Level4Expr() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{level3Expr.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> lt{[&result](Expr &&right) {
@@ -1940,10 +1701,10 @@ constexpr struct Level4Expr {
 constexpr struct AndOperand {
   using resultType = Expr;
   constexpr AndOperand() {}
-  static std::optional<Expr> Parse(ParseState *);
+  static inline std::optional<Expr> Parse(ParseState &);
 } andOperand;
 
-std::optional<Expr> AndOperand::Parse(ParseState *state) {
+inline std::optional<Expr> AndOperand::Parse(ParseState &state) {
   static constexpr auto op = attempt(".NOT."_tok);
   int complements{0};
   while (op.Parse(state)) {
@@ -1964,7 +1725,7 @@ std::optional<Expr> AndOperand::Parse(ParseState *state) {
 constexpr struct OrOperand {
   using resultType = Expr;
   constexpr OrOperand() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{andOperand.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> logicalAnd{[&result](Expr &&right) {
@@ -1982,10 +1743,10 @@ constexpr struct OrOperand {
 // R1016 equiv-operand -> [equiv-operand or-op] or-operand
 // R1020 or-op -> .OR.
 // .OR. is left-associative
-static constexpr struct EquivOperand {
+constexpr struct EquivOperand {
   using resultType = Expr;
   constexpr EquivOperand() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{orOperand.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> logicalOr{[&result](Expr &&right) {
@@ -2007,7 +1768,7 @@ static constexpr struct EquivOperand {
 constexpr struct Level5Expr {
   using resultType = Expr;
   constexpr Level5Expr() {}
-  static std::optional<Expr> Parse(ParseState *state) {
+  static inline std::optional<Expr> Parse(ParseState &state) {
     std::optional<Expr> result{equivOperand.Parse(state)};
     if (result) {
       std::function<Expr(Expr &&)> eqv{[&result](Expr &&right) {
@@ -2033,7 +1794,7 @@ constexpr struct Level5Expr {
 
 // R1022 expr -> [expr defined-binary-op] level-5-expr
 // Defined binary operators associate leftwards.
-template<> std::optional<Expr> Parser<Expr>::Parse(ParseState *state) {
+template<> inline std::optional<Expr> Parser<Expr>::Parse(ParseState &state) {
   std::optional<Expr> result{level5Expr.Parse(state)};
   if (result) {
     std::function<Expr(DefinedOpName &&, Expr &&)> defBinOp{
@@ -2258,30 +2019,10 @@ TYPE_PARSER("END CRITICAL" >> construct<EndCriticalStmt>{}(maybe(name)))
 
 // R1119 do-construct -> do-stmt block end-do
 // R1120 do-stmt -> nonlabel-do-stmt | label-do-stmt
-constexpr struct EnterNonlabelDoConstruct {
-  using resultType = Success;
-  static std::optional<Success> Parse(ParseState *state) {
-    if (auto ustate = state->userState()) {
-      ustate->EnterNonlabelDoConstruct();
-    }
-    return {Success{}};
-  }
-} enterNonlabelDoConstruct;
-
-constexpr struct LeaveDoConstruct {
-  using resultType = Success;
-  static std::optional<Success> Parse(ParseState *state) {
-    if (auto ustate = state->userState()) {
-      ustate->LeaveDoConstruct();
-    }
-    return {Success{}};
-  }
-} leaveDoConstruct;
-
 TYPE_CONTEXT_PARSER("DO construct"_en_US,
     construct<DoConstruct>{}(
-        statement(Parser<NonLabelDoStmt>{}) / enterNonlabelDoConstruct, block,
-        statement(endDoStmt) / leaveDoConstruct))
+        statement(Parser<NonLabelDoStmt>{}) / EnterNonlabelDoConstruct{}, block,
+        statement(endDoStmt) / LeaveDoConstruct{}))
 
 // R1125 concurrent-header ->
 //         ( [integer-type-spec ::] concurrent-control-list
@@ -3565,23 +3306,7 @@ TYPE_PARSER(construct<StructureStmt>{}("STRUCTURE /" >> name / "/", pure(true),
     construct<StructureStmt>{}(
         "STRUCTURE" >> name, pure(false), defaulted(cut >> many(entityDecl))))
 
-constexpr struct StructureComponents {
-  using resultType = DataComponentDefStmt;
-  static std::optional<DataComponentDefStmt> Parse(ParseState *state) {
-    static constexpr auto stmt = Parser<DataComponentDefStmt>{};
-    std::optional<DataComponentDefStmt> defs{stmt.Parse(state)};
-    if (defs.has_value()) {
-      if (auto ustate = state->userState()) {
-        for (const auto &decl : std::get<std::list<ComponentDecl>>(defs->t)) {
-          ustate->NoteOldStructureComponent(std::get<Name>(decl.t).source);
-        }
-      }
-    }
-    return defs;
-  }
-} structureComponents;
-
-TYPE_PARSER(construct<StructureField>{}(statement(structureComponents)) ||
+TYPE_PARSER(construct<StructureField>{}(statement(StructureComponents{})) ||
     construct<StructureField>{}(indirect(Parser<Union>{})) ||
     construct<StructureField>{}(indirect(Parser<StructureDef>{})))
 

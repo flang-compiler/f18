@@ -6,18 +6,34 @@
 // parse tree construction so as to avoid any need for representing
 // state in static data.
 
+#include "basic-parsers.h"
 #include "char-block.h"
+#include "parse-tree.h"
 #include <cinttypes>
+#include <optional>
+#include <ostream>
 #include <set>
 #include <unordered_set>
 
 namespace Fortran {
 namespace parser {
 
+class CookedSource;
 class ParsingLog;
+class ParseState;
 
 class UserState {
 public:
+  explicit UserState(const CookedSource &cooked) : cooked_{cooked} {}
+
+  const CookedSource &cooked() const { return cooked_; }
+
+  std::ostream *debugOutput() const { return debugOutput_; }
+  UserState &set_debugOutput(std::ostream *out) {
+    debugOutput_ = out;
+    return *this;
+  }
+
   ParsingLog *log() const { return log_; }
   UserState &set_log(ParsingLog *log) {
     log_ = log;
@@ -60,6 +76,10 @@ public:
   }
 
 private:
+  const CookedSource &cooked_;
+
+  std::ostream *debugOutput_{nullptr};
+
   ParsingLog *log_{nullptr};
   bool instrumentedParse_{false};
 
@@ -67,6 +87,42 @@ private:
   int nonlabelDoConstructNestingDepth_{0};
 
   std::set<CharBlock> oldStructureComponents_;
+};
+
+// Definitions of parser classes that manipulate the UserState.
+struct StartNewSubprogram {
+  using resultType = Success;
+  static std::optional<Success> Parse(ParseState &);
+};
+
+struct CapturedLabelDoStmt {
+  using resultType = Statement<Indirection<LabelDoStmt>>;
+  static std::optional<resultType> Parse(ParseState &);
+};
+
+struct EndDoStmtForCapturedLabelDoStmt {
+  using resultType = Statement<Indirection<EndDoStmt>>;
+  static std::optional<resultType> Parse(ParseState &);
+};
+
+struct EnterNonlabelDoConstruct {
+  using resultType = Success;
+  static std::optional<Success> Parse(ParseState &);
+};
+
+struct LeaveDoConstruct {
+  using resultType = Success;
+  static std::optional<Success> Parse(ParseState &);
+};
+
+struct OldStructureComponentName {
+  using resultType = Name;
+  static std::optional<Name> Parse(ParseState &);
+};
+
+struct StructureComponents {
+  using resultType = DataComponentDefStmt;
+  static std::optional<DataComponentDefStmt> Parse(ParseState &);
 };
 }  // namespace parser
 }  // namespace Fortran

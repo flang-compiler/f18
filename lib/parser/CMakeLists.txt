@@ -2,6 +2,7 @@ add_library(FortranParser
   char-buffer.cc
   char-set.cc
   characters.cc
+  debug-parser.cc
   idioms.cc
   instrumented-parser.cc
   message.cc
@@ -13,4 +14,5 @@ add_library(FortranParser
   source.cc
   token-sequence.cc
   unparse.cc
+  user-state.cc
 )
