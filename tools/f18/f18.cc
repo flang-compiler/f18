@@ -181,7 +181,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
         *parsing.parseTree(), parsing.messages().cooked());
   }
   if (driver.dumpParseTree) {
-    Fortran::parser::DumpTree(*parsing.parseTree());
+    Fortran::semantics::DumpTree(*parsing.parseTree());
   }
   if (driver.dumpUnparse) {
     Unparse(std::cout, *parsing.parseTree(), driver.encoding,

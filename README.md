@@ -53,8 +53,8 @@ can be done now or while calling cmake
 
 ## Installation of F18
 
-    ######## The installation will be done in $F18_PREFIX
-    ######## That directory can be equal to different to $LLVM_PREFIX
+    ######## The installation will be done in $F18_PREFIX.
+    ######## That directory can be equal to different to $LLVM_PREFIX.
    
     F18_PREFIX=$ROOT/usr   
 
@@ -67,6 +67,6 @@ can be done now or while calling cmake
     ######## Create a build directory for f18 and build it 
     mkdir $ROOT/f18-build
     cd $ROOT/f18-build
-    CC=gcc CXX+g++ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX ../f18 
+    CC=gcc CXX+g++ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$F18_PREFIX ../f18 
     make -j 4
     make install 

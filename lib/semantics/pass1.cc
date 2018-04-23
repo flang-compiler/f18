@@ -596,20 +596,13 @@ public:
 public:
 
   template <typename T> bool Pre(const T &x) { 
-    if ( ENV("TRACE_FALLBACK")  )  
-      TRACE( "*** fallback Pre(" << sm::GetParserNodeName(x) << ")" )  ;
-    
-    //  TRACE( "*** fallback " << __PRETTY_FUNCTION__  ) ; 
     return true ;
   }
   
   template <typename T> void Post(const T &) { 
-  //  if ( ENV("TRACE_FALLBACK") )  
-  //    TRACE( "*** fallback " << __PRETTY_FUNCTION__  ) ; 
   }
   
   // fallback for std::variant
-
 
   template <typename... A> bool Pre(const std::variant<A...> &) { 
     //std::cerr << "@@@ fallback " << __PRETTY_FUNCTION__  << "\n" ; 
@@ -2940,7 +2933,7 @@ void DoSemanticAnalysis( const psr::CookedSource & source,const psr::Program &al
   psr::Pass1 pass1(source) ;
   for (const psr::ProgramUnit &unit : all.v) {
     TRACE("===========================================================================================================");
-    psr::DumpTree(unit);
+    sm::DumpTree(unit);
     TRACE("===========================================================================================================");
     pass1.run(unit) ; 
   } 

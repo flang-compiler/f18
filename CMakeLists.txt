@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.9.0)
 
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
-
 #
 # Reminder: The normal way to set the compiler is via the CXX environment variable
 #  
@@ -41,10 +39,6 @@ message(STATUS "Found Clang in ${CLANG_INSTALL_PREFIX}")
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-include_directories(${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
-
-#
 # Get names for the LLVM libraries
 #
 # The full list of LLVM components can be obtained with
@@ -63,14 +57,15 @@ add_definitions(${LLVM_DEFINITIONS})
 # 
 #  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
 
-# RTTI mush be disabled locally in order to be able to used the
-# LLVM libraries (else link errors due to missing 'typeinfo' symbols)
-list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
-
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
+include_directories(${LLVM_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
 
 if(CMAKE_COMPILER_IS_GNUCXX)
+
+   # RTTI mush be disabled locally in order to be able to used the
+   # LLVM libraries (else link errors due to missing 'typeinfo' symbols)
+   list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
+
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
    set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
