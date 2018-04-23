@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,9 +14,6 @@
 
 #include "resolve-names.h"
 #include "rewrite-parse-tree.h"
-=======
-#include "resolve-names.h"
->>>>>>> Add -fdebug-dump-parse-tree and -fdebug-resolve-names
 #include "attr.h"
 #include "scope.h"
 #include "symbol.h"
@@ -938,10 +934,8 @@ bool ResolveNamesVisitor::Pre(const parser::AccessStmt &x) {
           },
           accessId.u);
     }
-  } else {
-    Say(name, "'%s' is already declared in this scoping unit"_err_en_US);
-    Say(symbol.name(), "Previous declaration of '%s'"_en_US);
   }
+  return false;
 }
 
 // Set the access specification for this name.
