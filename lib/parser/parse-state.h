@@ -77,6 +77,9 @@ public:
   const Messages &messages() const { return messages_; }
   Messages &messages() { return messages_; }
 
+  const Message::Context &context() const { return context_; }
+  Message::Context &context() { return context_; }
+
   bool anyErrorRecovery() const { return anyErrorRecovery_; }
   void set_anyErrorRecovery() { anyErrorRecovery_ = true; }
 
@@ -131,7 +134,7 @@ public:
   const char *GetLocation() const { return p_; }
 
   void PushContext(MessageFixedText text) {
-    auto m = new Message{p_, text};
+    auto m = new Message{p_, text};  // reference-counted, it's ok
     m->set_context(context_.get());
     context_ = Message::Context{m};
   }
@@ -146,25 +149,25 @@ public:
   void Say(MessageFormattedText &&t) { return Say(p_, std::move(t)); }
   void Say(MessageExpectedText &&t) { return Say(p_, std::move(t)); }
 
-  void Say(const char *at, MessageFixedText t) {
+  void Say(CharBlock range, MessageFixedText t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(at, t).set_context(context_.get());
+      messages_.Say(range, t).set_context(context_.get());
     }
   }
-  void Say(const char *at, MessageFormattedText &&t) {
+  void Say(CharBlock range, MessageFormattedText &&t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(at, std::move(t)).set_context(context_.get());
+      messages_.Say(range, std::move(t)).set_context(context_.get());
     }
   }
-  void Say(const char *at, MessageExpectedText &&t) {
+  void Say(CharBlock range, MessageExpectedText &&t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(at, std::move(t)).set_context(context_.get());
+      messages_.Say(range, std::move(t)).set_context(context_.get());
     }
   }
 
