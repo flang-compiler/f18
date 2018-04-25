@@ -90,6 +90,15 @@ public:
 protected:
   std::optional<Attrs> attrs_;
   std::string langBindingName_{""};
+
+  Attr AccessSpecToAttr(const parser::AccessSpec &x) {
+    switch (x.v) {
+    case parser::AccessSpec::Kind::Public: return Attr::PUBLIC;
+    case parser::AccessSpec::Kind::Private: return Attr::PRIVATE;
+    }
+    // unnecessary but g++ warns "control reaches end of non-void function"
+    parser::die("unreachable");
+  }
 };
 
 // Find and create types from declaration-type-spec nodes.
@@ -330,6 +339,8 @@ public:
   void Post(const parser::EndFunctionStmt &);
   bool Pre(const parser::MainProgram &);
   void Post(const parser::EndProgramStmt &);
+  bool Pre(const parser::ModuleStmt &);
+  void Post(const parser::EndModuleStmt &);
   void Post(const parser::Program &);
 
   bool Pre(const parser::AllocatableStmt &) {
@@ -343,56 +354,11 @@ public:
   }
   void Post(const parser::TargetStmt &) { objectDeclAttr_ = std::nullopt; }
   void Post(const parser::DimensionStmt::Declaration &);
-
-  const parser::Name *GetVariableName(const parser::DataRef &x) {
-    return std::get_if<parser::Name>(&x.u);
-  }
-  const parser::Name *GetVariableName(const parser::Designator &x) {
-    return std::visit(
-        parser::visitors{
-            [&](const parser::ObjectName &x) { return &x; },
-            [&](const parser::DataRef &x) { return GetVariableName(x); },
-            [&](const auto &) {
-              return static_cast<const parser::Name *>(nullptr);
-            },
-        },
-        x.u);
-  }
-  const parser::Name *GetVariableName(const parser::Expr &x) {
-    if (const auto *designator =
-            std::get_if<parser::Indirection<parser::Designator>>(&x.u)) {
-      return GetVariableName(**designator);
-    } else {
-      return nullptr;
-    }
-  }
-  const parser::Name *GetVariableName(const parser::Variable &x) {
-    if (const auto *designator =
-            std::get_if<parser::Indirection<parser::Designator>>(&x.u)) {
-      return GetVariableName(**designator);
-    } else {
-      return nullptr;
-    }
-  }
+  bool Pre(const parser::AccessStmt &);
 
   void Post(const parser::Expr &x) { CheckImplicitSymbol(GetVariableName(x)); }
   void Post(const parser::Variable &x) {
     CheckImplicitSymbol(GetVariableName(x));
-  }
-
-  // If implicit types are allowed, ensure name is in the symbol table
-  void CheckImplicitSymbol(const parser::Name *name) {
-    if (name) {
-      if (!isImplicitNoneType()) {
-        // ensure this name is in symbol table:
-        CurrScope().try_emplace(name->source);
-      } else {
-        const auto &it = CurrScope().find(name->source);
-        if (it == CurrScope().end() || it->second.has<UnknownDetails>()) {
-          Say(*name, "No explicit type declared for '%s'"_err_en_US);
-        }
-      }
-    }
   }
 
   void Post(const parser::ProcedureDesignator &x) {
@@ -426,6 +392,10 @@ private:
   std::optional<Attr> objectDeclAttr_;
   // Set when we see a stmt function that is really an array element assignment
   bool badStmtFuncFound_{false};
+  // The location of the last AccessStmt without access-ids, if any.
+  const parser::CharBlock *prevAccessStmt_{nullptr};
+  // The default access spec for this module.
+  Attr defaultAccess_{Attr::PUBLIC};
 
   // Create a subprogram symbol in the current scope and push a new scope.
   Symbol &PushSubprogramScope(const parser::Name &);
@@ -472,6 +442,13 @@ private:
     return MakeSymbol(name, attrs, UnknownDetails());
   }
   void DeclareEntity(const parser::Name &, Attrs);
+  void SetAccess(const parser::Name &, Attr);
+  void ApplyDefaultAccess();
+  const parser::Name *GetVariableName(const parser::DataRef &);
+  const parser::Name *GetVariableName(const parser::Designator &);
+  const parser::Name *GetVariableName(const parser::Expr &);
+  const parser::Name *GetVariableName(const parser::Variable &);
+  void CheckImplicitSymbol(const parser::Name *);
 };
 
 // ImplicitRules implementation
@@ -553,11 +530,7 @@ void AttrsVisitor::Post(const parser::LanguageBindingSpec &x) {
   }
 }
 bool AttrsVisitor::Pre(const parser::AccessSpec &x) {
-  switch (x.v) {
-  case parser::AccessSpec::Kind::Public: attrs_->set(Attr::PUBLIC); break;
-  case parser::AccessSpec::Kind::Private: attrs_->set(Attr::PRIVATE); break;
-  default: CRASH_NO_CASE;
-  }
+  attrs_->set(AccessSpecToAttr(x));
   return false;
 }
 bool AttrsVisitor::Pre(const parser::IntentSpec &x) {
@@ -568,7 +541,6 @@ bool AttrsVisitor::Pre(const parser::IntentSpec &x) {
     attrs_->set(Attr::INTENT_IN);
     attrs_->set(Attr::INTENT_OUT);
     break;
-  default: CRASH_NO_CASE;
   }
   return false;
 }
@@ -691,7 +663,7 @@ void MessageHandler::Say(parser::MessageFormattedText &&x) {
 
 void MessageHandler::Say(
     const parser::CharBlock &source, parser::MessageFixedText &&msg) {
-  Say(parser::Message{
+  Say(Message{
       source, parser::MessageFormattedText{msg, source.ToString().c_str()}});
 }
 void MessageHandler::Say(
@@ -803,7 +775,6 @@ bool ImplicitRulesVisitor::HandleImplicitNone(
         }
         ++sawType;
         break;
-      default: CRASH_NO_CASE;
       }
     }
     if (sawType > 1) {
@@ -916,6 +887,57 @@ void ResolveNamesVisitor::DeclareEntity(const parser::Name &name, Attrs attrs) {
   } else {
     Say(name, "'%s' is already declared in this scoping unit"_err_en_US);
     Say(symbol.name(), "Previous declaration of '%s'"_en_US);
+  }
+}
+
+bool ResolveNamesVisitor::Pre(const parser::AccessStmt &x) {
+  Attr accessAttr = AccessSpecToAttr(std::get<parser::AccessSpec>(x.t));
+  const auto &accessIds = std::get<std::list<parser::AccessId>>(x.t);
+  if (accessIds.empty()) {
+    if (prevAccessStmt_) {
+      Say("The default accessibility of this module has already "
+          "been declared"_err_en_US);
+      Say(*prevAccessStmt_, "Previous declaration"_en_US);
+    }
+    prevAccessStmt_ = currStmtSource();
+    defaultAccess_ = accessAttr;
+  } else {
+    for (const auto &accessId : accessIds) {
+      std::visit(
+          parser::visitors{
+              [=](const parser::Name &y) { SetAccess(y, accessAttr); },
+              [=](const parser::Indirection<parser::GenericSpec> &y) {
+                std::visit(
+                    parser::visitors{
+                        [=](const parser::Name &z) {
+                          SetAccess(z, accessAttr);
+                        },
+                        [](const auto &) { parser::die("TODO: GenericSpec"); },
+                    },
+                    y->u);
+              },
+          },
+          accessId.u);
+    }
+  }
+  return false;
+}
+
+// Set the access specification for this name.
+void ResolveNamesVisitor::SetAccess(const parser::Name &name, Attr attr) {
+  Symbol &symbol{MakeSymbol(name)};
+  Attrs &attrs{symbol.attrs()};
+  if (attrs.HasAny({Attr::PUBLIC, Attr::PRIVATE})) {
+    // PUBLIC/PRIVATE already set: make it a fatal error if it changed
+    Attr prev = attrs.test(Attr::PUBLIC) ? Attr::PUBLIC : Attr::PRIVATE;
+    const auto &msg = attr == prev
+        ? "The accessibility of '%s' has already been specified as %s"_en_US
+        : "The accessibility of '%s' has already been specified as %s"_err_en_US;
+    Say(Message{name.source,
+        parser::MessageFormattedText{
+            msg, name.ToString().c_str(), EnumToString(prev).c_str()}});
+  } else {
+    attrs.set(attr);
   }
 }
 
@@ -1108,6 +1130,79 @@ bool ResolveNamesVisitor::Pre(const parser::MainProgram &x) {
 void ResolveNamesVisitor::Post(const parser::EndProgramStmt &) {
   ApplyImplicitRules();
   PopScope();
+}
+
+bool ResolveNamesVisitor::Pre(const parser::ModuleStmt &stmt) {
+  const auto &name = stmt.v;
+  auto &symbol = MakeSymbol(name, ModuleDetails());
+  Scope &modScope = CurrScope().MakeScope(Scope::Kind::Module, &symbol);
+  PushScope(modScope);
+  MakeSymbol(name, ModuleDetails(symbol.details<ModuleDetails>()));
+  return false;
+}
+void ResolveNamesVisitor::Post(const parser::EndModuleStmt &) {
+  ApplyDefaultAccess();
+  ApplyImplicitRules();
+  PopScope();
+}
+
+void ResolveNamesVisitor::ApplyDefaultAccess() {
+  for (auto &pair : CurrScope()) {
+    Symbol &symbol = pair.second;
+    if (!symbol.attrs().HasAny({Attr::PUBLIC, Attr::PRIVATE})) {
+      symbol.attrs().set(defaultAccess_);
+    }
+  }
+}
+
+const parser::Name *ResolveNamesVisitor::GetVariableName(
+    const parser::DataRef &x) {
+  return std::get_if<parser::Name>(&x.u);
+}
+const parser::Name *ResolveNamesVisitor::GetVariableName(
+    const parser::Designator &x) {
+  return std::visit(
+      parser::visitors{
+          [&](const parser::ObjectName &x) { return &x; },
+          [&](const parser::DataRef &x) { return GetVariableName(x); },
+          [&](const auto &) {
+            return static_cast<const parser::Name *>(nullptr);
+          },
+      },
+      x.u);
+}
+const parser::Name *ResolveNamesVisitor::GetVariableName(
+    const parser::Expr &x) {
+  if (const auto *designator =
+          std::get_if<parser::Indirection<parser::Designator>>(&x.u)) {
+    return GetVariableName(**designator);
+  } else {
+    return nullptr;
+  }
+}
+const parser::Name *ResolveNamesVisitor::GetVariableName(
+    const parser::Variable &x) {
+  if (const auto *designator =
+          std::get_if<parser::Indirection<parser::Designator>>(&x.u)) {
+    return GetVariableName(**designator);
+  } else {
+    return nullptr;
+  }
+}
+
+// If implicit types are allowed, ensure name is in the symbol table
+void ResolveNamesVisitor::CheckImplicitSymbol(const parser::Name *name) {
+  if (name) {
+    if (!isImplicitNoneType()) {
+      // ensure this name is in symbol table:
+      CurrScope().try_emplace(name->source);
+    } else {
+      const auto &it = CurrScope().find(name->source);
+      if (it == CurrScope().end() || it->second.has<UnknownDetails>()) {
+        Say(*name, "No explicit type declared for '%s'"_err_en_US);
+      }
+    }
+  }
 }
 
 void ResolveNamesVisitor::Post(const parser::Program &) {
