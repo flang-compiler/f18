@@ -60,18 +60,24 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
-if(CMAKE_COMPILER_IS_GNUCXX)
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
 
-   # RTTI mush be disabled locally in order to be able to used the
-   # LLVM libraries (else link errors due to missing 'typeinfo' symbols)
-   list(APPEND CMAKE_CXX_FLAGS "-fno-rtti")
-
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
    set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
-
-set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
+   set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
    set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
+
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
+   set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
+   set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
+   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
+
 endif()
 
 set(FLANG_VERSION_MAJOR      "0")
