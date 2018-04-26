@@ -34,43 +34,35 @@ can be done now or while calling cmake
     git clone --branch $REL --single-branch --depth=1 https://git.llvm.org/git/openmp.git/     llvm/projects/openmp
     git clone --branch $REL --single-branch --depth=1 https://git.llvm.org/git/libcxx.git/     llvm/projects/libcxx
     git clone --branch $REL --single-branch --depth=1 https://git.llvm.org/git/libcxxabi.git/  llvm/projects/libcxxabi
-
-    # List the version of all git sub-directories. They should all match $REL
-    for dir in $(find "$ROOT/llvm" -name .git) ; do 
-      cd $dir/.. ; 
-      printf " %-15s %s\n" "$(git rev-parse --abbrev-ref HEAD)" "$(pwd)" ; 
-    done
    
-    ###########  Build LLVM & CLANG in $LLM_PREFIX 
-    ###########  A Debug build can take a long time and a lot of disk space
-    ###########  so I recommend making a Release  build.
-       
-    LLVM_PREFIX=...... 
+    ###########  Build LLVM & CLANG in $LLVM_PREFIX 
+
+    LLVM_PREFIX=... 
     mkdir $LLVM_PREFIX
     
     mkdir $ROOT/llvm/build
     cd  $ROOT/llvm/build 
-    CC=gcc CXX+g++ Ccmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX ..
+    CC=gcc CXX+g++ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$LLVM_PREFIX ..
     make -j 4
     make install
    
 
 ## Installation of F18
 
-    ######## The installation will be done in $F18_PREFIX.
-    ######## That directory can be equal to different to $LLVM_PREFIX.
+    ######## Choose the installation directory
    
-    F18_PREFIX=$ROOT/usr   
+    F18_PREFIX=...   
 
-    ######## Provide CMake with the installation path for CLang & LLVM packages
-    export CMAKE_MODULE_PATH=$LLVM_PREFIX/lib/cmake:$CMAKE_MODULE_PATH
-    
-    ######## Get Flang sources 
+    ######## Get Flang sources in $ROOT/f18
+    cd $ROOT
     git clone https://github.com/ThePortlandGroup/f18.git
 
-    ######## Create a build directory for f18 and build it 
+    ######## And build it in a dedicated directory
+    ######## Reminder: If LLVM & Clang where not installed in a standard 
+    ########           location then you may also have to define
+    ########           CMAKE_MODULE_PATH=$LLVM_PREFIX  
     mkdir $ROOT/f18-build
-    cd $ROOT/f18-build
-    CC=gcc CXX+g++ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$F18_PREFIX ../f18 
+    cd $ROOT/f18-build   
+    CC=gcc CXX=g++ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$F18_PREFIX $ROOT/f18
     make -j 4
-    make install 
+    make install

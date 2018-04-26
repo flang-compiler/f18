@@ -97,8 +97,6 @@ add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option) 
 
-
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DDEFAULT_TARGET='\"${TARGET_TRIPLE}\"' -O2 -DDEBUG")
 
 if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
