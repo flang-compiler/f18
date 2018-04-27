@@ -224,9 +224,69 @@ inline constexpr auto operator/(const PA &pa, const PB &pb) {
   return InvertedSequenceParser<PA, PB>{pa, pb};
 }
 
+template<typename PA, typename... Ps> class AlternativesParser {
+public:
+  using resultType = typename PA::resultType;
+  constexpr AlternativesParser(const PA &pa, const Ps &... ps)
+    : ps_{pa, ps...} {}
+  constexpr AlternativesParser(const AlternativesParser &) = default;
+  std::optional<resultType> Parse(ParseState &state) const {
+    Messages messages{std::move(state.messages())};
+    ParseState backtrack{state};
+    std::optional<resultType> result{std::get<0>(ps_).Parse(state)};
+    if (!result.has_value()) {
+      ParseRest<1>(result, state, backtrack);
+    }
+    messages.Annex(state.messages());
+    state.messages() = std::move(messages);
+    return result;
+  }
+
+private:
+  template<int J>
+  void ParseRest(std::optional<resultType> &result, ParseState &state,
+      ParseState &backtrack) const {
+    if constexpr (J <= sizeof...(Ps)) {
+      ParseState prevState{std::move(state)};
+      state = std::move(backtrack);
+      const auto &parser{std::get<J>(ps_)};
+      static_assert(std::is_same_v<resultType,
+          typename std::decay<decltype(parser)>::type::resultType>);
+      result = parser.Parse(state);
+      if (!result.has_value()) {
+        auto prevEnd = prevState.GetLocation();
+        auto lastEnd = state.GetLocation();
+        if (prevEnd == lastEnd) {
+          prevState.messages().Incorporate(state.messages());
+        }
+        if (prevEnd >= lastEnd) {
+          state = std::move(prevState);
+        }
+        ParseRest<J + 1>(result, state, backtrack);
+      }
+    }
+  }
+
+  const std::tuple<PA, Ps...> ps_;
+};
+
+template<typename... Ps> inline constexpr auto first(const Ps &... ps) {
+  return AlternativesParser<Ps...>{ps...};
+}
+
+#if !__GNUC__ || __clang__
+// Implement operator|| with first(), unless compiling with g++,
+// which can segfault at compile time and needs to continue to use
+// the original implementation of operator|| as of gcc-7.3.0.
+template<typename PA, typename PB>
+inline constexpr auto operator||(const PA &pa, const PB &pb) {
+  return first(pa, pb);
+}
+#else  // g++ only: original implementation
 // If a and b are parsers, then a || b returns a parser that succeeds if
 // a does so, or if a fails and b succeeds.  The result types of the parsers
 // must be the same type.  If a succeeds, b is not attempted.
+// TODO: remove this code when no longer needed
 template<typename PA, typename PB> class AlternativeParser {
 public:
   using resultType = typename PA::resultType;
@@ -275,16 +335,7 @@ template<typename PA, typename PB>
 inline constexpr auto operator||(const PA &pa, const PB &pb) {
   return AlternativeParser<PA, PB>{pa, pb};
 }
-
-#if 0
-// Should have been a big speed-up, but instead produced a slow-down.
-// TODO: Further investigate rebinding alternatives to the right.
-template<typename PA, typename PB, typename PC>
-inline constexpr auto operator||(const AlternativeParser<PA,PB> &papb,
-                                 const PC &pc) {
-  return papb.pa_ || (papb.pb_ || pc);  // bind to the right for performance
-}
-#endif
+#endif  // clang vs. g++ on operator|| implementations
 
 // If a and b are parsers, then recovery(a,b) returns a parser that succeeds if
 // a does so, or if a fails and b succeeds.  If a succeeds, b is not attempted.

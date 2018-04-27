@@ -1155,11 +1155,10 @@ struct AcValue {
 // R770 ac-spec -> type-spec :: | [type-spec ::] ac-value-list
 struct AcSpec {
   BOILERPLATE(AcSpec);
-  AcSpec(std::optional<Indirection<TypeSpec>> &&ts, std::list<AcValue> &&xs)
+  AcSpec(std::optional<TypeSpec> &&ts, std::list<AcValue> &&xs)
     : type(std::move(ts)), values(std::move(xs)) {}
-  explicit AcSpec(Indirection<TypeSpec> &&ts) : type{std::move(ts)} {}
-  // TODO need Indirection here to compile, don't know why
-  std::optional<Indirection<TypeSpec>> type;
+  explicit AcSpec(TypeSpec &&ts) : type{std::move(ts)} {}
+  std::optional<TypeSpec> type;
   std::list<AcValue> values;
 };
 
@@ -1501,8 +1500,8 @@ struct CommonStmt {
     std::tuple<std::optional<Name>, std::list<CommonBlockObject>> t;
   };
   TUPLE_CLASS_BOILERPLATE(CommonStmt);
-  std::tuple<std::optional<std::optional<Name>>,  // TODO: flatten
-      std::list<CommonBlockObject>, std::list<Block>>
+  std::tuple<std::optional<Name>, std::list<CommonBlockObject>,
+      std::list<Block>>
       t;
 };
 
