@@ -17,9 +17,7 @@
 #include <iostream>
 #include <set>
 
-namespace Fortran {
-namespace semantics {
-
+namespace Fortran::semantics {
 
 std::ostream &operator<<(std::ostream &o, const IntExpr &x) {
   return x.Output(o);
@@ -235,9 +233,10 @@ DeclTypeSpec &DeclTypeSpec::operator=(const DeclTypeSpec &that) {
   return *this;
 }
 
-DeclTypeSpec::DeclTypeSpec(Category category, std::unique_ptr<DerivedTypeSpec> &&typeSpec)
-  : category_{category}, intrinsicTypeSpec_{nullptr},
-    derivedTypeSpec_{std::move(typeSpec)} {
+DeclTypeSpec::DeclTypeSpec(
+    Category category, std::unique_ptr<DerivedTypeSpec> &&typeSpec)
+  : category_{category}, intrinsicTypeSpec_{nullptr}, derivedTypeSpec_{
+                                                          std::move(typeSpec)} {
   CHECK(category == TypeDerived || category == ClassDerived);
 }
 
@@ -327,5 +326,4 @@ DerivedTypeDefBuilder &DerivedTypeDefBuilder::sequence(bool x) {
   return *this;
 }
 
-}  // namespace semantics
-}  // namespace Fortran
+}  // namespace Fortran::semantics
