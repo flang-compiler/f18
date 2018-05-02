@@ -21,8 +21,7 @@
 #include <iostream>
 #include <string>
 
-namespace Fortran {
-namespace semantics {
+namespace Fortran::semantics {
 
 // All available attributes.
 ENUM_CLASS(Attr, ABSTRACT, ALLOCATABLE, ASYNCHRONOUS, BIND_C, CONTIGUOUS,
@@ -35,14 +34,11 @@ ENUM_CLASS(Attr, ABSTRACT, ALLOCATABLE, ASYNCHRONOUS, BIND_C, CONTIGUOUS,
 class Attrs : public EnumSet<Attr, Attr_enumSize> {
 private:
   using enumSetType = EnumSet<Attr, Attr_enumSize>;
+
 public:
   using enumSetType::enumSetType;
-  constexpr bool HasAny(const Attrs &x) const {
-    return !(*this & x).none();
-  }
-  constexpr bool HasAll(const Attrs &x) const {
-    return (~*this & x).none();
-  }
+  constexpr bool HasAny(const Attrs &x) const { return !(*this & x).none(); }
+  constexpr bool HasAll(const Attrs &x) const { return (~*this & x).none(); }
   // Internal error if any of these attributes are not in allowed.
   void CheckValid(const Attrs &allowed) const;
 
@@ -52,6 +48,6 @@ private:
 
 std::ostream &operator<<(std::ostream &o, Attr attr);
 std::ostream &operator<<(std::ostream &o, const Attrs &attrs);
-}  // namespace semantics
-}  // namespace Fortran
+
+}  // namespace Fortran::semantics
 #endif  // FORTRAN_SEMANTICS_ATTR_H_
