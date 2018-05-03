@@ -11,9 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-#ifndef FORTRAN_SEMANTICS_PARSETREEDUMP_H_
-#define FORTRAN_SEMANTICS_PARSETREEDUMP_H_
+#ifndef FORTRAN_SEMA_PARSE_TREE_DUMP_H_
+#define FORTRAN_SEMA_PARSE_TREE_DUMP_H_
 
 #include "symbol.h"
 #include "../parser/format-specification.h"
