@@ -36,7 +36,6 @@ namespace Fortran::semantics {
 
 class ParseTreeDumper {
 private:
-
   int indent_;
   std::ostream &out;
   bool emptyline;
@@ -387,7 +386,8 @@ public:
       return "ExplicitShapeSpec";
     } else if constexpr (std::is_same_v<T, Fortran::parser::Expr>) {
       return "Expr";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::Parentheses>) {
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Expr::Parentheses>) {
       return "Parentheses";
     } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::UnaryPlus>) {
       return "UnaryPlus";
@@ -397,7 +397,8 @@ public:
       return "NOT";
     } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::PercentLoc>) {
       return "PercentLoc";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::DefinedUnary>) {
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Expr::DefinedUnary>) {
       return "DefinedUnary";
     } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::Power>) {
       return "Power";
@@ -433,11 +434,14 @@ public:
       return "NEQV";
     } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::XOR>) {
       return "XOR";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::DefinedBinary>) {
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Expr::DefinedBinary>) {
       return "DefinedBinary";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::ComplexConstructor>) {
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Expr::ComplexConstructor>) {
       return "ComplexConstructor";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::Expr::Parentheses>) {
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Expr::Parentheses>) {
       return "Parentheses";
     } else if constexpr (std::is_same_v<T, Fortran::parser::AcSpec>) {
       return "AcSpec";
@@ -849,154 +853,409 @@ public:
       return "WhereStmt";
     } else if constexpr (std::is_same_v<T, Fortran::parser::WriteStmt>) {
       return "WriteStmt";
-      } else if constexpr (std::is_same_v<T, Fortran::parser::HollerithLiteralConstant>) { return "HollerithLiteralConstant";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::RealLiteralConstant>) { return "RealLiteralConstant";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::RealLiteralConstant::Real>) { return "Real";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::CloseStmt::CloseSpec>) { return "CloseSpec";
-    } else if constexpr (std::is_same_v<T, Fortran::parser::InquireStmt::Iolength>) { return "Iolength";
-    } else if constexpr (std::is_same_v<T, Fortran::format::ControlEditDesc>) { return "ControlEditDesc";
- } else if constexpr (std::is_same_v<T, Fortran::format::ControlEditDesc::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::format::DerivedTypeDataEditDesc>) { return "DerivedTypeDataEditDesc";
- } else if constexpr (std::is_same_v<T, Fortran::format::FormatItem>) { return "FormatItem";
- } else if constexpr (std::is_same_v<T, Fortran::format::FormatSpecification>) { return "FormatSpecification";
- } else if constexpr (std::is_same_v<T, Fortran::format::IntrinsicTypeDataEditDesc>) { return "IntrinsicTypeDataEditDesc";
- } else if constexpr (std::is_same_v<T, Fortran::format::IntrinsicTypeDataEditDesc::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Abstract>) { return "Abstract";
- } else if constexpr (std::is_same_v<T, Fortran::parser::AcValue::Triplet>) { return "Triplet";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ActualArg::PercentRef>) { return "PercentRef";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ActualArg::PercentVal>) { return "PercentVal";
- } else if constexpr (std::is_same_v<T, Fortran::parser::AllocOpt::Mold>) { return "Mold";
- } else if constexpr (std::is_same_v<T, Fortran::parser::AllocOpt::Source>) { return "Source";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Allocatable>) { return "Allocatable";
- } else if constexpr (std::is_same_v<T, Fortran::parser::AssumedRankSpec>) { return "AssumedRankSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Asynchronous>) { return "Asynchronous";
- } else if constexpr (std::is_same_v<T, Fortran::parser::BindAttr::Deferred>) { return "Deferred";
- } else if constexpr (std::is_same_v<T, Fortran::parser::BindAttr::Non_Overridable>) { return "Non_Overridable";
- } else if constexpr (std::is_same_v<T, Fortran::parser::BindEntity::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CaseConstruct::Case>) { return "Case";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CaseValueRange::Range>) { return "Range";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CharSelector::LengthAndKind>) { return "LengthAndKind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CommonStmt::Block>) { return "Block";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CompilerDirective::IVDEP>) { return "IVDEP";
- } else if constexpr (std::is_same_v<T, Fortran::parser::CompilerDirective::IgnoreTKR>) { return "IgnoreTKR";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ConnectSpec::CharExpr>) { return "CharExpr";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ConnectSpec::CharExpr::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ConnectSpec::Newunit>) { return "Newunit";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ConnectSpec::Recl>) { return "Recl";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ContainsStmt>) { return "ContainsStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Contiguous>) { return "Contiguous";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DeclarationTypeSpec::Class>) { return "Class";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DeclarationTypeSpec::ClassStar>) { return "ClassStar";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DeclarationTypeSpec::Record>) { return "Record";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DeclarationTypeSpec::Type>) { return "Type";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DeclarationTypeSpec::TypeStar>) { return "TypeStar";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Default>) { return "Default";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DefinedOperator::IntrinsicOperator>) { return "IntrinsicOperator";
- } else if constexpr (std::is_same_v<T, Fortran::parser::DimensionStmt::Declaration>) { return "Declaration";
- } else if constexpr (std::is_same_v<T, Fortran::parser::EndEnumStmt>) { return "EndEnumStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::EnumDefStmt>) { return "EnumDefStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::EventWaitStmt::EventWaitSpec>) { return "EventWaitSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ExecutionPart>) { return "ExecutionPart";
- } else if constexpr (std::is_same_v<T, Fortran::parser::External>) { return "External";
- } else if constexpr (std::is_same_v<T, Fortran::parser::FormTeamStmt::FormTeamSpec>) { return "FormTeamSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::GenericSpec::Assignment>) { return "Assignment";
- } else if constexpr (std::is_same_v<T, Fortran::parser::GenericSpec::ReadFormatted>) { return "ReadFormatted";
- } else if constexpr (std::is_same_v<T, Fortran::parser::GenericSpec::ReadUnformatted>) { return "ReadUnformatted";
- } else if constexpr (std::is_same_v<T, Fortran::parser::GenericSpec::WriteFormatted>) { return "WriteFormatted";
- } else if constexpr (std::is_same_v<T, Fortran::parser::GenericSpec::WriteUnformatted>) { return "WriteUnformatted";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IfConstruct::ElseBlock>) { return "ElseBlock";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IfConstruct::ElseIfBlock>) { return "ElseIfBlock";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ImageSelectorSpec::Stat>) { return "Stat";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ImageSelectorSpec::Team>) { return "Team";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ImageSelectorSpec::Team_Number>) { return "Team_Number";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ImplicitStmt::ImplicitNoneNameSpec>) { return "ImplicitNoneNameSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::CharVar>) { return "CharVar";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::CharVar::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::IntVar>) { return "IntVar";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::IntVar::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::LogVar>) { return "LogVar";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InquireSpec::LogVar::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntentSpec>) { return "IntentSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntentSpec::Intent>) { return "Intent";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InterfaceBody::Function>) { return "Function";
- } else if constexpr (std::is_same_v<T, Fortran::parser::InterfaceBody::Subroutine>) { return "Subroutine";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Intrinsic>) { return "Intrinsic";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::Character>) { return "Character";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::Complex>) { return "Complex";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::DoubleComplex>) { return "DoubleComplex";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::DoublePrecision>) { return "DoublePrecision";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::Logical>) { return "Logical";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::NCharacter>) { return "NCharacter";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::Real>) { return "Real";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::Asynchronous>) { return "Asynchronous";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::CharExpr>) { return "CharExpr";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::CharExpr::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::Pos>) { return "Pos";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::Rec>) { return "Rec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::IoControlSpec::Size>) { return "Size";
- } else if constexpr (std::is_same_v<T, Fortran::parser::KindParam::Kanji>) { return "Kanji";
- } else if constexpr (std::is_same_v<T, Fortran::parser::KindSelector::StarSize>) { return "StarSize";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LanguageBindingSpec>) { return "LanguageBindingSpec";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LocalitySpec::DefaultNone>) { return "DefaultNone";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LocalitySpec::Local>) { return "Local";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LocalitySpec::LocalInit>) { return "LocalInit";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LocalitySpec::Shared>) { return "Shared";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LockStmt::LockStat>) { return "LockStat";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LoopBounds<Fortran::parser::ScalarIntConstantExpr>>) { return "LoopBounds";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LoopBounds<Fortran::parser::ScalarIntExpr>>) { return "LoopBounds";
- } else if constexpr (std::is_same_v<T, Fortran::parser::LoopControl::Concurrent>) { return "Concurrent";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Map::EndMapStmt>) { return "EndMapStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Map::MapStmt>) { return "MapStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::NamelistStmt::Group>) { return "Group";
- } else if constexpr (std::is_same_v<T, Fortran::parser::NoPass>) { return "NoPass";
- } else if constexpr (std::is_same_v<T, Fortran::parser::NullInit>) { return "NullInit";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Optional>) { return "Optional";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Parameter>) { return "Parameter";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Pointer>) { return "Pointer";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PointerAssignmentStmt::Bounds>) { return "Bounds";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Elemental>) { return "Elemental";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Impure>) { return "Impure";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Module>) { return "Module";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Non_Recursive>) { return "Non_Recursive";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Pure>) { return "Pure";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Recursive>) { return "Recursive";
- } else if constexpr (std::is_same_v<T, Fortran::parser::PrivateStmt>) { return "PrivateStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::ProcedureStmt::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Protected>) { return "Protected";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Rename::Names>) { return "Names";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Rename::Operators>) { return "Operators";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Save>) { return "Save";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SavedEntity::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SelectRankCaseStmt::Rank>) { return "Rank";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SelectRankConstruct::RankCase>) { return "RankCase";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SelectTypeConstruct::TypeCase>) { return "TypeCase";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SequenceStmt>) { return "SequenceStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Sign>) { return "Sign";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Star>) { return "Star";
- } else if constexpr (std::is_same_v<T, Fortran::parser::StopStmt::Kind>) { return "Kind";
- } else if constexpr (std::is_same_v<T, Fortran::parser::StructureDef::EndStructureStmt>) { return "EndStructureStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Suffix>) { return "Suffix";
- } else if constexpr (std::is_same_v<T, Fortran::parser::SyncImagesStmt::ImageSet>) { return "ImageSet";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Target>) { return "Target";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeAttrSpec::BindC>) { return "BindC";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeAttrSpec::Extends>) { return "Extends";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeBoundProcedureStmt::WithInterface>) { return "WithInterface";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeBoundProcedureStmt::WithoutInterface>) { return "WithoutInterface";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeGuardStmt::Guard>) { return "Guard";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeParamDefStmt::KindOrLen>) { return "KindOrLen";
- } else if constexpr (std::is_same_v<T, Fortran::parser::TypeParamValue::Deferred>) { return "Deferred";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Union::EndUnionStmt>) { return "EndUnionStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Union::UnionStmt>) { return "UnionStmt";
- } else if constexpr (std::is_same_v<T, Fortran::parser::UseStmt::ModuleNature>) { return "ModuleNature";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Value>) { return "Value";
- } else if constexpr (std::is_same_v<T, Fortran::parser::Volatile>) { return "Volatile";
- } else if constexpr (std::is_same_v<T, Fortran::parser::WhereConstruct::Elsewhere>) { return "Elsewhere";
- } else if constexpr (std::is_same_v<T, Fortran::parser::WhereConstruct::MaskedElsewhere>) { return "MaskedElsewhere";
- } else if constexpr (std::is_same_v<T, bool>) { return "bool";
- } else if constexpr (std::is_same_v<T, const char*>) { return "char*";
- } else if constexpr (std::is_same_v<T, int>) { return "int";
- } else {
-      // Uncomment the following static_assert to help figure out classes 
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::HollerithLiteralConstant>) {
+      return "HollerithLiteralConstant";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::RealLiteralConstant>) {
+      return "RealLiteralConstant";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::RealLiteralConstant::Real>) {
+      return "Real";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CloseStmt::CloseSpec>) {
+      return "CloseSpec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireStmt::Iolength>) {
+      return "Iolength";
+    } else if constexpr (std::is_same_v<T, Fortran::format::ControlEditDesc>) {
+      return "ControlEditDesc";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::format::ControlEditDesc::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::format::DerivedTypeDataEditDesc>) {
+      return "DerivedTypeDataEditDesc";
+    } else if constexpr (std::is_same_v<T, Fortran::format::FormatItem>) {
+      return "FormatItem";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::format::FormatSpecification>) {
+      return "FormatSpecification";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::format::IntrinsicTypeDataEditDesc>) {
+      return "IntrinsicTypeDataEditDesc";
+    } else if constexpr (
+        std::is_same_v<T, Fortran::format::IntrinsicTypeDataEditDesc::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Abstract>) {
+      return "Abstract";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::AcValue::Triplet>) {
+      return "Triplet";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ActualArg::PercentRef>) {
+      return "PercentRef";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ActualArg::PercentVal>) {
+      return "PercentVal";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::AllocOpt::Mold>) {
+      return "Mold";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::AllocOpt::Source>) {
+      return "Source";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Allocatable>) {
+      return "Allocatable";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::AssumedRankSpec>) {
+      return "AssumedRankSpec";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Asynchronous>) {
+      return "Asynchronous";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::BindAttr::Deferred>) {
+      return "Deferred";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::BindAttr::Non_Overridable>) {
+      return "Non_Overridable";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::BindEntity::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CaseConstruct::Case>) {
+      return "Case";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CaseValueRange::Range>) {
+      return "Range";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CharSelector::LengthAndKind>) {
+      return "LengthAndKind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CommonStmt::Block>) {
+      return "Block";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CompilerDirective::IVDEP>) {
+      return "IVDEP";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::CompilerDirective::IgnoreTKR>) {
+      return "IgnoreTKR";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ConnectSpec::CharExpr>) {
+      return "CharExpr";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ConnectSpec::CharExpr::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ConnectSpec::Newunit>) {
+      return "Newunit";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ConnectSpec::Recl>) {
+      return "Recl";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::ContainsStmt>) {
+      return "ContainsStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Contiguous>) {
+      return "Contiguous";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DeclarationTypeSpec::Class>) {
+      return "Class";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DeclarationTypeSpec::ClassStar>) {
+      return "ClassStar";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DeclarationTypeSpec::Record>) {
+      return "Record";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DeclarationTypeSpec::Type>) {
+      return "Type";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DeclarationTypeSpec::TypeStar>) {
+      return "TypeStar";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Default>) {
+      return "Default";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DefinedOperator::
+                                 IntrinsicOperator>) {
+      return "IntrinsicOperator";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::DimensionStmt::Declaration>) {
+      return "Declaration";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::EndEnumStmt>) {
+      return "EndEnumStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::EnumDefStmt>) {
+      return "EnumDefStmt";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::EventWaitStmt::EventWaitSpec>) {
+      return "EventWaitSpec";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::ExecutionPart>) {
+      return "ExecutionPart";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::External>) {
+      return "External";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::FormTeamStmt::FormTeamSpec>) {
+      return "FormTeamSpec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::GenericSpec::Assignment>) {
+      return "Assignment";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::GenericSpec::ReadFormatted>) {
+      return "ReadFormatted";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::GenericSpec::ReadUnformatted>) {
+      return "ReadUnformatted";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::GenericSpec::WriteFormatted>) {
+      return "WriteFormatted";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::GenericSpec::WriteUnformatted>) {
+      return "WriteUnformatted";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IfConstruct::ElseBlock>) {
+      return "ElseBlock";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IfConstruct::ElseIfBlock>) {
+      return "ElseIfBlock";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ImageSelectorSpec::Stat>) {
+      return "Stat";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ImageSelectorSpec::Team>) {
+      return "Team";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ImageSelectorSpec::Team_Number>) {
+      return "Team_Number";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ImplicitStmt::
+                                 ImplicitNoneNameSpec>) {
+      return "ImplicitNoneNameSpec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::CharVar>) {
+      return "CharVar";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::CharVar::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::IntVar>) {
+      return "IntVar";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::IntVar::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::LogVar>) {
+      return "LogVar";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InquireSpec::LogVar::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::IntentSpec>) {
+      return "IntentSpec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntentSpec::Intent>) {
+      return "Intent";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InterfaceBody::Function>) {
+      return "Function";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::InterfaceBody::Subroutine>) {
+      return "Subroutine";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Intrinsic>) {
+      return "Intrinsic";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::Character>) {
+      return "Character";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::Complex>) {
+      return "Complex";
+    } else if constexpr (
+        std::is_same_v<T, Fortran::parser::IntrinsicTypeSpec::DoubleComplex>) {
+      return "DoubleComplex";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::
+                                 DoublePrecision>) {
+      return "DoublePrecision";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::Logical>) {
+      return "Logical";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::NCharacter>) {
+      return "NCharacter";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IntrinsicTypeSpec::Real>) {
+      return "Real";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::Asynchronous>) {
+      return "Asynchronous";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::CharExpr>) {
+      return "CharExpr";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::CharExpr::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::Pos>) {
+      return "Pos";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::Rec>) {
+      return "Rec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::IoControlSpec::Size>) {
+      return "Size";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::KindParam::Kanji>) {
+      return "Kanji";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::KindSelector::StarSize>) {
+      return "StarSize";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LanguageBindingSpec>) {
+      return "LanguageBindingSpec";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LocalitySpec::DefaultNone>) {
+      return "DefaultNone";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LocalitySpec::Local>) {
+      return "Local";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LocalitySpec::LocalInit>) {
+      return "LocalInit";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LocalitySpec::Shared>) {
+      return "Shared";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LockStmt::LockStat>) {
+      return "LockStat";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LoopBounds<
+                                 Fortran::parser::ScalarIntConstantExpr>>) {
+      return "LoopBounds";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LoopBounds<
+                                 Fortran::parser::ScalarIntExpr>>) {
+      return "LoopBounds";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::LoopControl::Concurrent>) {
+      return "Concurrent";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Map::EndMapStmt>) {
+      return "EndMapStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Map::MapStmt>) {
+      return "MapStmt";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::NamelistStmt::Group>) {
+      return "Group";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::NoPass>) {
+      return "NoPass";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::NullInit>) {
+      return "NullInit";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Optional>) {
+      return "Optional";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Parameter>) {
+      return "Parameter";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Pointer>) {
+      return "Pointer";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PointerAssignmentStmt::Bounds>) {
+      return "Bounds";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PrefixSpec::Elemental>) {
+      return "Elemental";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PrefixSpec::Impure>) {
+      return "Impure";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PrefixSpec::Module>) {
+      return "Module";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PrefixSpec::Non_Recursive>) {
+      return "Non_Recursive";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::PrefixSpec::Pure>) {
+      return "Pure";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::PrefixSpec::Recursive>) {
+      return "Recursive";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::PrivateStmt>) {
+      return "PrivateStmt";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::ProcedureStmt::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Protected>) {
+      return "Protected";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Rename::Names>) {
+      return "Names";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Rename::Operators>) {
+      return "Operators";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Save>) {
+      return "Save";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::SavedEntity::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::SelectRankCaseStmt::Rank>) {
+      return "Rank";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::SelectRankConstruct::RankCase>) {
+      return "RankCase";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::SelectTypeConstruct::TypeCase>) {
+      return "TypeCase";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::SequenceStmt>) {
+      return "SequenceStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Sign>) {
+      return "Sign";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Star>) {
+      return "Star";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::StopStmt::Kind>) {
+      return "Kind";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::StructureDef::EndStructureStmt>) {
+      return "EndStructureStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Suffix>) {
+      return "Suffix";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::SyncImagesStmt::ImageSet>) {
+      return "ImageSet";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Target>) {
+      return "Target";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeAttrSpec::BindC>) {
+      return "BindC";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeAttrSpec::Extends>) {
+      return "Extends";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeBoundProcedureStmt::
+                                 WithInterface>) {
+      return "WithInterface";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeBoundProcedureStmt::
+                                 WithoutInterface>) {
+      return "WithoutInterface";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeGuardStmt::Guard>) {
+      return "Guard";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeParamDefStmt::KindOrLen>) {
+      return "KindOrLen";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::TypeParamValue::Deferred>) {
+      return "Deferred";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::Union::EndUnionStmt>) {
+      return "EndUnionStmt";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Union::UnionStmt>) {
+      return "UnionStmt";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::UseStmt::ModuleNature>) {
+      return "ModuleNature";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Value>) {
+      return "Value";
+    } else if constexpr (std::is_same_v<T, Fortran::parser::Volatile>) {
+      return "Volatile";
+    } else if constexpr (std::is_same_v<T,
+                             Fortran::parser::WhereConstruct::Elsewhere>) {
+      return "Elsewhere";
+    } else if constexpr (
+        std::is_same_v<T, Fortran::parser::WhereConstruct::MaskedElsewhere>) {
+      return "MaskedElsewhere";
+    } else if constexpr (std::is_same_v<T, bool>) {
+      return "bool";
+    } else if constexpr (std::is_same_v<T, const char *>) {
+      return "char*";
+    } else if constexpr (std::is_same_v<T, int>) {
+      return "int";
+    } else {
+      // Uncomment the following static_assert to help figure out classes
       // that are not handled here.
       // static_assert(0);
       return "Unknown";
@@ -1053,20 +1312,13 @@ public:
     return true;
   }
 
-  bool Pre(const parser::Name &x) {
-    return PutName(x.ToString(), x.symbol);
-  }
+  bool Pre(const parser::Name &x) { return PutName(x.ToString(), x.symbol); }
 
-  void Post(const parser::Name &) { 
-    indent_--;
-  }
+  void Post(const parser::Name &) { indent_--; }
 
-  bool Pre(const std::string &x) { 
-    return PutName(x, nullptr);
-  }
+  bool Pre(const std::string &x) { return PutName(x, nullptr); }
 
   void Post(const std::string &x) { indent_--; }
-
 
   bool Pre(const std::int64_t &x) {
     if (emptyline) {
@@ -1091,7 +1343,6 @@ public:
     emptyline = true;
     return true;
   }
-
 
   void Post(const std::uint64_t &x) { indent_--; }
 
@@ -1128,7 +1379,6 @@ public:
   template<typename... A> bool Pre(const std::variant<A...> &) { return true; }
 
   template<typename... A> void Post(const std::variant<A...> &) {}
-
 };
 
 template<typename T> void DumpTree(const T &x, std::ostream &out = std::cout) {
