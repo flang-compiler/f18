@@ -14,11 +14,13 @@
 
 #include "message.h"
 #include "char-set.h"
+#include <algorithm>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace Fortran::parser {
 
@@ -102,21 +104,33 @@ std::string Message::ToString() const {
   return s;
 }
 
-ProvenanceRange Message::Emit(
-    std::ostream &o, const CookedSource &cooked, bool echoSourceLine) const {
-  ProvenanceRange provenanceRange{provenanceRange_};
+ProvenanceRange Message::GetProvenanceRange(const CookedSource &cooked) const {
   if (cookedSourceRange_.begin() != nullptr) {
-    provenanceRange = cooked.GetProvenance(cookedSourceRange_);
+    return cooked.GetProvenanceRange(cookedSourceRange_);
   }
-  if (!context_ || context_->Emit(o, cooked, false) != provenanceRange) {
-    cooked.allSources().Identify(o, provenanceRange, "", echoSourceLine);
-  }
-  o << "   ";
+  return provenanceRange_;
+}
+
+void Message::Emit(
+    std::ostream &o, const CookedSource &cooked, bool echoSourceLine) const {
+  ProvenanceRange provenanceRange{GetProvenanceRange(cooked)};
+  std::string text;
   if (isFatal_) {
-    o << "ERROR: ";
+    text += "error: ";
   }
-  o << ToString() << '\n';
-  return provenanceRange;
+  text += ToString();
+  cooked.allSources().EmitMessage(o, provenanceRange, text, echoSourceLine);
+  for (const Message *context{context_.get()}; context != nullptr;
+       context = context->context_.get()) {
+    ProvenanceRange contextProvenance{context->GetProvenanceRange(cooked)};
+    text = "in the context: ";
+    text += context->ToString();
+    // TODO: don't echo the source lines of a context when it's the
+    // same line (or maybe just never echo source for context)
+    cooked.allSources().EmitMessage(o, contextProvenance, text,
+        echoSourceLine && contextProvenance != provenanceRange);
+    provenanceRange = contextProvenance;
+  }
 }
 
 void Messages::Incorporate(Messages &that) {
@@ -134,16 +148,22 @@ void Messages::Copy(const Messages &that) {
   }
 }
 
-void Messages::Emit(std::ostream &o, const CookedSource &cooked,
-    const char *prefix, bool echoSourceLines) const {
+void Messages::Emit(
+    std::ostream &o, const CookedSource &cooked, bool echoSourceLines) const {
+  std::vector<const Message *> sorted;
   for (const auto &msg : messages_) {
-    if (prefix) {
-      o << prefix;
-    }
-    if (msg.context()) {
-      o << "In the context ";
-    }
-    msg.Emit(o, cooked, echoSourceLines);
+    sorted.push_back(&msg);
+  }
+#if 0
+  // It would be great to sort the messages by location so that messages
+  // from the several compiler passes would be interleaved, but we can't
+  // do that until we have a means of maintaining a relationship between
+  // multiple messages coming out of semantics.
+  std::sort(sorted.begin(), sorted.end(),
+      [](const Message *x, const Message *y) { return *x < *y; });
+#endif
+  for (const Message *msg : sorted) {
+    msg->Emit(o, cooked, echoSourceLines);
   }
 }
 
