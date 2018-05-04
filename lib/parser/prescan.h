@@ -88,6 +88,7 @@ private:
   struct LineClassification {
     enum class Kind {
       Comment,
+      ConditionalCompilationDirective,
       PreprocessorDirective,
       Include,
       CompilerDirective,
@@ -141,6 +142,7 @@ private:
   }
 
   void LabelField(TokenSequence *);
+  void SkipToEndOfLine();
   void NextChar();
   void SkipSpaces();
   bool NextToken(TokenSequence *);
@@ -148,12 +150,12 @@ private:
   void QuotedCharacterLiteral(TokenSequence *);
   void Hollerith(TokenSequence *, int);
   bool PadOutCharacterLiteral(TokenSequence *);
-  void SkipCommentLinesAndPreprocessorDirectives();
+  void SkipCommentLines();
   bool IsFixedFormCommentLine(const char *) const;
   bool IsFreeFormComment(const char *) const;
   std::optional<std::size_t> IsIncludeLine(const char *) const;
   void FortranInclude(const char *quote);
-  bool IsPreprocessorDirectiveLine(const char *) const;
+  const char *IsPreprocessorDirectiveLine(const char *) const;
   const char *FixedFormContinuationLine();
   bool FixedFormContinuation();
   bool FreeFormContinuation();
