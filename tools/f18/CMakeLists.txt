@@ -19,6 +19,7 @@ add_executable( f18
   f18.cc
 )
 target_link_libraries( f18
+  FortranBasic
   FortranParser
   FlangSemantics
 )
