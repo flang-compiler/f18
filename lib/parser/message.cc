@@ -14,6 +14,7 @@
 
 #include "message.h"
 #include "char-set.h"
+#include "idioms.h"
 #include <algorithm>
 #include <cstdarg>
 #include <cstddef>
@@ -25,23 +26,20 @@
 namespace Fortran::parser {
 
 std::ostream &operator<<(std::ostream &o, const MessageFixedText &t) {
-  for (std::size_t j{0}; j < t.size(); ++j) {
-    o << t.str()[j];
+  std::size_t n{t.text().size()};
+  for (std::size_t j{0}; j < n; ++j) {
+    o << t.text()[j];
   }
   return o;
 }
 
-std::string MessageFixedText::ToString() const {
-  return std::string{str_, /*not in std::*/ strnlen(str_, bytes_)};
-}
-
 MessageFormattedText::MessageFormattedText(MessageFixedText text, ...)
   : isFatal_{text.isFatal()} {
-  const char *p{text.str()};
+  const char *p{text.text().begin()};
   std::string asString;
-  if (p[text.size()] != '\0') {
+  if (*text.text().end() != '\0') {
     // not NUL-terminated
-    asString = text.ToString();
+    asString = text.text().NULTerminatedToString();
     p = asString.data();
   }
   char buffer[256];
@@ -52,85 +50,153 @@ MessageFormattedText::MessageFormattedText(MessageFixedText text, ...)
   string_ = buffer;
 }
 
-void Message::Incorporate(Message &that) {
-  if (provenanceRange_.start() == that.provenanceRange_.start() &&
-      cookedSourceRange_.begin() == that.cookedSourceRange_.begin() &&
-      !expected_.empty()) {
-    expected_ = expected_.Union(that.expected_);
-  }
+std::string MessageExpectedText::ToString() const {
+  return std::visit(
+      visitors{[](const CharBlock &cb) {
+                 return MessageFormattedText("expected '%s'"_err_en_US,
+                     cb.NULTerminatedToString().data())
+                     .MoveString();
+               },
+          [](const SetOfChars &set) {
+            SetOfChars expect{set};
+            if (expect.Has('\n')) {
+              expect = expect.Difference('\n');
+              if (expect.empty()) {
+                return "expected end of line"_err_en_US.text().ToString();
+              } else {
+                std::string s{expect.ToString()};
+                if (s.size() == 1) {
+                  return MessageFormattedText(
+                      "expected end of line or '%s'"_err_en_US, s.data())
+                      .MoveString();
+                } else {
+                  return MessageFormattedText(
+                      "expected end of line or one of '%s'"_err_en_US, s.data())
+                      .MoveString();
+                }
+              }
+            }
+            std::string s{expect.ToString()};
+            if (s.size() != 1) {
+              return MessageFormattedText(
+                  "expected one of '%s'"_err_en_US, s.data())
+                  .MoveString();
+            } else {
+              return MessageFormattedText("expected '%s'"_err_en_US, s.data())
+                  .MoveString();
+            }
+          }},
+      u_);
+}
+
+void MessageExpectedText::Incorporate(const MessageExpectedText &that) {
+  std::visit(
+      visitors{[&](SetOfChars &s1, const SetOfChars &s2) { s1 = s1.Union(s2); },
+          [](const auto &, const auto &) {}},
+      u_, that.u_);
+}
+
+bool Message::SortBefore(const Message &that) const {
+  // Messages from prescanning have ProvenanceRange values for their locations,
+  // while messages from later phases have CharBlock values, since the
+  // conversion of cooked source stream locations to provenances is not
+  // free and needs to be deferred, since many messages created during parsing
+  // are speculative.  Messages with ProvenanceRange locations are ordered
+  // before others for sorting.
+  return std::visit(
+      visitors{[](const CharBlock &cb1, const CharBlock &cb2) {
+                 return cb1.begin() < cb2.begin();
+               },
+          [](const CharBlock &, const ProvenanceRange &) { return false; },
+          [](const ProvenanceRange &pr1, const ProvenanceRange &pr2) {
+            return pr1.start() < pr2.start();
+          },
+          [](const ProvenanceRange &, const CharBlock &) { return true; }},
+      location_, that.location_);
+}
+
+bool Message::IsFatal() const {
+  return std::visit(visitors{[](const MessageExpectedText &) { return true; },
+                        [](const auto &x) { return x.isFatal(); }},
+      text_);
 }
 
 std::string Message::ToString() const {
-  std::string s{string_};
-  bool isExpected{isExpected_};
-  if (string_.empty()) {
-    if (fixedText_ != nullptr) {
-      if (fixedBytes_ > 0 && fixedBytes_ < std::string::npos) {
-        s = std::string(fixedText_, fixedBytes_);
-      } else {
-        s = std::string{fixedText_};  // NUL-terminated
-      }
-    } else {
-      SetOfChars expect{expected_};
-      if (expect.Has('\n')) {
-        expect = expect.Difference('\n');
-        if (expect.empty()) {
-          return "expected end of line"_err_en_US.ToString();
-        } else {
-          s = expect.ToString();
-          if (s.size() == 1) {
-            return MessageFormattedText(
-                "expected end of line or '%s'"_err_en_US, s.data())
-                .MoveString();
-          } else {
-            return MessageFormattedText(
-                "expected end of line or one of '%s'"_err_en_US, s.data())
-                .MoveString();
-          }
-        }
-      }
-      s = expect.ToString();
-      if (s.size() != 1) {
-        return MessageFormattedText("expected one of '%s'"_err_en_US, s.data())
-            .MoveString();
-      }
-      isExpected = true;
-    }
-  }
-  if (isExpected) {
-    return MessageFormattedText("expected '%s'"_err_en_US, s.data())
-        .MoveString();
-  }
-  return s;
+  return std::visit(
+      visitors{[](const MessageFixedText &t) {
+                 return t.text().NULTerminatedToString();
+               },
+          [](const MessageFormattedText &t) { return t.string(); },
+          [](const MessageExpectedText &e) { return e.ToString(); }},
+      text_);
 }
 
 ProvenanceRange Message::GetProvenanceRange(const CookedSource &cooked) const {
-  if (cookedSourceRange_.begin() != nullptr) {
-    return cooked.GetProvenanceRange(cookedSourceRange_);
-  }
-  return provenanceRange_;
+  return std::visit(visitors{[&](const CharBlock &cb) {
+                               return cooked.GetProvenanceRange(cb);
+                             },
+                        [](const ProvenanceRange &pr) { return pr; }},
+      location_);
 }
 
 void Message::Emit(
     std::ostream &o, const CookedSource &cooked, bool echoSourceLine) const {
   ProvenanceRange provenanceRange{GetProvenanceRange(cooked)};
   std::string text;
-  if (isFatal_) {
+  if (IsFatal()) {
     text += "error: ";
   }
   text += ToString();
-  cooked.allSources().EmitMessage(o, provenanceRange, text, echoSourceLine);
-  for (const Message *context{context_.get()}; context != nullptr;
-       context = context->context_.get()) {
-    ProvenanceRange contextProvenance{context->GetProvenanceRange(cooked)};
-    text = "in the context: ";
-    text += context->ToString();
-    // TODO: don't echo the source lines of a context when it's the
-    // same line (or maybe just never echo source for context)
-    cooked.allSources().EmitMessage(o, contextProvenance, text,
-        echoSourceLine && contextProvenance != provenanceRange);
-    provenanceRange = contextProvenance;
+  AllSources &sources{cooked.allSources()};
+  sources.EmitMessage(o, provenanceRange, text, echoSourceLine);
+  if (attachmentIsContext_) {
+    for (const Message *context{attachment_.get()}; context != nullptr;
+         context = context->attachment_.get()) {
+      ProvenanceRange contextProvenance{context->GetProvenanceRange(cooked)};
+      text = "in the context: ";
+      text += context->ToString();
+      // TODO: don't echo the source lines of a context when it's the
+      // same line (or maybe just never echo source for context)
+      sources.EmitMessage(o, contextProvenance, text,
+          echoSourceLine && contextProvenance != provenanceRange);
+      provenanceRange = contextProvenance;
+    }
+  } else {
+    for (const Message *attachment{attachment_.get()}; attachment != nullptr;
+         attachment = attachment->attachment_.get()) {
+      sources.EmitMessage(o, attachment->GetProvenanceRange(cooked),
+          attachment->ToString(), echoSourceLine);
+    }
   }
+}
+
+void Message::Incorporate(Message &that) {
+  std::visit(
+      visitors{[&](MessageExpectedText &e1, const MessageExpectedText &e2) {
+                 e1.Incorporate(e2);
+               },
+          [](const auto &, const auto &) {}},
+      text_, that.text_);
+}
+
+void Message::Attach(Message *m) {
+  if (!attachment_) {
+    attachment_ = m;
+  } else {
+    attachment_->Attach(m);
+  }
+}
+
+bool Message::AtSameLocation(const Message &that) const {
+  return std::visit(
+      visitors{[](const CharBlock &cb1, const CharBlock &cb2) {
+                 return cb1.begin() == cb2.begin();
+               },
+          [](const ProvenanceRange &pr1, const ProvenanceRange &pr2) {
+            return pr1.start() == pr2.start();
+          },
+          [](const auto &, const auto &) { return false; }},
+      location_, that.location_);
 }
 
 void Messages::Incorporate(Messages &that) {
@@ -154,14 +220,8 @@ void Messages::Emit(
   for (const auto &msg : messages_) {
     sorted.push_back(&msg);
   }
-#if 0
-  // It would be great to sort the messages by location so that messages
-  // from the several compiler passes would be interleaved, but we can't
-  // do that until we have a means of maintaining a relationship between
-  // multiple messages coming out of semantics.
   std::sort(sorted.begin(), sorted.end(),
-      [](const Message *x, const Message *y) { return *x < *y; });
-#endif
+      [](const Message *x, const Message *y) { return x->SortBefore(*y); });
   for (const Message *msg : sorted) {
     msg->Emit(o, cooked, echoSourceLines);
   }
@@ -169,7 +229,7 @@ void Messages::Emit(
 
 bool Messages::AnyFatalError() const {
   for (const auto &msg : messages_) {
-    if (msg.isFatal()) {
+    if (msg.IsFatal()) {
       return true;
     }
   }

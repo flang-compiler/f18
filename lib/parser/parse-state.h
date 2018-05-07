@@ -49,7 +49,8 @@ public:
       warnOnDeprecatedUsage_{that.warnOnDeprecatedUsage_},
       anyErrorRecovery_{that.anyErrorRecovery_},
       anyConformanceViolation_{that.anyConformanceViolation_},
-      deferMessages_{that.deferMessages_} {}
+      deferMessages_{that.deferMessages_}, anyDeferredMessages_{
+                                               that.anyDeferredMessages_} {}
   ParseState(ParseState &&that)
     : p_{that.p_}, limit_{that.limit_}, messages_{std::move(that.messages_)},
       context_{std::move(that.context_)}, userState_{that.userState_},
@@ -90,8 +91,8 @@ public:
   const Messages &messages() const { return messages_; }
   Messages &messages() { return messages_; }
 
-  const Message::Context &context() const { return context_; }
-  Message::Context &context() { return context_; }
+  const Message::Reference &context() const { return context_; }
+  Message::Reference &context() { return context_; }
 
   bool anyErrorRecovery() const { return anyErrorRecovery_; }
   void set_anyErrorRecovery() { anyErrorRecovery_ = true; }
@@ -142,45 +143,45 @@ public:
   }
 
   bool anyDeferredMessages() const { return anyDeferredMessages_; }
-  void set_anyDeferredMessages(bool yes) { anyDeferredMessages_ = yes; }
+  void set_anyDeferredMessages() { anyDeferredMessages_ = true; }
 
   const char *GetLocation() const { return p_; }
 
   void PushContext(MessageFixedText text) {
-    auto m = new Message{p_, text};  // reference-counted, it's ok
-    m->set_context(context_.get());
-    context_ = Message::Context{m};
+    auto m = new Message{p_, text};  // reference-counted
+    m->SetContext(context_.get());
+    context_ = Message::Reference{m};
   }
 
   void PopContext() {
     if (context_) {
-      context_ = context_->context();
+      context_ = context_->attachment();
     }
   }
 
-  void Say(MessageFixedText t) { return Say(p_, t); }
-  void Say(MessageFormattedText &&t) { return Say(p_, std::move(t)); }
-  void Say(MessageExpectedText &&t) { return Say(p_, std::move(t)); }
+  void Say(const MessageFixedText &t) { Say(p_, t); }
+  void Say(MessageFormattedText &&t) { Say(p_, std::move(t)); }
+  void Say(const MessageExpectedText &t) { Say(p_, t); }
 
-  void Say(CharBlock range, MessageFixedText t) {
+  void Say(CharBlock range, const MessageFixedText &t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(range, t).set_context(context_.get());
+      messages_.Say(range, t).SetContext(context_.get());
     }
   }
   void Say(CharBlock range, MessageFormattedText &&t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(range, std::move(t)).set_context(context_.get());
+      messages_.Say(range, std::move(t)).SetContext(context_.get());
     }
   }
-  void Say(CharBlock range, MessageExpectedText &&t) {
+  void Say(CharBlock range, const MessageExpectedText &t) {
     if (deferMessages_) {
       anyDeferredMessages_ = true;
     } else {
-      messages_.Say(range, std::move(t)).set_context(context_.get());
+      messages_.Say(range, t).SetContext(context_.get());
     }
   }
 
@@ -217,7 +218,7 @@ private:
 
   // Accumulated messages and current nested context.
   Messages messages_;
-  Message::Context context_;
+  Message::Reference context_;
 
   UserState *userState_{nullptr};
 
