@@ -23,6 +23,7 @@
 #include "provenance.h"
 #include <cstddef>
 #include <cstring>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,17 +51,12 @@ public:
     Put(that);
     return *this;
   }
-  TokenSequence &operator=(TokenSequence &&that) {
-    start_ = std::move(that.start_);
-    nextStart_ = that.nextStart_;
-    char_ = std::move(that.char_);
-    return *this;
-  }
-
+  TokenSequence &operator=(TokenSequence &&that);
   bool empty() const { return start_.empty(); }
   void clear();
   void pop_back();
   void shrink_to_fit();
+  void swap(TokenSequence &);
 
   std::size_t SizeInTokens() const { return start_.size(); }
   std::size_t SizeInChars() const { return char_.size(); }
@@ -71,8 +67,9 @@ public:
   CharBlock TokenAt(std::size_t token) const {
     return {&char_[start_.at(token)], TokenBytes(token)};
   }
-
   char CharAt(std::size_t j) const { return char_.at(j); }
+
+  std::size_t SkipBlanks(std::size_t) const;
 
   void PutNextTokenChar(char ch, Provenance provenance) {
     char_.emplace_back(ch);
@@ -106,7 +103,12 @@ public:
 
   char *GetMutableCharData() { return &char_[0]; }
   TokenSequence &ToLowerCase();
-  void Emit(CookedSource *) const;
+  bool HasBlanks(std::size_t firstChar = 0) const;
+  bool HasRedundantBlanks(std::size_t firstChar = 0) const;
+  TokenSequence &RemoveBlanks(std::size_t firstChar = 0);
+  TokenSequence &RemoveRedundantBlanks(std::size_t firstChar = 0);
+  void Emit(CookedSource &) const;
+  void Dump(std::ostream &) const;
 
 private:
   std::size_t TokenBytes(std::size_t token) const {

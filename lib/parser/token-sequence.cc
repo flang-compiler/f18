@@ -17,6 +17,12 @@
 
 namespace Fortran::parser {
 
+TokenSequence &TokenSequence::operator=(TokenSequence &&that) {
+  clear();
+  swap(that);
+  return *this;
+}
+
 void TokenSequence::clear() {
   start_.clear();
   nextStart_ = 0;
@@ -36,6 +42,23 @@ void TokenSequence::shrink_to_fit() {
   start_.shrink_to_fit();
   char_.shrink_to_fit();
   provenances_.shrink_to_fit();
+}
+
+void TokenSequence::swap(TokenSequence &that) {
+  start_.swap(that.start_);
+  std::swap(nextStart_, that.nextStart_);
+  char_.swap(that.char_);
+  provenances_.swap(that.provenances_);
+}
+
+std::size_t TokenSequence::SkipBlanks(std::size_t at) const {
+  std::size_t tokens{start_.size()};
+  for (; at < tokens; ++at) {
+    if (!TokenAt(at).IsBlank()) {
+      return at;
+    }
+  }
+  return tokens;  // even if at > tokens
 }
 
 void TokenSequence::Put(const TokenSequence &that) {
@@ -144,9 +167,68 @@ TokenSequence &TokenSequence::ToLowerCase() {
   return *this;
 }
 
-void TokenSequence::Emit(CookedSource *cooked) const {
-  cooked->Put(&char_[0], char_.size());
-  cooked->PutProvenanceMappings(provenances_);
+bool TokenSequence::HasBlanks(std::size_t firstChar) const {
+  std::size_t tokens{SizeInTokens()};
+  for (std::size_t j{0}; j < tokens; ++j) {
+    if (start_[j] >= firstChar && TokenAt(j).IsBlank()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool TokenSequence::HasRedundantBlanks(std::size_t firstChar) const {
+  std::size_t tokens{SizeInTokens()};
+  bool lastWasBlank{false};
+  for (std::size_t j{0}; j < tokens; ++j) {
+    bool isBlank{TokenAt(j).IsBlank()};
+    if (isBlank && lastWasBlank && start_[j] >= firstChar) {
+      return true;
+    }
+    lastWasBlank = isBlank;
+  }
+  return false;
+}
+
+TokenSequence &TokenSequence::RemoveBlanks(std::size_t firstChar) {
+  std::size_t tokens{SizeInTokens()};
+  TokenSequence result;
+  for (std::size_t j{0}; j < tokens; ++j) {
+    if (!TokenAt(j).IsBlank() || start_[j] < firstChar) {
+      result.Put(*this, j);
+    }
+  }
+  swap(result);
+  return *this;
+}
+
+TokenSequence &TokenSequence::RemoveRedundantBlanks(std::size_t firstChar) {
+  std::size_t tokens{SizeInTokens()};
+  TokenSequence result;
+  bool lastWasBlank{false};
+  for (std::size_t j{0}; j < tokens; ++j) {
+    bool isBlank{TokenAt(j).IsBlank()};
+    if (!isBlank || !lastWasBlank || start_[j] < firstChar) {
+      result.Put(*this, j);
+    }
+    lastWasBlank = isBlank;
+  }
+  swap(result);
+  return *this;
+}
+
+void TokenSequence::Emit(CookedSource &cooked) const {
+  cooked.Put(&char_[0], char_.size());
+  cooked.PutProvenanceMappings(provenances_);
+}
+
+void TokenSequence::Dump(std::ostream &o) const {
+  o << "TokenSequence has " << char_.size() << " chars; nextStart_ "
+    << nextStart_ << '\n';
+  for (std::size_t j{0}; j < start_.size(); ++j) {
+    o << '[' << j << "] @ " << start_[j] << " '" << TokenAt(j).ToString()
+      << "'\n";
+  }
 }
 
 Provenance TokenSequence::GetTokenProvenance(
@@ -176,5 +258,4 @@ ProvenanceRange TokenSequence::GetIntervalProvenanceRange(
 ProvenanceRange TokenSequence::GetProvenanceRange() const {
   return GetIntervalProvenanceRange(0, start_.size());
 }
-
 }  // namespace Fortran::parser
