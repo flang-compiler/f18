@@ -395,7 +395,7 @@ TYPE_CONTEXT_PARSER("execution part"_en_US,
 //        char-literal-constant | boz-literal-constant
 TYPE_PARSER(
     first(construct<LiteralConstant>(Parser<HollerithLiteralConstant>{}),
-        construct<LiteralConstant>(space >> realLiteralConstant),
+        construct<LiteralConstant>(realLiteralConstant),
         construct<LiteralConstant>(intLiteralConstant),
         construct<LiteralConstant>(Parser<ComplexLiteralConstant>{}),
         construct<LiteralConstant>(Parser<BOZLiteralConstant>{}),
@@ -481,8 +481,8 @@ TYPE_PARSER(construct<KindSelector>(
         construct<KindSelector::StarSize>("*" >> digitString / spaceCheck))))
 
 // R707 signed-int-literal-constant -> [sign] int-literal-constant
-TYPE_PARSER(space >> sourced(construct<SignedIntLiteralConstant>(
-                         signedDigitString, maybe(underscore >> kindParam))))
+TYPE_PARSER(sourced(construct<SignedIntLiteralConstant>(
+    SignedIntLiteralConstantWithoutKind{}, maybe(underscore >> kindParam))))
 
 // R708 int-literal-constant -> digit-string [_ kind-param]
 // The negated look-ahead for a trailing underscore prevents misrecognition
@@ -495,12 +495,14 @@ TYPE_PARSER(construct<KindParam>(digitString) ||
     construct<KindParam>(scalar(integer(constant(name)))))
 
 // R712 sign -> + | -
-// Not a complete token.
-constexpr auto sign = "+"_ch >> pure(Sign::Positive) ||
-    "-"_ch >> pure(Sign::Negative);
+// N.B. A sign constitutes a whole token, so a space is allowed in free form
+// after the sign and before a real-literal-constant or
+// complex-literal-constant.  A sign is not a unary operator in these contexts.
+constexpr auto sign = "+"_tok >> pure(Sign::Positive) ||
+    "-"_tok >> pure(Sign::Negative);
 
 // R713 signed-real-literal-constant -> [sign] real-literal-constant
-constexpr auto signedRealLiteralConstant = space >>
+constexpr auto signedRealLiteralConstant =
     construct<SignedRealLiteralConstant>(maybe(sign), realLiteralConstant);
 
 // R714 real-literal-constant ->
@@ -510,20 +512,21 @@ constexpr auto signedRealLiteralConstant = space >>
 // R716 exponent-letter -> E | D
 // Extension: Q
 // R717 exponent -> signed-digit-string
-// N.B. Preceding space is not skipped.
 constexpr auto exponentPart =
-    ("ed"_ch || extension("q"_ch)) >> signedDigitString;
+    ("ed"_ch || extension("q"_ch)) >> SignedDigitString{};
 
 TYPE_CONTEXT_PARSER("REAL literal constant"_en_US,
-    construct<RealLiteralConstant>(
-        sourced(
-            (skipDigitString >> "."_ch >>
-                    !(some(letter) >> "."_ch /* don't misinterpret 1.AND. */) >>
-                    maybe(skipDigitString) >> maybe(exponentPart) >> ok ||
-                "."_ch >> skipDigitString >> maybe(exponentPart) >> ok ||
-                skipDigitString >> exponentPart >> ok) >>
-            construct<RealLiteralConstant::Real>()),
-        maybe(underscore >> kindParam)))
+    space >>
+        construct<RealLiteralConstant>(
+            sourced(
+                (skipDigitString >> "."_ch >>
+                        !(some(letter) >>
+                            "."_ch /* don't misinterpret 1.AND. */) >>
+                        maybe(skipDigitString) >> maybe(exponentPart) >> ok ||
+                    "."_ch >> skipDigitString >> maybe(exponentPart) >> ok ||
+                    skipDigitString >> exponentPart >> ok) >>
+                construct<RealLiteralConstant::Real>()),
+            maybe(underscore >> kindParam)))
 
 // R718 complex-literal-constant -> ( real-part , imag-part )
 TYPE_CONTEXT_PARSER("COMPLEX literal constant"_en_US,
@@ -532,7 +535,7 @@ TYPE_CONTEXT_PARSER("COMPLEX literal constant"_en_US,
 
 // PGI/Intel extension: signed complex literal constant
 TYPE_PARSER(construct<SignedComplexLiteralConstant>(
-    space >> sign, Parser<ComplexLiteralConstant>{}))
+    sign, Parser<ComplexLiteralConstant>{}))
 
 // R719 real-part ->
 //        signed-int-literal-constant | signed-real-literal-constant |
@@ -2827,7 +2830,7 @@ TYPE_PARSER(construct<format::IntrinsicTypeDataEditDesc>(
 // R1312 v -> [sign] digit-string
 constexpr SignedDigitStringIgnoreSpaces scaleFactor;
 TYPE_PARSER(construct<format::DerivedTypeDataEditDesc>(
-    "D" >> "T"_tok >> space >> defaulted(charLiteralConstantWithoutKind),
+    "D" >> "T"_tok >> defaulted(charLiteralConstantWithoutKind),
     defaulted(parenthesized(nonemptyList(scaleFactor)))))
 
 // R1314 k -> [sign] digit-string
