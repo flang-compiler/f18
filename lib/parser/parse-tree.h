@@ -248,6 +248,8 @@ struct ArithmeticIfStmt;
 struct AssignStmt;
 struct AssignedGotoStmt;
 struct PauseStmt;
+struct OmpDirective;
+struct OmpClause;
 
 // Cooked character stream locations
 using Location = const char *;
@@ -357,7 +359,7 @@ struct SpecificationConstruct {
       Statement<Indirection<ProcedureDeclarationStmt>>,
       Statement<OtherSpecificationStmt>,
       Statement<Indirection<TypeDeclarationStmt>>, Indirection<StructureDef>,
-      Indirection<CompilerDirective>>
+      Indirection<CompilerDirective>, Indirection<OmpDirective>>
       u;
 };
 
@@ -467,7 +469,7 @@ struct ExecutableConstruct {
       Indirection<DoConstruct>, Indirection<IfConstruct>,
       Indirection<SelectRankConstruct>, Indirection<SelectTypeConstruct>,
       Indirection<WhereConstruct>, Indirection<ForallConstruct>,
-      Indirection<CompilerDirective>>
+      Indirection<CompilerDirective>, Indirection<OmpDirective>>
       u;
 };
 
@@ -3188,6 +3190,32 @@ struct AssignedGotoStmt {
 };
 
 WRAPPER_CLASS(PauseStmt, std::optional<StopCode>);
+
+// OpenMP Directives and Clauses
+struct OmpClause {
+  UNION_CLASS_BOILERPLATE(OmpClause);
+  WRAPPER_CLASS(Firstprivate, std::list<Name>);
+  WRAPPER_CLASS(Private, std::list<Name>);
+  std::variant<Firstprivate, Private> u;
+};
+
+struct OmpExeDir {
+  UNION_CLASS_BOILERPLATE(OmpExeDir);
+  WRAPPER_CLASS(ParallelDoSimd, std::list<OmpClause>);
+  WRAPPER_CLASS(ParallelDo, std::list<OmpClause>);
+  WRAPPER_CLASS(ParallelSections, std::list<OmpClause>);
+  WRAPPER_CLASS(ParallelWorkshare, std::list<OmpClause>);
+  WRAPPER_CLASS(Parallel, std::list<OmpClause>);
+  std::variant<ParallelDoSimd, ParallelDo, ParallelSections, ParallelWorkshare,
+      Parallel>
+      u;
+};
+
+struct OmpDirective {
+  UNION_CLASS_BOILERPLATE(OmpDirective);
+  std::variant<Indirection<OmpExeDir>> u;
+};
+
 }  // namespace parser
 }  // namespace Fortran
 #endif  // FORTRAN_PARSER_PARSE_TREE_H_
