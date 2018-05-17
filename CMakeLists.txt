@@ -98,7 +98,6 @@ enable_testing()
 
 add_subdirectory(include/flang)
 add_subdirectory(lib)
-add_subdirectory(runtime)
 add_subdirectory(test)
 add_subdirectory(tools)
 
