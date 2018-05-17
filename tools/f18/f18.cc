@@ -14,6 +14,7 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
+#include "../../lib/basic/target-info.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
@@ -86,9 +87,11 @@ struct DriverOptions {
   bool dumpParseTree{false};
   bool dumpSymbols{false};
   bool debugResolveNames{false};
+  bool debugTarget{false};
   bool measureTree{false};
   std::vector<std::string> pgf90Args;
   const char *prefix{nullptr};
+  std::string targetName; // -target
 };
 
 bool ParentProcess() {
@@ -159,6 +162,16 @@ std::string CompileFortran(
       options.isFixedForm = suffix == "f" || suffix == "F" || suffix == "ff";
     }
   }
+  llvm::Triple triple(driver.targetName);
+  std::unique_ptr<Fortran::TargetInfo> target(Fortran::TargetInfo::Create(triple)); 
+  if (!target) {
+    std::cerr << driver.prefix << "illegal target '" << driver.targetName << "'\n";
+    exit(EXIT_FAILURE);
+  }
+  if (driver.debugTarget) {
+    target->Dump(std::cerr);
+  }
+
   Fortran::parser::Parsing parsing;
   parsing.Prescan(path, options);
   if (!parsing.messages().empty() &&
@@ -283,6 +296,8 @@ int main(int argc, char *const argv[]) {
   prefix += ": ";
   driver.prefix = prefix.data();
 
+  driver.targetName = llvm::sys::getDefaultTargetTriple();
+
   Fortran::parser::Options options;
   options.predefinitions.emplace_back("__F18", "1");
   options.predefinitions.emplace_back("__F18_MAJOR__", "1");
@@ -354,6 +369,8 @@ int main(int argc, char *const argv[]) {
       driver.debugResolveNames = true;
     } else if (arg == "-fdebug-measure-parse-tree") {
       driver.measureTree = true;
+    } else if (arg == "-fdebug-dump-target") {
+      driver.debugTarget = true;
     } else if (arg == "-fdebug-instrumented-parse") {
       options.instrumentedParse = true;
     } else if (arg == "-funparse") {
@@ -364,6 +381,9 @@ int main(int argc, char *const argv[]) {
       driver.compileOnly = true;
     } else if (arg == "-o") {
       driver.outputPath = args.front();
+      args.pop_front();
+    } else if (arg == "-target") {
+      driver.targetName = args.front();
       args.pop_front();
     } else if (arg.substr(0, 2) == "-D") {
       auto eq = arg.find('=');
@@ -387,6 +407,7 @@ int main(int argc, char *const argv[]) {
           << "  -Werror              treat warnings as errors\n"
           << "  -ed                  enable fixed form D lines\n"
           << "  -E                   prescan & preprocess only\n"
+          << "  -target <value>      generate code for the given target\n"  
           << "  -fparse-only         parse only, no output except messages\n"
           << "  -funparse            parse & reformat only, no code "
              "generation\n"
@@ -394,6 +415,7 @@ int main(int argc, char *const argv[]) {
           << "  -fdebug-dump-provenance\n"
           << "  -fdebug-dump-parse-tree\n"
           << "  -fdebug-dump-symbols\n"
+          << "  -fdebug-dump-target\n"
           << "  -fdebug-resolve-names\n"
           << "  -fdebug-instrumented-parse\n"
           << "  -v -c -o -I -D -U    have their usual meanings\n"
