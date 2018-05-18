@@ -58,13 +58,13 @@ where `<GCC_DIRECTORY>` is the path to a GCC installation with bin, lib, etc:
 cmake -DGCC=<GCC_DIRECTORY>
 ```
 
-After f18 is built, to use f18,
-environment variables PATH and LD_LIBRARY_PATH
+To use f18 after it is built,
+the environment variables PATH and LD_LIBRARY_PATH
 must be set to use GCC and its associated libraries.
 
 ### LLVM and CLANG dependency
 
-F18 uses components from LLVM 6.0 and clang 6.0
+F18 uses components from version 6.0 of LLVM and clang
 (even when f18 is not compiled with clang).
 
 The instructions to build LLVM and clang can be found at
@@ -74,7 +74,7 @@ The f18 CMakeList.txt file uses
 the environment variable `Clang_DIR` to find the installed components.
 
 To get the correct LLMV and clang libraries included in your f18 build,
-set the environment variables
+set the environment variable
 `Clang_DIR`
 to the `lib/cmake/clang` directory in the clang install directory.
 
