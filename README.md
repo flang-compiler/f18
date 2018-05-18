@@ -17,7 +17,7 @@ Read more about f18 in the documentation directory.
 
 ## Building F18
 
-### Selection of the C and C++ compilers
+### Selection of the C++ compiler
 
 F18 is written in C++17.
 
@@ -28,22 +28,21 @@ using GCC 7.3.0 or 8.1.0 headers;
 however, the headers needed small patches.
 
 To build and install f18, there are several options
-for specifying the C and C++ compilers.
-You can have the proper C and C++ compilers on your path,
-or you can set the environment variables CC and CXX,
+for specifying the C++ compiler.
+You can have the proper C++ compiler on your path,
+or you can set the environment variable CXX,
 or you can define the variable GCC on the cmake command line.
 
-If the compilers are on your path,
-cmake will search for GCC C and C++ compilers on your PATH.
-The GCC version must be 7.2 or greater in order to build f18.
+By default,
+cmake will search for g++ on your PATH.
+The g++ version must be 7.2 or greater in order to build f18.
 
-Or, if you export CC and CXX,
-cmake will use the variables CC and CXX to find the C and C++ compilers.
-These variables should include the full path to the compiler
+Or, if you export CXX,
+cmake will use the variable CXX to find the C++ compiler.
+CXX should include the full path to the compiler
 or a name that will be found on your PATH,
-e.g. gcc-7.2, assuming gcc-7.2 is on your PATH.
+e.g. g++-7.2, assuming g++-7.2 is on your PATH.
 ```
-export CC=gcc-7.2
 export CXX=g++-7.2
 ```
 
@@ -51,7 +50,7 @@ Or, you can reference the GCC installation directory directly.
 The CMakeList.txt file
 uses the variable GCC
 as the path to the bin directory
-containing the C and C++ compilers.
+containing the C++ compiler.
 GCC can be defined on the cmake command line
 where `<GCC_DIRECTORY>` is the path to a GCC installation with bin, lib, etc:
 ```
@@ -62,7 +61,7 @@ To use f18 after it is built,
 the environment variables PATH and LD_LIBRARY_PATH
 must be set to use GCC and its associated libraries.
 
-### LLVM and CLANG dependency
+### LLVM and Clang dependency
 
 F18 uses components from version 6.0 of LLVM and clang
 (even when f18 is not compiled with clang).
@@ -73,7 +72,7 @@ https://clang.llvm.org/get_started.html.
 The f18 CMakeList.txt file uses
 the environment variable `Clang_DIR` to find the installed components.
 
-To get the correct LLMV and clang libraries included in your f18 build,
+To get the correct LLVM and clang libraries included in your f18 build,
 set the environment variable
 `Clang_DIR`
 to the `lib/cmake/clang` directory in the clang install directory.
