@@ -15,4 +15,5 @@
 add_library(FortranRuntime
   ISO_Fortran_binding.cc
   descriptor.cc
+  type.cc
 )
