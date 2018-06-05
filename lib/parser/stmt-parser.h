@@ -61,7 +61,8 @@ constexpr auto errorRecoveryStart = ignoredStatementPrefix;
 constexpr auto skipBadLine = SkipPast<'\n'>{} >> errorRecovery;
 constexpr auto executionPartErrorRecovery = errorRecoveryStart >> !"END"_tok >>
     !"CONTAINS"_tok >> !"ELSE"_tok >> !"CASE"_tok >> !"TYPE IS"_tok >>
-    !"CLASS"_tok >> !"RANK"_tok >> skipBadLine;
+    !"CLASS"_tok >> !"RANK"_tok >> !("!$OMP "_sptok >> "END"_tok) >>
+    skipBadLine;
 
 }  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_STMT_PARSER_H_
