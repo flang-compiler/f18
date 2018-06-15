@@ -24,7 +24,7 @@
 // User C code is welcome to depend on that ISO_Fortran_binding.h file,
 // but should never reference this internal header.
 
-#include "../include/flang/ISO_Fortran_binding.h"
+#include "../include/f18/ISO_Fortran_binding.h"
 #include <cinttypes>
 #include <cstddef>
 
