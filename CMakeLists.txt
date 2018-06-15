@@ -80,27 +80,28 @@ if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
    set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
 endif()
 
-set(FLANG_VERSION_MAJOR      "0")
-set(FLANG_VERSION_MINOR      "1")
-set(FLANG_VERSION_PATCHLEVEL "0")
-set(FLANG_VERSION "${FLANG_VERSION_MAJOR}.${FLANG_VERSION_MINOR}.${FLANG_VERSION_PATCHLEVEL}")
-message(STATUS "FLANG version: ${FLANG_VERSION}")
+set(F18_VERSION_MAJOR      "0")
+set(F18_VERSION_MINOR      "1")
+set(F18_VERSION_PATCHLEVEL "0")
+set(F18_VERSION "${F18_VERSION_MAJOR}.${F18_VERSION_MINOR}.${F18_VERSION_PATCHLEVEL}")
+message(STATUS "F18 version: ${F18_VERSION}")
 
-set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(F18_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(F18_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 include_directories(BEFORE
-  ${FLANG_BINARY_DIR}/include
-  ${FLANG_SOURCE_DIR}/include
+  ${F18_BINARY_DIR}/include
+  ${F18_SOURCE_DIR}/include
   )
 
 enable_testing()
 
-add_subdirectory(include/flang)
+add_subdirectory(include/f18)
 add_subdirectory(lib)
 add_subdirectory(test)
 add_subdirectory(tools)
 
 configure_file(
-  ${FLANG_SOURCE_DIR}/include/flang/Config/config.h.cmake
-  ${FLANG_BINARY_DIR}/include/flang/Config/config.h)
+  ${F18_SOURCE_DIR}/include/f18/Config/config.h.cmake
+  ${F18_BINARY_DIR}/include/f18/Config/config.h
+)

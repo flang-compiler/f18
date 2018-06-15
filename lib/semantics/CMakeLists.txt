@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-add_library(FlangSemantics
+add_library(F18Semantics
   attr.cc
   resolve-names.cc
   rewrite-parse-tree.cc
@@ -22,6 +22,6 @@ add_library(FlangSemantics
   type.cc
 )
 
-target_link_libraries( FlangSemantics
-  clangBasic                    
+target_link_libraries( F18Semantics
+  clangBasic
 )
