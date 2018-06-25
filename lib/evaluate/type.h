@@ -24,71 +24,77 @@
 #include "integer.h"
 #include "logical.h"
 #include "real.h"
+#include "../common/idioms.h"
 #include <string>
+#include <variant>
 
-namespace Fortran::evaluate::type {
+namespace Fortran::evaluate {
 
-enum class Classification { Integer, Real, Complex, Character, Logical };
+ENUM_CLASS(Category, Integer, Real, Complex, Logical, Character, Derived)
 
-template<int KIND> struct Integer {
-  static constexpr Classification classification{Classification::Integer};
+template<Category C, int KIND> struct TypeBase {
+  static constexpr Category category{C};
   static constexpr int kind{KIND};
   static constexpr bool hasLen{false};
-  using ValueType = value::Integer<8 * kind>;
+  static std::string Dump() {
+    return EnumToString(category) + '(' + std::to_string(kind) + ')';
+  }
 };
 
-template<int KIND> struct Real;
-template<> struct Real<2> {
-  static constexpr Classification classification{Classification::Real};
-  static constexpr int kind{2};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Real<typename Integer<kind>::ValueType, 11>;
+template<Category C, int KIND> struct Type;
+
+template<int KIND>
+struct Type<Category::Integer, KIND>
+  : public TypeBase<Category::Integer, KIND> {
+  using Value = value::Integer<8 * KIND>;
 };
-template<> struct Real<4> {
-  static constexpr Classification classification{Classification::Real};
-  static constexpr int kind{4};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Real<typename Integer<kind>::ValueType, 24>;
+
+template<> struct Type<Category::Real, 2> : public TypeBase<Category::Real, 2> {
+  using Value = value::Real<typename Type<Category::Integer, 2>::Value, 11>;
+  using Complex = Type<Category::Complex, 2>;
 };
-template<> struct Real<8> {
-  static constexpr Classification classification{Classification::Real};
-  static constexpr int kind{8};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Real<typename Integer<kind>::ValueType, 53>;
+
+template<> struct Type<Category::Real, 4> : public TypeBase<Category::Real, 4> {
+  using Value = value::Real<typename Type<Category::Integer, 4>::Value, 24>;
+  using Complex = Type<Category::Complex, 2>;
 };
-template<> struct Real<10> {
-  static constexpr Classification classification{Classification::Real};
-  static constexpr int kind{10};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Real<value::Integer<80>, 64, false>;
+
+template<> struct Type<Category::Real, 8> : public TypeBase<Category::Real, 8> {
+  using Value = value::Real<typename Type<Category::Integer, 8>::Value, 53>;
+  using Complex = Type<Category::Complex, 2>;
 };
-template<> struct Real<16> {
-  static constexpr Classification classification{Classification::Real};
-  static constexpr int kind{16};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Real<typename Integer<kind>::ValueType, 112>;
+
+template<>
+struct Type<Category::Real, 10> : public TypeBase<Category::Real, 10> {
+  using Value = value::Real<value::Integer<80>, 64, false>;
+  using Complex = Type<Category::Complex, 2>;
+};
+
+template<>
+struct Type<Category::Real, 16> : public TypeBase<Category::Real, 16> {
+  using Value = value::Real<typename Type<Category::Integer, 16>::Value, 112>;
+  using Complex = Type<Category::Complex, 2>;
 };
 
 // The KIND type parameter on COMPLEX is the kind of each of its components.
-template<int KIND> struct Complex {
-  static constexpr Classification classification{Classification::Complex};
-  static constexpr int kind{KIND};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Complex<typename Real<kind>::ValueType>;
+template<int KIND>
+struct Type<Category::Complex, KIND>
+  : public TypeBase<Category::Complex, KIND> {
+  using Part = Type<Category::Real, KIND>;
+  using Value = value::Complex<typename Part::Value>;
 };
 
-template<int KIND> struct Logical {
-  static constexpr Classification classification{Classification::Logical};
-  static constexpr int kind{KIND};
-  static constexpr bool hasLen{false};
-  using ValueType = value::Logical<8 * kind>;
+template<int KIND>
+struct Type<Category::Logical, KIND>
+  : public TypeBase<Category::Logical, KIND> {
+  using Value = value::Logical<8 * KIND>;
 };
 
-template<int KIND> struct Character {
-  static constexpr Classification classification{Classification::Character};
+template<int KIND> struct Type<Category::Character, KIND> {
+  static constexpr Category category{Category::Character};
   static constexpr int kind{KIND};
   static constexpr bool hasLen{true};
-  using ValueType = std::string;
+  using Value = std::string;
 };
 
 // Default REAL just simply has to be IEEE-754 single precision today.
@@ -96,13 +102,29 @@ template<int KIND> struct Character {
 // and default LOGICAL intrinsic types also have to occupy one numeric
 // storage unit, so their kinds are also forced.  Default COMPLEX occupies
 // two numeric storage units.
+// TODO: Support a compile-time option to default everything to KIND=8
 
-using DefaultReal = Real<4>;
-using DefaultInteger = Integer<DefaultReal::kind>;
+using DefaultReal = Type<Category::Real, 4>;
+using DefaultDoublePrecision = Type<Category::Real, 2 * DefaultReal::kind>;
+using DefaultInteger = Type<Category::Integer, DefaultReal::kind>;
 using IntrinsicTypeParameterType = DefaultInteger;
-using DefaultComplex = Complex<DefaultReal::kind>;
-using DefaultLogical = Logical<DefaultReal::kind>;
-using DefaultCharacter = Character<1>;
+using DefaultComplex = typename DefaultReal::Complex;
+using DefaultLogical = Type<Category::Logical, DefaultInteger::kind>;
+using DefaultCharacter = Type<Category::Character, 1>;
 
-}  // namespace Fortran::evaluate::type
+// These templates create instances of std::variant<> that can contain
+// applications of some class template to all of the supported kinds of
+// a category of intrinsic type.
+template<template<int> class T>
+using IntegerKindsVariant = std::variant<T<1>, T<2>, T<4>, T<8>, T<16>>;
+template<template<int> class T>
+using RealKindsVariant = std::variant<T<2>, T<4>, T<8>, T<10>, T<16>>;
+template<template<int> class T> using ComplexKindsVariant = RealKindsVariant<T>;
+template<template<int> class T>
+using LogicalKindsVariant = std::variant<T<1>, T<2>, T<4>, T<8>>;
+template<template<int> class T>
+using CharacterKindsVariant =
+    std::variant<T<1>>;  // TODO larger CHARACTER kinds, incl. Kanji
+
+}  // namespace Fortran::evaluate
 #endif  // FORTRAN_EVALUATE_TYPE_H_
