@@ -14,7 +14,12 @@
 
 add_library(FortranEvaluate
   complex.cc
+  expression.cc
   integer.cc
   logical.cc
   real.cc
+)
+
+target_link_libraries(FortranEvaluate
+  FortranCommon
 )
