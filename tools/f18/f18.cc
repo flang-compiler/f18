@@ -23,6 +23,7 @@
 #include "../../lib/parser/unparse.h"
 #include "../../lib/semantics/dump-parse-tree.h"
 #include "../../lib/semantics/resolve-names.h"
+#include "../../lib/semantics/unparse-with-symbols.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -83,6 +84,7 @@ struct DriverOptions {
   bool dumpProvenance{false};
   bool dumpCookedChars{false};
   bool dumpUnparse{false};
+  bool dumpUnparseWithSymbols{false};
   bool dumpParseTree{false};
   bool dumpSymbols{false};
   bool debugResolveNames{false};
@@ -196,21 +198,27 @@ std::string CompileFortran(
     exitStatus = EXIT_FAILURE;
     return {};
   }
+  auto &parseTree{*parsing.parseTree()};
   if (driver.measureTree) {
-    MeasureParseTree(*parsing.parseTree());
+    MeasureParseTree(parseTree);
   }
-  if (driver.debugResolveNames || driver.dumpSymbols) {
-    Fortran::semantics::ResolveNames(*parsing.parseTree(), parsing.cooked());
+  if (driver.debugResolveNames || driver.dumpSymbols ||
+      driver.dumpUnparseWithSymbols) {
+    Fortran::semantics::ResolveNames(parseTree, parsing.cooked());
     if (driver.dumpSymbols) {
       Fortran::semantics::DumpSymbols(std::cout);
     }
+    if (driver.dumpUnparseWithSymbols) {
+      Fortran::semantics::UnparseWithSymbols(
+          std::cout, parseTree, driver.encoding);
+      return {};
+    }
   }
   if (driver.dumpParseTree) {
-    Fortran::semantics::DumpTree(std::cout, *parsing.parseTree());
+    Fortran::semantics::DumpTree(std::cout, parseTree);
   }
   if (driver.dumpUnparse) {
-    Unparse(
-        std::cout, *parsing.parseTree(), driver.encoding, true /*capitalize*/);
+    Unparse(std::cout, parseTree, driver.encoding, true /*capitalize*/);
     return {};
   }
   if (driver.parseOnly) {
@@ -225,7 +233,7 @@ std::string CompileFortran(
   {
     std::ofstream tmpSource;
     tmpSource.open(tmpSourcePath);
-    Unparse(tmpSource, *parsing.parseTree(), driver.encoding);
+    Unparse(tmpSource, parseTree, driver.encoding);
   }
 
   if (ParentProcess()) {
@@ -358,6 +366,8 @@ int main(int argc, char *const argv[]) {
       options.instrumentedParse = true;
     } else if (arg == "-funparse") {
       driver.dumpUnparse = true;
+    } else if (arg == "-funparse-with-symbols") {
+      driver.dumpUnparseWithSymbols = true;
     } else if (arg == "-fparse-only") {
       driver.parseOnly = true;
     } else if (arg == "-c") {
@@ -390,6 +400,7 @@ int main(int argc, char *const argv[]) {
           << "  -fparse-only         parse only, no output except messages\n"
           << "  -funparse            parse & reformat only, no code "
              "generation\n"
+          << "  -funparse-with-symbols  parse, resolve symbols, and unparse\n"
           << "  -fdebug-measure-parse-tree\n"
           << "  -fdebug-dump-provenance\n"
           << "  -fdebug-dump-parse-tree\n"
