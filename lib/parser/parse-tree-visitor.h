@@ -707,14 +707,14 @@ void Walk(OmpLinearClause::WithoutModifier &x, M &mutator) {
   }
 }
 template<typename V>
-void Walk(const OmpDeclareTarget::WithClause &x, V &visitor) {
+void Walk(const OpenMPDeclareTargetConstruct::WithClause &x, V &visitor) {
   if (visitor.Pre(x)) {
     Walk(x.maptype, visitor);
     Walk(x.names, visitor);
     visitor.Post(x);
   }
 }
-template<typename M> void Walk(OmpDeclareTarget::WithClause &x, M &mutator) {
+template<typename M> void Walk(OpenMPDeclareTargetConstruct::WithClause &x, M &mutator) {
   if (mutator.Pre(x)) {
     Walk(x.maptype, mutator);
     Walk(x.names, mutator);
@@ -722,14 +722,14 @@ template<typename M> void Walk(OmpDeclareTarget::WithClause &x, M &mutator) {
   }
 }
 template<typename V>
-void Walk(const OmpDeclareTarget::WithExtendedList &x, V &visitor) {
+void Walk(const OpenMPDeclareTargetConstruct::WithExtendedList &x, V &visitor) {
   if (visitor.Pre(x)) {
     Walk(x.names, visitor);
     visitor.Post(x);
   }
 }
 template<typename M>
-void Walk(OmpDeclareTarget::WithExtendedList &x, M &mutator) {
+void Walk(OpenMPDeclareTargetConstruct::WithExtendedList &x, M &mutator) {
   if (mutator.Pre(x)) {
     Walk(x.names, mutator);
     mutator.Post(x);

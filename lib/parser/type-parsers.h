@@ -141,6 +141,7 @@ constexpr Parser<EntryStmt> entryStmt;  // R1541
 constexpr Parser<ContainsStmt> containsStmt;  // R1543
 constexpr Parser<CompilerDirective> compilerDirective;
 constexpr Parser<OpenMPConstruct> openmpConstruct;
+constexpr Parser<OpenMPDeclarativeConstruct> openmpDeclarativeConstruct;
 
 }  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_TYPE_PARSERS_H_

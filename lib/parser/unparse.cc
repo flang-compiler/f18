@@ -1745,6 +1745,13 @@ public:
                           }},
         x.u);
   }
+  bool Pre(const OmpDefaultClause &x) {
+    Word("DEFAULT(");
+    return true;
+  }
+  void Post(const OmpDefaultClause &x) {
+    Put(")");
+  }
   void Before(const OmpClause::Defaultmap &x) {
     Word("DEFAULTMAP(TOFROM:SCALAR)");
   }
@@ -1924,28 +1931,15 @@ public:
   }
   void Unparse(const OmpObjectList &x) { Walk(x.v, ","); }
   void Unparse(const OmpStandaloneDirective &x) {
-    std::visit(
-        visitors{[&](const OmpStandaloneDirective::CancellationPoint &) {
-                   Word("CANCELLATION POINT ");
-                 },
-            [&](const OmpStandaloneDirective::Cancel &) { Word("CANCEL "); },
-            [&](const OmpStandaloneDirective::Flush &y) {
-              Word("FLUSH ");
-              if ((y.v).has_value()) {
-                Put("(");
-                Walk(y.v);
-                Put(")");
-              }
-            },
-            [&](const OmpStandaloneDirective::TargetEnterData &) {
-              Word("TARGET ENTER DATA ");
-            },
-            [&](const OmpStandaloneDirective::TargetExitData &) {
-              Word("TARGET EXIT DATA ");
-            },
-            [&](const OmpStandaloneDirective::TargetUpdate &) {
-              Word("TARGET UPDATE ");
-            }},
+    std::visit(visitors{[&](const OmpStandaloneDirective::TargetEnterData &) {
+                          Word("TARGET ENTER DATA ");
+                        },
+                   [&](const OmpStandaloneDirective::TargetExitData &) {
+                     Word("TARGET EXIT DATA ");
+                   },
+                   [&](const OmpStandaloneDirective::TargetUpdate &) {
+                     Word("TARGET UPDATE ");
+                   }},
         x.u);
   }
   void Unparse(const OmpBlockDirective &x) {
@@ -1972,94 +1966,93 @@ public:
         x.u);
   }
   void Unparse(const OmpAtomic &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomic::SeqCst>>(x.t), " SEQ_CST");
     Put("\n");
-    Indent();
+    EndOpenMP();
     Walk(std::get<Statement<AssignmentStmt>>(x.t));
-    Outdent();
+    BeginOpenMP();
     Walk(std::get<std::optional<OmpEndAtomic>>(x.t), "!$OMP END ATOMIC\n");
-    Indent();
+    EndOpenMP();
   }
   void Unparse(const OmpAtomicCapture &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomicCapture::SeqCst1>>(x.t), " SEQ_CST,");
     Word(" UPDATE");
     Walk(std::get<std::optional<OmpAtomicCapture::SeqCst2>>(x.t), " ,SEQ_CST");
     Put("\n");
-    Indent();
+    EndOpenMP();
     Walk(std::get<OmpAtomicCapture::Stmt1>(x.t));
     Put("\n");
     Walk(std::get<OmpAtomicCapture::Stmt2>(x.t));
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP END ATOMIC\n");
-    Indent();
+    EndOpenMP();
   }
   void Unparse(const OmpAtomicRead &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomicRead::SeqCst1>>(x.t), " SEQ_CST,");
     Word(" READ");
     Walk(std::get<std::optional<OmpAtomicRead::SeqCst2>>(x.t), " ,SEQ_CST");
     Put("\n");
-    Indent();
+    EndOpenMP();
     Walk(std::get<Statement<AssignmentStmt>>(x.t));
-    Outdent();
+    BeginOpenMP();
     Walk(std::get<std::optional<OmpEndAtomic>>(x.t), "!$OMP END ATOMIC\n");
-    Indent();
+    EndOpenMP();
   }
   void Unparse(const OmpAtomicUpdate &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomicUpdate::SeqCst1>>(x.t), " SEQ_CST,");
     Word(" UPDATE");
     Walk(std::get<std::optional<OmpAtomicUpdate::SeqCst2>>(x.t), " ,SEQ_CST");
     Put("\n");
-    Indent();
+    EndOpenMP();
     Walk(std::get<Statement<AssignmentStmt>>(x.t));
-    Outdent();
+    BeginOpenMP();
     Walk(std::get<std::optional<OmpEndAtomic>>(x.t), "!$OMP END ATOMIC\n");
-    Indent();
+    EndOpenMP();
   }
   void Unparse(const OmpAtomicWrite &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomicWrite::SeqCst1>>(x.t), " SEQ_CST,");
     Word(" WRITE");
     Walk(std::get<std::optional<OmpAtomicWrite::SeqCst2>>(x.t), " ,SEQ_CST");
     Put("\n");
-    Indent();
+    EndOpenMP();
     Walk(std::get<Statement<AssignmentStmt>>(x.t));
-    Outdent();
+    BeginOpenMP();
     Walk(std::get<std::optional<OmpEndAtomic>>(x.t), "!$OMP END ATOMIC\n");
-    Indent();
+    EndOpenMP();
   }
   void Unparse(const OmpEndCritical &x) {
-    Put("(");
-    Walk(x.v);
-    Put(")");
+    Walk(" (", x.v, ")");
+    EndOpenMP();
   }
   void Unparse(const OpenMPCriticalConstruct &x) {
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP CRITICAL");
-    Walk(" ", std::get<std::optional<Name>>(x.t));
+    Walk(" (", std::get<std::optional<Name>>(x.t), ")");
     Walk(" HINT(", std::get<std::optional<OpenMPCriticalConstruct::Hint>>(x.t),
         ")");
     Put("\n");
-    Indent();
-    Walk(std::get<Block>(x.t));
-    Outdent();
+    EndOpenMP();
+    Walk(std::get<Block>(x.t), "");
+    BeginOpenMP();
     Word("!$OMP END CRITICAL");
     Walk(std::get<OmpEndCritical>(x.t));
     Put("\n");
-    Indent();
+    EndOpenMP();
   }
-  void Unparse(const OmpDeclareTarget::WithClause &x) {
+  void Unparse(const OpenMPDeclareTargetConstruct::WithClause &x) {
     Walk(x.maptype), Put("("), Walk(x.names), Put(")");
   }
-  void Unparse(const OmpDeclareTarget::WithExtendedList &x) {
+  void Unparse(const OpenMPDeclareTargetConstruct::WithExtendedList &x) {
     Put("("), Walk(x.names), Put(")");
   }
   void Unparse(const OmpReductionInitializerClause &x) {
@@ -2079,7 +2072,7 @@ public:
       Walk("(", args, ", ", ")");
     }
   }
-  void Unparse(const OmpDeclareReduction &x) {
+  void Unparse(const OpenMPDeclareReductionConstruct &x) {
     Put("(");
     Walk(std::get<OmpReductionOperator>(x.t)), Put(" : ");
     Walk(std::get<std::list<DeclarationTypeSpec>>(x.t), ","), Put(" : ");
@@ -2087,189 +2080,202 @@ public:
     Put(")");
     Walk(std::get<std::optional<OmpReductionInitializerClause>>(x.t));
   }
-  bool Pre(const OmpDeclarativeDirective &x) {
+  bool Pre(const OpenMPDeclarativeConstruct &x) {
     BeginOpenMP();
-    return std::visit(visitors{[&](const OmpDeclareReduction &y) {
+    Word("!$OMP ");
+    return std::visit(visitors{[&](const OpenMPDeclareReductionConstruct &y) {
                                  Word("DECLARE REDUCTION ");
                                  return true;
                                },
-                          [&](const OmpDeclarativeDirective::DeclareSimd &y) {
+                          [&](const OpenMPDeclareSimdConstruct &y) {
                             Word("DECLARE SIMD ");
-                            return true;
+                            Walk("(", std::get<std::optional<Name>>(y.t), ")");
+                            Put(" ");
+                            Walk(std::get<OmpClauseList>(y.t));
+                            Put("\n");
+                            EndOpenMP();
+                            return false;
                           },
-                          [&](const OmpDeclareTarget &y) {
+                          [&](const OpenMPDeclareTargetConstruct &y) {
                             Word("DECLARE TARGET ");
                             return true;
                           },
-                          [&](const OmpDeclarativeDirective::Threadprivate &y) {
-                            Word("THREADPRIVATE ");
+                          [&](const OpenMPDeclarativeConstruct::Threadprivate &y) {
+                            Word("THREADPRIVATE (");
                             return true;
                           }},
         x.u);
   }
-  void Post(const OmpDeclarativeDirective &x) {
+  void Post(const OpenMPDeclarativeConstruct &x) {
     Put("\n");
-    Indent();
+    EndOpenMP();
+  }
+  void Post(const OpenMPDeclarativeConstruct::Threadprivate &x) {
+    Put(")\n");
     EndOpenMP();
   }
   void Unparse(const OpenMPDoSimdConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP DO SIMD");
     Walk(std::get<OmpClauseList>(x.t));
-    Indent();
     Put("\n");
     EndOpenMP();
     Walk(std::get<DoConstruct>(x.t));
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP END DO SIMD");
     Walk(std::get<std::optional<OmpEndDoSimd>>(x.t));
-    Indent();
     Put("\n");
+    EndOpenMP();
   }
   void Unparse(const OpenMPDoConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP DO ");
     Walk(std::get<OmpClauseList>(x.t));
-    Indent();
     Put("\n");
     EndOpenMP();
     Walk(std::get<DoConstruct>(x.t));
-    Outdent();
+    BeginOpenMP();
     Word("!$OMP END DO ");
     Walk(std::get<std::optional<OmpEndDo>>(x.t));
-    Indent();
     Put("\n");
+    EndOpenMP();
   }
   bool Pre(const OpenMPBarrierConstruct &x) {
-    Outdent();
-    Word("BARRIER\n");
-    Indent();
+    BeginOpenMP();
+    Word("!$OMP BARRIER\n");
+    EndOpenMP();
     return false;
   }
   void Unparse(const OpenMPSingleConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP SINGLE ");
     Walk(std::get<OmpClauseList>(x.t));
-    Indent();
     EndOpenMP();
     Put("\n");
-    Walk(std::get<Block>(x.t));
-    Outdent();
+    Walk(std::get<Block>(x.t), "");
     BeginOpenMP();
     Word("!$OMP END SINGLE ");
     Walk(std::get<OmpEndSingle>(x.t));
-    Indent();
     Put("\n");
     EndOpenMP();
   }
-  bool Pre(const OmpSectionsBlock &x) {
+  void Unparse(const OmpSection &x) {
+    BeginOpenMP();
     Word("!$OMP SECTION");
     Put("\n");
-    return true;
+    EndOpenMP();
   }
   void Unparse(const OpenMPSectionsConstruct &x) {
     BeginOpenMP();
-    Outdent();
-    Word("!$OMP SECTIONS");
+    Word("!$OMP SECTIONS ");
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
-    Indent();
     EndOpenMP();
-    Walk(std::get<std::list<OmpSectionsBlock>>(x.t));
-    Outdent();
+    Walk(std::get<Block>(x.t), "");
+    BeginOpenMP();
     Word("!$OMP END SECTIONS");
-    Indent();
     Put("\n");
+    EndOpenMP();
   }
   void Unparse(const OpenMPParallelSectionsConstruct &x) {
     BeginOpenMP();
-    Outdent();
-    Word("!$OMP PARALLEL SECTIONS");
+    Word("!$OMP PARALLEL SECTIONS ");
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
-    Indent();
     EndOpenMP();
-    Walk(std::get<std::list<OmpSectionsBlock>>(x.t));
-    Outdent();
+    Walk(std::get<Block>(x.t), "");
+    BeginOpenMP();
     Word("!$OMP END PARALLEL SECTIONS");
-    Indent();
     Put("\n");
+    EndOpenMP();
   }
   void Unparse(const OpenMPWorkshareConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP WORKSHARE");
     Put("\n");
-    Indent();
     EndOpenMP();
-    Walk(std::get<Block>(x.t));
-    Outdent();
+    Walk(std::get<Block>(x.t), "");
+    BeginOpenMP();
     Word("!$OMP END WORKSHARE");
     Walk(std::get<std::optional<OmpNowait>>(x.t));
-    Indent();
     Put("\n");
+    EndOpenMP();
   }
   bool Pre(const OpenMPTaskyieldConstruct &x) {
-    Outdent();
-    Word("!$OMP TASKYIELD\n");
-    Indent();
+    BeginOpenMP();
+    Word("!$OMP TASKYIELD");
+    Put("\n");
+    EndOpenMP();
     return false;
   }
   bool Pre(const OpenMPTaskwaitConstruct &x) {
-    Outdent();
-    Word("!$OMP TASKWAIT\n");
-    Indent();
+    BeginOpenMP();
+    Word("!$OMP TASKWAIT");
+    Put("\n");
+    EndOpenMP();
     return false;
   }
+  void Unparse(const OpenMPCancellationPointConstruct &x) {
+    BeginOpenMP();
+    Word("!$OMP CANCELLATION POINT ");
+    Walk(x.v);
+    Put("\n");
+    EndOpenMP();
+  }
+  void Unparse(const OpenMPCancelConstruct &x) {
+    BeginOpenMP();
+    Word("!$OMP CANCEL ");
+    Walk(std::get<OmpCancelType>(x.t));
+    Walk(std::get<std::optional<OpenMPCancelConstruct::If>>(x.t));
+    Put("\n");
+    EndOpenMP();
+  }
+  void Unparse(const OpenMPFlushConstruct &x) {
+    BeginOpenMP();
+    Word("!$OMP FLUSH");
+    if ((x.v).has_value()) {
+      Put("(");
+      Walk(x.v);
+      Put(")");
+    }
+    Put("\n");
+    EndOpenMP();
+  }
   void Post(const OmpEndLoopDirective &x) { Put("\n"); }
-  void Unparse(const OmpClauseList &x) { Walk(x.v, " "); }
+  void Unparse(const OmpClauseList &x) { Walk(" ", x.v, " "); }
   void Unparse(const OpenMPStandaloneConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP ");
     Walk(std::get<OmpStandaloneDirective>(x.t));
     Walk(std::get<OmpClauseList>(x.t));
-    Indent();
     Put("\n");
     EndOpenMP();
   }
   void Unparse(const OpenMPLoopConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP ");
     Walk(std::get<OmpLoopDirective>(x.t));
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
-    Indent();
     EndOpenMP();
     Walk(std::get<DoConstruct>(x.t));
-    Outdent();
-    Walk(std::get<std::optional<OmpEndLoopDirective>>(x.t));
-    Indent();
+    BeginOpenMP();
+    Walk("!$OMP END ", std::get<std::optional<OmpEndLoopDirective>>(x.t));
+    EndOpenMP();
   }
   void Unparse(const OpenMPBlockConstruct &x) {
     BeginOpenMP();
-    Outdent();
     Word("!$OMP ");
     Walk(std::get<OmpBlockDirective>(x.t));
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
-    Indent();
     EndOpenMP();
-    Walk(std::get<Block>(x.t));
-    Outdent();
+    Walk(std::get<Block>(x.t), "");
+    BeginOpenMP();
     Word("!$OMP END ");
     Walk(std::get<OmpEndBlockDirective>(x.t));
     Put("\n");
-    Indent();
-  }
-  bool Pre(const OpenMPDeclarativeConstruct &x) {
-    Outdent();
-    Word("!$OMP ");
-    return true;
+    EndOpenMP();
   }
   void Unparse(const BasedPointerStmt &x) {
     Word("POINTER ("), Walk(std::get<0>(x.t)), Put(", ");
@@ -2346,6 +2352,7 @@ public:
   WALK_NESTED_ENUM(
       OmpIfClause, DirectiveNameModifier)  // OMP directive-modifier
   WALK_NESTED_ENUM(OmpDeclareTargetMapType, Type)  // OMP DeclareTarget map-type
+  WALK_NESTED_ENUM(OmpCancelType, Type)  // OMP cancel-type
 #undef WALK_NESTED_ENUM
 
   void Done() const { CHECK(indent_ == 0); }
@@ -2438,6 +2445,10 @@ private:
 };
 
 void UnparseVisitor::Put(char ch) {
+  int sav = indent_;
+  if (openmpDirective_) {
+    indent_ = 0;
+  }
   if (column_ <= 1) {
     if (ch == '\n') {
       return;
@@ -2455,13 +2466,16 @@ void UnparseVisitor::Put(char ch) {
     }
     if (openmpDirective_) {
       out_ << "!$OMP&";
-      column_ = indent_ + 8;
+      column_ = 8;
     } else {
       out_ << '&';
       column_ = indent_ + 3;
     }
   }
   out_ << ch;
+  if (openmpDirective_) {
+    indent_ = sav;
+  }
 }
 
 void UnparseVisitor::Put(const char *str) {

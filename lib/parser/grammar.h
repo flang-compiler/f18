@@ -49,7 +49,7 @@ namespace Fortran::parser {
 // R507 declaration-construct ->
 //        specification-construct | data-stmt | format-stmt |
 //        entry-stmt | stmt-function-stmt
-constexpr auto execPartLookAhead = first(actionStmt >> ok, "ASSOCIATE ("_tok,
+constexpr auto execPartLookAhead = first(actionStmt >> ok, openmpConstruct >> ok, "ASSOCIATE ("_tok,
     "BLOCK"_tok, "SELECT"_tok, "CHANGE TEAM"_sptok, "CRITICAL"_tok, "DO"_tok,
     "IF ("_tok, "WHERE ("_tok, "FORALL ("_tok);
 constexpr auto declErrorRecovery =
@@ -93,7 +93,7 @@ TYPE_CONTEXT_PARSER("specification construct"_en_US,
         construct<SpecificationConstruct>(
             statement(indirect(typeDeclarationStmt))),
         construct<SpecificationConstruct>(indirect(Parser<StructureDef>{})),
-        construct<SpecificationConstruct>(indirect(openmpConstruct)),
+        construct<SpecificationConstruct>(indirect(openmpDeclarativeConstruct)),
         construct<SpecificationConstruct>(indirect(compilerDirective))))
 
 // R513 other-specification-stmt ->

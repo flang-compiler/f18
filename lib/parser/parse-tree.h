@@ -249,9 +249,9 @@ struct AssignStmt;
 struct AssignedGotoStmt;
 struct PauseStmt;
 struct OpenMPConstruct;
+struct OpenMPDeclarativeConstruct;
 struct OmpClause;
 struct OmpBlockDirective;
-struct OmpDeclarativeDirective;
 struct OmpLoopDirective;
 struct OmpStandaloneDirective;
 
@@ -363,7 +363,7 @@ struct SpecificationConstruct {
       Statement<Indirection<ProcedureDeclarationStmt>>,
       Statement<OtherSpecificationStmt>,
       Statement<Indirection<TypeDeclarationStmt>>, Indirection<StructureDef>,
-      Indirection<OpenMPConstruct>, Indirection<CompilerDirective>>
+      Indirection<OpenMPDeclarativeConstruct>, Indirection<CompilerDirective>>
       u;
 };
 
@@ -3391,16 +3391,15 @@ WRAPPER_CLASS(OmpClauseList, std::list<OmpClause>);
 WRAPPER_CLASS(OmpEndSections, std::optional<OmpNowait>);
 WRAPPER_CLASS(OmpEndParallelSections, std::optional<OmpNowait>);
 EMPTY_CLASS(OmpSection);
-WRAPPER_CLASS(OmpSectionsBlock, Block);
 
 struct OpenMPSectionsConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPSectionsConstruct);
-  std::tuple<OmpClauseList, std::list<OmpSectionsBlock>, OmpEndSections> t;
+  std::tuple<OmpClauseList, Block, OmpEndSections> t;
 };
 
 struct OpenMPParallelSectionsConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPParallelSectionsConstruct);
-  std::tuple<OmpClauseList, std::list<OmpSectionsBlock>, OmpEndParallelSections>
+  std::tuple<OmpClauseList, Block, OmpEndParallelSections>
       t;
 };
 
@@ -3456,8 +3455,8 @@ struct OmpDeclareTargetMapType {
   WRAPPER_CLASS_BOILERPLATE(OmpDeclareTargetMapType, Type);
 };
 
-struct OmpDeclareTarget {
-  UNION_CLASS_BOILERPLATE(OmpDeclareTarget);
+struct OpenMPDeclareTargetConstruct {
+  UNION_CLASS_BOILERPLATE(OpenMPDeclareTargetConstruct);
   struct WithClause {
     BOILERPLATE(WithClause);
     WithClause(OmpDeclareTargetMapType &&m, OmpObjectList &&n)
@@ -3482,19 +3481,23 @@ struct OmpReductionCombiner {
 
 WRAPPER_CLASS(OmpReductionInitializerClause, Indirection<Expr>);
 
-struct OmpDeclareReduction {
-  TUPLE_CLASS_BOILERPLATE(OmpDeclareReduction);
+struct OpenMPDeclareReductionConstruct {
+  TUPLE_CLASS_BOILERPLATE(OpenMPDeclareReductionConstruct);
   std::tuple<OmpReductionOperator, std::list<DeclarationTypeSpec>,
       OmpReductionCombiner, std::optional<OmpReductionInitializerClause>>
       t;
 };
 
-struct OmpDeclarativeDirective {
-  UNION_CLASS_BOILERPLATE(OmpDeclarativeDirective);
-  WRAPPER_CLASS(DeclareSimd, OmpClauseList);
+struct OpenMPDeclareSimdConstruct {
+  TUPLE_CLASS_BOILERPLATE(OpenMPDeclareSimdConstruct);
+  std::tuple<std::optional<Name>, OmpClauseList> t;
+};
+
+struct OpenMPDeclarativeConstruct {
+  UNION_CLASS_BOILERPLATE(OpenMPDeclarativeConstruct);
   WRAPPER_CLASS(Threadprivate, OmpObjectList);
-  std::variant<OmpDeclareReduction, DeclareSimd, OmpDeclareTarget,
-      Threadprivate>
+  std::variant<OpenMPDeclareReductionConstruct, OpenMPDeclareSimdConstruct, 
+OpenMPDeclareTargetConstruct, Threadprivate>
       u;
 };
 
@@ -3599,17 +3602,32 @@ struct OmpLoopDirective {
       u;
 };
 
+// Cancel/Cancellation type
+struct OmpCancelType {
+  ENUM_CLASS(Type, Parallel, Sections, Do, Taskgroup)
+  WRAPPER_CLASS_BOILERPLATE(OmpCancelType, Type);
+};
+
+// CANCELLATION POINT
+WRAPPER_CLASS(OpenMPCancellationPointConstruct, OmpCancelType);
+
+// CANCEL
+struct OpenMPCancelConstruct {
+  TUPLE_CLASS_BOILERPLATE(OpenMPCancelConstruct);
+  WRAPPER_CLASS(If, ScalarLogicalExpr);
+  std::tuple<OmpCancelType, std::optional<If>> t;
+};
+
+// FLUSH
+WRAPPER_CLASS(OpenMPFlushConstruct, std::optional<OmpObjectList>);
+
+// Standalone constructs
 struct OmpStandaloneDirective {
   UNION_CLASS_BOILERPLATE(OmpStandaloneDirective);
-  EMPTY_CLASS(CancellationPoint);
-  EMPTY_CLASS(Cancel);
-  WRAPPER_CLASS(Flush, std::optional<OmpObjectList>);
   EMPTY_CLASS(TargetEnterData);
   EMPTY_CLASS(TargetExitData);
   EMPTY_CLASS(TargetUpdate);
-  std::variant<CancellationPoint, Cancel, Flush, TargetEnterData,
-      TargetExitData, TargetUpdate>
-      u;
+  std::variant<TargetEnterData, TargetExitData, TargetUpdate> u;
 };
 
 EMPTY_CLASS(OpenMPTaskyieldConstruct);
@@ -3630,7 +3648,6 @@ struct OpenMPBlockConstruct {
   std::tuple<OmpBlockDirective, OmpClauseList, Block, OmpEndBlockDirective> t;
 };
 
-WRAPPER_CLASS(OpenMPDeclarativeConstruct, OmpDeclarativeDirective);
 
 struct OpenMPStandaloneConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPStandaloneConstruct);
@@ -3647,9 +3664,10 @@ struct OpenMPConstruct {
       Indirection<OpenMPParallelSectionsConstruct>,
       Indirection<OpenMPWorkshareConstruct>, Indirection<OpenMPLoopConstruct>,
       Indirection<OpenMPBlockConstruct>,
-      Indirection<OpenMPDeclarativeConstruct>,
+      Indirection<OpenMPCancellationPointConstruct>,
+      Indirection<OpenMPCancelConstruct>, Indirection<OpenMPFlushConstruct>,
       Indirection<OpenMPAtomicConstruct>, Indirection<OpenMPCriticalConstruct>,
-      OmpSectionsBlock>
+      OmpSection>
       u;
 };
 
