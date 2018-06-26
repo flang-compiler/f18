@@ -191,7 +191,7 @@ TYPE_PARSER("DEFAULTMAP"_tok >>
     "COPYIN"_tok >> construct<OmpClause>(construct<OmpClause::Copyin>(
                         parenthesized(Parser<OmpObjectList>{}))) ||
     "COPYPRIVATE"_tok >> construct<OmpClause>(construct<OmpClause::Copyprivate>(
-                             parenthesized(Parser<OmpObjectList>{}))) ||
+                             (parenthesized(Parser<OmpObjectList>{})))) ||
     "DEVICE"_tok >> construct<OmpClause>(construct<OmpClause::Device>(
                         parenthesized(scalarIntExpr))) ||
     "DIST_SCHEDULE"_tok >>
@@ -316,16 +316,29 @@ TYPE_PARSER("DISTRIBUTE PARALLEL DO SIMD"_tok >>
         construct<OmpLoopDirective>(
             construct<OmpLoopDirective::TeamsDistribute>()))
 
-// Standalone directives
+// Cancellation Point construct
 TYPE_PARSER("CANCELLATION POINT"_tok >>
-        construct<OmpStandaloneDirective>(
-            construct<OmpStandaloneDirective::CancellationPoint>()) ||
-    "CANCEL"_tok >> construct<OmpStandaloneDirective>(
-                        construct<OmpStandaloneDirective::Cancel>()) ||
-    "FLUSH"_tok >> construct<OmpStandaloneDirective>(
-                       construct<OmpStandaloneDirective::Flush>(
-                           maybe(parenthesized(Parser<OmpObjectList>{})))) ||
-    "TARGET ENTER DATA"_tok >>
+    construct<OpenMPCancellationPointConstruct>(
+        "PARALLEL"_tok >> pure(OmpCancelType::Type::Parallel) ||
+        "SECTIONS"_tok >> pure(OmpCancelType::Type::Sections) ||
+        "DO"_tok >> pure(OmpCancelType::Type::Do) ||
+        "TASKGROUP"_tok >> pure(OmpCancelType::Type::Taskgroup)))
+
+// Cancel construct
+TYPE_PARSER("CANCEL"_tok >>
+    construct<OpenMPCancelConstruct>(
+        ("PARALLEL"_tok >> pure(OmpCancelType::Type::Parallel) ||
+            "SECTIONS"_tok >> pure(OmpCancelType::Type::Sections) ||
+            "DO"_tok >> pure(OmpCancelType::Type::Do) ||
+            "TASKGROUP"_tok >> pure(OmpCancelType::Type::Taskgroup)),
+        maybe("IF"_tok >> parenthesized(scalarLogicalExpr))))
+
+// Flush construct
+TYPE_PARSER("FLUSH"_tok >> construct<OpenMPFlushConstruct>(
+                               maybe(parenthesized(Parser<OmpObjectList>{}))))
+
+// Standalone directives
+TYPE_PARSER("TARGET ENTER DATA"_tok >>
         construct<OmpStandaloneDirective>(
             construct<OmpStandaloneDirective::TargetEnterData>()) ||
     "TARGET EXIT DATA"_tok >>
@@ -365,7 +378,7 @@ TYPE_PARSER(construct<OmpReductionInitializerClause>("INITIALIZER"_tok >>
     parenthesized("OMP_PRIV"_tok >> "="_tok >> indirect(expr))))
 
 // Declare Reduction Construct
-TYPE_PARSER(construct<OmpDeclareReduction>(
+TYPE_PARSER(construct<OpenMPDeclareReductionConstruct>(
     "("_tok >> Parser<OmpReductionOperator>{} / ":"_tok,
     nonemptyList(Parser<DeclarationTypeSpec>{}) / ":"_tok,
     Parser<OmpReductionCombiner>{} / ")"_tok,
@@ -377,14 +390,14 @@ TYPE_PARSER(construct<OmpDeclareTargetMapType>(
     "TO" >> pure(OmpDeclareTargetMapType::Type::To)))
 
 // Declarative directives
-TYPE_PARSER(construct<OmpDeclareTarget>(
-    construct<OmpDeclareTarget>(construct<OmpDeclareTarget::WithClause>(
+TYPE_PARSER(construct<OpenMPDeclareTargetConstruct>(
+    construct<OpenMPDeclareTargetConstruct>(construct<OpenMPDeclareTargetConstruct::WithClause>(
         Parser<OmpDeclareTargetMapType>{},
         parenthesized(Parser<OmpObjectList>{}))) ||
     lookAhead(endOfLine) >>
-        construct<OmpDeclareTarget>(construct<OmpDeclareTarget::Implicit>()) ||
-    construct<OmpDeclareTarget>(
-        parenthesized(construct<OmpDeclareTarget::WithExtendedList>(
+        construct<OpenMPDeclareTargetConstruct>(construct<OpenMPDeclareTargetConstruct::Implicit>()) ||
+    construct<OpenMPDeclareTargetConstruct>(
+        parenthesized(construct<OpenMPDeclareTargetConstruct::WithExtendedList>(
             Parser<OmpObjectList>{})))))
 
 TYPE_PARSER(construct<OmpReductionCombiner>(Parser<AssignmentStmt>{}) ||
@@ -456,26 +469,31 @@ TYPE_PARSER("CRITICAL" >>
                                 parenthesized(constantExpr))),
         block, Parser<OmpEndCritical>{}))
 
-// OMP Declarative Construct
-TYPE_PARSER("DECLARE REDUCTION" >>
-        construct<OmpDeclarativeDirective>(construct<OmpDeclarativeDirective>(
-            Parser<OmpDeclareReduction>{})) ||
-    "DECLARE SIMD" >> construct<OmpDeclarativeDirective>(
-                          construct<OmpDeclarativeDirective::DeclareSimd>(
-                              Parser<OmpClauseList>{})) ||
-    "DECLARE TARGET" >>
-        construct<OmpDeclarativeDirective>(
-            construct<OmpDeclarativeDirective>(Parser<OmpDeclareTarget>{})) ||
-    "THREADPRIVATE" >> construct<OmpDeclarativeDirective>(
-                           construct<OmpDeclarativeDirective::Threadprivate>(
-                               parenthesized(Parser<OmpObjectList>{}))))
+// Declare Simd construct
+TYPE_PARSER(construct<OpenMPDeclareSimdConstruct>(maybe(parenthesized(name)), Parser<OmpClauseList>{}))
 
-// Omp Loop Construct
+// Declarative construct & Threadprivate directive
+TYPE_PARSER(
+    lookAhead(!"!$OMP END"_tok) >> "!$OMP "_tok >>
+(
+"DECLARE REDUCTION" >>
+        construct<OpenMPDeclarativeConstruct>(construct<OpenMPDeclarativeConstruct>(
+            Parser<OpenMPDeclareReductionConstruct>{})) / endOmpLine ||
+    "DECLARE SIMD" >> construct<OpenMPDeclarativeConstruct>(
+                              Parser<OpenMPDeclareSimdConstruct>{}) / endOmpLine ||
+    "DECLARE TARGET" >>
+        construct<OpenMPDeclarativeConstruct>(
+            construct<OpenMPDeclarativeConstruct>(Parser<OpenMPDeclareTargetConstruct>{})) /endOmpLine ||
+    "THREADPRIVATE" >> construct<OpenMPDeclarativeConstruct>(
+                           construct<OpenMPDeclarativeConstruct::Threadprivate>(
+                               parenthesized(Parser<OmpObjectList>{}))/ endOmpLine)))
+
+// Loop Construct
 TYPE_PARSER(construct<OpenMPLoopConstruct>(Parser<OmpLoopDirective>{},
     Parser<OmpClauseList>{} / endOmpLine, Parser<DoConstruct>{},
     maybe(Parser<OmpEndLoopDirective>{} / endOmpLine)))
 
-// Omp Block Construct
+// Block Construct
 TYPE_PARSER(construct<OpenMPBlockConstruct>(Parser<OmpBlockDirective>{},
     Parser<OmpClauseList>{} / endOmpLine, block,
     Parser<OmpEndBlockDirective>{} / endOmpLine))
@@ -483,8 +501,6 @@ TYPE_PARSER(construct<OpenMPBlockConstruct>(Parser<OmpBlockDirective>{},
 TYPE_PARSER(construct<OpenMPStandaloneConstruct>(
     Parser<OmpStandaloneDirective>{}, Parser<OmpClauseList>{} / endOmpLine))
 
-TYPE_PARSER(construct<OpenMPDeclarativeConstruct>(
-    Parser<OmpDeclarativeDirective>{} / endOmpLine))
 
 // OMP BARRIER
 TYPE_PARSER("BARRIER"_tok >> construct<OpenMPBarrierConstruct>() / endOmpLine)
@@ -532,12 +548,6 @@ TYPE_PARSER("DO"_tok >>
     construct<OpenMPDoConstruct>(Parser<OmpClauseList>{} / endOmpLine,
         Parser<DoConstruct>{}, maybe(Parser<OmpEndDo>{})))
 
-// OMP [SECTION], Block
-TYPE_PARSER("!$OMP SECTION"_tok >> endOmpLine >> construct<OmpSection>())
-TYPE_PARSER(construct<OmpSectionsBlock>(
-    // maybe(Parser<OmpSection>{}),
-    block))
-
 // OMP END SECTIONS [NOWAIT]
 TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
     "SECTIONS"_tok >>
@@ -547,7 +557,7 @@ TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
 // OMP SECTIONS
 TYPE_PARSER("SECTIONS"_tok >>
     construct<OpenMPSectionsConstruct>(Parser<OmpClauseList>{} / endOmpLine,
-        many(Parser<OmpSectionsBlock>{}), Parser<OmpEndSections>{}))
+        block, Parser<OmpEndSections>{}))
 
 // OMP END PARALLEL SECTIONS [NOWAIT]
 TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
@@ -558,7 +568,7 @@ TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
 // OMP PARALLEL SECTIONS
 TYPE_PARSER("PARALLEL SECTIONS"_tok >>
     construct<OpenMPParallelSectionsConstruct>(
-        Parser<OmpClauseList>{} / endOmpLine, many(Parser<OmpSectionsBlock>{}),
+        Parser<OmpClauseList>{} / endOmpLine, block,
         Parser<OmpEndParallelSections>{}))
 
 TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
@@ -587,13 +597,13 @@ TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
             construct<OpenMPConstruct>(
                 indirect(Parser<OpenMPBlockConstruct>{})) ||
             construct<OpenMPConstruct>(
-                indirect(Parser<OpenMPDeclarativeConstruct>{})) ||
-            construct<OpenMPConstruct>(
                 indirect(Parser<OpenMPAtomicConstruct>{})) ||
             construct<OpenMPConstruct>(
                 indirect(Parser<OpenMPCriticalConstruct>{})) ||
+            construct<OpenMPConstruct>(
+                indirect(Parser<OpenMPFlushConstruct>{})) ||
             "SECTION"_tok >> endOmpLine >>
-                construct<OpenMPConstruct>(Parser<OmpSectionsBlock>{})))
+                construct<OpenMPConstruct>(construct<OmpSection>())))
 
 // End Omp directives
 TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
