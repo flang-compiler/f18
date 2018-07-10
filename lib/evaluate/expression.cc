@@ -13,7 +13,9 @@
 // limitations under the License.
 
 #include "expression.h"
+#include "variable.h"
 #include "../common/idioms.h"
+#include "../parser/characters.h"
 #include <ostream>
 #include <string>
 #include <type_traits>
@@ -22,30 +24,35 @@ using namespace Fortran::parser::literals;
 
 namespace Fortran::evaluate {
 
-template<typename A>
-std::ostream &DumpExprWithType(std::ostream &o, const A &x) {
-  using Ty = typename A::Result;
-  return x.Dump(o << '(' << Ty::Dump() << ' ') << ')';
-}
-
-std::ostream &AnyIntegerExpr::Dump(std::ostream &o) const {
-  std::visit([&](const auto &x) { DumpExprWithType(o, x); }, u);
+template<typename... A>
+std::ostream &DumpExprWithType(std::ostream &o, const std::variant<A...> &u) {
+  std::visit(
+      [&](const auto &x) {
+        using Ty = typename std::remove_reference_t<decltype(x)>::Result;
+        x.Dump(o << '(' << Ty::Dump() << "::") << ')';
+      },
+      u);
   return o;
 }
 
-std::ostream &AnyRealExpr::Dump(std::ostream &o) const {
-  std::visit([&](const auto &x) { DumpExprWithType(o, x); }, u);
-  return o;
-}
-
-std::ostream &AnyCharacterExpr::Dump(std::ostream &o) const {
+template<typename... A>
+std::ostream &DumpExpr(std::ostream &o, const std::variant<A...> &u) {
   std::visit([&](const auto &x) { x.Dump(o); }, u);
   return o;
 }
 
-std::ostream &AnyIntegerOrRealExpr::Dump(std::ostream &o) const {
-  std::visit([&](const auto &x) { x.Dump(o); }, u);
-  return o;
+template<Category CAT>
+std::ostream &CategoryExpr<CAT>::Dump(std::ostream &o) const {
+  return DumpExpr(o, u);
+}
+
+template<Category CAT>
+std::ostream &CategoryComparison<CAT>::Dump(std::ostream &o) const {
+  return DumpExpr(o, u);
+}
+
+std::ostream &GenericExpr::Dump(std::ostream &o) const {
+  return DumpExpr(o, u);
 }
 
 template<typename A>
@@ -59,81 +66,26 @@ std::ostream &Binary<A, B>::Dump(std::ostream &o, const char *opr) const {
 }
 
 template<int KIND>
-std::ostream &IntegerExpr<KIND>::Dump(std::ostream &o) const {
+std::ostream &Expr<Category::Integer, KIND>::Dump(std::ostream &o) const {
   std::visit(
       common::visitors{[&](const Constant &n) { o << n.SignedDecimal(); },
-          [&](const Convert &c) { c.x->Dump(o); },
+          [&](const CopyableIndirection<Designator> &d) { d->Dump(o); },
           [&](const Parentheses &p) { p.Dump(o, "("); },
           [&](const Negate &n) { n.Dump(o, "(-"); },
           [&](const Add &a) { a.Dump(o, "+"); },
           [&](const Subtract &s) { s.Dump(o, "-"); },
           [&](const Multiply &m) { m.Dump(o, "*"); },
           [&](const Divide &d) { d.Dump(o, "/"); },
-          [&](const Power &p) { p.Dump(o, "**"); }},
+          [&](const Power &p) { p.Dump(o, "**"); },
+          [&](const auto &convert) { DumpExprWithType(o, convert.x->u); }},
       u);
   return o;
 }
 
 template<int KIND>
-void IntegerExpr<KIND>::Fold(
-    const parser::CharBlock &at, parser::Messages *messages) {
-  std::visit(common::visitors{[&](const Parentheses &p) {
-                                p.Mutable()->Fold(at, messages);
-                                if (auto c{std::get_if<Constant>(&p.x->u)}) {
-                                  u = *c;
-                                }
-                              },
-                 [&](const Negate &n) {
-                   n.Mutable()->Fold(at, messages);
-                   if (auto c{std::get_if<Constant>(&n.x->u)}) {
-                     auto negated{c->Negate()};
-                     if (negated.overflow && messages != nullptr) {
-                       messages->Say(at, "integer negation overflowed"_en_US);
-                     }
-                     u = negated.value;
-                   }
-                 },
-                 [&](const Add &a) {
-                   a.MutableX()->Fold(at, messages);
-                   a.MutableY()->Fold(at, messages);
-                   if (auto xc{std::get_if<Constant>(&a.x->u)}) {
-                     if (auto yc{std::get_if<Constant>(&a.y->u)}) {
-                       auto sum{xc->AddSigned(*yc)};
-                       if (sum.overflow && messages != nullptr) {
-                         messages->Say(at, "integer addition overflowed"_en_US);
-                       }
-                       u = sum.value;
-                     }
-                   }
-                 },
-                 [&](const Multiply &a) {
-                   a.MutableX()->Fold(at, messages);
-                   a.MutableY()->Fold(at, messages);
-                   if (auto xc{std::get_if<Constant>(&a.x->u)}) {
-                     if (auto yc{std::get_if<Constant>(&a.y->u)}) {
-                       auto product{xc->MultiplySigned(*yc)};
-                       if (product.SignedMultiplicationOverflowed() &&
-                           messages != nullptr) {
-                         messages->Say(
-                             at, "integer multiplication overflowed"_en_US);
-                       }
-                       u = product.lower;
-                     }
-                   }
-                 },
-                 [&](const Bin &b) {
-                   b.MutableX()->Fold(at, messages);
-                   b.MutableY()->Fold(at, messages);
-                 },
-                 [&](const auto &) {  // TODO: more
-                 }},
-      u);
-}
-
-template<int KIND> std::ostream &RealExpr<KIND>::Dump(std::ostream &o) const {
+std::ostream &Expr<Category::Real, KIND>::Dump(std::ostream &o) const {
   std::visit(
       common::visitors{[&](const Constant &n) { o << n.DumpHexadecimal(); },
-          [&](const Convert &c) { c.x->Dump(o); },
           [&](const Parentheses &p) { p.Dump(o, "("); },
           [&](const Negate &n) { n.Dump(o, "(-"); },
           [&](const Add &a) { a.Dump(o, "+"); },
@@ -143,13 +95,14 @@ template<int KIND> std::ostream &RealExpr<KIND>::Dump(std::ostream &o) const {
           [&](const Power &p) { p.Dump(o, "**"); },
           [&](const IntPower &p) { p.Dump(o, "**"); },
           [&](const RealPart &z) { z.Dump(o, "REAL("); },
-          [&](const AIMAG &p) { p.Dump(o, "AIMAG("); }},
+          [&](const AIMAG &p) { p.Dump(o, "AIMAG("); },
+          [&](const auto &convert) { DumpExprWithType(o, convert.x->u); }},
       u);
   return o;
 }
 
 template<int KIND>
-std::ostream &ComplexExpr<KIND>::Dump(std::ostream &o) const {
+std::ostream &Expr<Category::Complex, KIND>::Dump(std::ostream &o) const {
   std::visit(
       common::visitors{[&](const Constant &n) { o << n.DumpHexadecimal(); },
           [&](const Parentheses &p) { p.Dump(o, "("); },
@@ -166,64 +119,26 @@ std::ostream &ComplexExpr<KIND>::Dump(std::ostream &o) const {
 }
 
 template<int KIND>
-typename CharacterExpr<KIND>::LengthExpr CharacterExpr<KIND>::LEN() const {
-  return std::visit(
-      common::visitors{
-          [](const std::string &str) { return LengthExpr{str.size()}; },
-          [](const Concat &c) {
-            return LengthExpr{LengthExpr::Add{c.x->LEN(), c.y->LEN()}};
-          }},
-      u);
-}
-
-template<int KIND>
-std::ostream &CharacterExpr<KIND>::Dump(std::ostream &o) const {
-  std::visit(common::visitors{[&](const Constant &s) { o << '"' << s << '"'; },
-                 [&](const Concat &c) { c.y->Dump(c.x->Dump(o) << "//"); }},
+std::ostream &Expr<Category::Character, KIND>::Dump(std::ostream &o) const {
+  std::visit(common::visitors{[&](const Constant &s) {
+                                o << parser::QuoteCharacterLiteral(s);
+                              },
+                 [&](const auto &concat) {
+                   concat.y->Dump(concat.x->Dump(o) << "//");
+                 }},
       u);
   return o;
 }
 
-template<typename T> std::ostream &Comparison<T>::Dump(std::ostream &o) const {
-  std::visit(common::visitors{[&](const LT &c) { c.Dump(o, ".LT."); },
-                 [&](const LE &c) { c.Dump(o, ".LE."); },
-                 [&](const EQ &c) { c.Dump(o, ".EQ."); },
-                 [&](const NE &c) { c.Dump(o, ".NE."); },
-                 [&](const GE &c) { c.Dump(o, ".GE."); },
-                 [&](const GT &c) { c.Dump(o, ".GT."); }},
-      u);
-  return o;
+template<typename A> std::ostream &Comparison<A>::Dump(std::ostream &o) const {
+  using Ty = typename A::Result;
+  o << '(' << Ty::Dump() << "::";
+  this->x->Dump(o);
+  o << '.' << EnumToString(this->opr) << '.';
+  return this->y->Dump(o) << ')';
 }
 
-template<int KIND>
-std::ostream &Comparison<ComplexExpr<KIND>>::Dump(std::ostream &o) const {
-  std::visit(common::visitors{[&](const EQ &c) { c.Dump(o, ".EQ."); },
-                 [&](const NE &c) { c.Dump(o, ".NE."); }},
-      u);
-  return o;
-}
-
-std::ostream &IntegerComparison::Dump(std::ostream &o) const {
-  std::visit([&](const auto &c) { c.Dump(o); }, u);
-  return o;
-}
-
-std::ostream &RealComparison::Dump(std::ostream &o) const {
-  std::visit([&](const auto &c) { c.Dump(o); }, u);
-  return o;
-}
-
-std::ostream &ComplexComparison::Dump(std::ostream &o) const {
-  std::visit([&](const auto &c) { c.Dump(o); }, u);
-  return o;
-}
-
-std::ostream &CharacterComparison::Dump(std::ostream &o) const {
-  std::visit([&](const auto &c) { c.Dump(o); }, u);
-  return o;
-}
-
-std::ostream &LogicalExpr::Dump(std::ostream &o) const {
+std::ostream &Expr<Category::Logical, 1>::Dump(std::ostream &o) const {
   std::visit(
       common::visitors{[&](const bool &tf) { o << (tf ? ".T." : ".F."); },
           [&](const Not &n) { n.Dump(o, "(.NOT."); },
@@ -236,20 +151,113 @@ std::ostream &LogicalExpr::Dump(std::ostream &o) const {
   return o;
 }
 
-template struct IntegerExpr<1>;
-template struct IntegerExpr<2>;
-template struct IntegerExpr<4>;
-template struct IntegerExpr<8>;
-template struct IntegerExpr<16>;
-template struct RealExpr<2>;
-template struct RealExpr<4>;
-template struct RealExpr<8>;
-template struct RealExpr<10>;
-template struct RealExpr<16>;
-template struct ComplexExpr<2>;
-template struct ComplexExpr<4>;
-template struct ComplexExpr<8>;
-template struct ComplexExpr<10>;
-template struct ComplexExpr<16>;
-template struct CharacterExpr<1>;
+template<int KIND>
+void Expr<Category::Integer, KIND>::Fold(FoldingContext &context) {
+  std::visit(common::visitors{[&](Parentheses &p) {
+                                p.x->Fold(context);
+                                if (auto c{std::get_if<Constant>(&p.x->u)}) {
+                                  u = std::move(*c);
+                                }
+                              },
+                 [&](Negate &n) {
+                   n.x->Fold(context);
+                   if (auto c{std::get_if<Constant>(&n.x->u)}) {
+                     auto negated{c->Negate()};
+                     if (negated.overflow && context.messages != nullptr) {
+                       context.messages->Say(
+                           context.at, "integer negation overflowed"_en_US);
+                     }
+                     u = std::move(negated.value);
+                   }
+                 },
+                 [&](Add &a) {
+                   a.x->Fold(context);
+                   a.y->Fold(context);
+                   if (auto xc{std::get_if<Constant>(&a.x->u)}) {
+                     if (auto yc{std::get_if<Constant>(&a.y->u)}) {
+                       auto sum{xc->AddSigned(*yc)};
+                       if (sum.overflow && context.messages != nullptr) {
+                         context.messages->Say(
+                             context.at, "integer addition overflowed"_en_US);
+                       }
+                       u = std::move(sum.value);
+                     }
+                   }
+                 },
+                 [&](Multiply &a) {
+                   a.x->Fold(context);
+                   a.y->Fold(context);
+                   if (auto xc{std::get_if<Constant>(&a.x->u)}) {
+                     if (auto yc{std::get_if<Constant>(&a.y->u)}) {
+                       auto product{xc->MultiplySigned(*yc)};
+                       if (product.SignedMultiplicationOverflowed() &&
+                           context.messages != nullptr) {
+                         context.messages->Say(context.at,
+                             "integer multiplication overflowed"_en_US);
+                       }
+                       u = std::move(product.lower);
+                     }
+                   }
+                 },
+                 [&](Bin &b) {
+                   b.x->Fold(context);
+                   b.y->Fold(context);
+                 },
+                 [&](const auto &) {  // TODO: more
+                 }},
+      u);
+}
+
+template<int KIND>
+typename CharacterExpr<KIND>::LengthExpr CharacterExpr<KIND>::LEN() const {
+  // Written thus, instead of with common::visitors{}, to dodge a
+  // bug in g++ 7.2.0 that failed to direct the std::string case to its
+  // specific alternative.
+  return std::visit(
+      [](const auto &x) {
+        if constexpr (std::is_same_v<
+                          const typename CharacterExpr<KIND>::Constant &,
+                          decltype(x)>) {
+          return LengthExpr{x.size()};
+        } else {
+          return LengthExpr{LengthExpr::Add{x.x->LEN(), x.y->LEN()}};
+        }
+      },
+      u);
+}
+
+template struct Expr<Category::Integer, 1>;
+template struct Expr<Category::Integer, 2>;
+template struct Expr<Category::Integer, 4>;
+template struct Expr<Category::Integer, 8>;
+template struct Expr<Category::Integer, 16>;
+template struct Expr<Category::Real, 2>;
+template struct Expr<Category::Real, 4>;
+template struct Expr<Category::Real, 8>;
+template struct Expr<Category::Real, 10>;
+template struct Expr<Category::Real, 16>;
+template struct Expr<Category::Complex, 2>;
+template struct Expr<Category::Complex, 4>;
+template struct Expr<Category::Complex, 8>;
+template struct Expr<Category::Complex, 10>;
+template struct Expr<Category::Complex, 16>;
+template struct Expr<Category::Character, 1>;
+template struct Expr<Category::Logical, 1>;
+
+template struct Comparison<IntegerExpr<1>>;
+template struct Comparison<IntegerExpr<2>>;
+template struct Comparison<IntegerExpr<4>>;
+template struct Comparison<IntegerExpr<8>>;
+template struct Comparison<IntegerExpr<16>>;
+template struct Comparison<RealExpr<2>>;
+template struct Comparison<RealExpr<4>>;
+template struct Comparison<RealExpr<8>>;
+template struct Comparison<RealExpr<10>>;
+template struct Comparison<RealExpr<16>>;
+template struct Comparison<ComplexExpr<2>>;
+template struct Comparison<ComplexExpr<4>>;
+template struct Comparison<ComplexExpr<8>>;
+template struct Comparison<ComplexExpr<10>>;
+template struct Comparison<ComplexExpr<16>>;
+template struct Comparison<CharacterExpr<1>>;
 }  // namespace Fortran::evaluate
