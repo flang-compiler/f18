@@ -1474,8 +1474,8 @@ public:
             }},
         x.u);
   }
-  void Before(const SubmoduleStmt &x) {  // R1417
-    Word("SUBMODULE "), Indent();
+  void Unparse(const SubmoduleStmt &x) {  // R1417
+    Word("SUBMODULE ("), WalkTupleElements(x.t, ")"), Indent();
   }
   void Unparse(const ParentIdentifier &x) {  // R1418
     Walk(std::get<Name>(x.t)), Walk(":", std::get<std::optional<Name>>(x.t));

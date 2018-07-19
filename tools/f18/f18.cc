@@ -15,6 +15,7 @@
 // Temporary Fortran front end driver main program for development scaffolding.
 
 #include "../../lib/parser/characters.h"
+#include "../../lib/parser/features.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
 #include "../../lib/parser/parse-tree.h"
@@ -298,6 +299,7 @@ int main(int argc, char *const argv[]) {
   options.predefinitions.emplace_back("__F18_MAJOR__", "1");
   options.predefinitions.emplace_back("__F18_MINOR__", "1");
   options.predefinitions.emplace_back("__F18_PATCHLEVEL__", "1");
+
   std::vector<std::string> fortranSources, otherSources, relocatables;
   bool anyFiles{false};
 
@@ -341,19 +343,27 @@ int main(int argc, char *const argv[]) {
     } else if (arg == "-Mextend") {
       options.fixedFormColumns = 132;
     } else if (arg == "-Mbackslash") {
-      options.enableBackslashEscapes = false;
+      options.features.Enable(
+          Fortran::parser::LanguageFeature::BackslashEscapes, false);
     } else if (arg == "-Mnobackslash") {
-      options.enableBackslashEscapes = true;
+      options.features.Enable(
+          Fortran::parser::LanguageFeature::BackslashEscapes);
     } else if (arg == "-Mstandard") {
-      options.isStrictlyStandard = true;
+      options.features.WarnOnAllNonstandard();
     } else if (arg == "-fopenmp") {
-      options.enableOpenMP = true;
+      options.features.Enable(Fortran::parser::LanguageFeature::OpenMP);
     } else if (arg == "-Werror") {
       driver.warningsAreErrors = true;
     } else if (arg == "-ed") {
-      options.enableOldDebugLines = true;
+      options.features.Enable(Fortran::parser::LanguageFeature::OldDebugLines);
     } else if (arg == "-E") {
       driver.dumpCookedChars = true;
+    } else if (arg == "-fbackslash") {
+      options.features.Enable(
+          Fortran::parser::LanguageFeature::BackslashEscapes);
+    } else if (arg == "-fno-backslash") {
+      options.features.Enable(
+          Fortran::parser::LanguageFeature::BackslashEscapes, false);
     } else if (arg == "-fdebug-dump-provenance") {
       driver.dumpProvenance = true;
     } else if (arg == "-fdebug-dump-parse-tree") {
@@ -393,6 +403,7 @@ int main(int argc, char *const argv[]) {
           << "f18 options:\n"
           << "  -Mfixed | -Mfree     force the source form\n"
           << "  -Mextend             132-column fixed form\n"
+          << "  -f[no-]backslash     enable[disable] \\escapes in literals\n"
           << "  -M[no]backslash      disable[enable] \\escapes in literals\n"
           << "  -Mstandard           enable conformance warnings\n"
           << "  -Mx,125,4            set bit 2 in xflag[125] (all Kanji mode)\n"
@@ -432,6 +443,10 @@ int main(int argc, char *const argv[]) {
     }
   }
   driver.encoding = options.encoding;
+
+  if (options.isStrictlyStandard) {
+    options.features.WarnOnAllNonstandard();
+  }
 
   if (!anyFiles) {
     driver.measureTree = true;
