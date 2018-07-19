@@ -29,9 +29,11 @@
 // template functions.  See parser-combinators.txt for documentation.
 
 #include "char-block.h"
+#include "features.h"
 #include "message.h"
 #include "parse-state.h"
 #include "provenance.h"
+#include "user-state.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include <cstring>
@@ -60,8 +62,6 @@ public:
 private:
   const MessageFixedText text_;
 };
-
-class Success {};  // for when one must return something that's present
 
 template<typename A = Success> inline constexpr auto fail(MessageFixedText t) {
   return FailParser<A>{t};
@@ -186,7 +186,8 @@ inline constexpr auto inContext(MessageFixedText context, const PA &parser) {
 }
 
 // If a is a parser, withMessage("..."_en_US, a) runs it unchanged if it
-// succeeds, and overrides its messages with a specific one if it fails.
+// succeeds, and overrides its messages with a specific one if it fails and
+// has matched no tokens.
 template<typename PA> class WithMessageParser {
 public:
   using resultType = typename PA::resultType;
@@ -195,12 +196,25 @@ public:
     : text_{t}, parser_{p} {}
   std::optional<resultType> Parse(ParseState &state) const {
     Messages messages{std::move(state.messages())};
+    ParseState backtrack{state};
     std::optional<resultType> result{parser_.Parse(state)};
-    if (result.has_value()) {
+    bool anyTokenMatched{state.tokensMatched() > backtrack.tokensMatched()};
+    bool passed{result.has_value()};
+    bool keepNewMessages{passed || anyTokenMatched};
+    if (keepNewMessages) {
       messages.Annex(state.messages());
     }
+    if (!passed) {
+      if (keepNewMessages) {
+        backtrack.set_tokensMatched(state.tokensMatched());
+        if (state.anyDeferredMessages()) {
+          backtrack.set_anyDeferredMessages(true);
+        }
+      }
+      state = std::move(backtrack);
+    }
     state.messages() = std::move(messages);
-    if (!result.has_value()) {
+    if (!keepNewMessages) {
       state.Say(text_);
     }
     return result;
@@ -208,7 +222,7 @@ public:
 
 private:
   const MessageFixedText text_;
-  const BacktrackingParser<PA> parser_;
+  const PA parser_;
 };
 
 template<typename PA>
@@ -299,16 +313,22 @@ private:
           typename std::decay<decltype(parser)>::type::resultType>);
       result = parser.Parse(state);
       if (!result.has_value()) {
-        auto prevEnd{prevState.GetLocation()};
-        auto lastEnd{state.GetLocation()};
-        if (prevEnd == lastEnd) {
-          prevState.messages().Incorporate(state.messages());
-          if (state.anyDeferredMessages()) {
-            prevState.set_anyDeferredMessages();
+        if (prevState.tokensMatched() > backtrack.tokensMatched()) {
+          if (state.tokensMatched() > backtrack.tokensMatched()) {
+            auto prevEnd{prevState.GetLocation()};
+            auto lastEnd{state.GetLocation()};
+            if (prevEnd == lastEnd) {
+              prevState.messages().Incorporate(state.messages());
+              if (state.anyDeferredMessages()) {
+                prevState.set_anyDeferredMessages();
+              }
+            }
+            if (prevEnd >= lastEnd) {
+              state = std::move(prevState);
+            }
+          } else {
+            state = std::move(prevState);
           }
-        }
-        if (prevEnd >= lastEnd) {
-          state = std::move(prevState);
         }
         ParseRest<J + 1>(result, state, backtrack);
       }
@@ -357,21 +377,31 @@ public:
       return bx;
     }
     // Both alternatives failed.  Retain the state (and messages) from the
-    // alternative parse that went the furthest.
-    auto paEnd{paState.GetLocation()};
-    auto pbEnd{state.GetLocation()};
-    if (paEnd > pbEnd) {
-      messages.Annex(paState.messages());
-      state = std::move(paState);
-    } else if (paEnd < pbEnd) {
+    // alternative parse that went the furthest and matched a token.
+    if (paState.tokensMatched() > backtrack.tokensMatched()) {
+      if (state.tokensMatched() > backtrack.tokensMatched()) {
+        auto paEnd{paState.GetLocation()};
+        auto pbEnd{state.GetLocation()};
+        if (paEnd > pbEnd) {
+          messages.Annex(paState.messages());
+          state = std::move(paState);
+        } else if (paEnd < pbEnd) {
+          messages.Annex(state.messages());
+        } else {
+          // It's a tie.
+          paState.messages().Incorporate(state.messages());
+          messages.Annex(paState.messages());
+        }
+      } else {
+        messages.Annex(paState.messages());
+        state = std::move(paState);
+      }
+    } else if (state.tokensMatched() > backtrack.tokensMatched()) {
       messages.Annex(state.messages());
-    } else {
-      // It's a tie.
-      paState.messages().Incorporate(state.messages());
-      messages.Annex(paState.messages());
     }
     state.messages() = std::move(messages);
-    return {};
+    std::optional<resultType> result;
+    return result;
   }
 
 private:
@@ -399,6 +429,9 @@ public:
     ParseState backtrack{state};
     if (!originallyDeferred && state.messages().empty() &&
         !state.anyErrorRecovery()) {
+      // Fast path.  There are no messages or recovered errors in the incoming
+      // state.  Attempt to parse with messages deferred, expecting that the
+      // parse will succeed silently.
       state.set_deferMessages(true);
       if (std::optional<resultType> ax{pa_.Parse(state)}) {
         if (!state.anyDeferredMessages() && !state.anyErrorRecovery()) {
@@ -416,11 +449,15 @@ public:
     }
     messages.Annex(state.messages());
     bool hadDeferredMessages{state.anyDeferredMessages()};
+    auto tokensMatched{state.tokensMatched()};
     state = std::move(backtrack);
     state.set_deferMessages(true);
     std::optional<resultType> bx{pb_.Parse(state)};
     state.messages() = std::move(messages);
     state.set_deferMessages(originallyDeferred);
+    if (state.tokensMatched() == backtrack.tokensMatched()) {
+      state.set_tokensMatched(tokensMatched);
+    }
     if (hadDeferredMessages) {
       state.set_anyDeferredMessages();
     }
@@ -1261,26 +1298,25 @@ constexpr struct NextCh {
   }
 } nextCh;
 
-// If a is a parser for nonstandard usage, extension(a) is a parser that
-// is disabled in strict conformance mode and otherwise sets a violation flag
-// and may emit a warning message, if those are enabled.
-template<typename PA> class NonstandardParser {
+// If a is a parser for some nonstandard language feature LF, extension<LF>(a)
+// is a parser that optionally enabled, sets a strict conformance violation
+// flag, and may emit a warning message, if those are enabled.
+template<LanguageFeature LF, typename PA> class NonstandardParser {
 public:
   using resultType = typename PA::resultType;
   constexpr NonstandardParser(const NonstandardParser &) = default;
   constexpr NonstandardParser(const PA &parser) : parser_{parser} {}
   std::optional<resultType> Parse(ParseState &state) const {
-    if (state.strictConformance()) {
-      return {};
+    if (UserState * ustate{state.userState()}) {
+      if (!ustate->features().IsEnabled(LF)) {
+        return {};
+      }
     }
     auto at{state.GetLocation()};
     auto result{parser_.Parse(state)};
     if (result.has_value()) {
-      state.set_anyConformanceViolation();
-      if (state.warnOnNonstandardUsage()) {
-        state.Say(
-            CharBlock{at, state.GetLocation()}, "nonstandard usage"_en_US);
-      }
+      state.Nonstandard(
+          CharBlock{at, state.GetLocation()}, LF, "nonstandard usage"_en_US);
     }
     return result;
   }
@@ -1289,29 +1325,30 @@ private:
   const PA parser_;
 };
 
-template<typename PA> inline constexpr auto extension(const PA &parser) {
-  return NonstandardParser<PA>(parser);
+template<LanguageFeature LF, typename PA>
+inline constexpr auto extension(const PA &parser) {
+  return NonstandardParser<LF, PA>(parser);
 }
 
-// If a is a parser for deprecated usage, deprecated(a) is a parser that
-// is disabled if strict standard compliance is enforced,and otherwise
-// sets of violation flag and may emit a warning.
-template<typename PA> class DeprecatedParser {
+// If a is a parser for some deprecated or deleted language feature LF,
+// deprecated<LF>(a) is a parser that is optionally enabled, sets a strict
+// conformance violation flag, and may emit a warning message, if enabled.
+template<LanguageFeature LF, typename PA> class DeprecatedParser {
 public:
   using resultType = typename PA::resultType;
   constexpr DeprecatedParser(const DeprecatedParser &) = default;
   constexpr DeprecatedParser(const PA &parser) : parser_{parser} {}
   std::optional<resultType> Parse(ParseState &state) const {
-    if (state.strictConformance()) {
-      return {};
+    if (UserState * ustate{state.userState()}) {
+      if (!ustate->features().IsEnabled(LF)) {
+        return {};
+      }
     }
     auto at{state.GetLocation()};
     auto result{parser_.Parse(state)};
-    if (result) {
-      state.set_anyConformanceViolation();
-      if (state.warnOnDeprecatedUsage()) {
-        state.Say(CharBlock{at, state.GetLocation()}, "deprecated usage"_en_US);
-      }
+    if (result.has_value()) {
+      state.Nonstandard(
+          CharBlock{at, state.GetLocation()}, LF, "deprecated usage"_en_US);
     }
     return result;
   }
@@ -1320,8 +1357,9 @@ private:
   const PA parser_;
 };
 
-template<typename PA> inline constexpr auto deprecated(const PA &parser) {
-  return DeprecatedParser<PA>(parser);
+template<LanguageFeature LF, typename PA>
+inline constexpr auto deprecated(const PA &parser) {
+  return DeprecatedParser<LF, PA>(parser);
 }
 
 // Parsing objects with "source" members.

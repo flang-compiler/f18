@@ -84,10 +84,8 @@ constexpr struct Space {
 // character that could begin an identifier or keyword.  Always succeeds.
 inline void MissingSpace(ParseState &state) {
   if (!state.inFixedForm()) {
-    state.set_anyConformanceViolation();
-    if (state.warnOnNonstandardUsage()) {
-      state.Say("expected space"_en_US);
-    }
+    state.Nonstandard(
+        LanguageFeature::OptionalFreeFormSpace, "missing space"_en_US);
   }
 }
 
@@ -162,6 +160,7 @@ public:
         return {};
       }
     }
+    state.TokenMatched();
     if (IsLegalInIdentifier(p[-1])) {
       return spaceCheck.Parse(state);
     } else {
@@ -297,17 +296,6 @@ template<char quote> struct CharLiteral {
   }
 };
 
-static bool IsNonstandardUsageOk(ParseState &state) {
-  if (state.strictConformance()) {
-    return false;
-  }
-  state.set_anyConformanceViolation();
-  if (state.warnOnNonstandardUsage()) {
-    state.Say("nonstandard usage"_en_US);
-  }
-  return true;
-}
-
 // Parse "BOZ" binary literal quoted constants.
 // As extensions, support X as an alternate hexadecimal marker, and allow
 // BOZX markers to appear as suffixes.
@@ -331,7 +319,9 @@ struct BOZLiteral {
     if (!at.has_value()) {
       return {};
     }
-    if (**at == 'x' && !IsNonstandardUsageOk(state)) {
+    if (**at == 'x' &&
+        !state.IsNonstandardOk(
+            LanguageFeature::BOZExtensions, "nonstandard BOZ literal"_en_US)) {
       return {};
     }
     if (baseChar(**at)) {
@@ -366,8 +356,9 @@ struct BOZLiteral {
 
     if (!shift.has_value()) {
       // extension: base allowed to appear as suffix, too
-      if (!IsNonstandardUsageOk(state) ||
-          !(at = nextCh.Parse(state)).has_value() || !baseChar(**at)) {
+      if (!(at = nextCh.Parse(state)).has_value() || !baseChar(**at) ||
+          !state.IsNonstandardOk(LanguageFeature::BOZExtensions,
+              "nonstandard BOZ literal"_en_US)) {
         return {};
       }
       spaceCheck.Parse(state);
@@ -638,6 +629,21 @@ template<char goal> struct SkipPast {
   }
 };
 
+template<char goal> struct SkipTo {
+  using resultType = Success;
+  constexpr SkipTo() {}
+  constexpr SkipTo(const SkipTo &) {}
+  static std::optional<Success> Parse(ParseState &state) {
+    while (std::optional<const char *> p{state.PeekAtNextChar()}) {
+      if (**p == goal) {
+        return {Success{}};
+      }
+      state.UncheckedAdvance();
+    }
+    return {};
+  }
+};
+
 // A common idiom in the Fortran grammar is an optional item (usually
 // a nonempty comma-separated list) that, if present, must follow a comma
 // and precede a doubled colon.  When the item is absent, the comma must
@@ -686,11 +692,9 @@ constexpr struct SkipStuffBeforeStatement {
         } else {
           break;
         }
-      } else if (**at == ';') {
-        state.set_anyConformanceViolation();
-        if (state.warnOnNonstandardUsage()) {
-          state.Say("empty statement"_en_US);
-        }
+      } else if (**at == ';' &&
+          state.IsNonstandardOk(
+              LanguageFeature::EmptyStatement, "empty statement"_en_US)) {
         state.UncheckedAdvance();
       } else {
         break;
@@ -711,7 +715,8 @@ constexpr auto underscore{"_"_ch};
 // PGI and ifort accept '$' in identifiers, even as the initial character.
 // Cray and gfortran accept '$', but not as the first character.
 // Cray accepts '@' as well.
-constexpr auto otherIdChar{underscore / !"'\""_ch || extension("$@"_ch)};
+constexpr auto otherIdChar{underscore / !"'\""_ch ||
+    extension<LanguageFeature::PunctuationInNames>("$@"_ch)};
 constexpr auto nonDigitIdChar{letter || otherIdChar};
 constexpr auto rawName{nonDigitIdChar >> many(nonDigitIdChar || digit)};
 TYPE_PARSER(space >> sourced(rawName >> construct<Name>()))
@@ -722,7 +727,8 @@ constexpr auto keyword{construct<Keyword>(name)};
 // R1414 local-defined-operator -> defined-unary-op | defined-binary-op
 // R1415 use-defined-operator -> defined-unary-op | defined-binary-op
 // N.B. The name of the operator is captured without the periods around it.
-constexpr auto definedOpNameChar{letter || extension("$@"_ch)};
+constexpr auto definedOpNameChar{
+    letter || extension<LanguageFeature::PunctuationInNames>("$@"_ch)};
 TYPE_PARSER(space >> "."_ch >>
     construct<DefinedOpName>(
         sourced(some(definedOpNameChar) >> construct<Name>())) /
