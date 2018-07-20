@@ -250,10 +250,8 @@ struct AssignedGotoStmt;
 struct PauseStmt;
 struct OpenMPConstruct;
 struct OpenMPDeclarativeConstruct;
-struct OmpClause;
 struct OmpBlockDirective;
-struct OmpLoopDirective;
-struct OmpStandaloneDirective;
+struct OpenMPEndLoopDirective;
 
 // Cooked character stream locations
 using Location = const char *;
@@ -398,7 +396,8 @@ struct DeclarationConstruct {
 // from the implicit part to the declaration constructs
 struct SpecificationPart {
   TUPLE_CLASS_BOILERPLATE(SpecificationPart);
-  std::tuple<std::list<Statement<Indirection<UseStmt>>>,
+  std::tuple<std::list<OpenMPDeclarativeConstruct>,
+      std::list<Statement<Indirection<UseStmt>>>,
       std::list<Statement<Indirection<ImportStmt>>>, ImplicitPart,
       std::list<DeclarationConstruct>>
       t;
@@ -473,7 +472,8 @@ struct ExecutableConstruct {
       Indirection<DoConstruct>, Indirection<IfConstruct>,
       Indirection<SelectRankConstruct>, Indirection<SelectTypeConstruct>,
       Indirection<WhereConstruct>, Indirection<ForallConstruct>,
-      Indirection<CompilerDirective>, Indirection<OpenMPConstruct>>
+      Indirection<CompilerDirective>, Indirection<OpenMPConstruct>,
+      Indirection<OpenMPEndLoopDirective>>
       u;
 };
 
@@ -3300,9 +3300,7 @@ struct OmpLinearClause {
 // min, max, iand, ior, ieor
 struct OmpReductionOperator {
   UNION_CLASS_BOILERPLATE(OmpReductionOperator);
-  ENUM_CLASS(ProcedureOperator, MIN, MAX, IAND, IOR, IEOR)
-  ENUM_CLASS(BinaryOperator, Add, Subtract, Multiply, AND, OR, EQV, NEQV)
-  std::variant<ProcedureOperator, BinaryOperator> u;
+  std::variant<Indirection<DefinedOperator>, ProcedureDesignator> u;
 };
 
 // REDUCTION(reduction-identifier: list)
@@ -3399,8 +3397,7 @@ struct OpenMPSectionsConstruct {
 
 struct OpenMPParallelSectionsConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPParallelSectionsConstruct);
-  std::tuple<OmpClauseList, Block, OmpEndParallelSections>
-      t;
+  std::tuple<OmpClauseList, Block, OmpEndParallelSections> t;
 };
 
 // WORKSHARE
@@ -3415,20 +3412,6 @@ WRAPPER_CLASS(OmpEndSingle, OmpClauseList);
 struct OpenMPSingleConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPSingleConstruct);
   std::tuple<OmpClauseList, Block, OmpEndSingle> t;
-};
-
-// DO SIMD
-WRAPPER_CLASS(OmpEndDoSimd, std::optional<OmpNowait>);
-struct OpenMPDoSimdConstruct {
-  TUPLE_CLASS_BOILERPLATE(OpenMPDoSimdConstruct);
-  std::tuple<OmpClauseList, DoConstruct, std::optional<OmpEndDoSimd>> t;
-};
-
-// DO
-WRAPPER_CLASS(OmpEndDo, std::optional<OmpNowait>);
-struct OpenMPDoConstruct {
-  TUPLE_CLASS_BOILERPLATE(OpenMPDoConstruct);
-  std::tuple<OmpClauseList, DoConstruct, std::optional<OmpEndDo>> t;
 };
 
 // OpenMP directive enclosing block
@@ -3496,8 +3479,8 @@ struct OpenMPDeclareSimdConstruct {
 struct OpenMPDeclarativeConstruct {
   UNION_CLASS_BOILERPLATE(OpenMPDeclarativeConstruct);
   WRAPPER_CLASS(Threadprivate, OmpObjectList);
-  std::variant<OpenMPDeclareReductionConstruct, OpenMPDeclareSimdConstruct, 
-OpenMPDeclareTargetConstruct, Threadprivate>
+  std::variant<OpenMPDeclareReductionConstruct, OpenMPDeclareSimdConstruct,
+      OpenMPDeclareTargetConstruct, Threadprivate>
       u;
 };
 
@@ -3578,6 +3561,8 @@ struct OmpLoopDirective {
   EMPTY_CLASS(Distribute);
   EMPTY_CLASS(ParallelDoSimd);
   EMPTY_CLASS(ParallelDo);
+  EMPTY_CLASS(Do);
+  EMPTY_CLASS(DoSimd);
   EMPTY_CLASS(Simd);
   EMPTY_CLASS(TargetParallelDoSimd);
   EMPTY_CLASS(TargetParallelDo);
@@ -3593,12 +3578,12 @@ struct OmpLoopDirective {
   EMPTY_CLASS(TeamsDistributeSimd);
   EMPTY_CLASS(TeamsDistribute);
   std::variant<DistributeParallelDoSimd, DistributeParallelDo, DistributeSimd,
-      Distribute, ParallelDoSimd, ParallelDo, Simd, TargetParallelDoSimd,
-      TargetParallelDo, TargetTeamsDistributeParallelDoSimd,
-      TargetTeamsDistributeParallelDo, TargetTeamsDistributeSimd,
-      TargetTeamsDistribute, TargetSimd, TaskloopSimd, Taskloop,
-      TeamsDistributeParallelDoSimd, TeamsDistributeParallelDo,
-      TeamsDistributeSimd, TeamsDistribute>
+      Distribute, ParallelDoSimd, ParallelDo, Do, DoSimd, Simd,
+      TargetParallelDoSimd, TargetParallelDo,
+      TargetTeamsDistributeParallelDoSimd, TargetTeamsDistributeParallelDo,
+      TargetTeamsDistributeSimd, TargetTeamsDistribute, TargetSimd,
+      TaskloopSimd, Taskloop, TeamsDistributeParallelDoSimd,
+      TeamsDistributeParallelDo, TeamsDistributeSimd, TeamsDistribute>
       u;
 };
 
@@ -3633,21 +3618,27 @@ struct OmpStandaloneDirective {
 EMPTY_CLASS(OpenMPTaskyieldConstruct);
 EMPTY_CLASS(OpenMPTaskwaitConstruct);
 EMPTY_CLASS(OpenMPBarrierConstruct);
+WRAPPER_CLASS(OmpEndBlockDirective, Indirection<OmpBlockDirective>);
 
-WRAPPER_CLASS(OmpEndLoopDirective, Indirection<OmpLoopDirective>);
-struct OpenMPLoopConstruct {
-  TUPLE_CLASS_BOILERPLATE(OpenMPLoopConstruct);
-  std::tuple<OmpLoopDirective, OmpClauseList, DoConstruct,
-      std::optional<OmpEndLoopDirective>>
-      t;
+// DO / DO SIMD
+WRAPPER_CLASS(OmpEndDoSimd, std::optional<OmpNowait>);
+WRAPPER_CLASS(OmpEndDo, std::optional<OmpNowait>);
+struct OpenMPEndLoopDirective {
+  UNION_CLASS_BOILERPLATE(OpenMPEndLoopDirective);
+  std::variant<Indirection<OmpEndDoSimd>, Indirection<OmpEndDo>,
+      Indirection<OmpLoopDirective>>
+      u;
 };
 
-WRAPPER_CLASS(OmpEndBlockDirective, Indirection<OmpBlockDirective>);
 struct OpenMPBlockConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPBlockConstruct);
   std::tuple<OmpBlockDirective, OmpClauseList, Block, OmpEndBlockDirective> t;
 };
 
+struct OpenMPLoopConstruct {
+  TUPLE_CLASS_BOILERPLATE(OpenMPLoopConstruct);
+  std::tuple<OmpLoopDirective, OmpClauseList> t;
+};
 
 struct OpenMPStandaloneConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPStandaloneConstruct);
@@ -3659,7 +3650,6 @@ struct OpenMPConstruct {
   std::variant<Indirection<OpenMPStandaloneConstruct>,
       Indirection<OpenMPBarrierConstruct>, Indirection<OpenMPTaskwaitConstruct>,
       Indirection<OpenMPTaskyieldConstruct>, Indirection<OpenMPSingleConstruct>,
-      Indirection<OpenMPDoSimdConstruct>, Indirection<OpenMPDoConstruct>,
       Indirection<OpenMPSectionsConstruct>,
       Indirection<OpenMPParallelSectionsConstruct>,
       Indirection<OpenMPWorkshareConstruct>, Indirection<OpenMPLoopConstruct>,
