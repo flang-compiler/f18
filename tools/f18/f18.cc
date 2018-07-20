@@ -221,7 +221,9 @@ std::string CompileFortran(
     Fortran::semantics::DumpTree(std::cout, parseTree);
   }
   if (driver.dumpUnparse) {
-    Unparse(std::cout, parseTree, driver.encoding, true /*capitalize*/);
+    Unparse(std::cout, parseTree, driver.encoding, true /*capitalize*/,
+        options.features.IsEnabled(
+            Fortran::parser::LanguageFeature::BackslashEscapes));
     return {};
   }
   if (driver.parseOnly) {
@@ -236,7 +238,9 @@ std::string CompileFortran(
   {
     std::ofstream tmpSource;
     tmpSource.open(tmpSourcePath);
-    Unparse(tmpSource, parseTree, driver.encoding);
+    Unparse(tmpSource, parseTree, driver.encoding, true /*capitalize*/,
+        options.features.IsEnabled(
+            Fortran::parser::LanguageFeature::BackslashEscapes));
   }
 
   if (ParentProcess()) {
@@ -446,6 +450,9 @@ int main(int argc, char *const argv[]) {
 
   if (options.isStrictlyStandard) {
     options.features.WarnOnAllNonstandard();
+  }
+  if (!options.features.IsEnabled(Fortran::parser::LanguageFeature::BackslashEscapes)) {
+    driver.pgf90Args.push_back("-Mbackslash");
   }
 
   if (!anyFiles) {
