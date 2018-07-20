@@ -37,12 +37,15 @@ template<typename A> struct Parser {
   template<> \
   inline std::optional<typename decltype(pexpr)::resultType> \
   Parser<typename decltype(pexpr)::resultType>::Parse(ParseState &state) { \
-    static constexpr auto parser = (pexpr); \
+    static constexpr auto parser{(pexpr)}; \
     return parser.Parse(state); \
   }
 
+#define CONTEXT_PARSER(contextText, pexpr) \
+  instrumented((contextText), inContext((contextText), (pexpr)))
+
 #define TYPE_CONTEXT_PARSER(contextText, pexpr) \
-  TYPE_PARSER(instrumented((contextText), inContext((contextText), (pexpr))))
+  TYPE_PARSER(CONTEXT_PARSER((contextText), (pexpr)))
 
 // Some specializations of Parser<> are used multiple times, or are
 // of some special importance, so we instantiate them once here and
@@ -111,7 +114,6 @@ constexpr Parser<Selector> selector;  // R1105
 constexpr Parser<EndSelectStmt> endSelectStmt;  // R1143 & R1151 & R1155
 constexpr Parser<LoopControl> loopControl;  // R1123
 constexpr Parser<ConcurrentHeader> concurrentHeader;  // R1125
-constexpr Parser<EndDoStmt> endDoStmt;  // R1132
 constexpr Parser<IoUnit> ioUnit;  // R1201, R1203
 constexpr Parser<FileUnitNumber> fileUnitNumber;  // R1202
 constexpr Parser<IoControlSpec> ioControlSpec;  // R1213, R1214

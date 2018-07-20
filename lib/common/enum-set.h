@@ -17,6 +17,8 @@
 
 // Implements a set of enums as a std::bitset<>.  APIs from bitset<> and set<>
 // can be used on these sets, whichever might be more clear to the user.
+// This class template facilitates the use of the more type-safe C++ "enum
+// class" feature without loss of convenience.
 
 #include <bitset>
 #include <cstddef>
@@ -147,8 +149,8 @@ public:
     bitset_.reset();
     return *this;
   }
-  constexpr EnumSet &reset(enumerationType x, bool value = true) {
-    bitset_.reset(static_cast<std::size_t>(x), value);
+  constexpr EnumSet &reset(enumerationType x) {
+    bitset_.reset(static_cast<std::size_t>(x));
     return *this;
   }
   constexpr EnumSet &flip() {
@@ -171,7 +173,6 @@ public:
 private:
   bitsetType bitset_;
 };
-
 }  // namespace Fortran::common
 
 template<typename ENUM, std::size_t values>

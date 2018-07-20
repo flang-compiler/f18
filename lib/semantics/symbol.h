@@ -16,6 +16,7 @@
 #define FORTRAN_SEMANTICS_SYMBOL_H_
 
 #include "type.h"
+#include "../common/enum-set.h"
 #include <functional>
 #include <memory>
 
@@ -141,6 +142,9 @@ private:
   friend std::ostream &operator<<(std::ostream &, const ProcEntityDetails &);
 };
 
+// A derived type
+class DerivedTypeDetails {};
+
 // Record the USE of a symbol: location is where (USE statement or renaming);
 // symbol is the USEd module.
 class UseDetails {
@@ -180,15 +184,28 @@ private:
 class GenericDetails {
 public:
   using listType = std::list<const Symbol *>;
+  using procNamesType = std::list<std::pair<const SourceName *, bool>>;
+
   GenericDetails() {}
   GenericDetails(const listType &specificProcs);
-  GenericDetails(Symbol &&specific) { set_specific(std::move(specific)); }
+  GenericDetails(Symbol *specific) : specific_{specific} {}
 
   const listType specificProcs() const { return specificProcs_; }
-  void add_specificProc(const Symbol *proc) { specificProcs_.push_back(proc); }
+  const procNamesType specificProcNames() const { return specificProcNames_; }
 
-  std::unique_ptr<Symbol> &specific() { return specific_; }
-  void set_specific(Symbol &&specific);
+  void add_specificProc(const Symbol *proc) { specificProcs_.push_back(proc); }
+  void add_specificProcName(const SourceName &name, bool isModuleProc) {
+    specificProcNames_.emplace_back(&name, isModuleProc);
+  }
+  void ClearSpecificProcNames() { specificProcNames_.clear(); }
+
+  Symbol *specific() { return specific_; }
+  void set_specific(Symbol &specific);
+
+  // Derived type with same name as generic, if any.
+  Symbol *derivedType() { return derivedType_; }
+  const Symbol *derivedType() const { return derivedType_; }
+  void set_derivedType(Symbol &derivedType);
 
   // Check that specific is one of the specificProcs. If not, return the
   // specific as a raw pointer.
@@ -197,29 +214,29 @@ public:
 private:
   // all of the specific procedures for this generic
   listType specificProcs_;
+  // specific procs referenced by name and whether it's a module proc
+  procNamesType specificProcNames_;
   // a specific procedure with the same name as this generic, if any
-  std::unique_ptr<Symbol> specific_;
+  Symbol *specific_{nullptr};
+  // a derived type with the same name as this generic, if any
+  Symbol *derivedType_{nullptr};
 };
 
 class UnknownDetails {};
 
 using Details = std::variant<UnknownDetails, MainProgramDetails, ModuleDetails,
     SubprogramDetails, SubprogramNameDetails, EntityDetails,
-    ObjectEntityDetails, ProcEntityDetails, UseDetails, UseErrorDetails,
-    GenericDetails>;
+    ObjectEntityDetails, ProcEntityDetails, DerivedTypeDetails, UseDetails,
+    UseErrorDetails, GenericDetails>;
 std::ostream &operator<<(std::ostream &, const Details &);
+std::string DetailsToString(const Details &);
 
 class Symbol {
 public:
-  ENUM_CLASS(Flag, Function, Subroutine);
+  ENUM_CLASS(Flag, Function, Subroutine, Implicit);
   using Flags = common::EnumSet<Flag, Flag_enumSize>;
 
-  Symbol(const Scope &owner, const SourceName &name, const Attrs &attrs,
-      Details &&details)
-    : owner_{owner}, attrs_{attrs}, details_{std::move(details)} {
-    add_occurrence(name);
-  }
-  const Scope &owner() const { return owner_; }
+  const Scope &owner() const { return *owner_; }
   const SourceName &name() const { return occurrences_.front(); }
   Attrs &attrs() { return attrs_; }
   const Attrs &attrs() const { return attrs_; }
@@ -227,6 +244,10 @@ public:
   const Flags &flags() const { return flags_; }
   bool test(Flag flag) const { return flags_.test(flag); }
   void set(Flag flag, bool value = true) { flags_.set(flag, value); }
+  // The Scope introduced by this symbol, if any.
+  Scope *scope() { return scope_; }
+  const Scope *scope() const { return scope_; }
+  void set_scope(Scope *scope) { scope_ = scope; }
 
   // Does symbol have this type of details?
   template<typename D> bool has() const {
@@ -240,18 +261,19 @@ public:
   }
 
   // Return a reference to the details which must be of type D.
-  template<typename D> D &details() {
-    return const_cast<D &>(static_cast<const Symbol *>(this)->details<D>());
+  template<typename D> D &get() {
+    return const_cast<D &>(static_cast<const Symbol *>(this)->get<D>());
   }
-  template<typename D> const D &details() const {
-    if (const auto p = detailsIf<D>()) {
+  template<typename D> const D &get() const {
+    if (const auto p{detailsIf<D>()}) {
       return *p;
     } else {
-      Fortran::parser::die("unexpected %s details at %s(%d)",
-          GetDetailsName().c_str(), __FILE__, __LINE__);
+      common::die("unexpected %s details at %s(%d)", GetDetailsName().c_str(),
+          __FILE__, __LINE__);
     }
   }
 
+  const Details &details() const { return details_; }
   // Assign the details of the symbol from one of the variants.
   // Only allowed in certain cases.
   void set_details(Details &&details);
@@ -260,11 +282,15 @@ public:
   bool CanReplaceDetails(const Details &details) const;
 
   const std::list<SourceName> &occurrences() const { return occurrences_; }
-  void add_occurrence(const SourceName &name) { occurrences_.push_back(name); }
+  void add_occurrence(const SourceName &);
+  void remove_occurrence(const SourceName &);
 
   // Follow use-associations to get the ultimate entity.
   Symbol &GetUltimate();
   const Symbol &GetUltimate() const;
+
+  const DeclTypeSpec *GetType() const;
+  void SetType(const DeclTypeSpec &);
 
   bool isSubprogram() const;
   bool HasExplicitInterface() const;
@@ -273,17 +299,56 @@ public:
   bool operator!=(const Symbol &that) const { return this != &that; }
 
 private:
-  const Scope &owner_;
+  const Scope *owner_;
   std::list<SourceName> occurrences_;
   Attrs attrs_;
   Flags flags_;
+  Scope *scope_{nullptr};
   Details details_;
 
+  Symbol() {}  // only created in class Symbols
   const std::string GetDetailsName() const;
   friend std::ostream &operator<<(std::ostream &, const Symbol &);
+  friend std::ostream &DumpForUnparse(std::ostream &, const Symbol &, bool);
+  template<std::size_t> friend class Symbols;
+  template<class, std::size_t> friend struct std::array;
 };
 
 std::ostream &operator<<(std::ostream &, Symbol::Flag);
+
+// Manage memory for all symbols. BLOCK_SIZE symbols at a time are allocated.
+// Make() returns a reference to the next available one. They are never
+// deleted.
+template<std::size_t BLOCK_SIZE> class Symbols {
+public:
+  Symbol &Make(const Scope &owner, const SourceName &name, const Attrs &attrs,
+      Details &&details) {
+    Symbol &symbol = Get();
+    symbol.owner_ = &owner;
+    symbol.occurrences_.push_back(name);
+    symbol.attrs_ = attrs;
+    symbol.details_ = std::move(details);
+    return symbol;
+  }
+
+private:
+  using blockType = std::array<Symbol, BLOCK_SIZE>;
+  std::list<blockType *> blocks_;
+  std::size_t nextIndex_{0};
+  blockType *currBlock_{nullptr};
+
+  Symbol &Get() {
+    if (nextIndex_ == 0) {
+      blocks_.push_back(new blockType());
+      currBlock_ = blocks_.back();
+    }
+    Symbol &result = (*currBlock_)[nextIndex_];
+    if (++nextIndex_ >= BLOCK_SIZE) {
+      nextIndex_ = 0;  // allocate a new block next time
+    }
+    return result;
+  }
+};
 
 }  // namespace Fortran::semantics
 #endif  // FORTRAN_SEMANTICS_SYMBOL_H_

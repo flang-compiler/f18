@@ -16,8 +16,8 @@
 #define FORTRAN_SEMANTICS_TYPE_H_
 
 #include "attr.h"
+#include "../common/idioms.h"
 #include "../parser/char-block.h"
-#include "../parser/idioms.h"
 #include <list>
 #include <map>
 #include <memory>
@@ -126,53 +126,32 @@ using LenParamValue = Bound;
 
 class IntrinsicTypeSpec;
 class DerivedTypeSpec;
+
 class DeclTypeSpec {
 public:
-  // intrinsic-type-spec or TYPE(intrinsic-type-spec)
-  static DeclTypeSpec MakeIntrinsic(const IntrinsicTypeSpec &typeSpec) {
-    return DeclTypeSpec{typeSpec};
-  }
-  // TYPE(derived-type-spec)
-  static DeclTypeSpec MakeTypeDerivedType(
-      std::unique_ptr<DerivedTypeSpec> &&typeSpec) {
-    return DeclTypeSpec{TypeDerived, std::move(typeSpec)};
-  }
-  // CLASS(derived-type-spec)
-  static DeclTypeSpec MakeClassDerivedType(
-      std::unique_ptr<DerivedTypeSpec> &&typeSpec) {
-    return DeclTypeSpec{ClassDerived, std::move(typeSpec)};
-  }
-  // TYPE(*)
-  static DeclTypeSpec MakeTypeStar() { return DeclTypeSpec{TypeStar}; }
-  // CLASS(*)
-  static DeclTypeSpec MakeClassStar() { return DeclTypeSpec{ClassStar}; }
-
-  DeclTypeSpec(const DeclTypeSpec &);
-  DeclTypeSpec &operator=(const DeclTypeSpec &);
-
   enum Category { Intrinsic, TypeDerived, ClassDerived, TypeStar, ClassStar };
+
+  // intrinsic-type-spec or TYPE(intrinsic-type-spec)
+  DeclTypeSpec(const IntrinsicTypeSpec &);
+  // TYPE(derived-type-spec) or CLASS(derived-type-spec)
+  DeclTypeSpec(Category, DerivedTypeSpec &);
+  // TYPE(*) or CLASS(*)
+  DeclTypeSpec(Category);
+  DeclTypeSpec() = delete;
+
   Category category() const { return category_; }
-  const IntrinsicTypeSpec &intrinsicTypeSpec() const {
-    return *intrinsicTypeSpec_;
-  }
-  const DerivedTypeSpec &derivedTypeSpec() const { return *derivedTypeSpec_; }
+  const IntrinsicTypeSpec &intrinsicTypeSpec() const;
+  DerivedTypeSpec &derivedTypeSpec();
+  const DerivedTypeSpec &derivedTypeSpec() const;
 
 private:
-  DeclTypeSpec(Category category) : category_{category} {
-    CHECK(category == TypeStar || category == ClassStar);
-  }
-  DeclTypeSpec(Category category, std::unique_ptr<DerivedTypeSpec> &&typeSpec);
-  DeclTypeSpec(const IntrinsicTypeSpec &intrinsicTypeSpec)
-    : category_{Intrinsic}, intrinsicTypeSpec_{&intrinsicTypeSpec} {
-    // All instances of IntrinsicTypeSpec live in caches and are never deleted,
-    // so the pointer to intrinsicTypeSpec will always be valid.
-  }
-
   Category category_;
-  const IntrinsicTypeSpec *intrinsicTypeSpec_{nullptr};
-  std::unique_ptr<DerivedTypeSpec> derivedTypeSpec_;
-  friend std::ostream &operator<<(std::ostream &, const DeclTypeSpec &);
+  union {
+    const IntrinsicTypeSpec *intrinsic;
+    DerivedTypeSpec *derived;
+  } typeSpec_;
 };
+std::ostream &operator<<(std::ostream &, const DeclTypeSpec &);
 
 // Root of the *TypeSpec hierarchy
 class TypeSpec {
@@ -204,7 +183,7 @@ public:
     : name_{name}, defaultValue_{defaultValue} {}
   const T &Make() { return Make(defaultValue_); }
   const T &Make(KindParamValue kind) {
-    auto it = cache.find(kind);
+    auto it{cache.find(kind)};
     if (it == cache.end()) {
       it = cache.insert(std::make_pair(kind, T{kind})).first;
     }
@@ -377,6 +356,7 @@ private:
   friend std::ostream &operator<<(std::ostream &, const DataComponentDef &);
 };
 
+class Scope;
 class Symbol;
 
 // This represents a proc-interface in the declaration of a procedure or
@@ -503,7 +483,7 @@ public:
       const SourceName &binding)
     : TypeBoundProc(interface, attrs, binding, binding) {
     if (!attrs_.test(Attr::DEFERRED)) {
-      parser::die(
+      common::die(
           "DEFERRED attribute is required if interface name is specified");
     }
   }
@@ -511,7 +491,7 @@ public:
       const std::optional<SourceName> &procedure)
     : TypeBoundProc({}, attrs, binding, procedure ? *procedure : binding) {
     if (attrs_.test(Attr::DEFERRED)) {
-      parser::die("DEFERRED attribute is only allowed with interface name");
+      common::die("DEFERRED attribute is only allowed with interface name");
     }
   }
 
@@ -533,8 +513,8 @@ private:
 // Definition of a derived type
 class DerivedTypeDef {
 public:
-  const SourceName &name() const { return data_.name; }
-  const std::optional<SourceName> &extends() const { return data_.extends; }
+  const SourceName &name() const { return *data_.name; }
+  const SourceName *extends() const { return data_.extends; }
   const Attrs &attrs() const { return data_.attrs; }
   const TypeParamDefs &lenParams() const { return data_.lenParams; }
   const TypeParamDefs &kindParams() const { return data_.kindParams; }
@@ -553,8 +533,8 @@ public:
   const std::list<SourceName> finalProcs() const { return data_.finalProcs; }
 
   struct Data {
-    SourceName name;
-    std::optional<SourceName> extends;
+    const SourceName *name{nullptr};
+    const SourceName *extends{nullptr};
     Attrs attrs;
     bool Private{false};
     bool sequence{false};
@@ -581,34 +561,20 @@ private:
 
 using ParamValue = LenParamValue;
 
-// Instantiation of a DerivedTypeDef with kind and len parameter values
 class DerivedTypeSpec : public TypeSpec {
 public:
   std::ostream &Output(std::ostream &o) const override { return o << *this; }
-  DerivedTypeSpec(const Name &name) : name_{name} {}
-  virtual ~DerivedTypeSpec() = default;
-  DerivedTypeSpec &AddParamValue(const ParamValue &value) {
-    paramValues_.push_back(std::make_pair(std::nullopt, value));
-    return *this;
-  }
-  DerivedTypeSpec &AddParamValue(const Name &name, const ParamValue &value) {
-    paramValues_.push_back(std::make_pair(name, value));
-    return *this;
-  }
-
-  const std::list<std::pair<std::optional<Name>, ParamValue>> &paramValues() {
-    return paramValues_;
-  }
-
-  // Provide access to the derived-type definition if is known
-  const DerivedTypeDef *definition() {
-    // TODO
-    return 0;
-  }
+  explicit DerivedTypeSpec(const SourceName &name) : name_{&name} {}
+  DerivedTypeSpec() = delete;
+  virtual ~DerivedTypeSpec();
+  const SourceName &name() const { return *name_; }
+  const Scope *scope() const { return scope_; }
+  void set_scope(const Scope &);
 
 private:
-  const Name name_;
-  std::list<std::pair<std::optional<Name>, ParamValue>> paramValues_;
+  const SourceName *name_;
+  const Scope *scope_{nullptr};
+  std::list<std::pair<std::optional<SourceName>, ParamValue>> paramValues_;
   friend std::ostream &operator<<(std::ostream &, const DerivedTypeSpec &);
 };
 

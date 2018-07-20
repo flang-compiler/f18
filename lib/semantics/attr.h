@@ -16,7 +16,7 @@
 #define FORTRAN_SEMANTICS_ATTR_H_
 
 #include "../common/enum-set.h"
-#include "../parser/idioms.h"
+#include "../common/idioms.h"
 #include <cinttypes>
 #include <iostream>
 #include <string>
@@ -25,10 +25,10 @@ namespace Fortran::semantics {
 
 // All available attributes.
 ENUM_CLASS(Attr, ABSTRACT, ALLOCATABLE, ASYNCHRONOUS, BIND_C, CONTIGUOUS,
-    DEFERRED, ELEMENTAL, EXTERNAL, IMPURE, INTENT_IN, INTENT_OUT, INTRINSIC,
-    MODULE, NON_OVERRIDABLE, NON_RECURSIVE, NOPASS, OPTIONAL, PARAMETER, PASS,
-    POINTER, PRIVATE, PROTECTED, PUBLIC, PURE, RECURSIVE, SAVE, TARGET, VALUE,
-    VOLATILE)
+    DEFERRED, ELEMENTAL, EXTERNAL, IMPURE, INTENT_IN, INTENT_INOUT, INTENT_OUT,
+    INTRINSIC, MODULE, NON_OVERRIDABLE, NON_RECURSIVE, NOPASS, OPTIONAL,
+    PARAMETER, PASS, POINTER, PRIVATE, PROTECTED, PUBLIC, PURE, RECURSIVE, SAVE,
+    TARGET, VALUE, VOLATILE)
 
 // Set of attributes
 class Attrs : public common::EnumSet<Attr, Attr_enumSize> {
@@ -45,6 +45,9 @@ public:
 private:
   friend std::ostream &operator<<(std::ostream &, const Attrs &);
 };
+
+// Return string representation of attr that matches Fortran source.
+std::string AttrToString(Attr attr);
 
 std::ostream &operator<<(std::ostream &o, Attr attr);
 std::ostream &operator<<(std::ostream &o, const Attrs &attrs);
