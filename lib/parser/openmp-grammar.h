@@ -39,11 +39,7 @@
 // OpenMP Directives and Clauses
 namespace Fortran::parser {
 
-<<<<<<< HEAD
 constexpr auto endOmpLine = space >> endOfLine;
-=======
-constexpr auto beginOmpDirective{skipStuffBeforeStatement >> "!$OMP "_sptok};
->>>>>>> master
 
 // OpenMP Clauses
 // DEFAULT (PRIVATE | FIRSTPRIVATE | SHARED | NONE )
@@ -112,31 +108,9 @@ TYPE_PARSER(construct<OmpIfClause>(
         ":"_tok),
     scalarLogicalExpr))
 
-<<<<<<< HEAD
 TYPE_PARSER(
     construct<OmpReductionOperator>(indirect(Parser<DefinedOperator>{})) ||
     construct<OmpReductionOperator>(Parser<ProcedureDesignator>{}))
-=======
-// REDUCTION(reduction-identifier: list)
-constexpr auto reductionBinaryOperator{
-    "+" >> pure(OmpReductionOperator::BinaryOperator::Add) ||
-    "-" >> pure(OmpReductionOperator::BinaryOperator::Subtract) ||
-    "*" >> pure(OmpReductionOperator::BinaryOperator::Multiply) ||
-    ".AND." >> pure(OmpReductionOperator::BinaryOperator::AND) ||
-    ".OR." >> pure(OmpReductionOperator::BinaryOperator::OR) ||
-    ".EQV." >> pure(OmpReductionOperator::BinaryOperator::EQV) ||
-    ".NEQV." >> pure(OmpReductionOperator::BinaryOperator::NEQV)};
-
-constexpr auto reductionProcedureOperator{
-    "MIN" >> pure(OmpReductionOperator::ProcedureOperator::MIN) ||
-    "MAX" >> pure(OmpReductionOperator::ProcedureOperator::MAX) ||
-    "IAND" >> pure(OmpReductionOperator::ProcedureOperator::IAND) ||
-    "IOR" >> pure(OmpReductionOperator::ProcedureOperator::IOR) ||
-    "IEOR" >> pure(OmpReductionOperator::ProcedureOperator::IEOR)};
-
-TYPE_PARSER(construct<OmpReductionOperator>(reductionBinaryOperator) ||
-    construct<OmpReductionOperator>(reductionProcedureOperator))
->>>>>>> master
 
 TYPE_PARSER(construct<OmpReductionClause>(
     Parser<OmpReductionOperator>{} / ":"_tok, nonemptyList(designator)))
@@ -205,7 +179,6 @@ TYPE_PARSER("DEFAULTMAP" >>
     "DIST_SCHEDULE" >>
         construct<OmpClause>(construct<OmpClause::DistSchedule>(
             parenthesized("STATIC"_tok >> ","_tok >> scalarIntExpr))) ||
-<<<<<<< HEAD
     "FINAL" >> construct<OmpClause>(
                    construct<OmpClause::Final>(parenthesized(scalarIntExpr))) ||
     "FIRSTPRIVATE" >> construct<OmpClause>(construct<OmpClause::Firstprivate>(
@@ -260,68 +233,6 @@ TYPE_PARSER("DEFAULTMAP" >>
         construct<OmpClause>(parenthesized(Parser<OmpScheduleClause>{})))
 
 // [Clause, [Clause], ...]
-=======
-    construct<OmpClause>(construct<OmpClause::Final>(
-        "FINAL"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(
-        construct<OmpClause::Firstprivate>("FIRSTPRIVATE"_tok >>
-            parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
-    construct<OmpClause>(construct<OmpClause::From>(
-        "FROM"_tok >> parenthesized(nonemptyList(designator)))) ||
-    construct<OmpClause>(construct<OmpClause::Grainsize>(
-        "GRAINSIZE"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::Lastprivate>("LASTPRIVATE"_tok >>
-        parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
-    construct<OmpClause>(construct<OmpClause::Link>(
-        "LINK"_tok >> parenthesized(nonemptyList(name)))) ||
-    construct<OmpClause>(construct<OmpClause::NumTasks>(
-        "NUM_TASKS"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::NumTeams>(
-        "NUM_TEAMS"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::NumThreads>(
-        "NUM_THREADS"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::Ordered>(
-        "ORDERED"_tok >> maybe(parenthesized(scalarIntConstantExpr)))) ||
-    construct<OmpClause>(construct<OmpClause::Priority>(
-        "PRIORITY"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::Private>(
-        "PRIVATE"_tok >> parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
-    construct<OmpClause>(construct<OmpClause::Safelen>(
-        "SAFELEN"_tok >> parenthesized(scalarIntConstantExpr))) ||
-    construct<OmpClause>(construct<OmpClause::Shared>(
-        "SHARED"_tok >> parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
-    construct<OmpClause>(construct<OmpClause::Simdlen>(
-        "SIMDLEN"_tok >> parenthesized(scalarIntConstantExpr))) ||
-    construct<OmpClause>(construct<OmpClause::ThreadLimit>(
-        "THREAD_LIMIT"_tok >> parenthesized(scalarIntExpr))) ||
-    construct<OmpClause>(construct<OmpClause::To>(
-        "TO"_tok >> parenthesized(nonemptyList(designator)))) ||
-    construct<OmpClause>(construct<OmpClause::Uniform>(
-        "UNIFORM"_tok >> parenthesized(nonemptyList(name)))) ||
-    construct<OmpClause>(construct<OmpClause::UseDevicePtr>(
-        "USE_DEVICE_PTR"_tok >> parenthesized(nonemptyList(name)))) ||
-    construct<OmpClause>(
-        "ALIGNED"_tok >> parenthesized(Parser<OmpAlignedClause>{})) ||
-    construct<OmpClause>(
-        "DEFAULT"_tok >> parenthesized(Parser<OmpDefaultClause>{})) ||
-    construct<OmpClause>(
-        "DEPEND"_tok >> parenthesized(Parser<OmpDependClause>{})) ||
-    construct<OmpClause>("IF"_tok >> parenthesized(Parser<OmpIfClause>{})) ||
-    construct<OmpClause>(
-        "LINEAR"_tok >> parenthesized(Parser<OmpLinearClause>{})) ||
-    construct<OmpClause>("MAP"_tok >> parenthesized(Parser<OmpMapClause>{})) ||
-    construct<OmpClause>(
-        "PROC_BIND"_tok >> parenthesized(Parser<OmpProcBindClause>{})) ||
-    construct<OmpClause>(
-        "REDUCTION"_tok >> parenthesized(Parser<OmpReductionClause>{})) ||
-    construct<OmpClause>(
-        "SCHEDULE"_tok >> parenthesized(Parser<OmpScheduleClause>{})))
-
-TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP END"_sptok >>
-    (construct<OmpEndDirective>(Parser<OmpLoopDirective>{})))
-
-// Omp directives enclosing do loop
->>>>>>> master
 TYPE_PARSER(
     construct<OmpClauseList>(many(maybe(","_tok) >> Parser<OmpClause>{})))
 
@@ -580,14 +491,14 @@ TYPE_PARSER("TASKWAIT" >> construct<OpenMPTaskwaitConstruct>() / endOmpLine)
 TYPE_PARSER("TASKYIELD" >> construct<OpenMPTaskyieldConstruct>() / endOmpLine)
 
 // OMP SINGLE
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     construct<OmpEndSingle>("SINGLE"_tok >> Parser<OmpClauseList>{}))
 
 TYPE_PARSER("SINGLE" >>
     construct<OpenMPSingleConstruct>(Parser<OmpClauseList>{} / endOmpLine,
         block, Parser<OmpEndSingle>{} / endOmpLine))
 
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     construct<OmpEndWorkshare>("WORKSHARE"_tok))
 
 // OMP WORKSHARE
@@ -603,7 +514,7 @@ TYPE_PARSER(construct<OmpEndDoSimd>(maybe(construct<OmpNowait>("NOWAIT"_tok))))
 TYPE_PARSER(construct<OmpEndDo>(maybe(construct<OmpNowait>("NOWAIT"_tok))))
 
 // OMP END SECTIONS [NOWAIT]
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     "SECTIONS"_tok >>
     construct<OmpEndSections>(
         maybe("NOWAIT"_tok >> construct<OmpNowait>()) / endOmpLine))
@@ -614,7 +525,7 @@ TYPE_PARSER("SECTIONS" >>
         Parser<OmpClauseList>{} / endOmpLine, block, Parser<OmpEndSections>{}))
 
 // OMP END PARALLEL SECTIONS [NOWAIT]
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     "PARALLEL SECTIONS"_tok >>
     construct<OmpEndParallelSections>(
         maybe("NOWAIT"_tok >> construct<OmpNowait>()) / endOmpLine))
@@ -625,7 +536,7 @@ TYPE_PARSER("PARALLEL SECTIONS" >> construct<OpenMPParallelSectionsConstruct>(
                                        block, Parser<OmpEndParallelSections>{}))
 
 TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
-    skipEmptyLines >> space >> "!$OMP "_sptok >> lookAhead(!"END"_tok) >>
+    skipStuffBeforeStatement >> "!$OMP "_sptok >> lookAhead(!"END"_tok) >>
         (construct<OpenMPConstruct>(
              indirect(Parser<OpenMPStandaloneConstruct>{})) ||
             construct<OpenMPConstruct>(
@@ -660,11 +571,11 @@ TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
                 construct<OpenMPConstruct>(construct<OmpSection>())))
 
 // END OMP Block directives
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     construct<OmpEndBlockDirective>(indirect(Parser<OmpBlockDirective>{})))
 
 // END OMP Loop directives
-TYPE_PARSER(skipEmptyLines >> space >> "!$OMP "_sptok >> "END"_tok >>
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
     (construct<OpenMPEndLoopDirective>(
          "DO SIMD" >> indirect(Parser<OmpEndDoSimd>{}) / endOmpLine) ||
         construct<OpenMPEndLoopDirective>(

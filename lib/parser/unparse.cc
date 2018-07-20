@@ -1740,12 +1740,11 @@ public:
     Walk(std::get<std::list<Designator>>(x.t), ",");
     Put(")");
   }
-<<<<<<< HEAD
   bool Pre(const OmpDependClause &x) {
-    return std::visit(visitors{[&](const OmpDependClause::Source &y) {
-                                 Word("DEPEND(SOURCE)");
-                                 return false;
-                               },
+    return std::visit(common::visitors{[&](const OmpDependClause::Source &y) {
+                                         Word("DEPEND(SOURCE)");
+                                         return false;
+                                       },
                           [&](const OmpDependClause::Sink &y) {
                             Word("DEPEND(SINK:");
                             Walk(y.v);
@@ -1756,22 +1755,6 @@ public:
                             Word("DEPEND");
                             return true;
                           }},
-=======
-  void Unparse(const OmpDependClause &x) {
-    std::visit(common::visitors{[&](const OmpDependClause::Source &y) {
-                                  Word("DEPEND(SOURCE)");
-                                },
-                   [&](const OmpDependClause::Sink &y) {
-                     Word("DEPEND(SINK:");
-                     Walk(y.v);
-                     Put(")");
-                   },
-                   [&](const OmpDependClause::InOut &y) {
-                     Word("DEPEND(");
-                     Walk(y.t);
-                     Put(")");
-                   }},
->>>>>>> master
         x.u);
   }
   bool Pre(const OmpDefaultClause &x) {
@@ -1909,19 +1892,11 @@ public:
   }
   void Unparse(const OmpLoopDirective &x) {
     std::visit(
-<<<<<<< HEAD
-        visitors{[&](const OmpLoopDirective::DistributeParallelDoSimd &) {
-                   Word("DISTRIBUTE PARALLEL DO SIMD ");
-                 },
-            [&](const OmpLoopDirective::DistributeParallelDo &) {
-=======
         common::visitors{
-            [&](const OmpLoopDirective::DistributeParallelDoSimd &y) {
+            [&](const OmpLoopDirective::DistributeParallelDoSimd &) {
               Word("DISTRIBUTE PARALLEL DO SIMD ");
-              Walk(y.v, " ");
             },
-            [&](const OmpLoopDirective::DistributeParallelDo &y) {
->>>>>>> master
+            [&](const OmpLoopDirective::DistributeParallelDo &) {
               Word("DISTRIBUTE PARALLEL DO ");
             },
             [&](const OmpLoopDirective::DistributeSimd &) {
@@ -1974,44 +1949,22 @@ public:
   }
   void Unparse(const OmpObjectList &x) { Walk(x.v, ","); }
   void Unparse(const OmpStandaloneDirective &x) {
-<<<<<<< HEAD
-    std::visit(visitors{[&](const OmpStandaloneDirective::TargetEnterData &) {
-                          Word("TARGET ENTER DATA ");
-                        },
-                   [&](const OmpStandaloneDirective::TargetExitData &) {
-=======
-    std::visit(common::visitors{[&](const OmpStandaloneDirective::Barrier &y) {
-                                  Word("BARRIER ");
-                                  Walk(y.v, " ");
-                                },
-                   [&](const OmpStandaloneDirective::CancellationPoint &y) {
-                     Word("CANCELLATION POINT ");
-                     Walk(y.v, " ");
-                   },
-                   [&](const OmpStandaloneDirective::Cancel &y) {
-                     Word("CANCEL ");
-                     Walk(y.v, " ");
-                   },
-                   [&](const OmpStandaloneDirective::Flush &y) {
-                     Word("FLUSH ");
-                     Walk(y.v, " ");
-                   },
-                   [&](const OmpStandaloneDirective::TargetEnterData &y) {
-                     Word("TARGET ENTER DATA ");
-                     Walk(y.v, " ");
-                   },
-                   [&](const OmpStandaloneDirective::TargetExitData &y) {
->>>>>>> master
-                     Word("TARGET EXIT DATA ");
-                   },
-                   [&](const OmpStandaloneDirective::TargetUpdate &) {
-                     Word("TARGET UPDATE ");
-                   }},
+    std::visit(
+        common::visitors{[&](const OmpStandaloneDirective::TargetEnterData &) {
+                           Word("TARGET ENTER DATA ");
+                         },
+            [&](const OmpStandaloneDirective::TargetExitData &) {
+              Word("TARGET EXIT DATA ");
+            },
+            [&](const OmpStandaloneDirective::TargetUpdate &) {
+              Word("TARGET UPDATE ");
+            }},
         x.u);
   }
   void Unparse(const OmpBlockDirective &x) {
     std::visit(
-        visitors{[&](const OmpBlockDirective::Master &y) { Word("MASTER"); },
+        common::visitors{
+            [&](const OmpBlockDirective::Master &y) { Word("MASTER"); },
             [&](const OmpBlockDirective::Ordered &) { Word("ORDERED "); },
             [&](const OmpBlockDirective::ParallelWorkshare &) {
               Word("PARALLEL WORKSHARE ");
@@ -2116,7 +2069,6 @@ public:
     Put("\n");
     EndOpenMP();
   }
-<<<<<<< HEAD
   void Unparse(const OpenMPDeclareTargetConstruct::WithClause &x) {
     Walk(x.maptype), Put("("), Walk(x.names), Put(")");
   }
@@ -2152,10 +2104,10 @@ public:
     BeginOpenMP();
     Word("!$OMP ");
     return std::visit(
-        visitors{[&](const OpenMPDeclareReductionConstruct &y) {
-                   Word("DECLARE REDUCTION ");
-                   return true;
-                 },
+        common::visitors{[&](const OpenMPDeclareReductionConstruct &y) {
+                           Word("DECLARE REDUCTION ");
+                           return true;
+                         },
             [&](const OpenMPDeclareSimdConstruct &y) {
               Word("DECLARE SIMD ");
               Walk("(", std::get<std::optional<Name>>(y.t), ")");
@@ -2172,14 +2124,6 @@ public:
               Word("THREADPRIVATE (");
               return true;
             }},
-=======
-  void Unparse(const OmpEndDirective &x) {
-    Outdent();
-    std::visit(common::visitors{[&](const OmpLoopDirective &y) {
-      Word("!$OMP END ");
-      Walk(y);
-    }},
->>>>>>> master
         x.u);
   }
   void Post(const OpenMPDeclarativeConstruct &x) {
@@ -2505,12 +2449,9 @@ private:
   std::set<CharBlock> structureComponents_;
   Encoding encoding_{Encoding::UTF8};
   bool capitalizeKeywords_{true};
-<<<<<<< HEAD
   bool openmpDirective_{false};
-=======
   bool backslashEscapes_{false};
   preStatementType *preStatement_{nullptr};
->>>>>>> master
 };
 
 void UnparseVisitor::Put(char ch) {
