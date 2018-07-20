@@ -13,24 +13,27 @@
 ! limitations under the License.
 
 module m
-  real :: var
-  interface i
-    !ERROR: 'var' is not a subprogram
-    procedure :: sub, var
-    !ERROR: Procedure 'bad' not found
-    procedure :: bad
+  interface foo
+    subroutine s1(x)
+      real x
+    end
+    !ERROR: 's2' is not a module procedure
+    module procedure s2
+    !ERROR: Procedure 's3' not found
+    procedure s3
+    !ERROR: Procedure 's1' is already specified in generic 'foo'
+    procedure s1
   end interface
-contains
-  subroutine sub
-  end
-end
-
-subroutine s
-  interface i
-    !ERROR: 'sub' is not a module procedure
-    module procedure :: sub
+  interface
+    subroutine s4(x)
+      real x
+    end subroutine
+    subroutine s2(x)
+      complex x
+    end subroutine
   end interface
-contains
-  subroutine sub
-  end
-end
+  generic :: bar => s4
+  generic :: bar => s2
+  !ERROR: Procedure 's4' is already specified in generic 'bar'
+  generic :: bar => s4
+end module

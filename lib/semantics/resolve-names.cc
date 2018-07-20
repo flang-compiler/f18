@@ -432,6 +432,8 @@ private:
   bool inInterfaceBlock_{false};  // set when in interface block
   bool isAbstract_{false};  // set when in abstract interface block
   Symbol *genericSymbol_{nullptr};  // set when in generic interface block
+
+  void ResolveSpecificsInGeneric(Symbol &generic);
 };
 
 class SubprogramVisitor : public InterfaceVisitor {
@@ -536,6 +538,7 @@ private:
   bool HandleAttributeStmt(Attr, const std::list<parser::Name> &);
   void DeclareObjectEntity(const parser::Name &, Attrs);
   void DeclareProcEntity(const parser::Name &, Attrs, ProcInterface &&);
+  bool ConvertToProcEntity(Symbol &);
 
   // Set the type of an entity or report an error.
   void SetType(
@@ -1464,28 +1467,8 @@ void InterfaceVisitor::Post(const parser::GenericStmt &x) {
 
 void InterfaceVisitor::AddToGeneric(
     const parser::Name &name, bool expectModuleProc) {
-  const auto *symbol{FindSymbol(name.source)};
-  if (!symbol) {
-    Say(name, "Procedure '%s' not found"_err_en_US);
-    return;
-  }
-  if (symbol == genericSymbol_) {
-    if (auto *specific{genericSymbol_->get<GenericDetails>().specific()}) {
-      symbol = specific;
-    }
-  }
-  if (!symbol->has<SubprogramDetails>() &&
-      !symbol->has<SubprogramNameDetails>()) {
-    Say(name, "'%s' is not a subprogram"_err_en_US);
-    return;
-  }
-  if (expectModuleProc) {
-    const auto *details{symbol->detailsIf<SubprogramNameDetails>()};
-    if (!details || details->kind() != SubprogramKind::Module) {
-      Say(name, "'%s' is not a module procedure"_en_US);
-    }
-  }
-  AddToGeneric(*symbol);
+  genericSymbol_->get<GenericDetails>().add_specificProcName(
+          name.source, expectModuleProc);
 }
 void InterfaceVisitor::AddToGeneric(const Symbol &symbol) {
   genericSymbol_->get<GenericDetails>().add_specificProc(&symbol);
@@ -1494,10 +1477,53 @@ void InterfaceVisitor::SetSpecificInGeneric(Symbol &symbol) {
   genericSymbol_->get<GenericDetails>().set_specific(symbol);
 }
 
+// By now we should have seen all specific procedures referenced by name in
+// this generic interface. Resolve those names to symbols.
+void InterfaceVisitor::ResolveSpecificsInGeneric(Symbol &generic) {
+  auto &details{generic.get<GenericDetails>()};
+  std::set<SourceName> namesSeen;  // to check for duplicate names
+  for (const auto *symbol : details.specificProcs()) {
+    namesSeen.insert(symbol->name());
+  }
+  for (auto &pair : details.specificProcNames()) {
+    const auto &name{*pair.first};
+    auto expectModuleProc{pair.second};
+    const auto *symbol{FindSymbol(name)};
+    if (!symbol) {
+      Say(name, "Procedure '%s' not found"_err_en_US);
+      continue;
+    }
+    if (symbol == &generic) {
+      if (auto *specific{generic.get<GenericDetails>().specific()}) {
+        symbol = specific;
+      }
+    }
+    if (!symbol->has<SubprogramDetails>() &&
+        !symbol->has<SubprogramNameDetails>()) {
+      Say(name, "'%s' is not a subprogram"_err_en_US);
+      continue;
+    }
+    if (expectModuleProc) {
+      const auto *d{symbol->detailsIf<SubprogramNameDetails>()};
+      if (!d || d->kind() != SubprogramKind::Module) {
+        Say(name, "'%s' is not a module procedure"_err_en_US);
+      }
+    }
+    if (!namesSeen.insert(name).second) {
+      Say(name, "Procedure '%s' is already specified in generic '%s'"_err_en_US,
+          name, generic.name());
+      continue;
+    }
+    details.add_specificProc(symbol);
+  }
+  details.ClearSpecificProcNames();
+}
+
 // Check that the specific procedures are all functions or all subroutines.
 // If there is a derived type with the same name they must be functions.
 // Set the corresponding flag on generic.
 void InterfaceVisitor::CheckGenericProcedures(Symbol &generic) {
+  ResolveSpecificsInGeneric(generic);
   auto &details{generic.get<GenericDetails>()};
   auto &specifics{details.specificProcs()};
   if (specifics.empty()) {
@@ -1792,6 +1818,9 @@ void DeclarationVisitor::Post(const parser::EntityDecl &x) {
     if (auto &type{GetDeclTypeSpec()}) {
       SetType(name.source, symbol, *type);
     }
+    if (attrs.test(Attr::EXTERNAL)) {
+      ConvertToProcEntity(symbol);
+    }
   }
 }
 
@@ -1805,14 +1834,7 @@ bool DeclarationVisitor::Pre(const parser::ExternalStmt &x) {
   HandleAttributeStmt(Attr::EXTERNAL, x.v);
   for (const auto &name : x.v) {
     auto *symbol{FindSymbol(name.source)};
-    if (symbol->has<ProcEntityDetails>()) {
-      // nothing to do
-    } else if (symbol->has<UnknownDetails>()) {
-      symbol->set_details(ProcEntityDetails{});
-    } else if (auto *details{symbol->detailsIf<EntityDetails>()}) {
-      symbol->set_details(ProcEntityDetails(*details));
-      symbol->set(Symbol::Flag::Function);
-    } else {
+    if (!ConvertToProcEntity(*symbol)) {
       Say2(name.source, "EXTERNAL attribute not allowed on '%s'"_err_en_US,
           symbol->name(), "Declaration of '%s'"_en_US);
     }
@@ -1857,6 +1879,20 @@ bool DeclarationVisitor::HandleAttributeStmt(
     }
   }
   return false;
+}
+// Convert symbol to be a ProcEntity or return false if it can't be.
+bool DeclarationVisitor::ConvertToProcEntity(Symbol &symbol) {
+  if (symbol.has<ProcEntityDetails>()) {
+    // nothing to do
+  } else if (symbol.has<UnknownDetails>()) {
+    symbol.set_details(ProcEntityDetails{});
+  } else if (auto *details{symbol.detailsIf<EntityDetails>()}) {
+    symbol.set_details(ProcEntityDetails(*details));
+    symbol.set(Symbol::Flag::Function);
+  } else {
+    return false;
+  }
+  return true;
 }
 
 void DeclarationVisitor::Post(const parser::ObjectDecl &x) {
@@ -2184,6 +2220,7 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
     } else if (CheckUseError(name->source, *symbol)) {
       // error was reported
     } else {
+      symbol = &symbol->GetUltimate();
       if (auto *details{symbol->detailsIf<EntityDetails>()}) {
         symbol->set_details(ProcEntityDetails(*details));
         symbol->set(Symbol::Flag::Function);

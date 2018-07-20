@@ -12,25 +12,23 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
+! Check modfile generation for external declarations
 module m
-  real :: var
-  interface i
-    !ERROR: 'var' is not a subprogram
-    procedure :: sub, var
-    !ERROR: Procedure 'bad' not found
-    procedure :: bad
-  end interface
-contains
-  subroutine sub
-  end
+  real, external :: a
+  logical b
+  external c
+  complex c
+  external b, d
+  procedure() :: e
+  procedure(real) :: f
 end
 
-subroutine s
-  interface i
-    !ERROR: 'sub' is not a module procedure
-    module procedure :: sub
-  end interface
-contains
-  subroutine sub
-  end
-end
+!Expect: m.mod
+!module m
+! procedure(real)::a
+! procedure(logical)::b
+! procedure(complex)::c
+! procedure()::d
+! procedure()::e
+! procedure(real)::f
+!end

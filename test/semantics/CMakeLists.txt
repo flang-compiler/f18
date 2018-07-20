@@ -48,6 +48,7 @@ set(ERROR_TESTS
   resolve22.f90
   resolve23.f90
   resolve24.f90
+  resolve25.f90
 )
 
 # These test files have expected symbols in the source
@@ -62,6 +63,9 @@ set(MODFILE_TESTS
   modfile03.f90
   modfile04.f90
   modfile05.f90
+  modfile06.f90
+  modfile07.f90
+  modfile08.f90
 )
 
 foreach(test ${ERROR_TESTS})
