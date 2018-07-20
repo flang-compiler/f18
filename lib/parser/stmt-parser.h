@@ -73,20 +73,12 @@ constexpr auto stmtErrorRecovery{!"END"_tok >> !"CONTAINS"_tok >>
 
 // Error recovery across statements: skip the line, unless it looks
 // like it might end the containing construct.
-<<<<<<< HEAD
-constexpr auto errorRecoveryStart = ignoredStatementPrefix;
-constexpr auto skipBadLine = SkipPast<'\n'>{} >> errorRecovery;
-constexpr auto executionPartErrorRecovery = errorRecoveryStart >> !"END"_tok >>
-    !"CONTAINS"_tok >> !"ELSE"_tok >> !"CASE"_tok >> !"TYPE IS"_tok >>
-    !"CLASS"_tok >> !"RANK"_tok >> !("!$OMP "_sptok >> "END"_tok) >>
-    skipBadLine;
-=======
 constexpr auto stmtErrorRecoveryStart{ignoredStatementPrefix};
 constexpr auto skipBadLine{SkipPast<'\n'>{} >> construct<ErrorRecovery>()};
 constexpr auto executionPartErrorRecovery{stmtErrorRecoveryStart >>
     !"END"_tok >> !"CONTAINS"_tok >> !"ELSE"_tok >> !"CASE"_tok >>
-    !"TYPE IS"_tok >> !"CLASS"_tok >> !"RANK"_tok >> skipBadLine};
->>>>>>> master
+    !"TYPE IS"_tok >> !"CLASS"_tok >> !"RANK"_tok >>
+    !("!$OMP "_sptok >> "END"_tok) >> skipBadLine};
 
 }  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_STMT_PARSER_H_

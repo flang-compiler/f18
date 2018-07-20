@@ -49,24 +49,7 @@ namespace Fortran::parser {
 // R507 declaration-construct ->
 //        specification-construct | data-stmt | format-stmt |
 //        entry-stmt | stmt-function-stmt
-<<<<<<< HEAD
-constexpr auto execPartLookAhead =
-    first(actionStmt >> ok, openmpEndLoopDirective >> ok, openmpConstruct >> ok,
-        "ASSOCIATE ("_tok, "BLOCK"_tok, "SELECT"_tok, "CHANGE TEAM"_sptok,
-        "CRITICAL"_tok, "DO"_tok, "IF ("_tok, "WHERE ("_tok, "FORALL ("_tok);
-constexpr auto declErrorRecovery =
-    errorRecoveryStart >> !execPartLookAhead >> stmtErrorRecovery;
-TYPE_CONTEXT_PARSER("declaration construct"_en_US,
-    recovery(
-        first(construct<DeclarationConstruct>(specificationConstruct),
-            construct<DeclarationConstruct>(statement(indirect(dataStmt))),
-            construct<DeclarationConstruct>(statement(indirect(formatStmt))),
-            construct<DeclarationConstruct>(statement(indirect(entryStmt))),
-            construct<DeclarationConstruct>(
-                statement(indirect(Parser<StmtFunctionStmt>{})))),
-        construct<DeclarationConstruct>(declErrorRecovery)))
-=======
-constexpr auto execPartLookAhead{first(actionStmt >> ok, "ASSOCIATE ("_tok,
+constexpr auto execPartLookAhead{first(actionStmt >> ok, openmpEndLoopDirective >> ok, openmpConstruct >> ok, "ASSOCIATE ("_tok,
     "BLOCK"_tok, "SELECT"_tok, "CHANGE TEAM"_sptok, "CRITICAL"_tok, "DO"_tok,
     "IF ("_tok, "WHERE ("_tok, "FORALL ("_tok)};
 constexpr auto declErrorRecovery{
@@ -82,7 +65,6 @@ TYPE_PARSER(recovery(
                 construct<DeclarationConstruct>(
                     statement(indirect(Parser<StmtFunctionStmt>{})))))),
     construct<DeclarationConstruct>(declErrorRecovery)))
->>>>>>> master
 
 // R507 variant of declaration-construct for use in limitedSpecificationPart.
 constexpr auto limitedDeclarationConstruct{recovery(
@@ -281,36 +263,21 @@ TYPE_PARSER(construct<ProgramUnit>(indirect(functionSubprogram)) ||
 //         [use-stmt]... [import-stmt]... [implicit-part]
 //         [declaration-construct]...
 TYPE_CONTEXT_PARSER("specification part"_en_US,
-<<<<<<< HEAD
     construct<SpecificationPart>(many(openmpDeclarativeConstruct),
-        many(statement(indirect(Parser<UseStmt>{}))),
-        many(statement(indirect(Parser<ImportStmt>{}))), implicitPart,
-        many(declarationConstruct)))
-=======
-    construct<SpecificationPart>(
         many(unambiguousStatement(indirect(Parser<UseStmt>{}))),
         many(unambiguousStatement(indirect(Parser<ImportStmt>{}))),
         implicitPart, many(declarationConstruct)))
->>>>>>> master
 
 // R504 variant for many contexts (modules, submodules, BLOCK DATA subprograms,
 // and interfaces) which have constraints on their specification parts that
 // preclude FORMAT, ENTRY, and statement functions, and benefit from
 // specialized error recovery in the event of a spurious executable
 // statement.
-<<<<<<< HEAD
-constexpr auto limitedSpecificationPart = inContext("specification part"_en_US,
-    construct<SpecificationPart>(many(openmpDeclarativeConstruct),
-        many(statement(indirect(Parser<UseStmt>{}))),
-        many(statement(indirect(Parser<ImportStmt>{}))), implicitPart,
-        many(limitedDeclarationConstruct)));
-=======
 constexpr auto limitedSpecificationPart{inContext("specification part"_en_US,
-    construct<SpecificationPart>(
+    construct<SpecificationPart>(many(openmpDeclarativeConstruct),
         many(unambiguousStatement(indirect(Parser<UseStmt>{}))),
         many(unambiguousStatement(indirect(Parser<ImportStmt>{}))),
         implicitPart, many(limitedDeclarationConstruct)))};
->>>>>>> master
 
 // R505 implicit-part -> [implicit-part-stmt]... implicit-stmt
 // TODO: Can overshoot; any trailing PARAMETER, FORMAT, & ENTRY

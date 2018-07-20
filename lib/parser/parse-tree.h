@@ -363,14 +363,10 @@ struct SpecificationConstruct {
       Statement<common::Indirection<OldParameterStmt>>,
       Statement<common::Indirection<ProcedureDeclarationStmt>>,
       Statement<OtherSpecificationStmt>,
-<<<<<<< HEAD
-      Statement<Indirection<TypeDeclarationStmt>>, Indirection<StructureDef>,
-      Indirection<OpenMPDeclarativeConstruct>, Indirection<CompilerDirective>>
-=======
       Statement<common::Indirection<TypeDeclarationStmt>>,
-      common::Indirection<StructureDef>, common::Indirection<OpenMPConstruct>,
+      common::Indirection<StructureDef>,
+      common::Indirection<OpenMPDeclarativeConstruct>,
       common::Indirection<CompilerDirective>>
->>>>>>> master
       u;
 };
 
@@ -407,14 +403,9 @@ struct DeclarationConstruct {
 // from the implicit part to the declaration constructs
 struct SpecificationPart {
   TUPLE_CLASS_BOILERPLATE(SpecificationPart);
-<<<<<<< HEAD
   std::tuple<std::list<OpenMPDeclarativeConstruct>,
-      std::list<Statement<Indirection<UseStmt>>>,
-      std::list<Statement<Indirection<ImportStmt>>>, ImplicitPart,
-=======
-  std::tuple<std::list<Statement<common::Indirection<UseStmt>>>,
+      std::list<Statement<common::Indirection<UseStmt>>>,
       std::list<Statement<common::Indirection<ImportStmt>>>, ImplicitPart,
->>>>>>> master
       std::list<DeclarationConstruct>>
       t;
 };
@@ -486,17 +477,6 @@ struct ActionStmt {
 //        select-type-construct | where-construct | forall-construct
 struct ExecutableConstruct {
   UNION_CLASS_BOILERPLATE(ExecutableConstruct);
-<<<<<<< HEAD
-  std::variant<Statement<ActionStmt>, Indirection<AssociateConstruct>,
-      Indirection<BlockConstruct>, Indirection<CaseConstruct>,
-      Indirection<ChangeTeamConstruct>, Indirection<CriticalConstruct>,
-      Statement<Indirection<LabelDoStmt>>, Statement<Indirection<EndDoStmt>>,
-      Indirection<DoConstruct>, Indirection<IfConstruct>,
-      Indirection<SelectRankConstruct>, Indirection<SelectTypeConstruct>,
-      Indirection<WhereConstruct>, Indirection<ForallConstruct>,
-      Indirection<CompilerDirective>, Indirection<OpenMPConstruct>,
-      Indirection<OpenMPEndLoopDirective>>
-=======
   std::variant<Statement<ActionStmt>, common::Indirection<AssociateConstruct>,
       common::Indirection<BlockConstruct>, common::Indirection<CaseConstruct>,
       common::Indirection<ChangeTeamConstruct>,
@@ -508,8 +488,8 @@ struct ExecutableConstruct {
       common::Indirection<SelectTypeConstruct>,
       common::Indirection<WhereConstruct>, common::Indirection<ForallConstruct>,
       common::Indirection<CompilerDirective>,
-      common::Indirection<OpenMPConstruct>>
->>>>>>> master
+      common::Indirection<OpenMPConstruct>,
+      common::Indirection<OpenMPEndLoopDirective>>
       u;
 };
 
@@ -3351,7 +3331,7 @@ struct OmpLinearClause {
 // min, max, iand, ior, ieor
 struct OmpReductionOperator {
   UNION_CLASS_BOILERPLATE(OmpReductionOperator);
-  std::variant<Indirection<DefinedOperator>, ProcedureDesignator> u;
+  std::variant<common::Indirection<DefinedOperator>, ProcedureDesignator> u;
 };
 
 // REDUCTION(reduction-identifier: list)
@@ -3513,7 +3493,7 @@ struct OmpReductionCombiner {
   std::variant<AssignmentStmt, FunctionCombiner> u;
 };
 
-WRAPPER_CLASS(OmpReductionInitializerClause, Indirection<Expr>);
+WRAPPER_CLASS(OmpReductionInitializerClause, common::Indirection<Expr>);
 
 struct OpenMPDeclareReductionConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPDeclareReductionConstruct);
@@ -3669,15 +3649,15 @@ struct OmpStandaloneDirective {
 EMPTY_CLASS(OpenMPTaskyieldConstruct);
 EMPTY_CLASS(OpenMPTaskwaitConstruct);
 EMPTY_CLASS(OpenMPBarrierConstruct);
-WRAPPER_CLASS(OmpEndBlockDirective, Indirection<OmpBlockDirective>);
+WRAPPER_CLASS(OmpEndBlockDirective, common::Indirection<OmpBlockDirective>);
 
 // DO / DO SIMD
 WRAPPER_CLASS(OmpEndDoSimd, std::optional<OmpNowait>);
 WRAPPER_CLASS(OmpEndDo, std::optional<OmpNowait>);
 struct OpenMPEndLoopDirective {
   UNION_CLASS_BOILERPLATE(OpenMPEndLoopDirective);
-  std::variant<Indirection<OmpEndDoSimd>, Indirection<OmpEndDo>,
-      Indirection<OmpLoopDirective>>
+  std::variant<common::Indirection<OmpEndDoSimd>, common::Indirection<OmpEndDo>,
+      common::Indirection<OmpLoopDirective>>
       u;
 };
 
@@ -3698,22 +3678,21 @@ struct OpenMPStandaloneConstruct {
 
 struct OpenMPConstruct {
   UNION_CLASS_BOILERPLATE(OpenMPConstruct);
-<<<<<<< HEAD
-  std::variant<Indirection<OpenMPStandaloneConstruct>,
-      Indirection<OpenMPBarrierConstruct>, Indirection<OpenMPTaskwaitConstruct>,
-      Indirection<OpenMPTaskyieldConstruct>, Indirection<OpenMPSingleConstruct>,
-      Indirection<OpenMPSectionsConstruct>,
-      Indirection<OpenMPParallelSectionsConstruct>,
-      Indirection<OpenMPWorkshareConstruct>, Indirection<OpenMPLoopConstruct>,
-      Indirection<OpenMPBlockConstruct>,
-      Indirection<OpenMPCancellationPointConstruct>,
-      Indirection<OpenMPCancelConstruct>, Indirection<OpenMPFlushConstruct>,
-      Indirection<OpenMPAtomicConstruct>, Indirection<OpenMPCriticalConstruct>,
-      OmpSection>
-=======
   std::variant<common::Indirection<OpenMPStandaloneConstruct>,
-      common::Indirection<OpenMPLoopConstruct>>
->>>>>>> master
+      common::Indirection<OpenMPBarrierConstruct>,
+      common::Indirection<OpenMPTaskwaitConstruct>,
+      common::Indirection<OpenMPTaskyieldConstruct>,
+      common::Indirection<OpenMPSingleConstruct>,
+      common::Indirection<OpenMPSectionsConstruct>,
+      common::Indirection<OpenMPParallelSectionsConstruct>,
+      common::Indirection<OpenMPWorkshareConstruct>,
+      common::Indirection<OpenMPLoopConstruct>,
+      common::Indirection<OpenMPBlockConstruct>,
+      common::Indirection<OpenMPCancellationPointConstruct>,
+      common::Indirection<OpenMPCancelConstruct>,
+      common::Indirection<OpenMPFlushConstruct>,
+      common::Indirection<OpenMPAtomicConstruct>,
+      common::Indirection<OpenMPCriticalConstruct>, OmpSection>
       u;
 };
 
