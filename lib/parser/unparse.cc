@@ -1694,18 +1694,6 @@ public:
     Walk(":", x.step);
     Put(")");
   }
-  void Unparse(const OmpReductionOperator::BinaryOperator &x) {
-    switch (x) {
-    case OmpReductionOperator::BinaryOperator::Add: Put("+"); break;
-    case OmpReductionOperator::BinaryOperator::Subtract: Put("-"); break;
-    case OmpReductionOperator::BinaryOperator::Multiply: Put("*"); break;
-    case OmpReductionOperator::BinaryOperator::AND: Word(".AND."); break;
-    case OmpReductionOperator::BinaryOperator::OR: Word(".OR."); break;
-    case OmpReductionOperator::BinaryOperator::EQV: Word(".EQV."); break;
-    case OmpReductionOperator::BinaryOperator::NEQV: Word(".NEQV."); break;
-    default: break;
-    }
-  }
   void Unparse(const OmpReductionClause &x) {
     Word("REDUCTION(");
     Walk(std::get<OmpReductionOperator>(x.t));
@@ -1749,9 +1737,12 @@ public:
     Word("DEFAULT(");
     return true;
   }
-  void Post(const OmpDefaultClause &x) {
-    Put(")");
+  void Post(const OmpDefaultClause &x) { Put(")"); }
+  bool Pre(const OmpProcBindClause &x) {
+    Word("PROC_BIND(");
+    return true;
   }
+  void Post(const OmpProcBindClause &x) { Put(")"); }
   void Before(const OmpClause::Defaultmap &x) {
     Word("DEFAULTMAP(TOFROM:SCALAR)");
   }
@@ -1891,6 +1882,8 @@ public:
               Word("PARALLEL DO SIMD ");
             },
             [&](const OmpLoopDirective::ParallelDo &) { Word("PARALLEL DO "); },
+            [&](const OmpLoopDirective::Do &) { Word("DO "); },
+            [&](const OmpLoopDirective::DoSimd &) { Word("Do SIMD "); },
             [&](const OmpLoopDirective::Simd &) { Word("SIMD "); },
             [&](const OmpLoopDirective::TargetParallelDoSimd &) {
               Word("TARGET PARALLEL DO SIMD ");
@@ -1980,7 +1973,7 @@ public:
     BeginOpenMP();
     Word("!$OMP ATOMIC");
     Walk(std::get<std::optional<OmpAtomicCapture::SeqCst1>>(x.t), " SEQ_CST,");
-    Word(" UPDATE");
+    Word(" CAPTURE");
     Walk(std::get<std::optional<OmpAtomicCapture::SeqCst2>>(x.t), " ,SEQ_CST");
     Put("\n");
     EndOpenMP();
@@ -2083,27 +2076,27 @@ public:
   bool Pre(const OpenMPDeclarativeConstruct &x) {
     BeginOpenMP();
     Word("!$OMP ");
-    return std::visit(visitors{[&](const OpenMPDeclareReductionConstruct &y) {
-                                 Word("DECLARE REDUCTION ");
-                                 return true;
-                               },
-                          [&](const OpenMPDeclareSimdConstruct &y) {
-                            Word("DECLARE SIMD ");
-                            Walk("(", std::get<std::optional<Name>>(y.t), ")");
-                            Put(" ");
-                            Walk(std::get<OmpClauseList>(y.t));
-                            Put("\n");
-                            EndOpenMP();
-                            return false;
-                          },
-                          [&](const OpenMPDeclareTargetConstruct &y) {
-                            Word("DECLARE TARGET ");
-                            return true;
-                          },
-                          [&](const OpenMPDeclarativeConstruct::Threadprivate &y) {
-                            Word("THREADPRIVATE (");
-                            return true;
-                          }},
+    return std::visit(
+        visitors{[&](const OpenMPDeclareReductionConstruct &y) {
+                   Word("DECLARE REDUCTION ");
+                   return true;
+                 },
+            [&](const OpenMPDeclareSimdConstruct &y) {
+              Word("DECLARE SIMD ");
+              Walk("(", std::get<std::optional<Name>>(y.t), ")");
+              Walk(std::get<OmpClauseList>(y.t));
+              Put("\n");
+              EndOpenMP();
+              return false;
+            },
+            [&](const OpenMPDeclareTargetConstruct &y) {
+              Word("DECLARE TARGET ");
+              return true;
+            },
+            [&](const OpenMPDeclarativeConstruct::Threadprivate &y) {
+              Word("THREADPRIVATE (");
+              return true;
+            }},
         x.u);
   }
   void Post(const OpenMPDeclarativeConstruct &x) {
@@ -2114,41 +2107,28 @@ public:
     Put(")\n");
     EndOpenMP();
   }
-  void Unparse(const OpenMPDoSimdConstruct &x) {
+  void Unparse(const OmpEndDoSimd &x) {
     BeginOpenMP();
-    Word("!$OMP DO SIMD");
-    Walk(std::get<OmpClauseList>(x.t));
-    Put("\n");
-    EndOpenMP();
-    Walk(std::get<DoConstruct>(x.t));
-    BeginOpenMP();
-    Word("!$OMP END DO SIMD");
-    Walk(std::get<std::optional<OmpEndDoSimd>>(x.t));
-    Put("\n");
+    Word("DO SIMD ");
+    Walk(x.v);
     EndOpenMP();
   }
-  void Unparse(const OpenMPDoConstruct &x) {
+  void Unparse(const OmpEndDo &x) {
     BeginOpenMP();
-    Word("!$OMP DO ");
-    Walk(std::get<OmpClauseList>(x.t));
-    Put("\n");
-    EndOpenMP();
-    Walk(std::get<DoConstruct>(x.t));
-    BeginOpenMP();
-    Word("!$OMP END DO ");
-    Walk(std::get<std::optional<OmpEndDo>>(x.t));
-    Put("\n");
+    Word("DO ");
+    Walk(x.v);
     EndOpenMP();
   }
   bool Pre(const OpenMPBarrierConstruct &x) {
     BeginOpenMP();
-    Word("!$OMP BARRIER\n");
+    Word("!$OMP BARRIER");
+    Put("\n");
     EndOpenMP();
     return false;
   }
   void Unparse(const OpenMPSingleConstruct &x) {
     BeginOpenMP();
-    Word("!$OMP SINGLE ");
+    Word("!$OMP SINGLE");
     Walk(std::get<OmpClauseList>(x.t));
     EndOpenMP();
     Put("\n");
@@ -2167,7 +2147,7 @@ public:
   }
   void Unparse(const OpenMPSectionsConstruct &x) {
     BeginOpenMP();
-    Word("!$OMP SECTIONS ");
+    Word("!$OMP SECTIONS");
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
     EndOpenMP();
@@ -2179,7 +2159,7 @@ public:
   }
   void Unparse(const OpenMPParallelSectionsConstruct &x) {
     BeginOpenMP();
-    Word("!$OMP PARALLEL SECTIONS ");
+    Word("!$OMP PARALLEL SECTIONS");
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
     EndOpenMP();
@@ -2196,7 +2176,7 @@ public:
     EndOpenMP();
     Walk(std::get<Block>(x.t), "");
     BeginOpenMP();
-    Word("!$OMP END WORKSHARE");
+    Word("!$OMP END WORKSHARE ");
     Walk(std::get<std::optional<OmpNowait>>(x.t));
     Put("\n");
     EndOpenMP();
@@ -2241,7 +2221,15 @@ public:
     Put("\n");
     EndOpenMP();
   }
-  void Post(const OmpEndLoopDirective &x) { Put("\n"); }
+  bool Pre(const OpenMPEndLoopDirective &x) {
+    BeginOpenMP();
+    Word("!$OMP END ");
+    return true;
+  }
+  void Post(const OpenMPEndLoopDirective &x) {
+    Put("\n");
+    EndOpenMP();
+  }
   void Unparse(const OmpClauseList &x) { Walk(" ", x.v, " "); }
   void Unparse(const OpenMPStandaloneConstruct &x) {
     BeginOpenMP();
@@ -2249,18 +2237,6 @@ public:
     Walk(std::get<OmpStandaloneDirective>(x.t));
     Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
-    EndOpenMP();
-  }
-  void Unparse(const OpenMPLoopConstruct &x) {
-    BeginOpenMP();
-    Word("!$OMP ");
-    Walk(std::get<OmpLoopDirective>(x.t));
-    Walk(std::get<OmpClauseList>(x.t));
-    Put("\n");
-    EndOpenMP();
-    Walk(std::get<DoConstruct>(x.t));
-    BeginOpenMP();
-    Walk("!$OMP END ", std::get<std::optional<OmpEndLoopDirective>>(x.t));
     EndOpenMP();
   }
   void Unparse(const OpenMPBlockConstruct &x) {
@@ -2274,6 +2250,14 @@ public:
     BeginOpenMP();
     Word("!$OMP END ");
     Walk(std::get<OmpEndBlockDirective>(x.t));
+    Put("\n");
+    EndOpenMP();
+  }
+  void Unparse(const OpenMPLoopConstruct &x) {
+    BeginOpenMP();
+    Word("!$OMP ");
+    Walk(std::get<OmpLoopDirective>(x.t));
+    Walk(std::get<OmpClauseList>(x.t));
     Put("\n");
     EndOpenMP();
   }
@@ -2344,8 +2328,6 @@ public:
   WALK_NESTED_ENUM(OmpDefaultClause, Type)  // OMP DEFAULT
   WALK_NESTED_ENUM(OmpScheduleModifierType, ModType)  // OMP schedule-modifier
   WALK_NESTED_ENUM(OmpLinearModifier, Type)  // OMP linear-modifier
-  WALK_NESTED_ENUM(
-      OmpReductionOperator, ProcedureOperator)  // OMP reduction-identifier
   WALK_NESTED_ENUM(OmpDependenceType, Type)  // OMP dependence-type
   WALK_NESTED_ENUM(OmpMapType, Type)  // OMP map-type
   WALK_NESTED_ENUM(OmpScheduleClause, ScheduleType)  // OMP schedule-type
