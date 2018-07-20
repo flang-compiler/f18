@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "provenance.h"
-#include "idioms.h"
+#include "../common/idioms.h"
 #include <utility>
 
 namespace Fortran::parser {
@@ -22,6 +22,10 @@ void OffsetToProvenanceMappings::clear() { provenanceMap_.clear(); }
 
 void OffsetToProvenanceMappings::swap(OffsetToProvenanceMappings &that) {
   provenanceMap_.swap(that.provenanceMap_);
+}
+
+void OffsetToProvenanceMappings::shrink_to_fit() {
+  provenanceMap_.shrink_to_fit();
 }
 
 std::size_t OffsetToProvenanceMappings::size() const {
@@ -150,7 +154,7 @@ void AllSources::EmitMessage(std::ostream &o, ProvenanceRange range,
   CHECK(IsValid(range));
   const Origin &origin{MapToOrigin(range.start())};
   std::visit(
-      visitors{
+      common::visitors{
           [&](const Inclusion &inc) {
             o << inc.source.path();
             std::size_t offset{origin.covers.MemberOffset(range.start())};
@@ -171,10 +175,10 @@ void AllSources::EmitMessage(std::ostream &o, ProvenanceRange range,
               }
               o << '^';
               if (range.size() > 1) {
-                auto last = range.start() + range.size() - 1;
+                auto last{range.start() + range.size() - 1};
                 if (&MapToOrigin(last) == &origin) {
-                  auto endOffset = origin.covers.MemberOffset(last);
-                  auto endPos = inc.source.FindOffsetLineAndColumn(endOffset);
+                  auto endOffset{origin.covers.MemberOffset(last)};
+                  auto endPos{inc.source.FindOffsetLineAndColumn(endOffset)};
                   if (pos.first == endPos.first) {
                     for (int j{pos.second}; j < endPos.second; ++j) {
                       o << '^';
@@ -210,12 +214,13 @@ void AllSources::EmitMessage(std::ostream &o, ProvenanceRange range,
 const SourceFile *AllSources::GetSourceFile(
     Provenance at, std::size_t *offset) const {
   const Origin &origin{MapToOrigin(at)};
-  return std::visit(visitors{[&](const Inclusion &inc) {
-                               if (offset != nullptr) {
-                                 *offset = origin.covers.MemberOffset(at);
-                               }
-                               return &inc.source;
-                             },
+  return std::visit(common::visitors{[&](const Inclusion &inc) {
+                                       if (offset != nullptr) {
+                                         *offset =
+                                             origin.covers.MemberOffset(at);
+                                       }
+                                       return &inc.source;
+                                     },
                         [&](const Macro &mac) {
                           return GetSourceFile(origin.replaces.start(), offset);
                         },
@@ -248,7 +253,7 @@ int AllSources::GetLineNumber(Provenance at) const {
 }
 
 Provenance AllSources::CompilerInsertionProvenance(char ch) {
-  auto iter = compilerInsertionProvenance_.find(ch);
+  auto iter{compilerInsertionProvenance_.find(ch)};
   if (iter != compilerInsertionProvenance_.end()) {
     return iter->second;
   }
@@ -271,9 +276,9 @@ AllSources::Origin::Origin(ProvenanceRange r, const std::string &text)
 
 const char &AllSources::Origin::operator[](std::size_t n) const {
   return std::visit(
-      visitors{[n](const Inclusion &inc) -> const char & {
-                 return inc.source.content()[n];
-               },
+      common::visitors{[n](const Inclusion &inc) -> const char & {
+                         return inc.source.content()[n];
+                       },
           [n](const Macro &mac) -> const char & { return mac.expansion[n]; },
           [n](const CompilerInsertion &ins) -> const char & {
             return ins.text[n];
@@ -321,7 +326,7 @@ static void DumpRange(std::ostream &o, const ProvenanceRange &r) {
     << r.size() << " bytes)";
 }
 
-void OffsetToProvenanceMappings::Dump(std::ostream &o) const {
+std::ostream &OffsetToProvenanceMappings::Dump(std::ostream &o) const {
   for (const ContiguousProvenanceMapping &m : provenanceMap_) {
     std::size_t n{m.range.size()};
     o << "offsets [" << m.start << ".." << (m.start + n - 1)
@@ -329,9 +334,10 @@ void OffsetToProvenanceMappings::Dump(std::ostream &o) const {
     DumpRange(o, m.range);
     o << '\n';
   }
+  return o;
 }
 
-void AllSources::Dump(std::ostream &o) const {
+std::ostream &AllSources::Dump(std::ostream &o) const {
   o << "AllSources range_ ";
   DumpRange(o, range_);
   o << '\n';
@@ -339,12 +345,12 @@ void AllSources::Dump(std::ostream &o) const {
     o << "   ";
     DumpRange(o, m.covers);
     o << " -> ";
-    std::visit(visitors{[&](const Inclusion &inc) {
-                          if (inc.isModule) {
-                            o << "module ";
-                          }
-                          o << "file " << inc.source.path();
-                        },
+    std::visit(common::visitors{[&](const Inclusion &inc) {
+                                  if (inc.isModule) {
+                                    o << "module ";
+                                  }
+                                  o << "file " << inc.source.path();
+                                },
                    [&](const Macro &mac) { o << "macro " << mac.expansion; },
                    [&](const CompilerInsertion &ins) {
                      o << "compiler '" << ins.text << '\'';
@@ -361,13 +367,15 @@ void AllSources::Dump(std::ostream &o) const {
     }
     o << '\n';
   }
+  return o;
 }
 
-void CookedSource::Dump(std::ostream &o) const {
+std::ostream &CookedSource::Dump(std::ostream &o) const {
   o << "CookedSource:\n";
   allSources_.Dump(o);
   o << "CookedSource::provenanceMap_:\n";
   provenanceMap_.Dump(o);
+  return o;
 }
 
 }  // namespace Fortran::parser

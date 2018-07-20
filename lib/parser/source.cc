@@ -14,7 +14,7 @@
 
 #include "source.h"
 #include "char-buffer.h"
-#include "idioms.h"
+#include "../common/idioms.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
@@ -58,7 +58,7 @@ static std::vector<std::size_t> FindLineStarts(
 }
 
 std::string DirectoryName(std::string path) {
-  auto lastSlash = path.rfind("/");
+  auto lastSlash{path.rfind("/")};
   return lastSlash == std::string::npos ? path : path.substr(0, lastSlash);
 }
 
@@ -85,12 +85,12 @@ static std::size_t RemoveCarriageReturns(char *buffer, std::size_t bytes) {
     void *crvp{std::memchr(vp, '\r', bytes)};
     char *crcp{static_cast<char *>(crvp)};
     if (crcp == nullptr) {
-      std::memcpy(buffer + wrote, p, bytes);
+      std::memmove(buffer + wrote, p, bytes);
       wrote += bytes;
       break;
     }
     std::size_t chunk = crcp - p;
-    std::memcpy(buffer + wrote, p, chunk);
+    std::memmove(buffer + wrote, p, chunk);
     wrote += chunk;
     p += chunk + 1;
     bytes -= chunk + 1;
@@ -153,7 +153,7 @@ bool SourceFile::ReadFile(std::string errorPath, std::stringstream *error) {
         vp = mmap(vp, bytes_, PROT_READ | PROT_WRITE, MAP_PRIVATE,
             fileDescriptor_, 0);
         if (vp != MAP_FAILED) {
-          auto mutableContent = static_cast<char *>(vp);
+          auto mutableContent{static_cast<char *>(vp)};
           bytes_ = RemoveCarriageReturns(mutableContent, bytes_);
           if (bytes_ > 0) {
             if (mutableContent[bytes_ - 1] == '\n' ||

@@ -17,9 +17,9 @@
 
 #include "char-block.h"
 #include "char-buffer.h"
-#include "idioms.h"
-#include "interval.h"
 #include "source.h"
+#include "../common/idioms.h"
+#include "../common/interval.h"
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -79,7 +79,7 @@ private:
   std::size_t offset_{0};
 };
 
-using ProvenanceRange = Interval<Provenance>;
+using ProvenanceRange = common::Interval<Provenance>;
 
 // Maps 0-based local offsets in some contiguous range (e.g., a token
 // sequence) to their provenances.  Lookup time is on the order of
@@ -91,12 +91,12 @@ public:
   std::size_t size() const;
   void clear();
   void swap(OffsetToProvenanceMappings &);
-  void shrink_to_fit() { provenanceMap_.shrink_to_fit(); }
+  void shrink_to_fit();
   void Put(ProvenanceRange);
   void Put(const OffsetToProvenanceMappings &);
   ProvenanceRange Map(std::size_t at) const;
   void RemoveLastBytes(std::size_t);
-  void Dump(std::ostream &) const;
+  std::ostream &Dump(std::ostream &) const;
 
 private:
   struct ContiguousProvenanceMapping {
@@ -139,7 +139,7 @@ public:
   int GetLineNumber(Provenance) const;  // __LINE__
   Provenance CompilerInsertionProvenance(char ch);
   Provenance CompilerInsertionProvenance(const char *, std::size_t);
-  void Dump(std::ostream &) const;
+  std::ostream &Dump(std::ostream &) const;
 
 private:
   struct Inclusion {
@@ -211,7 +211,7 @@ public:
     provenanceMap_.Put(pm);
   }
   void Marshal();  // marshals all text into one contiguous block
-  void Dump(std::ostream &) const;
+  std::ostream &Dump(std::ostream &) const;
 
 private:
   AllSources &allSources_;

@@ -39,7 +39,11 @@
 // OpenMP Directives and Clauses
 namespace Fortran::parser {
 
+<<<<<<< HEAD
 constexpr auto endOmpLine = space >> endOfLine;
+=======
+constexpr auto beginOmpDirective{skipStuffBeforeStatement >> "!$OMP "_sptok};
+>>>>>>> master
 
 // OpenMP Clauses
 // DEFAULT (PRIVATE | FIRSTPRIVATE | SHARED | NONE )
@@ -108,9 +112,31 @@ TYPE_PARSER(construct<OmpIfClause>(
         ":"_tok),
     scalarLogicalExpr))
 
+<<<<<<< HEAD
 TYPE_PARSER(
     construct<OmpReductionOperator>(indirect(Parser<DefinedOperator>{})) ||
     construct<OmpReductionOperator>(Parser<ProcedureDesignator>{}))
+=======
+// REDUCTION(reduction-identifier: list)
+constexpr auto reductionBinaryOperator{
+    "+" >> pure(OmpReductionOperator::BinaryOperator::Add) ||
+    "-" >> pure(OmpReductionOperator::BinaryOperator::Subtract) ||
+    "*" >> pure(OmpReductionOperator::BinaryOperator::Multiply) ||
+    ".AND." >> pure(OmpReductionOperator::BinaryOperator::AND) ||
+    ".OR." >> pure(OmpReductionOperator::BinaryOperator::OR) ||
+    ".EQV." >> pure(OmpReductionOperator::BinaryOperator::EQV) ||
+    ".NEQV." >> pure(OmpReductionOperator::BinaryOperator::NEQV)};
+
+constexpr auto reductionProcedureOperator{
+    "MIN" >> pure(OmpReductionOperator::ProcedureOperator::MIN) ||
+    "MAX" >> pure(OmpReductionOperator::ProcedureOperator::MAX) ||
+    "IAND" >> pure(OmpReductionOperator::ProcedureOperator::IAND) ||
+    "IOR" >> pure(OmpReductionOperator::ProcedureOperator::IOR) ||
+    "IEOR" >> pure(OmpReductionOperator::ProcedureOperator::IEOR)};
+
+TYPE_PARSER(construct<OmpReductionOperator>(reductionBinaryOperator) ||
+    construct<OmpReductionOperator>(reductionProcedureOperator))
+>>>>>>> master
 
 TYPE_PARSER(construct<OmpReductionClause>(
     Parser<OmpReductionOperator>{} / ":"_tok, nonemptyList(designator)))
@@ -179,6 +205,7 @@ TYPE_PARSER("DEFAULTMAP" >>
     "DIST_SCHEDULE" >>
         construct<OmpClause>(construct<OmpClause::DistSchedule>(
             parenthesized("STATIC"_tok >> ","_tok >> scalarIntExpr))) ||
+<<<<<<< HEAD
     "FINAL" >> construct<OmpClause>(
                    construct<OmpClause::Final>(parenthesized(scalarIntExpr))) ||
     "FIRSTPRIVATE" >> construct<OmpClause>(construct<OmpClause::Firstprivate>(
@@ -233,6 +260,68 @@ TYPE_PARSER("DEFAULTMAP" >>
         construct<OmpClause>(parenthesized(Parser<OmpScheduleClause>{})))
 
 // [Clause, [Clause], ...]
+=======
+    construct<OmpClause>(construct<OmpClause::Final>(
+        "FINAL"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(
+        construct<OmpClause::Firstprivate>("FIRSTPRIVATE"_tok >>
+            parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
+    construct<OmpClause>(construct<OmpClause::From>(
+        "FROM"_tok >> parenthesized(nonemptyList(designator)))) ||
+    construct<OmpClause>(construct<OmpClause::Grainsize>(
+        "GRAINSIZE"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::Lastprivate>("LASTPRIVATE"_tok >>
+        parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
+    construct<OmpClause>(construct<OmpClause::Link>(
+        "LINK"_tok >> parenthesized(nonemptyList(name)))) ||
+    construct<OmpClause>(construct<OmpClause::NumTasks>(
+        "NUM_TASKS"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::NumTeams>(
+        "NUM_TEAMS"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::NumThreads>(
+        "NUM_THREADS"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::Ordered>(
+        "ORDERED"_tok >> maybe(parenthesized(scalarIntConstantExpr)))) ||
+    construct<OmpClause>(construct<OmpClause::Priority>(
+        "PRIORITY"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::Private>(
+        "PRIVATE"_tok >> parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
+    construct<OmpClause>(construct<OmpClause::Safelen>(
+        "SAFELEN"_tok >> parenthesized(scalarIntConstantExpr))) ||
+    construct<OmpClause>(construct<OmpClause::Shared>(
+        "SHARED"_tok >> parenthesized(nonemptyList(Parser<OmpNameList>{})))) ||
+    construct<OmpClause>(construct<OmpClause::Simdlen>(
+        "SIMDLEN"_tok >> parenthesized(scalarIntConstantExpr))) ||
+    construct<OmpClause>(construct<OmpClause::ThreadLimit>(
+        "THREAD_LIMIT"_tok >> parenthesized(scalarIntExpr))) ||
+    construct<OmpClause>(construct<OmpClause::To>(
+        "TO"_tok >> parenthesized(nonemptyList(designator)))) ||
+    construct<OmpClause>(construct<OmpClause::Uniform>(
+        "UNIFORM"_tok >> parenthesized(nonemptyList(name)))) ||
+    construct<OmpClause>(construct<OmpClause::UseDevicePtr>(
+        "USE_DEVICE_PTR"_tok >> parenthesized(nonemptyList(name)))) ||
+    construct<OmpClause>(
+        "ALIGNED"_tok >> parenthesized(Parser<OmpAlignedClause>{})) ||
+    construct<OmpClause>(
+        "DEFAULT"_tok >> parenthesized(Parser<OmpDefaultClause>{})) ||
+    construct<OmpClause>(
+        "DEPEND"_tok >> parenthesized(Parser<OmpDependClause>{})) ||
+    construct<OmpClause>("IF"_tok >> parenthesized(Parser<OmpIfClause>{})) ||
+    construct<OmpClause>(
+        "LINEAR"_tok >> parenthesized(Parser<OmpLinearClause>{})) ||
+    construct<OmpClause>("MAP"_tok >> parenthesized(Parser<OmpMapClause>{})) ||
+    construct<OmpClause>(
+        "PROC_BIND"_tok >> parenthesized(Parser<OmpProcBindClause>{})) ||
+    construct<OmpClause>(
+        "REDUCTION"_tok >> parenthesized(Parser<OmpReductionClause>{})) ||
+    construct<OmpClause>(
+        "SCHEDULE"_tok >> parenthesized(Parser<OmpScheduleClause>{})))
+
+TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP END"_sptok >>
+    (construct<OmpEndDirective>(Parser<OmpLoopDirective>{})))
+
+// Omp directives enclosing do loop
+>>>>>>> master
 TYPE_PARSER(
     construct<OmpClauseList>(many(maybe(","_tok) >> Parser<OmpClause>{})))
 

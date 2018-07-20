@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "real.h"
+#include "../common/idioms.h"
 
 namespace Fortran::evaluate::value {
 
@@ -122,7 +123,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Add(
     yFraction = yFraction.NOT();
     carry = roundingBits.Negate();
   }
-  auto sum = fraction.AddUnsigned(yFraction, carry);
+  auto sum{fraction.AddUnsigned(yFraction, carry)};
   fraction = sum.value;
   if (isNegative == yIsNegative && sum.carry) {
     roundingBits.ShiftRight(sum.value.BTEST(0));
@@ -153,7 +154,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Multiply(
         result.value.word_ = InfinityWord(isNegative);
       }
     } else {
-      auto product = GetFraction().MultiplyUnsigned(y.GetFraction());
+      auto product{GetFraction().MultiplyUnsigned(y.GetFraction())};
       std::int64_t exponent{CombineExponents(y, false)};
       if (exponent < 1) {
         int rshift = 1 - exponent;
@@ -375,10 +376,56 @@ void Real<W, P, IM>::NormalizeAndRound(ValueWithRealFlags<Real> &result,
   result.flags |= result.value.Round(rounding, roundingBits, multiply);
 }
 
+template<typename W, int P, bool IM>
+std::string Real<W, P, IM>::DumpHexadecimal() const {
+  if (IsNotANumber()) {
+    return "NaN 0x"s + word_.Hexadecimal();
+  } else if (IsNegative()) {
+    return "-"s + Negate().DumpHexadecimal();
+  } else if (IsInfinite()) {
+    return "Inf"s;
+  } else if (IsZero()) {
+    return "0.0"s;
+  } else {
+    Fraction frac{GetFraction()};
+    std::string result{"0x"};
+    char intPart = '0' + frac.BTEST(frac.bits - 1);
+    result += intPart;
+    result += '.';
+    int trailz{frac.TRAILZ()};
+    if (trailz >= frac.bits - 1) {
+      result += '0';
+    } else {
+      int remainingBits{frac.bits - 1 - trailz};
+      int wholeNybbles{remainingBits / 4};
+      int lostBits{remainingBits - 4 * wholeNybbles};
+      if (wholeNybbles > 0) {
+        std::string fracHex{frac.SHIFTR(trailz + lostBits)
+                                .IAND(frac.MASKR(4 * wholeNybbles))
+                                .Hexadecimal()};
+        std::size_t field = wholeNybbles;
+        if (fracHex.size() < field) {
+          result += std::string(field - fracHex.size(), '0');
+        }
+        result += fracHex;
+      }
+      if (lostBits > 0) {
+        result += frac.SHIFTR(trailz)
+                      .IAND(frac.MASKR(lostBits))
+                      .SHIFTL(4 - lostBits)
+                      .Hexadecimal();
+      }
+    }
+    result += 'p';
+    int exponent = Exponent() - exponentBias;
+    result += Integer<32>{exponent}.SignedDecimal();
+    return result;
+  }
+}
+
 template class Real<Integer<16>, 11>;
 template class Real<Integer<32>, 24>;
 template class Real<Integer<64>, 53>;
 template class Real<Integer<80>, 64, false>;
 template class Real<Integer<128>, 112>;
-
 }  // namespace Fortran::evaluate::value

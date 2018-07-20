@@ -20,6 +20,7 @@
 #include "rounding-bits.h"
 #include <cinttypes>
 #include <limits>
+#include <string>
 
 namespace Fortran::evaluate::value {
 
@@ -80,9 +81,7 @@ public:
     return {word_.IBCLR(bits - 1)};
   }
 
-  constexpr Real Negate() const {
-    return {word_.IEOR(word_.MASKL(1))};
-  }
+  constexpr Real Negate() const { return {word_.IEOR(word_.MASKL(1))}; }
 
   Relation Compare(const Real &) const;
   ValueWithRealFlags<Real> Add(
@@ -174,7 +173,7 @@ public:
         if (!fraction.IBITS(0, rshift).IsZero()) {
           result.flags.set(RealFlag::Inexact);
         }
-        auto truncated = result.value.ConvertUnsigned(fraction.SHIFTR(rshift));
+        auto truncated{result.value.ConvertUnsigned(fraction.SHIFTR(rshift))};
         if (truncated.overflow) {
           result.flags.set(RealFlag::Overflow);
         } else {
@@ -192,7 +191,7 @@ public:
       if (result.flags.test(RealFlag::Overflow)) {
         result.value = result.value.HUGE();
       } else if (isNegative) {
-        auto negated = result.value.Negate();
+        auto negated{result.value.Negate()};
         if (negated.overflow) {
           result.flags.set(RealFlag::Overflow);
           result.value = result.value.HUGE();
@@ -209,6 +208,8 @@ public:
   constexpr std::uint64_t Exponent() const {
     return word_.IBITS(significandBits, exponentBits).ToUInt64();
   }
+
+  std::string DumpHexadecimal() const;
 
 private:
   using Fraction = Integer<precision>;  // all bits made explicit

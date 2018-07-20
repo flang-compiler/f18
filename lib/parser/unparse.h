@@ -15,16 +15,23 @@
 #ifndef FORTRAN_PARSER_UNPARSE_H_
 #define FORTRAN_PARSER_UNPARSE_H_
 
+#include "char-block.h"
 #include "characters.h"
+#include <functional>
 #include <iosfwd>
 
 namespace Fortran::parser {
 
 struct Program;
 
+// A function called before each Statement is unparsed.
+using preStatementType =
+    std::function<void(const CharBlock &, std::ostream &, int)>;
+
 /// Convert parsed program to out as Fortran.
 void Unparse(std::ostream &out, const Program &program,
-    Encoding encoding = Encoding::UTF8, bool capitalizeKeywords = true);
+    Encoding encoding = Encoding::UTF8, bool capitalizeKeywords = true,
+    bool backslashEscapes = true, preStatementType *preStatement = nullptr);
 
 }  // namespace Fortran::parser
 

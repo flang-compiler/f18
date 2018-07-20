@@ -14,9 +14,9 @@
 
 #include "preprocessor.h"
 #include "characters.h"
-#include "idioms.h"
 #include "message.h"
 #include "prescan.h"
+#include "../common/idioms.h"
 #include <algorithm>
 #include <cinttypes>
 #include <cstddef>
@@ -68,7 +68,7 @@ TokenSequence Definition::Tokenize(const std::vector<std::string> &argNames,
   for (std::size_t j{0}; j < tokens; ++j) {
     CharBlock tok{token.TokenAt(firstToken + j)};
     if (IsLegalIdentifierStart(tok)) {
-      auto it = args.find(tok.ToString());
+      auto it{args.find(tok.ToString())};
       if (it != args.end()) {
         result.Put(it->second, token.GetTokenProvenance(j));
         continue;
@@ -245,7 +245,7 @@ std::optional<TokenSequence> Preprocessor::MacroReplacement(
       result.Put(input, j);
       continue;
     }
-    auto it = definitions_.find(token);
+    auto it{definitions_.find(token)};
     if (it == definitions_.end()) {
       result.Put(input, j);
       continue;
@@ -777,7 +777,7 @@ static std::int64_t ExpressionValue(const TokenSequence &token,
     op = NOT;
     *atToken += 2;
   } else {
-    auto it = opNameMap.find(t);
+    auto it{opNameMap.find(t)};
     if (it != opNameMap.end()) {
       op = it->second;
     } else {
@@ -831,7 +831,7 @@ static std::int64_t ExpressionValue(const TokenSequence &token,
     t += ToLowerCaseLetters(token.TokenAt(*atToken + 1).ToString()) + '.';
     advance = 3;
   }
-  auto it = opNameMap.find(t);
+  auto it{opNameMap.find(t)};
   if (it == opNameMap.end()) {
     return left;
   }
