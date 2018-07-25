@@ -24,21 +24,21 @@
 namespace Fortran::evaluate {
 
 // An expression of some specific result type.
-template<Category CAT, int KIND> struct Expr;
-
-// An expression of some supported kind of a category of result type.
-template<Category CAT> struct CategoryExpr;
-
-template<int KIND> using IntegerExpr = Expr<Category::Integer, KIND>;
+template<typename A> class Expr;
+template<int KIND> using IntegerExpr = Expr<Type<Category::Integer, KIND>>;
 using DefaultIntegerExpr = IntegerExpr<DefaultInteger::kind>;
-template<int KIND> using RealExpr = Expr<Category::Real, KIND>;
-template<int KIND> using ComplexExpr = Expr<Category::Complex, KIND>;
-template<int KIND> using CharacterExpr = Expr<Category::Character, KIND>;
-using LogicalExpr = Expr<Category::Logical, 1>;
-using GenericIntegerExpr = CategoryExpr<Category::Integer>;
-using GenericRealExpr = CategoryExpr<Category::Real>;
-using GenericComplexExpr = CategoryExpr<Category::Complex>;
-using GenericCharacterExpr = CategoryExpr<Category::Character>;
+template<int KIND> using RealExpr = Expr<Type<Category::Real, KIND>>;
+template<int KIND> using ComplexExpr = Expr<Type<Category::Complex, KIND>>;
+template<int KIND> using CharacterExpr = Expr<Type<Category::Character, KIND>>;
+template<int KIND> using LogicalExpr = Expr<Type<Category::Logical, KIND>>;
+
+// An expression whose result is within one particular type category and
+// of any supported kind.
+using AnyKindIntegerExpr = Expr<AnyKindType<Category::Integer>>;
+using AnyKindRealExpr = Expr<AnyKindType<Category::Real>>;
+using AnyKindComplexExpr = Expr<AnyKindType<Category::Complex>>;
+using AnyKindCharacterExpr = Expr<AnyKindType<Category::Character>>;
+using AnyKindLogicalExpr = Expr<AnyKindType<Category::Logical>>;
 
 // A completely generic expression.
 struct GenericExpr;

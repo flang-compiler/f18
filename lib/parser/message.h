@@ -113,6 +113,8 @@ public:
 
   Message(ProvenanceRange pr, const MessageFixedText &t)
     : location_{pr}, text_{t} {}
+  Message(ProvenanceRange pr, const MessageFormattedText &s)
+    : location_{pr}, text_{std::move(s)} {}
   Message(ProvenanceRange pr, MessageFormattedText &&s)
     : location_{pr}, text_{std::move(s)} {}
   Message(ProvenanceRange pr, const MessageExpectedText &t)
@@ -120,6 +122,8 @@ public:
 
   Message(CharBlock csr, const MessageFixedText &t)
     : location_{csr}, text_{t} {}
+  Message(CharBlock csr, const MessageFormattedText &s)
+    : location_{csr}, text_{std::move(s)} {}
   Message(CharBlock csr, MessageFormattedText &&s)
     : location_{csr}, text_{std::move(s)} {}
   Message(CharBlock csr, const MessageExpectedText &t)
@@ -213,5 +217,18 @@ private:
   std::forward_list<Message>::iterator last_{messages_.before_begin()};
 };
 
+class ContextualMessages {
+public:
+  ContextualMessages(CharBlock at, Messages *m) : at_{at}, messages_{m} {}
+  template<typename... A> void Say(A &&... args) {
+    if (messages_ != nullptr) {
+      messages_->Say(at_, std::forward<A>(args)...);
+    }
+  }
+
+private:
+  CharBlock at_;
+  Messages *messages_{nullptr};
+};
 }  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_MESSAGE_H_
