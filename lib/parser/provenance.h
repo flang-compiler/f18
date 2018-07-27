@@ -211,6 +211,7 @@ public:
     provenanceMap_.Put(pm);
   }
   void Marshal();  // marshals all text into one contiguous block
+  std::vector<char> MoveChars() { return std::move(data_); }
   std::ostream &Dump(std::ostream &) const;
 
 private:
