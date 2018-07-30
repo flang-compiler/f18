@@ -20,9 +20,11 @@
 #include "source.h"
 #include "../common/idioms.h"
 #include "../common/interval.h"
+#include "../common/reference-counted.h"
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -107,7 +109,9 @@ private:
   std::vector<ContiguousProvenanceMapping> provenanceMap_;
 };
 
-class AllSources {
+// AllSources is reference-counted so that multiple instances of CookedSource
+// can share an AllSources instance.
+class AllSources : public common::ReferenceCounted<AllSources> {
 public:
   AllSources();
   ~AllSources();
@@ -130,8 +134,8 @@ public:
   bool IsValid(ProvenanceRange range) const {
     return range.size() > 0 && range_.Contains(range);
   }
-  void EmitMessage(std::ostream &, ProvenanceRange, const std::string &message,
-      bool echoSourceLine = false) const;
+  void EmitMessage(std::ostream &, const std::optional<ProvenanceRange> &,
+      const std::string &message, bool echoSourceLine = false) const;
   const SourceFile *GetSourceFile(
       Provenance, std::size_t *offset = nullptr) const;
   ProvenanceRange GetContiguousRangeAround(ProvenanceRange) const;
@@ -182,13 +186,13 @@ private:
 
 class CookedSource {
 public:
-  explicit CookedSource(AllSources &sources) : allSources_{sources} {}
+  CookedSource();
+  explicit CookedSource(AllSources &);
+  ~CookedSource();
 
-  std::size_t size() const { return data_.size(); }
-  const char &operator[](std::size_t n) const { return data_[n]; }
-  const char &at(std::size_t n) const { return data_.at(n); }
-
-  AllSources &allSources() const { return allSources_; }
+  AllSources &allSources() { return *allSources_; }
+  const AllSources &allSources() const { return *allSources_; }
+  const std::string &data() const { return data_; }
 
   bool IsValid(const char *p) const {
     return p >= &data_.front() && p <= &data_.back() + 1;
@@ -196,10 +200,9 @@ public:
   bool IsValid(CharBlock range) const {
     return !range.empty() && IsValid(range.begin()) && IsValid(range.end() - 1);
   }
-  bool IsValid(Provenance p) const { return allSources_.IsValid(p); }
-  bool IsValid(ProvenanceRange r) const { return allSources_.IsValid(r); }
+  bool IsValid(ProvenanceRange r) const { return allSources_->IsValid(r); }
 
-  ProvenanceRange GetProvenanceRange(CharBlock) const;
+  std::optional<ProvenanceRange> GetProvenanceRange(CharBlock) const;
 
   void Put(const char *data, std::size_t bytes) { buffer_.Put(data, bytes); }
   void Put(char ch) { buffer_.Put(&ch, 1); }
@@ -207,17 +210,19 @@ public:
     buffer_.Put(&ch, 1);
     provenanceMap_.Put(ProvenanceRange{p, 1});
   }
+  void PutProvenance(Provenance p) { provenanceMap_.Put(ProvenanceRange{p}); }
+  void PutProvenance(ProvenanceRange pr) { provenanceMap_.Put(pr); }
   void PutProvenanceMappings(const OffsetToProvenanceMappings &pm) {
     provenanceMap_.Put(pm);
   }
-  void Marshal();  // marshals all text into one contiguous block
-  std::vector<char> MoveChars() { return std::move(data_); }
+  void Marshal();  // marshals text into one contiguous block
+  std::string AcquireData() { return std::move(data_); }
   std::ostream &Dump(std::ostream &) const;
 
 private:
-  AllSources &allSources_;
+  common::CountedReference<AllSources> allSources_;
   CharBuffer buffer_;  // before Marshal()
-  std::vector<char> data_;  // all of it, prescanned and preprocessed
+  std::string data_;  // all of it, prescanned and preprocessed
   OffsetToProvenanceMappings provenanceMap_;
 };
 

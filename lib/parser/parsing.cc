@@ -25,24 +25,30 @@
 
 namespace Fortran::parser {
 
+Parsing::Parsing() {}
+Parsing::Parsing(AllSources &s) : cooked_{s} {}
+
+Parsing::~Parsing() {}
+
 void Parsing::Prescan(const std::string &path, Options options) {
   options_ = options;
 
   std::stringstream fileError;
   const SourceFile *sourceFile;
+  AllSources &allSources{cooked_.allSources()};
   if (path == "-") {
-    sourceFile = allSources_.ReadStandardInput(&fileError);
+    sourceFile = allSources.ReadStandardInput(&fileError);
   } else {
-    sourceFile = allSources_.Open(path, &fileError);
+    sourceFile = allSources.Open(path, &fileError);
   }
   if (sourceFile == nullptr) {
-    ProvenanceRange range{allSources_.AddCompilerInsertion(path)};
+    ProvenanceRange range{allSources.AddCompilerInsertion(path)};
     MessageFormattedText msg("%s"_err_en_US, fileError.str().data());
     messages_.Put(Message{range, std::move(msg)});
     return;
   }
   if (sourceFile->bytes() == 0) {
-    ProvenanceRange range{allSources_.AddCompilerInsertion(path)};
+    ProvenanceRange range{allSources.AddCompilerInsertion(path)};
     messages_.Put(Message{range, "file is empty"_err_en_US});
     return;
   }
@@ -52,10 +58,10 @@ void Parsing::Prescan(const std::string &path, Options options) {
   // working directory, we don't want to accidentally read another foo.f
   // from another directory that's on the search path.
   for (const auto &path : options.searchDirectories) {
-    allSources_.PushSearchPathDirectory(path);
+    allSources.PushSearchPathDirectory(path);
   }
 
-  Preprocessor preprocessor{allSources_};
+  Preprocessor preprocessor{allSources};
   for (const auto &predef : options.predefinitions) {
     if (predef.second.has_value()) {
       preprocessor.Define(predef.first, *predef.second);
@@ -72,8 +78,8 @@ void Parsing::Prescan(const std::string &path, Options options) {
     prescanner.AddCompilerDirectiveSentinel("$omp");
     prescanner.AddCompilerDirectiveSentinel("$");  // OMP conditional line
   }
-  ProvenanceRange range{
-      allSources_.AddIncludedFile(*sourceFile, ProvenanceRange{})};
+  ProvenanceRange range{allSources.AddIncludedFile(
+      *sourceFile, ProvenanceRange{}, options.isModuleFile)};
   prescanner.Prescan(range);
   cooked_.Marshal();
 }

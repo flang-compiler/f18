@@ -203,22 +203,12 @@ bool SourceFile::ReadFile(std::string errorPath, std::stringstream *error) {
   if (bytes_ == 0) {
     // empty file
     content_ = nullptr;
-    return true;
+  } else {
+    normalized_ = buffer.MarshalNormalized();
+    content_ = normalized_.data();
+    bytes_ = normalized_.size();
+    lineStart_ = FindLineStarts(content_, bytes_);
   }
-
-  char *contig{new char[bytes_ + 1 /* for extra newline if needed */]};
-  content_ = contig;
-  char *to{contig};
-  for (char ch : buffer) {
-    if (ch != '\r') {
-      *to++ = ch;
-    }
-  }
-  if (to == contig || to[-1] != '\n') {
-    *to++ = '\n';  // supply a missing terminal newline
-  }
-  bytes_ = to - contig;
-  lineStart_ = FindLineStarts(content_, bytes_);
   return true;
 }
 
@@ -226,6 +216,8 @@ void SourceFile::Close() {
   if (useMMap && isMemoryMapped_) {
     munmap(reinterpret_cast<void *>(const_cast<char *>(content_)), bytes_);
     isMemoryMapped_ = false;
+  } else if (!normalized_.empty()) {
+    normalized_.clear();
   } else if (content_ != nullptr) {
     delete[] content_;
   }

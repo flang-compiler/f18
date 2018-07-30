@@ -353,8 +353,11 @@ bool ModFileReader::Read(const SourceName &modName) {
   if (!path.has_value()) {
     return false;
   }
+  // TODO: Construct parsing with an AllSources reference to share provenance
   parser::Parsing parsing;
-  parsing.Prescan(*path, {});
+  parser::Options options;
+  options.isModuleFile = true;
+  parsing.Prescan(*path, options);
   parsing.Parse(&std::cout);
   auto &parseTree{parsing.parseTree()};
   if (!parsing.messages().empty() || !parsing.consumedWholeFile() ||
@@ -371,7 +374,8 @@ bool ModFileReader::Read(const SourceName &modName) {
     return false;
   }
   auto &modSymbol{*it->second};
-  modSymbol.scope()->set_chars(parsing.cooked().MoveChars());
+  // TODO: Preserve the CookedSource rather than acquiring its string.
+  modSymbol.scope()->set_chars(std::string{parsing.cooked().AcquireData()});
   modSymbol.set(Symbol::Flag::ModFile);
   return true;
 }
