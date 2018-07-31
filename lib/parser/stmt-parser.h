@@ -38,9 +38,11 @@ template<typename PA> inline constexpr auto unterminatedStatement(const PA &p) {
 constexpr auto endOfLine{
     "\n"_ch >> ok || fail("expected end of line"_err_en_US)};
 
+constexpr auto semicolons{";"_ch >> skipMany(";"_tok) / space / maybe("\n"_ch)};
 constexpr auto endOfStmt{
-    space >> (";"_ch >> skipMany(";"_tok) >> space >> maybe("\n"_ch) >> ok ||
-                 endOfLine)};
+    space >> withMessage("expected end of statement"_err_en_US,
+                 semicolons || endOfLine)};
+constexpr auto forceEndOfStmt{recovery(endOfStmt, SkipPast<'\n'>{})};
 
 template<typename PA> inline constexpr auto statement(const PA &p) {
   return unterminatedStatement(p) / endOfStmt;
@@ -53,15 +55,8 @@ template<typename PA> inline constexpr auto statement(const PA &p) {
 // be valid at that point.  It only makes sense to use this within "some()"
 // or "many()" so as to not end the list of statements.
 template<typename PA> inline constexpr auto unambiguousStatement(const PA &p) {
-  return unterminatedStatement(p) /
-      recovery(space >>
-              withMessage("expected end of statement"_err_en_US, endOfStmt),
-          SkipPast<'\n'>{});
+  return unterminatedStatement(p) / forceEndOfStmt;
 }
-
-constexpr auto forceEndOfStmt{recovery(space >>
-        withMessage("expected end of statement"_err_en_US, lookAhead(";\n"_ch)),
-    SkipTo<'\n'>{})};
 
 constexpr auto ignoredStatementPrefix{
     skipStuffBeforeStatement >> maybe(label) >> maybe(name / ":") >> space};
@@ -79,6 +74,20 @@ constexpr auto executionPartErrorRecovery{stmtErrorRecoveryStart >>
     !"END"_tok >> !"CONTAINS"_tok >> !"ELSE"_tok >> !"CASE"_tok >>
     !"TYPE IS"_tok >> !"CLASS"_tok >> !"RANK"_tok >>
     !("!$OMP "_sptok >> "END"_tok) >> skipBadLine};
+
+// END statement error recovery
+constexpr auto missingOptionalName{defaulted(cut >> maybe(name))};
+constexpr auto noNameEnd{"END" >> missingOptionalName};
+constexpr auto atEndOfStmt{space >>
+    withMessage("expected end of statement"_err_en_US, lookAhead(";\n"_ch))};
+constexpr auto bareEnd{noNameEnd / recovery(atEndOfStmt, SkipTo<'\n'>{})};
+
+constexpr auto endStmtErrorRecovery{
+    ("END"_tok >> SkipPast<'\n'>{} || consumedAllInput) >> missingOptionalName};
+constexpr auto progUnitEndStmtErrorRecovery{
+    (many(!"END"_tok >> SkipPast<'\n'>{}) >>
+        ("END"_tok >> SkipTo<'\n'>{} || consumedAllInput)) >>
+    missingOptionalName};
 
 }  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_STMT_PARSER_H_
