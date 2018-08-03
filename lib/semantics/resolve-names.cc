@@ -292,13 +292,14 @@ private:
 // Manage a stack of Scopes
 class ScopeHandler : public virtual ImplicitRulesVisitor {
 public:
-  ScopeHandler() { PushScope(Scope::globalScope); }
+  void set_rootScope(Scope &scope) { PushScope(scope); }
   Scope &CurrScope() { return *scopes_.top(); }
   // Return the enclosing scope not corresponding to a derived type:
   Scope &CurrNonTypeScope();
 
   // Create a new scope and push it on the scope stack.
   Scope &PushScope(Scope::Kind kind, Symbol *symbol);
+  void PushScope(Scope &scope);
   void PopScope();
 
   Symbol *FindSymbol(const SourceName &name);
@@ -306,7 +307,8 @@ public:
 
   // Helpers to make a Symbol in the current scope
   template<typename D>
-  Symbol &MakeSymbol(const SourceName &name, const Attrs &attrs, D &&details) {
+  Symbol &MakeSymbol(
+      const SourceName &name, const Attrs &attrs, const D &details) {
     // Note: don't use FindSymbol here. If this is a derived type scope,
     // we want to detect if the name is already declared as a component.
     const auto &it{CurrScope().find(name)};
@@ -348,18 +350,19 @@ public:
   }
   template<typename D>
   Symbol &MakeSymbol(
-      const parser::Name &name, const Attrs &attrs, D &&details) {
-    return MakeSymbol(name.source, attrs, std::move(details));
+      const parser::Name &name, const Attrs &attrs, const D &details) {
+    return MakeSymbol(name.source, attrs, details);
   }
   template<typename D>
-  Symbol &MakeSymbol(const parser::Name &name, D &&details) {
+  Symbol &MakeSymbol(const parser::Name &name, const D &details) {
     return MakeSymbol(name, Attrs(), details);
   }
-  template<typename D> Symbol &MakeSymbol(const SourceName &name, D &&details) {
+  template<typename D>
+  Symbol &MakeSymbol(const SourceName &name, const D &details) {
     return MakeSymbol(name, Attrs(), details);
   }
   Symbol &MakeSymbol(const SourceName &name, Attrs attrs = Attrs{}) {
-    return MakeSymbol(name, attrs, UnknownDetails());
+    return MakeSymbol(name, attrs, UnknownDetails{});
   }
 
 protected:
@@ -374,14 +377,14 @@ protected:
 private:
   // Stack of containing scopes; memory referenced is owned by parent scopes
   std::stack<Scope *, std::list<Scope *>> scopes_;
-
-  void PushScope(Scope &scope);
 };
 
 class ModuleVisitor : public virtual ScopeHandler {
 public:
   bool Pre(const parser::Module &);
   void Post(const parser::Module &);
+  bool Pre(const parser::Submodule &);
+  void Post(const parser::Submodule &);
   bool Pre(const parser::AccessStmt &);
   bool Pre(const parser::Only &);
   bool Pre(const parser::Rename::Names &);
@@ -404,13 +407,15 @@ private:
 
   void SetAccess(const parser::Name &, Attr);
   void ApplyDefaultAccess();
-  const Scope *FindModule(const SourceName &);
   void AddUse(const parser::Rename::Names &);
   void AddUse(const parser::Name &);
   // Record a use from useModuleScope_ of useName as localName. location is
   // where it occurred (either the module or the rename) for error reporting.
   void AddUse(const SourceName &location, const SourceName &localName,
       const SourceName &useName);
+  Symbol &BeginModule(const SourceName &, bool isSubmodule,
+      const std::optional<parser::ModuleSubprogramPart> &);
+  Scope *FindModule(const SourceName &, Scope *ancestor = nullptr);
 };
 
 class InterfaceVisitor : public virtual ScopeHandler {
@@ -545,7 +550,7 @@ private:
   // Handle a statement that sets an attribute on a list of names.
   bool HandleAttributeStmt(Attr, const std::list<parser::Name> &);
   void DeclareObjectEntity(const parser::Name &, Attrs);
-  void DeclareProcEntity(const parser::Name &, Attrs, ProcInterface &&);
+  void DeclareProcEntity(const parser::Name &, Attrs, const ProcInterface &);
   bool ConvertToProcEntity(Symbol &);
 
   // Set the type of an entity or report an error.
@@ -1173,7 +1178,7 @@ void ScopeHandler::ApplyImplicitRules(const SourceName &name, Symbol &symbol) {
   if (symbol.has<UnknownDetails>()) {
     symbol.set_details(ObjectEntityDetails{});
   } else if (symbol.has<EntityDetails>()) {
-    symbol.set_details(ObjectEntityDetails(symbol.get<EntityDetails>()));
+    symbol.set_details(ObjectEntityDetails{symbol.get<EntityDetails>()});
   }
   if (auto *details{symbol.detailsIf<ObjectEntityDetails>()}) {
     if (!details->type()) {
@@ -1266,30 +1271,6 @@ void ModuleVisitor::Post(const parser::UseStmt &x) {
   useModuleScope_ = nullptr;
 }
 
-// Find the module with this name and return its scope.
-// May have to read a .mod file to find it.
-// Return nullptr on error, after reporting it.
-const Scope *ModuleVisitor::FindModule(const SourceName &name) {
-  auto it{Scope::globalScope.find(name)};
-  if (it == Scope::globalScope.end()) {
-    ModFileReader reader{searchDirectories_};
-    if (!reader.Read(name)) {
-      for (auto &error : reader.errors()) {
-        Say(std::move(error));
-      }
-      return nullptr;
-    }
-    it = Scope::globalScope.find(name);
-    CHECK(it != Scope::globalScope.end());  // else would have reported error
-  }
-  const auto *details{it->second->detailsIf<ModuleDetails>()};
-  if (!details) {
-    Say(name, "'%s' is not a module"_err_en_US);
-    return nullptr;
-  }
-  return details->scope();
-}
-
 void ModuleVisitor::AddUse(const parser::Rename::Names &names) {
   const SourceName &useName{std::get<0>(names.t).source};
   const SourceName &localName{std::get<1>(names.t).source};
@@ -1334,22 +1315,43 @@ void ModuleVisitor::AddUse(const SourceName &location,
   }
 }
 
+bool ModuleVisitor::Pre(const parser::Submodule &x) {
+  auto &stmt{std::get<parser::Statement<parser::SubmoduleStmt>>(x.t)};
+  auto &name{std::get<parser::Name>(stmt.statement.t).source};
+  auto &subpPart{std::get<std::optional<parser::ModuleSubprogramPart>>(x.t)};
+  auto &parentId{std::get<parser::ParentIdentifier>(stmt.statement.t)};
+  auto &ancestorName{std::get<parser::Name>(parentId.t).source};
+  auto &parentName{std::get<std::optional<parser::Name>>(parentId.t)};
+  Scope *ancestor{FindModule(ancestorName)};
+  if (!ancestor) {
+    return false;
+  }
+  Scope *parentScope{
+      parentName ? FindModule(parentName->source, ancestor) : ancestor};
+  if (!parentScope) {
+    return false;
+  }
+  PushScope(*parentScope);  // submodule is hosted in parent
+  auto &symbol{BeginModule(name, true, subpPart)};
+  if (!ancestor->AddSubmodule(name, &CurrScope())) {
+    Say(name, "Module '%s' already has a submodule named '%s'"_err_en_US,
+        ancestorName, name);
+  }
+  MakeSymbol(name, symbol.get<ModuleDetails>());
+  return true;
+}
+void ModuleVisitor::Post(const parser::Submodule &) {
+  PopScope();  // submodule's scope
+  PopScope();  // parent's scope
+}
+
 bool ModuleVisitor::Pre(const parser::Module &x) {
   // Make a symbol and push a scope for this module
   const auto &name{
-      std::get<parser::Statement<parser::ModuleStmt>>(x.t).statement.v};
-  auto &symbol{MakeSymbol(name, ModuleDetails{})};
-  ModuleDetails &details{symbol.get<ModuleDetails>()};
-  Scope &modScope{PushScope(Scope::Kind::Module, &symbol)};
-  details.set_scope(&modScope);
-  MakeSymbol(name, ModuleDetails{details});
-  // collect module subprogram names
-  if (const auto &subpPart{
-          std::get<std::optional<parser::ModuleSubprogramPart>>(x.t)}) {
-    subpNamesOnly_ = SubprogramKind::Module;
-    parser::Walk(*subpPart, *static_cast<ResolveNamesVisitor *>(this));
-    subpNamesOnly_ = std::nullopt;
-  }
+      std::get<parser::Statement<parser::ModuleStmt>>(x.t).statement.v.source};
+  auto &subpPart{std::get<std::optional<parser::ModuleSubprogramPart>>(x.t)};
+  auto &symbol{BeginModule(name, false, subpPart)};
+  MakeSymbol(name, symbol.details());
   return true;
 }
 
@@ -1357,6 +1359,40 @@ void ModuleVisitor::Post(const parser::Module &) {
   ApplyDefaultAccess();
   PopScope();
   prevAccessStmt_ = nullptr;
+}
+
+Symbol &ModuleVisitor::BeginModule(const SourceName &name, bool isSubmodule,
+    const std::optional<parser::ModuleSubprogramPart> &subpPart) {
+  auto &symbol{MakeSymbol(name, ModuleDetails{isSubmodule})};
+  auto &details{symbol.get<ModuleDetails>()};
+  auto &modScope{PushScope(Scope::Kind::Module, &symbol)};
+  details.set_scope(&modScope);
+  if (subpPart) {
+    subpNamesOnly_ = SubprogramKind::Module;
+    parser::Walk(*subpPart, *static_cast<ResolveNamesVisitor *>(this));
+    subpNamesOnly_ = std::nullopt;
+  }
+  return symbol;
+}
+
+// Find a module or submodule by name and return its scope.
+// If ancestor is present, look for a submodule of that ancestor module.
+// May have to read a .mod file to find it.
+// If an error occurs, report it and return nullptr.
+Scope *ModuleVisitor::FindModule(const SourceName &name, Scope *ancestor) {
+  ModFileReader reader{searchDirectories_};
+  auto *scope{reader.Read(name, ancestor)};
+  if (!scope) {
+    for (auto &error : reader.errors()) {
+      Say(std::move(error));
+    }
+    return nullptr;
+  }
+  if (scope->kind() != Scope::Kind::Module) {
+    Say(name, "'%s' is not a module"_err_en_US);
+    return nullptr;
+  }
+  return scope;
 }
 
 void ModuleVisitor::ApplyDefaultAccess() {
@@ -1412,7 +1448,7 @@ bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
       details.set_derivedType(*genericSymbol_);
       EraseSymbol(*genericName);
       genericSymbol_ = &MakeSymbol(*genericName);
-      genericSymbol_->set_details(std::move(details));
+      genericSymbol_->set_details(details);
     } else if (!genericSymbol_->isSubprogram()) {
       SayAlreadyDeclared(*genericName, *genericSymbol_);
       EraseSymbol(*genericName);
@@ -1616,7 +1652,7 @@ bool SubprogramVisitor::Pre(const parser::StmtFunctionStmt &x) {
         }
       }
     }
-    details.add_dummyArg(MakeSymbol(dummyName, std::move(dummyDetails)));
+    details.add_dummyArg(MakeSymbol(dummyName, dummyDetails));
   }
   EraseSymbol(name.source);  // added by PushSubprogramScope
   EntityDetails resultDetails;
@@ -1776,7 +1812,7 @@ Symbol &SubprogramVisitor::PushSubprogramScope(
   }
   PushScope(Scope::Kind::Subprogram, symbol);
   // can't reuse this name inside subprogram:
-  MakeSymbol(name, SubprogramDetails(details)).set(subpFlag);
+  MakeSymbol(name, details).set(subpFlag);
   return *symbol;
 }
 
@@ -1922,7 +1958,7 @@ void DeclarationVisitor::Post(const parser::ObjectDecl &x) {
 }
 
 void DeclarationVisitor::DeclareProcEntity(
-    const parser::Name &name, Attrs attrs, ProcInterface &&interface) {
+    const parser::Name &name, Attrs attrs, const ProcInterface &interface) {
   Symbol &symbol{DeclareEntity<ProcEntityDetails>(name, attrs)};
   if (auto *details{symbol.detailsIf<ProcEntityDetails>()}) {
     if (interface.type()) {
@@ -1932,7 +1968,7 @@ void DeclarationVisitor::DeclareProcEntity(
               ? Symbol::Flag::Function
               : Symbol::Flag::Subroutine);
     }
-    details->set_interface(std::move(interface));
+    details->set_interface(interface);
     symbol.attrs().set(Attr::EXTERNAL);
   }
 }
@@ -2056,9 +2092,9 @@ void DeclarationVisitor::Post(const parser::ProcDecl &x) {
   }
   if (derivedTypeData_) {
     derivedTypeData_->procComps.emplace_back(
-        ProcDecl{name.source}, GetAttrs(), std::move(interface));
+        ProcDecl{name.source}, GetAttrs(), interface);
   } else {
-    DeclareProcEntity(name, GetAttrs(), std::move(interface));
+    DeclareProcEntity(name, GetAttrs(), interface);
   }
 }
 
@@ -2441,10 +2477,11 @@ void ResolveNamesVisitor::Post(const parser::Program &) {
   CHECK(!GetDeclTypeSpec());
 }
 
-void ResolveNames(parser::Program &program,
+void ResolveNames(Scope &rootScope, parser::Program &program,
     const parser::CookedSource &cookedSource,
     const std::vector<std::string> &searchDirectories) {
   ResolveNamesVisitor visitor;
+  visitor.set_rootScope(rootScope);
   for (auto &dir : searchDirectories) {
     visitor.add_searchDirectory(dir);
   }

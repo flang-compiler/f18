@@ -29,15 +29,18 @@ namespace Fortran::semantics {
 class Scope;
 class Symbol;
 
+// A module or submodule.
 class ModuleDetails {
 public:
+  ModuleDetails(bool isSubmodule = false) : isSubmodule_{isSubmodule} {}
+  bool isSubmodule() const { return isSubmodule_; }
   const Scope *scope() const { return scope_; }
-  void set_scope(const Scope *scope) {
-    CHECK(!scope_);
-    scope_ = scope;
-  }
+  const Scope *ancestor() const;  // for submodule; nullptr for module
+  const Scope *parent() const;  // for submodule; nullptr for module
+  void set_scope(const Scope *);
 
 private:
+  bool isSubmodule_;
   const Scope *scope_{nullptr};
 };
 
@@ -132,9 +135,7 @@ public:
 
   const ProcInterface &interface() const { return interface_; }
   ProcInterface &interface() { return interface_; }
-  void set_interface(ProcInterface &&interface) {
-    interface_ = std::move(interface);
-  }
+  void set_interface(const ProcInterface &interface) { interface_ = interface; }
   bool HasExplicitInterface() const;
 
 private:
@@ -276,7 +277,7 @@ public:
   const Details &details() const { return details_; }
   // Assign the details of the symbol from one of the variants.
   // Only allowed in certain cases.
-  void set_details(Details &&details);
+  void set_details(const Details &);
 
   // Can the details of this symbol be replaced with the given details?
   bool CanReplaceDetails(const Details &details) const;
@@ -322,12 +323,12 @@ std::ostream &operator<<(std::ostream &, Symbol::Flag);
 template<std::size_t BLOCK_SIZE> class Symbols {
 public:
   Symbol &Make(const Scope &owner, const SourceName &name, const Attrs &attrs,
-      Details &&details) {
+      const Details &details) {
     Symbol &symbol = Get();
     symbol.owner_ = &owner;
     symbol.occurrences_.push_back(name);
     symbol.attrs_ = attrs;
-    symbol.details_ = std::move(details);
+    symbol.details_ = details;
     return symbol;
   }
 
