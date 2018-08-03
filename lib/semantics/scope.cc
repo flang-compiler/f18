@@ -48,6 +48,17 @@ Scope::size_type Scope::erase(const SourceName &name) {
     return 0;
   }
 }
+Scope *Scope::FindSubmodule(const SourceName &name) const {
+  auto it{submodules_.find(name)};
+  if (it == submodules_.end()) {
+    return nullptr;
+  } else {
+    return it->second;
+  }
+}
+bool Scope::AddSubmodule(const SourceName &name, Scope *submodule) {
+  return submodules_.emplace(name, submodule).second;
+}
 DerivedTypeSpec &Scope::MakeDerivedTypeSpec(const SourceName &name) {
   derivedTypeSpecs_.emplace_back(name);
   return derivedTypeSpecs_.back();

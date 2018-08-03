@@ -24,6 +24,9 @@
 #include <ostream>
 #include <set>
 #include <sstream>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <vector>
 
 namespace Fortran::semantics {
@@ -34,14 +37,16 @@ using namespace parser::literals;
 static constexpr auto extension{".mod"};
 // The initial characters of a file that identify it as a .mod file.
 static constexpr auto magic{"!mod$"};
-// Construct the path to a module file.
-static std::string ModFilePath(const std::string &, const std::string &);
+
 // Helpers for creating error messages.
 static parser::Message Error(
     const SourceName &, parser::MessageFixedText, const std::string &);
 static parser::Message Error(const SourceName &, parser::MessageFixedText,
     const std::string &, const std::string &);
 
+static const SourceName *GetSubmoduleParent(const parser::Program &);
+static std::string ModFilePath(
+    const std::string &, const SourceName &, const std::string &);
 static void PutEntity(std::ostream &, const Symbol &);
 static void PutObjectEntity(std::ostream &, const Symbol &);
 static void PutProcEntity(std::ostream &, const Symbol &);
@@ -52,43 +57,69 @@ static std::ostream &PutLower(std::ostream &, const Symbol &);
 static std::ostream &PutLower(std::ostream &, const DeclTypeSpec &);
 static std::ostream &PutLower(std::ostream &, const std::string &);
 static std::string CheckSum(const std::string &);
+static bool MakeReadonly(const std::string &);
 
 bool ModFileWriter::WriteAll() {
-  for (const auto &scope : Scope::globalScope.children()) {
-    if (scope.kind() == Scope::Kind::Module) {
-      auto &symbol{*scope.symbol()};  // symbol must be present for module
-      if (!symbol.test(Symbol::Flag::ModFile)) {
-        WriteOne(symbol);
-      }
-    }
-  }
+  WriteChildren(Scope::globalScope);
   return errors_.empty();
 }
 
-bool ModFileWriter::WriteOne(const Symbol &modSymbol) {
-  CHECK(modSymbol.has<ModuleDetails>());
-  auto name{parser::ToLowerCaseLetters(modSymbol.name().ToString())};
-  std::string path{ModFilePath(dir_, name)};
+void ModFileWriter::WriteChildren(const Scope &scope) {
+  for (const auto &child : scope.children()) {
+    WriteOne(child);
+  }
+}
+
+void ModFileWriter::WriteOne(const Scope &scope) {
+  if (scope.kind() == Scope::Kind::Module) {
+    auto *symbol{scope.symbol()};
+    if (!symbol->test(Symbol::Flag::ModFile)) {
+      Write(*symbol);
+    }
+    WriteChildren(scope);  // write out submodules
+  }
+}
+
+// Write the module file for symbol, which must be a module or submodule.
+void ModFileWriter::Write(const Symbol &symbol) {
+  auto *ancestor{symbol.get<ModuleDetails>().ancestor()};
+  auto ancestorName{ancestor ? ancestor->name().ToString() : ""s};
+  auto path{ModFilePath(dir_, symbol.name(), ancestorName)};
+  unlink(path.data());
   std::ofstream os{path};
-  PutSymbols(*modSymbol.scope());
-  std::string all{GetAsString(name)};
+  PutSymbols(*symbol.scope());
+  std::string all{GetAsString(symbol)};
   auto header{GetHeader(all)};
   os << header << all;
   os.close();
   if (!os) {
     errors_.emplace_back(
         "Error writing %s: %s"_err_en_US, path.c_str(), std::strerror(errno));
-    return false;
+    return;
   }
-  return true;
+  if (!MakeReadonly(path)) {
+    errors_.emplace_back("Error changing permissions on %s: %s"_en_US,
+        path.c_str(), std::strerror(errno));
+  }
 }
 
 // Return the entire body of the module file
 // and clear saved uses, decls, and contains.
-std::string ModFileWriter::GetAsString(const std::string &name) {
+std::string ModFileWriter::GetAsString(const Symbol &symbol) {
   std::stringstream all;
-  all << "module " << name << '\n';
-  all << uses_.str();
+  auto &details{symbol.get<ModuleDetails>()};
+  if (!details.isSubmodule()) {
+    PutLower(all << "module ", symbol);
+  } else {
+    auto *parent{details.parent()->symbol()};
+    auto *ancestor{details.ancestor()->symbol()};
+    PutLower(all << "submodule(", *ancestor);
+    if (parent != ancestor) {
+      PutLower(all << ':', *parent);
+    }
+    PutLower(all << ") ", symbol);
+  }
+  all << '\n' << uses_.str();
   uses_.str(""s);
   all << useExtraAttrs_.str();
   useExtraAttrs_.str(""s);
@@ -348,10 +379,22 @@ std::string CheckSum(const std::string &str) {
   return result;
 }
 
-bool ModFileReader::Read(const SourceName &modName) {
-  auto path{FindModFile(modName)};
+Scope *ModFileReader::Read(const SourceName &name, Scope *ancestor) {
+  std::string ancestorName;  // empty for module
+  if (ancestor) {
+    if (auto *scope{ancestor->FindSubmodule(name)}) {
+      return scope;
+    }
+    ancestorName = ancestor->name().ToString();
+  } else {
+    auto it{Scope::globalScope.find(name)};
+    if (it != Scope::globalScope.end()) {
+      return it->second->scope();
+    }
+  }
+  auto path{FindModFile(name, ancestorName)};
   if (!path.has_value()) {
-    return false;
+    return nullptr;
   }
   // TODO: Construct parsing with an AllSources reference to share provenance
   parser::Parsing parsing;
@@ -363,56 +406,98 @@ bool ModFileReader::Read(const SourceName &modName) {
   if (!parsing.messages().empty() || !parsing.consumedWholeFile() ||
       !parseTree.has_value()) {
     errors_.push_back(
-        Error(modName, "Module file for '%s' is corrupt: %s"_err_en_US,
-            modName.ToString(), *path));
-    return false;
+        Error(name, "Module file for '%s' is corrupt: %s"_err_en_US,
+            name.ToString(), *path));
+    return nullptr;
   }
-  ResolveNames(*parseTree, parsing.cooked(), directories_);
-
-  const auto &it{Scope::globalScope.find(modName)};
-  if (it == Scope::globalScope.end()) {
-    return false;
+  Scope *parentScope;  // the scope this module/submodule goes into
+  if (!ancestor) {
+    parentScope = &Scope::globalScope;
+  } else if (auto *parent{GetSubmoduleParent(*parseTree)}) {
+    parentScope = Read(*parent, ancestor);
+  } else {
+    parentScope = ancestor;
+  }
+  ResolveNames(*parentScope, *parseTree, parsing.cooked(), directories_);
+  const auto &it{parentScope->find(name)};
+  if (it == parentScope->end()) {
+    return nullptr;
   }
   auto &modSymbol{*it->second};
   // TODO: Preserve the CookedSource rather than acquiring its string.
   modSymbol.scope()->set_chars(std::string{parsing.cooked().AcquireData()});
   modSymbol.set(Symbol::Flag::ModFile);
-  return true;
+  return modSymbol.scope();
 }
 
-// Look for the .mod file for this module in the search directories.
-// Add to errors_ if not found.
 std::optional<std::string> ModFileReader::FindModFile(
-    const SourceName &modName) {
-  auto error{Error(modName, "Cannot find module file for '%s'"_err_en_US,
-      modName.ToString())};
+    const SourceName &name, const std::string &ancestor) {
+  std::vector<parser::Message> errors;
   for (auto &dir : directories_) {
-    std::string path{ModFilePath(dir, modName.ToString())};
+    std::string path{ModFilePath(dir, name, ancestor)};
     std::ifstream ifstream{path};
     if (!ifstream.good()) {
-      error.Attach(Error(
-          modName, "%s: %s"_en_US, path, std::string{std::strerror(errno)}));
+      errors.push_back(
+          Error(name, "%s: %s"_en_US, path, std::string{std::strerror(errno)}));
     } else {
       std::string line;
       ifstream >> line;
       if (std::equal(line.begin(), line.end(), std::string{magic}.begin())) {
-        // TODO: verify reset of header line: version, checksum, etc.
-        return path;  // success
+        // TODO: verify rest of header line: version, checksum, etc.
+        return path;
       }
-      error.Attach(Error(modName, "%s: Not a valid module file"_en_US, path));
+      errors.push_back(Error(name, "%s: Not a valid module file"_en_US, path));
     }
+  }
+  auto error{Error(name,
+      ancestor.empty()
+          ? "Cannot find module file for '%s'"_err_en_US
+          : "Cannot find module file for submodule '%s' of module '%s'"_err_en_US,
+      name.ToString(), ancestor)};
+  for (auto &e : errors) {
+    error.Attach(e);
   }
   errors_.push_back(error);
   return std::nullopt;
 }
 
-static std::string ModFilePath(
-    const std::string &dir, const std::string &modName) {
-  if (dir == "."s) {
-    return modName + extension;
+// program was read from a .mod file for a submodule; return the name of the
+// submodule's parent submodule, nullptr if none.
+static const SourceName *GetSubmoduleParent(const parser::Program &program) {
+  CHECK(program.v.size() == 1);
+  auto &unit{program.v.front()};
+  auto &submod{std::get<common::Indirection<parser::Submodule>>(unit.u)};
+  auto &stmt{std::get<parser::Statement<parser::SubmoduleStmt>>(submod->t)};
+  auto &parentId{std::get<parser::ParentIdentifier>(stmt.statement.t)};
+  if (auto &parent{std::get<std::optional<parser::Name>>(parentId.t)}) {
+    return &parent->source;
   } else {
-    return dir + '/' + modName + extension;
+    return nullptr;
   }
+}
+
+// Construct the path to a module file. ancestorName not empty means submodule.
+static std::string ModFilePath(const std::string &dir, const SourceName &name,
+    const std::string &ancestorName) {
+  std::stringstream path;
+  if (dir != "."s) {
+    path << dir << '/';
+  }
+  if (!ancestorName.empty()) {
+    PutLower(path, ancestorName) << '-';
+  }
+  PutLower(path, name.ToString()) << extension;
+  return path.str();
+}
+
+static bool MakeReadonly(const std::string &path) {
+  struct stat statbuf;
+  if (stat(path.c_str(), &statbuf) != 0) {
+    return false;
+  }
+  auto mode{statbuf.st_mode};
+  mode &= S_IRUSR | S_IRGRP | S_IROTH;
+  return chmod(path.data(), mode) == 0;
 }
 
 static parser::Message Error(const SourceName &location,
