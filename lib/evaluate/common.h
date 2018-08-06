@@ -26,7 +26,7 @@ namespace Fortran::evaluate {
 ENUM_CLASS(Ordering, Less, Equal, Greater)
 ENUM_CLASS(Relation, Less, Equal, Greater, Unordered)
 
-static constexpr Ordering CompareUnsigned(std::uint64_t x, std::uint64_t y) {
+template<typename A> static constexpr Ordering Compare(const A &x, const A &y) {
   if (x < y) {
     return Ordering::Less;
   } else if (x > y) {
@@ -81,6 +81,8 @@ template<typename A> struct ValueWithRealFlags {
 };
 
 ENUM_CLASS(Rounding, TiesToEven, ToZero, Down, Up, TiesAwayFromZero)
+
+static constexpr Rounding defaultRounding{Rounding::TiesToEven};
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 constexpr bool IsHostLittleEndian{false};

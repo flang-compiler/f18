@@ -102,7 +102,7 @@ public:
 
   struct PowerWithErrors {
     Integer power;
-    bool divisionByZero, overflow, zeroToZero;
+    bool divisionByZero{false}, overflow{false}, zeroToZero{false};
   };
 
   // Constructors and value-generating static functions
@@ -431,7 +431,7 @@ public:
 
   constexpr std::int64_t ToInt64() const {
     std::int64_t signExtended = ToUInt64();
-    if (bits < 64) {
+    if constexpr (bits < 64) {
       signExtended |= -(signExtended >> (bits - 1)) << bits;
     }
     return signExtended;
