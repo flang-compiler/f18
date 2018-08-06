@@ -43,7 +43,7 @@ Relation Real<W, P, IM>::Compare(const Real &y) const {
       }
     } else {
       // same sign
-      Ordering order{CompareUnsigned(Exponent(), y.Exponent())};
+      Ordering order{evaluate::Compare(Exponent(), y.Exponent())};
       if (order == Ordering::Equal) {
         order = GetSignificand().CompareUnsigned(y.GetSignificand());
       }
@@ -60,7 +60,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Add(
     const Real &y, Rounding rounding) const {
   ValueWithRealFlags<Real> result;
   if (IsNotANumber() || y.IsNotANumber()) {
-    result.value.word_ = NaNWord();  // NaN + x -> NaN
+    result.value = NotANumber();  // NaN + x -> NaN
     if (IsSignalingNaN() || y.IsSignalingNaN()) {
       result.flags.set(RealFlag::InvalidArgument);
     }
@@ -73,7 +73,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Add(
       if (isNegative == yIsNegative) {
         result.value = *this;  // +/-Inf + +/-Inf -> +/-Inf
       } else {
-        result.value.word_ = NaNWord();  // +/-Inf + -/+Inf -> NaN
+        result.value = NotANumber();  // +/-Inf + -/+Inf -> NaN
         result.flags.set(RealFlag::InvalidArgument);
       }
     } else {
@@ -140,7 +140,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Multiply(
     const Real &y, Rounding rounding) const {
   ValueWithRealFlags<Real> result;
   if (IsNotANumber() || y.IsNotANumber()) {
-    result.value.word_ = NaNWord();  // NaN * x -> NaN
+    result.value = NotANumber();  // NaN * x -> NaN
     if (IsSignalingNaN() || y.IsSignalingNaN()) {
       result.flags.set(RealFlag::InvalidArgument);
     }
@@ -148,10 +148,10 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Multiply(
     bool isNegative{IsNegative() != y.IsNegative()};
     if (IsInfinite() || y.IsInfinite()) {
       if (IsZero() || y.IsZero()) {
-        result.value.word_ = NaNWord();  // 0 * Inf -> NaN
+        result.value = NotANumber();  // 0 * Inf -> NaN
         result.flags.set(RealFlag::InvalidArgument);
       } else {
-        result.value.word_ = InfinityWord(isNegative);
+        result.value = Infinity(isNegative);
       }
     } else {
       auto product{GetFraction().MultiplyUnsigned(y.GetFraction())};
@@ -200,7 +200,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Divide(
     const Real &y, Rounding rounding) const {
   ValueWithRealFlags<Real> result;
   if (IsNotANumber() || y.IsNotANumber()) {
-    result.value.word_ = NaNWord();  // NaN / x -> NaN, x / NaN -> NaN
+    result.value = NotANumber();  // NaN / x -> NaN, x / NaN -> NaN
     if (IsSignalingNaN() || y.IsSignalingNaN()) {
       result.flags.set(RealFlag::InvalidArgument);
     }
@@ -208,17 +208,17 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Divide(
     bool isNegative{IsNegative() != y.IsNegative()};
     if (IsInfinite()) {
       if (y.IsInfinite()) {
-        result.value.word_ = NaNWord();  // Inf/Inf -> NaN
+        result.value = NotANumber();  // Inf/Inf -> NaN
         result.flags.set(RealFlag::InvalidArgument);
       } else {  // Inf/x -> Inf,  Inf/0 -> Inf
-        result.value.word_ = InfinityWord(isNegative);
+        result.value = Infinity(isNegative);
       }
     } else if (y.IsZero()) {
       if (IsZero()) {  // 0/0 -> NaN
-        result.value.word_ = NaNWord();
+        result.value = NotANumber();
         result.flags.set(RealFlag::InvalidArgument);
       } else {  // x/0 -> Inf, Inf/0 -> Inf
-        result.value.word_ = InfinityWord(isNegative);
+        result.value = Infinity(isNegative);
         result.flags.set(RealFlag::DivideByZero);
       }
     } else if (IsZero() || y.IsInfinite()) {  // 0/x, x/Inf -> 0

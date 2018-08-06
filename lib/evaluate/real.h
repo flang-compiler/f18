@@ -50,8 +50,8 @@ public:
   constexpr Real(const Real &) = default;
   constexpr Real(const Word &bits) : word_{bits} {}
   constexpr Real &operator=(const Real &) = default;
+  constexpr Real &operator=(Real &&) = default;
 
-  // TODO: facility to flush denormal results to zero
   // TODO AINT/ANINT, CEILING, FLOOR, DIM, MAX, MIN, DPROD, FRACTION
   // HUGE, INT/NINT, MAXEXPONENT, MINEXPONENT, NEAREST, OUT_OF_RANGE,
   // PRECISION, HUGE, TINY, RRSPACING/SPACING, SCALE, SET_EXPONENT, SIGN
@@ -87,20 +87,20 @@ public:
 
   Relation Compare(const Real &) const;
   ValueWithRealFlags<Real> Add(
-      const Real &, Rounding rounding = Rounding::TiesToEven) const;
+      const Real &, Rounding rounding = defaultRounding) const;
   ValueWithRealFlags<Real> Subtract(
-      const Real &y, Rounding rounding = Rounding::TiesToEven) const {
+      const Real &y, Rounding rounding = defaultRounding) const {
     return Add(y.Negate(), rounding);
   }
   ValueWithRealFlags<Real> Multiply(
-      const Real &, Rounding rounding = Rounding::TiesToEven) const;
+      const Real &, Rounding rounding = defaultRounding) const;
   ValueWithRealFlags<Real> Divide(
-      const Real &, Rounding rounding = Rounding::TiesToEven) const;
+      const Real &, Rounding rounding = defaultRounding) const;
 
   // SQRT(x**2 + y**2) but computed so as to avoid spurious overflow
   // TODO: needed for CABS
   ValueWithRealFlags<Real> HYPOT(
-      const Real &, Rounding rounding = Rounding::TiesToEven) const;
+      const Real &, Rounding rounding = defaultRounding) const;
 
   template<typename INT> constexpr INT EXPONENT() const {
     std::uint64_t exponent{Exponent()};
@@ -117,9 +117,33 @@ public:
     return epsilon;
   }
 
+  constexpr Real FlushDenormalToZero() const {
+    if (IsDenormal()) {
+      return Real{};
+    }
+    return *this;
+  }
+
+  // TODO: Configurable NotANumber representations
+  static constexpr Real NotANumber() {
+    return {Word{maxExponent}
+                .SHIFTL(significandBits)
+                .IBSET(significandBits - 1)
+                .IBSET(significandBits - 2)};
+  }
+
+  static constexpr Real Infinity(bool negative) {
+    Word infinity{maxExponent};
+    infinity = infinity.SHIFTL(significandBits);
+    if (negative) {
+      infinity = infinity.IBSET(infinity.bits - 1);
+    }
+    return {infinity};
+  }
+
   template<typename INT>
   static ValueWithRealFlags<Real> FromInteger(
-      const INT &n, Rounding rounding = Rounding::TiesToEven) {
+      const INT &n, Rounding rounding = defaultRounding) {
     bool isNegative{n.IsNegative()};
     INT absN{n};
     if (isNegative) {
@@ -207,7 +231,7 @@ public:
 
   template<typename A>
   static ValueWithRealFlags<Real> Convert(
-      const A &x, Rounding rounding = Rounding::TiesToEven) {
+      const A &x, Rounding rounding = defaultRounding) {
     bool isNegative{x.IsNegative()};
     A absX{x};
     if (isNegative) {
@@ -285,29 +309,12 @@ private:
     return greaterOrEqual;
   }
 
-  // TODO: Configurable NaN representations
-  static constexpr Word NaNWord() {
-    return Word{maxExponent}
-        .SHIFTL(significandBits)
-        .IBSET(significandBits - 1)
-        .IBSET(significandBits - 2);
-  }
-
-  static constexpr Word InfinityWord(bool negative) {
-    Word infinity{maxExponent};
-    infinity = infinity.SHIFTL(significandBits);
-    if (negative) {
-      infinity = infinity.IBSET(infinity.bits - 1);
-    }
-    return infinity;
-  }
-
   // Normalizes and marshals the fields of a floating-point number in place.
-  // The value is not a NaN, and a zero fraction means a zero value (i.e.,
+  // The value is a number, and a zero fraction means a zero value (i.e.,
   // a maximal exponent and zero fraction doesn't signify infinity, although
   // this member function will detect overflow and encode infinities).
   RealFlags Normalize(bool negative, std::uint64_t exponent,
-      const Fraction &fraction, Rounding rounding = Rounding::TiesToEven,
+      const Fraction &fraction, Rounding rounding = defaultRounding,
       RoundingBits *roundingBits = nullptr);
 
   // Rounds a result, if necessary, in place.

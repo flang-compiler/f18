@@ -56,7 +56,7 @@ public:
   constexpr explicit FailParser(MessageFixedText t) : text_{t} {}
   std::optional<A> Parse(ParseState &state) const {
     state.Say(text_);
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -123,7 +123,7 @@ public:
     ParseState forked{state};
     forked.set_deferMessages(true);
     if (parser_.Parse(forked)) {
-      return {};
+      return std::nullopt;
     }
     return {Success{}};
   }
@@ -149,7 +149,7 @@ public:
     if (parser_.Parse(forked).has_value()) {
       return {Success{}};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -327,7 +327,7 @@ template<typename... Ps> inline constexpr auto first(const Ps &... ps) {
   return AlternativesParser<Ps...>{ps...};
 }
 
-#if !__GNUC__ || __clang__
+#if !__GNUC__ || __clang__ || ((100 * __GNUC__ + __GNUC__MINOR__) >= 802)
 // Implement operator|| with first(), unless compiling with g++,
 // which can segfault at compile time and needs to continue to use
 // the original implementation of operator|| as of gcc-8.1.0.
@@ -335,7 +335,7 @@ template<typename PA, typename PB>
 inline constexpr auto operator||(const PA &pa, const PB &pb) {
   return first(pa, pb);
 }
-#else  // g++ only: original implementation
+#else  // g++ <= 8.1.0 only: original implementation
 // If a and b are parsers, then a || b returns a parser that succeeds if
 // a does so, or if a fails and b succeeds.  The result types of the parsers
 // must be the same type.  If a succeeds, b is not attempted.
@@ -491,7 +491,7 @@ public:
       }
       return {std::move(result)};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -626,7 +626,7 @@ public:
     if (std::optional<paType> ax{parser_.Parse(state)}) {
       return {function_(std::move(*ax))};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -653,7 +653,7 @@ public:
     if (std::optional<paType> ax{parser_.Parse(state)}) {
       return {functor_(std::move(*ax))};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -709,7 +709,7 @@ public:
         return {function_(std::move(*ax), std::move(*bx))};
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -741,7 +741,7 @@ public:
         return {function_(std::move(*ax), std::move(*bx))};
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -773,7 +773,7 @@ public:
         return result;
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -807,7 +807,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -845,7 +845,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -886,7 +886,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -929,7 +929,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -971,7 +971,7 @@ template<class T, typename PA> struct Construct01 {
     if (std::optional<Success>{parser_.Parse(state)}) {
       return {T{}};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -987,7 +987,7 @@ public:
     if (auto ax{parser_.Parse(state)}) {
       return {T(std::move(*ax))};
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1023,7 +1023,7 @@ public:
         return {T{std::move(*ax), std::move(*bx)}};
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1050,7 +1050,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1083,7 +1083,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1121,7 +1121,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1163,7 +1163,7 @@ public:
         }
       }
     }
-    return {};
+    return std::nullopt;
   }
 
 private:
@@ -1238,7 +1238,7 @@ template<bool pass> struct FixedParser {
     if (pass) {
       return {Success{}};
     }
-    return {};
+    return std::nullopt;
   }
 };
 
@@ -1256,7 +1256,7 @@ constexpr struct NextCh {
       return result;
     }
     state.Say("end of file"_err_en_US);
-    return {};
+    return std::nullopt;
   }
 } nextCh;
 
@@ -1271,7 +1271,7 @@ public:
   std::optional<resultType> Parse(ParseState &state) const {
     if (UserState * ustate{state.userState()}) {
       if (!ustate->features().IsEnabled(LF)) {
-        return {};
+        return std::nullopt;
       }
     }
     auto at{state.GetLocation()};
@@ -1303,7 +1303,7 @@ public:
   std::optional<resultType> Parse(ParseState &state) const {
     if (UserState * ustate{state.userState()}) {
       if (!ustate->features().IsEnabled(LF)) {
-        return {};
+        return std::nullopt;
       }
     }
     auto at{state.GetLocation()};
