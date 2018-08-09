@@ -33,13 +33,6 @@
 
 namespace Fortran::evaluate {
 
-CLASS_TRAIT(FoldableTrait);
-struct FoldingContext {
-  parser::ContextualMessages &messages;
-  Rounding rounding{defaultRounding};
-  bool flushDenormalsToZero{false};
-};
-
 // Helper base classes for packaging subexpressions.
 template<typename CRTP, typename RESULT, typename A = RESULT> class Unary {
 protected:
@@ -175,11 +168,15 @@ public:
   Expr(std::int64_t n) : u_{Scalar{n}} {}
   Expr(std::uint64_t n) : u_{Scalar{n}} {}
   Expr(int n) : u_{Scalar{n}} {}
+  Expr(const AnyKindIntegerExpr &x) : u_{ConvertInteger{x}} {}
+  Expr(AnyKindIntegerExpr &&x) : u_{ConvertInteger{std::move(x)}} {}
   template<int K>
   Expr(const IntegerExpr<K> &x) : u_{ConvertInteger{AnyKindIntegerExpr{x}}} {}
   template<int K>
   Expr(IntegerExpr<K> &&x)
     : u_{ConvertInteger{AnyKindIntegerExpr{std::move(x)}}} {}
+  Expr(const AnyKindRealExpr &x) : u_{ConvertReal{x}} {}
+  Expr(AnyKindRealExpr &&x) : u_{ConvertReal{std::move(x)}} {}
   template<int K>
   Expr(const RealExpr<K> &x) : u_{ConvertReal{AnyKindRealExpr{x}}} {}
   template<int K>
@@ -296,11 +293,15 @@ public:
 
   CLASS_BOILERPLATE(Expr)
   Expr(const Scalar &x) : u_{x} {}
+  Expr(const AnyKindIntegerExpr &x) : u_{ConvertInteger{x}} {}
+  Expr(AnyKindIntegerExpr &&x) : u_{ConvertInteger{std::move(x)}} {}
   template<int K>
   Expr(const IntegerExpr<K> &x) : u_{ConvertInteger{AnyKindIntegerExpr{x}}} {}
   template<int K>
   Expr(IntegerExpr<K> &&x)
     : u_{ConvertInteger{AnyKindIntegerExpr{std::move(x)}}} {}
+  Expr(const AnyKindRealExpr &x) : u_{ConvertReal{x}} {}
+  Expr(AnyKindRealExpr &&x) : u_{ConvertReal{std::move(x)}} {}
   template<int K>
   Expr(const RealExpr<K> &x) : u_{ConvertReal{AnyKindRealExpr{x}}} {}
   template<int K>
@@ -595,6 +596,12 @@ extern template class Expr<AnyKindType<TypeCategory::Complex>>;
 extern template class Expr<AnyKindType<TypeCategory::Character>>;
 extern template class Expr<AnyKindType<TypeCategory::Logical>>;
 
+// BOZ literal constants need to be wide enough to hold an integer or real
+// value of any supported kind.  They also need to be distinguishable from
+// other integer constants, since they are permitted to be used in only a
+// few situations.
+using BOZLiteralConstant = value::Integer<128>;
+
 // A completely generic expression, polymorphic across the intrinsic type
 // categories and each of their kinds.
 struct GenericExpr {
@@ -614,7 +621,7 @@ struct GenericExpr {
   std::optional<Scalar> Fold(FoldingContext &);
   int Rank() const { return 1; }  // TODO
   std::variant<AnyKindIntegerExpr, AnyKindRealExpr, AnyKindComplexExpr,
-      AnyKindCharacterExpr, AnyKindLogicalExpr>
+      AnyKindCharacterExpr, AnyKindLogicalExpr, BOZLiteralConstant>
       u;
 };
 
