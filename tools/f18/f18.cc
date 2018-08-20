@@ -24,6 +24,7 @@
 #include "../../lib/parser/unparse.h"
 #include "../../lib/semantics/dump-parse-tree.h"
 #include "../../lib/semantics/mod-file.h"
+#include "../../lib/semantics/resolve-labels.h"
 #include "../../lib/semantics/resolve-names.h"
 #include "../../lib/semantics/unparse-with-symbols.h"
 #include <cerrno>
@@ -213,6 +214,13 @@ std::string CompileFortran(
       directories.insert(directories.begin(), driver.moduleDirectory);
     }
     Fortran::semantics::ResolveNames(parseTree, parsing.cooked(), directories);
+    const auto& Cook = parsing.cooked();
+    bool Pass = Fortran::semantics::ValidateLabels(parseTree, Cook);
+    if (!Pass) {
+      std::cerr << "Semantic error(s), aborting\n";
+      exitStatus = EXIT_FAILURE;
+      return {};
+    }
     Fortran::semantics::ModFileWriter writer;
     writer.set_directory(driver.moduleDirectory);
     if (!writer.WriteAll()) {
