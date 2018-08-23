@@ -12,24 +12,19 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
+! Test that derived type component does not hide type in host.
+
+!DEF: /m Module
 module m
-  interface
-    module subroutine s()
-    end subroutine
-  end interface
-end
-
-submodule(m) s1
-end
-
-submodule(m) s2
-end
-
-submodule(m:s1) s3
-  integer x
-end
-
-!ERROR: Module 'm' already has a submodule named 's3'
-submodule(m:s2) s3
-  integer y
-end
+ !DEF: /m/t1 PUBLIC DerivedType
+ type :: t1
+ end type
+ !DEF: /m/t2 PUBLIC DerivedType
+ type :: t2
+  !DEF: /m/t2/t1 ObjectEntity INTEGER
+  integer :: t1
+  !DEF: /m/t2/x ObjectEntity TYPE(t1)
+  !REF: /m/t1
+  type(t1) :: x
+ end type
+end module

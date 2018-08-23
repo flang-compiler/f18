@@ -293,12 +293,12 @@ private:
 class ScopeHandler : public virtual ImplicitRulesVisitor {
 public:
   void set_rootScope(Scope &scope) { PushScope(scope); }
-  Scope &CurrScope() { return *scopes_.top(); }
+  Scope &currScope() { return *currScope_; }
   // Return the enclosing scope not corresponding to a derived type:
   Scope &CurrNonTypeScope();
 
   // Create a new scope and push it on the scope stack.
-  Scope &PushScope(Scope::Kind kind, Symbol *symbol);
+  void PushScope(Scope::Kind kind, Symbol *symbol);
   void PushScope(Scope &scope);
   void PopScope();
 
@@ -311,9 +311,9 @@ public:
       const SourceName &name, const Attrs &attrs, const D &details) {
     // Note: don't use FindSymbol here. If this is a derived type scope,
     // we want to detect if the name is already declared as a component.
-    const auto &it{CurrScope().find(name)};
-    if (it == CurrScope().end()) {
-      const auto pair{CurrScope().try_emplace(name, attrs, details)};
+    const auto &it{currScope().find(name)};
+    if (it == currScope().end()) {
+      const auto pair{currScope().try_emplace(name, attrs, details)};
       CHECK(pair.second);  // name was not found, so must be able to add
       return *pair.first->second;
     }
@@ -324,7 +324,7 @@ public:
         // derived type with same name as a generic
         auto *derivedType{d->derivedType()};
         if (!derivedType) {
-          derivedType = &CurrScope().MakeSymbol(name, attrs, details);
+          derivedType = &currScope().MakeSymbol(name, attrs, details);
           d->set_derivedType(*derivedType);
         } else {
           Say2(name, "'%s' is already declared in this scoping unit"_err_en_US,
@@ -375,8 +375,7 @@ protected:
   std::optional<const DeclTypeSpec> GetImplicitType(Symbol &);
 
 private:
-  // Stack of containing scopes; memory referenced is owned by parent scopes
-  std::stack<Scope *, std::list<Scope *>> scopes_;
+  Scope *currScope_{nullptr};
 };
 
 class ModuleVisitor : public virtual ScopeHandler {
@@ -641,10 +640,12 @@ public:
   void Post(const parser::FunctionReference &);
   bool Pre(const parser::CallStmt &);
   void Post(const parser::CallStmt &);
+  bool Pre(const parser::ImportStmt &);
 
 private:
   // Kind of procedure we are expecting to see in a ProcedureDesignator
   std::optional<Symbol::Flag> expectedProcFlag_;
+  const SourceName *prevImportStmt_{nullptr};
 
   const parser::Name *GetVariableName(const parser::DataRef &);
   const parser::Name *GetVariableName(const parser::Designator &);
@@ -655,6 +656,8 @@ private:
   const Symbol *ResolveStructureComponent(const parser::StructureComponent &x);
   const Symbol *ResolveDataRef(const parser::DataRef &x);
   const Symbol *FindComponent(const Symbol &base, const SourceName &component);
+  void CheckImports();
+  void CheckImport(const SourceName &, const SourceName &);
 };
 
 // ImplicitRules implementation
@@ -1145,34 +1148,26 @@ Bound ArraySpecVisitor::GetBound(const parser::SpecificationExpr &x) {
 // ScopeHandler implementation
 
 Scope &ScopeHandler::CurrNonTypeScope() {
-  auto &scope{CurrScope()};
+  auto &scope{currScope()};
   return scope.kind() == Scope::Kind::DerivedType ? scope.parent() : scope;
 }
-Scope &ScopeHandler::PushScope(Scope::Kind kind, Symbol *symbol) {
-  Scope &scope = CurrScope().MakeScope(kind, symbol);
-  PushScope(scope);
-  return scope;
+void ScopeHandler::PushScope(Scope::Kind kind, Symbol *symbol) {
+  PushScope(currScope().MakeScope(kind, symbol));
 }
 void ScopeHandler::PushScope(Scope &scope) {
-  scopes_.push(&scope);
+  currScope_ = &scope;
   ImplicitRulesVisitor::PushScope();
 }
 void ScopeHandler::PopScope() {
-  scopes_.pop();
+  currScope_ = &currScope_->parent();
   ImplicitRulesVisitor::PopScope();
 }
 
 Symbol *ScopeHandler::FindSymbol(const SourceName &name) {
-  Scope &scope{CurrNonTypeScope()};
-  const auto &it{scope.find(name)};
-  if (it == scope.end()) {
-    return nullptr;
-  } else {
-    return it->second;
-  }
+  return CurrNonTypeScope().FindSymbol(name);
 }
 void ScopeHandler::EraseSymbol(const SourceName &name) {
-  CurrScope().erase(name);
+  currScope().erase(name);
 }
 
 void ScopeHandler::ApplyImplicitRules(const SourceName &name, Symbol &symbol) {
@@ -1334,7 +1329,7 @@ bool ModuleVisitor::Pre(const parser::Submodule &x) {
   }
   PushScope(*parentScope);  // submodule is hosted in parent
   auto &symbol{BeginModule(name, true, subpPart)};
-  if (!ancestor->AddSubmodule(name, &CurrScope())) {
+  if (!ancestor->AddSubmodule(name, currScope())) {
     Say(name, "Module '%s' already has a submodule named '%s'"_err_en_US,
         ancestorName, name);
   }
@@ -1366,8 +1361,8 @@ Symbol &ModuleVisitor::BeginModule(const SourceName &name, bool isSubmodule,
     const std::optional<parser::ModuleSubprogramPart> &subpPart) {
   auto &symbol{MakeSymbol(name, ModuleDetails{isSubmodule})};
   auto &details{symbol.get<ModuleDetails>()};
-  auto &modScope{PushScope(Scope::Kind::Module, &symbol)};
-  details.set_scope(&modScope);
+  PushScope(Scope::Kind::Module, &symbol);
+  details.set_scope(&currScope());
   if (subpPart) {
     subpNamesOnly_ = SubprogramKind::Module;
     parser::Walk(*subpPart, *static_cast<ResolveNamesVisitor *>(this));
@@ -1395,7 +1390,7 @@ Scope *ModuleVisitor::FindModule(const SourceName &name, Scope *ancestor) {
 }
 
 void ModuleVisitor::ApplyDefaultAccess() {
-  for (auto &pair : CurrScope()) {
+  for (auto &pair : currScope()) {
     Symbol &symbol = *pair.second;
     if (!symbol.attrs().HasAny({Attr::PUBLIC, Attr::PRIVATE})) {
       symbol.attrs().set(defaultAccess_);
@@ -1643,8 +1638,8 @@ bool SubprogramVisitor::Pre(const parser::StmtFunctionStmt &x) {
   auto &details{symbol.get<SubprogramDetails>()};
   for (const auto &dummyName : std::get<std::list<parser::Name>>(x.t)) {
     EntityDetails dummyDetails{true};
-    auto it{CurrScope().parent().find(dummyName.source)};
-    if (it != CurrScope().parent().end()) {
+    auto it{currScope().parent().find(dummyName.source)};
+    if (it != currScope().parent().end()) {
       if (auto *d{it->second->detailsIf<EntityDetails>()}) {
         if (d->type()) {
           dummyDetails.set_type(*d->type());
@@ -1730,7 +1725,7 @@ bool SubprogramVisitor::Pre(const parser::FunctionStmt &stmt) {
 
 void SubprogramVisitor::Post(const parser::SubroutineStmt &stmt) {
   const auto &name{std::get<parser::Name>(stmt.t)};
-  Symbol &symbol{*CurrScope().symbol()};
+  Symbol &symbol{*currScope().symbol()};
   CHECK(name.source == symbol.name());
   symbol.attrs() |= EndAttrs();
   auto &details{symbol.get<SubprogramDetails>()};
@@ -1744,7 +1739,7 @@ void SubprogramVisitor::Post(const parser::SubroutineStmt &stmt) {
 
 void SubprogramVisitor::Post(const parser::FunctionStmt &stmt) {
   const auto &name{std::get<parser::Name>(stmt.t)};
-  Symbol &symbol{*CurrScope().symbol()};
+  Symbol &symbol{*currScope().symbol()};
   CHECK(name.source == symbol.name());
   symbol.attrs() |= EndAttrs();
   auto &details{symbol.get<SubprogramDetails>()};
@@ -1827,7 +1822,7 @@ Symbol *SubprogramVisitor::GetSpecificFromGeneric(const SourceName &name) {
         } else {
           symbol->remove_occurrence(name);
           specific =
-              &CurrScope().MakeSymbol(name, Attrs{}, SubprogramDetails{});
+              &currScope().MakeSymbol(name, Attrs{}, SubprogramDetails{});
           SetSpecificInGeneric(*specific);
         }
       }
@@ -1919,7 +1914,7 @@ bool DeclarationVisitor::Pre(const parser::VolatileStmt &x) {
 bool DeclarationVisitor::HandleAttributeStmt(
     Attr attr, const std::list<parser::Name> &names) {
   for (const auto &name : names) {
-    const auto pair{CurrScope().try_emplace(name.source, Attrs{attr})};
+    const auto pair{currScope().try_emplace(name.source, Attrs{attr})};
     if (!pair.second) {
       // symbol was already there: set attribute on it
       Symbol &symbol{*pair.first->second};
@@ -2008,7 +2003,7 @@ void DeclarationVisitor::Post(const parser::DeclarationTypeSpec::Type &x) {
 }
 bool DeclarationVisitor::Pre(const parser::DerivedTypeSpec &x) {
   auto &name{std::get<parser::Name>(x.t).source};
-  auto &derivedTypeSpec{CurrScope().MakeDerivedTypeSpec(name)};
+  auto &derivedTypeSpec{currScope().MakeDerivedTypeSpec(name)};
   BeginDerivedTypeSpec(derivedTypeSpec);
   return true;
 }
@@ -2152,6 +2147,42 @@ void ResolveNamesVisitor::Post(const parser::CallStmt &) {
   expectedProcFlag_ = std::nullopt;
 }
 
+bool ResolveNamesVisitor::Pre(const parser::ImportStmt &x) {
+  auto &scope{currScope()};
+  // Check C896 and C899: where IMPORT statements are allowed
+  switch (scope.kind()) {
+  case Scope::Kind::Module:
+    if (!scope.symbol()->get<ModuleDetails>().isSubmodule()) {
+      Say("IMPORT is not allowed in a module scoping unit"_err_en_US);
+      return false;
+    } else if (x.kind == common::ImportKind::None) {
+      Say("IMPORT,NONE is not allowed in a submodule scoping unit"_err_en_US);
+      return false;
+    }
+    break;
+  case Scope::Kind::MainProgram:
+    Say("IMPORT is not allowed in a main program scoping unit"_err_en_US);
+    return false;
+  case Scope::Kind::Subprogram:
+    if (scope.parent().kind() == Scope::Kind::Global) {
+      Say("IMPORT is not allowed in an external subprogram scoping unit"_err_en_US);
+      return false;
+    }
+    break;
+  default:;
+  }
+  if (auto error{scope.SetImportKind(x.kind)}) {
+    Say(std::move(*error));
+  }
+  for (auto &name : x.names) {
+    if (!scope.add_importName(name.source)) {
+      Say(name, "'%s' not found in host scope"_err_en_US);
+    }
+  }
+  prevImportStmt_ = currStmtSource();
+  return false;
+}
+
 bool ResolveNamesVisitor::CheckUseError(
     const SourceName &name, const Symbol &symbol) {
   const auto *details{symbol.detailsIf<UseErrorDetails>()};
@@ -2288,11 +2319,15 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
         Say2(name->source,
             "Cannot call subroutine '%s' like a function"_err_en_US,
             symbol->name(), "Declaration of '%s'"_en_US);
-      } else if (symbol->detailsIf<ProcEntityDetails>()) {
+      } else if (symbol->has<ProcEntityDetails>()) {
         symbol->set(*expectedProcFlag_);  // in case it hasn't been set yet
-      } else if (symbol->detailsIf<GenericDetails>()) {
+      } else if (symbol->has<SubprogramDetails>()) {
         // OK
-      } else if (symbol->detailsIf<DerivedTypeDetails>()) {
+      } else if (symbol->has<SubprogramNameDetails>()) {
+        // OK
+      } else if (symbol->has<GenericDetails>()) {
+        // OK
+      } else if (symbol->has<DerivedTypeDetails>()) {
         // OK: type constructor
       } else {
         Say2(name->source,
@@ -2305,7 +2340,7 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
 
 bool ModuleVisitor::Pre(const parser::AccessStmt &x) {
   Attr accessAttr = AccessSpecToAttr(std::get<parser::AccessSpec>(x.t));
-  if (CurrScope().kind() != Scope::Kind::Module) {
+  if (currScope().kind() != Scope::Kind::Module) {
     Say(*currStmtSource(),
         "%s statement may only appear in the specification part of a module"_err_en_US,
         EnumToString(accessAttr));
@@ -2373,9 +2408,10 @@ static bool NeedsExplicitType(const Symbol &symbol) {
   }
 }
 
-void ResolveNamesVisitor::Post(const parser::SpecificationPart &s) {
+void ResolveNamesVisitor::Post(const parser::SpecificationPart &) {
   badStmtFuncFound_ = false;
-  for (auto &pair : CurrScope()) {
+  CheckImports();
+  for (auto &pair : currScope()) {
     auto &name{pair.first};
     auto &symbol{*pair.second};
     if (NeedsExplicitType(symbol)) {
@@ -2391,15 +2427,56 @@ void ResolveNamesVisitor::Post(const parser::SpecificationPart &s) {
   }
 }
 
+void ResolveNamesVisitor::CheckImports() {
+  auto &scope{currScope()};
+  switch (scope.GetImportKind()) {
+  case common::ImportKind::None: break;
+  case common::ImportKind::All:
+    // C8102: all entities in host must not be hidden
+    for (const auto &pair : scope.parent()) {
+      auto &name{pair.first};
+      if (name != scope.name()) {
+        CheckImport(*prevImportStmt_, name);
+      }
+    }
+    break;
+  case common::ImportKind::Default:
+  case common::ImportKind::Only:
+    // C8102: entities named in IMPORT must not be hidden
+    for (auto &name : scope.importNames()) {
+      CheckImport(name, name);
+    }
+    break;
+  }
+}
+
+void ResolveNamesVisitor::CheckImport(
+    const SourceName &location, const SourceName &name) {
+  auto &scope{currScope()};
+  auto it{scope.find(name)};
+  if (it != scope.end()) {
+    Say(location, "'%s' from host is not accessible"_err_en_US,
+        name.ToString().c_str())
+        .Attach(it->second->name(), "'%s' is hidden by this entity"_en_US,
+            it->second->name().ToString().c_str());
+  }
+}
+
 bool ResolveNamesVisitor::Pre(const parser::MainProgram &x) {
   using stmtType = std::optional<parser::Statement<parser::ProgramStmt>>;
-  if (const stmtType &stmt = std::get<stmtType>(x.t)) {
+  if (auto &stmt{std::get<stmtType>(x.t)}) {
     const parser::Name &name{stmt->statement.v};
     Symbol &symbol{MakeSymbol(name, MainProgramDetails{})};
     PushScope(Scope::Kind::MainProgram, &symbol);
     MakeSymbol(name, MainProgramDetails{});
   } else {
     PushScope(Scope::Kind::MainProgram, nullptr);
+  }
+  if (auto &subpPart{
+          std::get<std::optional<parser::InternalSubprogramPart>>(x.t)}) {
+    subpNamesOnly_ = SubprogramKind::Internal;
+    parser::Walk(*subpPart, *static_cast<ResolveNamesVisitor *>(this));
+    subpNamesOnly_ = std::nullopt;
   }
   return true;
 }
