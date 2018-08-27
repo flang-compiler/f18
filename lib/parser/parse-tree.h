@@ -28,6 +28,7 @@
 #include "format-specification.h"
 #include "message.h"
 #include "provenance.h"
+#include "../common/fortran.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include <cinttypes>
@@ -119,8 +120,7 @@ struct GenericExpr;
     WRAPPER_CLASS_BOILERPLATE(classname, type); \
   }
 
-namespace Fortran {
-namespace parser {
+namespace Fortran::parser {
 
 // These are the unavoidable recursively-defined productions of Fortran.
 // Some references to the representations of their parses require
@@ -572,11 +572,10 @@ using ObjectName = Name;
 //        IMPORT , ONLY : import-name-list | IMPORT , NONE | IMPORT , ALL
 struct ImportStmt {
   BOILERPLATE(ImportStmt);
-  ENUM_CLASS(Kind, Default, Only, None, All)
-  ImportStmt(Kind &&k) : kind{k} {}
+  ImportStmt(common::ImportKind &&k) : kind{k} {}
   ImportStmt(std::list<Name> &&n) : names(std::move(n)) {}
-  ImportStmt(Kind &&, std::list<Name> &&);
-  Kind kind{Kind::Default};
+  ImportStmt(common::ImportKind &&, std::list<Name> &&);
+  common::ImportKind kind{common::ImportKind::Default};
   std::list<Name> names;
 };
 
@@ -821,7 +820,9 @@ struct LogicalLiteralConstant {
 // R766 octal-constant -> O ' digit [digit]... ' | O " digit [digit]... "
 // R767 hex-constant ->
 //        Z ' hex-digit [hex-digit]... ' | Z " hex-digit [hex-digit]... "
-WRAPPER_CLASS(BOZLiteralConstant, std::uint64_t);
+// The constant must be large enough to hold any real or integer scalar
+// of any supported kind (F'2018 7.7).
+WRAPPER_CLASS(BOZLiteralConstant, std::string);
 
 // R605 literal-constant ->
 //        int-literal-constant | real-literal-constant |
@@ -3701,6 +3702,5 @@ struct OpenMPConstruct {
       u;
 };
 
-}  // namespace parser
-}  // namespace Fortran
+}  // namespace Fortran::parser
 #endif  // FORTRAN_PARSER_PARSE_TREE_H_

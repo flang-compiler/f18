@@ -17,12 +17,17 @@
 
 #include "attr.h"
 #include "symbol.h"
+#include "../common/fortran.h"
 #include "../common/idioms.h"
+#include "../parser/message.h"
 #include <list>
 #include <map>
+#include <set>
 #include <string>
 
 namespace Fortran::semantics {
+
+using namespace parser::literals;
 
 class Scope {
   using mapType = std::map<SourceName, Symbol *>;
@@ -33,6 +38,7 @@ public:
   static Scope globalScope;  // contains program-units
 
   ENUM_CLASS(Kind, System, Global, Module, MainProgram, Subprogram, DerivedType)
+  using ImportKind = common::ImportKind;
 
   Scope(Scope &parent, Kind kind, Symbol *symbol)
     : parent_{parent}, kind_{kind}, symbol_{symbol} {
@@ -40,6 +46,9 @@ public:
       symbol->set_scope(this);
     }
   }
+
+  bool operator==(const Scope &that) const { return this == &that; }
+  bool operator!=(const Scope &that) const { return this != &that; }
 
   Scope &parent() {
     CHECK(kind_ != Kind::System);
@@ -76,6 +85,9 @@ public:
   const_iterator find(const SourceName &name) const;
   size_type erase(const SourceName &);
 
+  // Look for symbol by name in this scope and host (depending on imports).
+  Symbol *FindSymbol(const SourceName &);
+
   /// Make a Symbol with unknown details.
   std::pair<iterator, bool> try_emplace(
       const SourceName &name, Attrs attrs = Attrs()) {
@@ -91,7 +103,7 @@ public:
   std::pair<iterator, bool> try_emplace(
       const SourceName &name, Attrs attrs, D &&details) {
     Symbol &symbol{MakeSymbol(name, attrs, std::move(details))};
-    return symbols_.insert(std::make_pair(name, &symbol));
+    return symbols_.emplace(name, &symbol);
   }
 
   /// Make a Symbol but don't add it to the scope.
@@ -103,13 +115,26 @@ public:
   std::list<Scope> &children() { return children_; }
   const std::list<Scope> &children() const { return children_; }
 
+  // For Module scope, maintain a mapping of all submodule scopes with this
+  // module as its ancestor module. AddSubmodule returns false if already there.
+  Scope *FindSubmodule(const SourceName &) const;
+  bool AddSubmodule(const SourceName &, Scope &);
+
   DerivedTypeSpec &MakeDerivedTypeSpec(const SourceName &);
 
   // For modules read from module files, this is the stream of characters
   // that are referenced by SourceName objects.
-  void set_chars(std::string &&chars) {
-    chars_ = std::move(chars);
-  }
+  void set_chars(std::string &&chars) { chars_ = std::move(chars); }
+
+  ImportKind GetImportKind() const;
+  // Names appearing in IMPORT statements in this scope
+  std::set<SourceName> importNames() const { return importNames_; }
+
+  // Set the kind of imports from host into this scope.
+  // Return an error message for incompatible kinds.
+  std::optional<parser::MessageFixedText> SetImportKind(ImportKind);
+
+  bool add_importName(const SourceName &);
 
 private:
   Scope &parent_;
@@ -117,12 +142,17 @@ private:
   Symbol *const symbol_;
   std::list<Scope> children_;
   mapType symbols_;
+  std::map<SourceName, Scope *> submodules_;
   std::list<DerivedTypeSpec> derivedTypeSpecs_;
   std::string chars_;
+  std::optional<ImportKind> importKind_;
+  std::set<SourceName> importNames_;
 
   // Storage for all Symbols. Every Symbol is in allSymbols and every Symbol*
   // or Symbol& points to one in there.
   static Symbols<1024> allSymbols;
+
+  bool CanImport(const SourceName &) const;
 
   friend std::ostream &operator<<(std::ostream &, const Scope &);
 };

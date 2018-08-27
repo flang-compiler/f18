@@ -64,6 +64,7 @@ public:
     return IntExpr();  // TODO
   }
   IntExpr() {}
+  virtual ~IntExpr();
   virtual std::ostream &Output(std::ostream &o) const { return o << "IntExpr"; }
 };
 
@@ -116,8 +117,8 @@ public:
 private:
   enum Category { Explicit, Deferred, Assumed };
   Bound(Category category) : category_{category}, expr_{std::nullopt} {}
-  const Category category_;
-  const std::optional<IntExpr> expr_;
+  Category category_;
+  std::optional<IntExpr> expr_;
   friend std::ostream &operator<<(std::ostream &, const Bound &);
 };
 
@@ -324,8 +325,8 @@ public:
 
 private:
   ShapeSpec(const Bound &lb, const Bound &ub) : lb_{lb}, ub_{ub} {}
-  const Bound lb_;
-  const Bound ub_;
+  Bound lb_;
+  Bound ub_;
   friend std::ostream &operator<<(std::ostream &, const ShapeSpec &);
 };
 
@@ -365,17 +366,14 @@ class Symbol;
 // or neither.
 class ProcInterface {
 public:
-  ProcInterface() = default;
-  ProcInterface(const ProcInterface &);
-  ProcInterface &operator=(ProcInterface &&);
   const Symbol *symbol() const { return symbol_; }
-  const DeclTypeSpec *type() const { return type_.get(); }
+  const DeclTypeSpec *type() const { return type_ ? &*type_ : nullptr; }
   void set_symbol(const Symbol &symbol);
   void set_type(const DeclTypeSpec &type);
 
 private:
   const Symbol *symbol_{nullptr};
-  std::unique_ptr<const DeclTypeSpec> type_;
+  std::optional<DeclTypeSpec> type_;
 };
 
 class ProcDecl {
@@ -393,7 +391,7 @@ private:
 class ProcComponentDef {
 public:
   ProcComponentDef(
-      const ProcDecl &decl, Attrs attrs, ProcInterface &&interface);
+      const ProcDecl &decl, Attrs attrs, const ProcInterface &interface);
 
   const ProcDecl &decl() const { return decl_; }
   const Attrs &attrs() const { return attrs_; }

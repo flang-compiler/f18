@@ -14,5 +14,12 @@
 
 add_library(FortranRuntime
   ISO_Fortran_binding.cc
+  derived-type.cc
   descriptor.cc
+  transformational.cc
+  type-code.cc
+)
+
+target_link_libraries(FortranRuntime
+  FortranEvaluate
 )

@@ -99,11 +99,12 @@ std::string MessageExpectedText::ToString() const {
       u_);
 }
 
-void MessageExpectedText::Incorporate(const MessageExpectedText &that) {
-  std::visit(common::visitors{[&](SetOfChars &s1, const SetOfChars &s2) {
-                                s1 = s1.Union(s2);
-                              },
-                 [](const auto &, const auto &) {}},
+bool MessageExpectedText::Merge(const MessageExpectedText &that) {
+  return std::visit(common::visitors{[](SetOfChars &s1, const SetOfChars &s2) {
+                                       s1 = s1.Union(s2);
+                                       return true;
+                                     },
+                        [](const auto &, const auto &) { return false; }},
       u_, that.u_);
 }
 
@@ -199,13 +200,16 @@ void Message::Emit(
   }
 }
 
-void Message::Incorporate(Message &that) {
-  std::visit(common::visitors{[&](MessageExpectedText &e1,
-                                  const MessageExpectedText &e2) {
-                                e1.Incorporate(e2);
-                              },
-                 [](const auto &, const auto &) {}},
-      text_, that.text_);
+bool Message::Merge(const Message &that) {
+  return AtSameLocation(that) &&
+      (!that.attachment_.get() ||
+          attachment_.get() == that.attachment_.get()) &&
+      std::visit(common::visitors{[](MessageExpectedText &e1,
+                                      const MessageExpectedText &e2) {
+                                    return e1.Merge(e2);
+                                  },
+                     [](const auto &, const auto &) { return false; }},
+          text_, that.text_);
 }
 
 void Message::Attach(Message *m) {
@@ -228,18 +232,38 @@ bool Message::AtSameLocation(const Message &that) const {
       location_, that.location_);
 }
 
-void Messages::Incorporate(Messages &that) {
+bool Messages::Merge(const Message &msg) {
+  if (msg.IsMergeable()) {
+    for (auto &m : messages_) {
+      if (m.Merge(msg)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void Messages::Merge(Messages &&that) {
   if (messages_.empty()) {
     *this = std::move(that);
-  } else if (!that.messages_.empty()) {
-    last_->Incorporate(*that.last_);
+  } else {
+    while (!that.messages_.empty()) {
+      if (Merge(that.messages_.front())) {
+        that.messages_.pop_front();
+      } else {
+        messages_.splice_after(
+            last_, that.messages_, that.messages_.before_begin());
+        ++last_;
+      }
+    }
+    that.ResetLastPointer();
   }
 }
 
 void Messages::Copy(const Messages &that) {
   for (const Message &m : that.messages_) {
     Message copy{m};
-    Put(std::move(copy));
+    Say(std::move(copy));
   }
 }
 
@@ -259,6 +283,12 @@ void Messages::Emit(
       [](const Message *x, const Message *y) { return x->SortBefore(*y); });
   for (const Message *msg : sorted) {
     msg->Emit(o, cooked, echoSourceLines);
+  }
+}
+
+void Messages::AttachTo(Message &msg) {
+  for (const Message &m : messages_) {
+    msg.Attach(m);
   }
 }
 

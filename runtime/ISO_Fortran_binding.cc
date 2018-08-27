@@ -16,7 +16,6 @@
 // as specified in section 18.5.5 of Fortran 2018.
 
 #include "descriptor.h"
-#include <cstdlib>
 
 namespace Fortran::ISO {
 extern "C" {
@@ -37,18 +36,22 @@ int CFI_allocate(CFI_cdesc_t *descriptor, const CFI_index_t lower_bounds[],
   if (descriptor->version != CFI_VERSION) {
     return CFI_INVALID_DESCRIPTOR;
   }
-  if ((descriptor->attribute &
-          ~(CFI_attribute_pointer | CFI_attribute_allocatable)) != 0) {
+  if (descriptor->attribute != CFI_attribute_allocatable &&
+      descriptor->attribute != CFI_attribute_pointer) {
     // Non-interoperable object
     return CFI_INVALID_DESCRIPTOR;
   }
-  if (descriptor->base_addr != nullptr) {
+  if (descriptor->attribute == CFI_attribute_allocatable &&
+      descriptor->base_addr != nullptr) {
     return CFI_ERROR_BASE_ADDR_NOT_NULL;
   }
   if (descriptor->rank > CFI_MAX_RANK) {
     return CFI_INVALID_RANK;
   }
-  // TODO: CFI_INVALID_TYPE?
+  if (descriptor->type < CFI_type_signed_char ||
+      descriptor->type > CFI_type_struct) {
+    return CFI_INVALID_TYPE;
+  }
   if (descriptor->type != CFI_type_cptr) {
     elem_len = descriptor->elem_len;
     if (elem_len <= 0) {
@@ -67,11 +70,12 @@ int CFI_allocate(CFI_cdesc_t *descriptor, const CFI_index_t lower_bounds[],
     dim->sm = byteSize;
     byteSize *= extent;
   }
-  void *p{std::malloc(byteSize)};
+  void *p{new char[byteSize]};
   if (p == nullptr) {
     return CFI_ERROR_MEM_ALLOCATION;
   }
   descriptor->base_addr = p;
+  descriptor->elem_len = elem_len;
   return CFI_SUCCESS;
 }
 
@@ -79,43 +83,93 @@ int CFI_deallocate(CFI_cdesc_t *descriptor) {
   if (descriptor->version != CFI_VERSION) {
     return CFI_INVALID_DESCRIPTOR;
   }
-  if ((descriptor->attribute &
-          ~(CFI_attribute_pointer | CFI_attribute_allocatable)) != 0) {
+  if (descriptor->attribute != CFI_attribute_allocatable &&
+      descriptor->attribute != CFI_attribute_pointer) {
     // Non-interoperable object
     return CFI_INVALID_DESCRIPTOR;
   }
   if (descriptor->base_addr == nullptr) {
     return CFI_ERROR_BASE_ADDR_NULL;
   }
-  std::free(descriptor->base_addr);
+  delete[] static_cast<char *>(descriptor->base_addr);
   descriptor->base_addr = nullptr;
   return CFI_SUCCESS;
+}
+
+static constexpr std::size_t MinElemLen(CFI_type_t type) {
+  std::size_t minElemLen{0};
+  switch (type) {
+  case CFI_type_signed_char: minElemLen = sizeof(signed char); break;
+  case CFI_type_short: minElemLen = sizeof(short); break;
+  case CFI_type_int: minElemLen = sizeof(int); break;
+  case CFI_type_long: minElemLen = sizeof(long); break;
+  case CFI_type_long_long: minElemLen = sizeof(long long); break;
+  case CFI_type_size_t: minElemLen = sizeof(std::size_t); break;
+  case CFI_type_int8_t: minElemLen = sizeof(std::int8_t); break;
+  case CFI_type_int16_t: minElemLen = sizeof(std::int16_t); break;
+  case CFI_type_int32_t: minElemLen = sizeof(std::int32_t); break;
+  case CFI_type_int64_t: minElemLen = sizeof(std::int64_t); break;
+  case CFI_type_int128_t: minElemLen = 2 * sizeof(std::int64_t); break;
+  case CFI_type_int_least8_t: minElemLen = sizeof(std::int_least8_t); break;
+  case CFI_type_int_least16_t: minElemLen = sizeof(std::int_least16_t); break;
+  case CFI_type_int_least32_t: minElemLen = sizeof(std::int_least32_t); break;
+  case CFI_type_int_least64_t: minElemLen = sizeof(std::int_least64_t); break;
+  case CFI_type_int_least128_t:
+    minElemLen = 2 * sizeof(std::int_least64_t);
+    break;
+  case CFI_type_int_fast8_t: minElemLen = sizeof(std::int_fast8_t); break;
+  case CFI_type_int_fast16_t: minElemLen = sizeof(std::int_fast16_t); break;
+  case CFI_type_int_fast32_t: minElemLen = sizeof(std::int_fast32_t); break;
+  case CFI_type_int_fast64_t: minElemLen = sizeof(std::int_fast64_t); break;
+  case CFI_type_intmax_t: minElemLen = sizeof(std::intmax_t); break;
+  case CFI_type_intptr_t: minElemLen = sizeof(std::intptr_t); break;
+  case CFI_type_ptrdiff_t: minElemLen = sizeof(std::ptrdiff_t); break;
+  case CFI_type_float: minElemLen = sizeof(float); break;
+  case CFI_type_double: minElemLen = sizeof(double); break;
+  case CFI_type_long_double: minElemLen = sizeof(long double); break;
+  case CFI_type_float_Complex: minElemLen = 2 * sizeof(float); break;
+  case CFI_type_double_Complex: minElemLen = 2 * sizeof(double); break;
+  case CFI_type_long_double_Complex:
+    minElemLen = 2 * sizeof(long double);
+    break;
+  case CFI_type_Bool: minElemLen = 1; break;
+  case CFI_type_char: minElemLen = sizeof(char); break;
+  }
+  return minElemLen;
 }
 
 int CFI_establish(CFI_cdesc_t *descriptor, void *base_addr,
     CFI_attribute_t attribute, CFI_type_t type, std::size_t elem_len,
     CFI_rank_t rank, const CFI_index_t extents[]) {
-  if ((attribute & ~(CFI_attribute_pointer | CFI_attribute_allocatable)) != 0) {
+  if (attribute != CFI_attribute_other && attribute != CFI_attribute_pointer &&
+      attribute != CFI_attribute_allocatable) {
     return CFI_INVALID_ATTRIBUTE;
-  }
-  if ((attribute & CFI_attribute_allocatable) != 0 && base_addr != nullptr) {
-    return CFI_ERROR_BASE_ADDR_NOT_NULL;
   }
   if (rank > CFI_MAX_RANK) {
     return CFI_INVALID_RANK;
   }
+  if (base_addr != nullptr && attribute != CFI_attribute_pointer) {
+    return CFI_ERROR_BASE_ADDR_NOT_NULL;
+  }
   if (rank > 0 && base_addr != nullptr && extents == nullptr) {
     return CFI_INVALID_EXTENT;
   }
-  if (type != CFI_type_struct && type != CFI_type_other &&
-      type != CFI_type_cptr) {
-    // TODO: force value of elem_len
+  if (type < CFI_type_signed_char || type > CFI_type_struct) {
+    return CFI_INVALID_TYPE;
+  }
+  std::size_t minElemLen{MinElemLen(type)};
+  if (minElemLen > 0) {
+    elem_len = minElemLen;
+  } else if (elem_len <= 0) {
+    return CFI_INVALID_ELEM_LEN;
   }
   descriptor->base_addr = base_addr;
   descriptor->elem_len = elem_len;
   descriptor->version = CFI_VERSION;
   descriptor->rank = rank;
+  descriptor->type = type;
   descriptor->attribute = attribute;
+  descriptor->f18Addendum = 0;
   std::size_t byteSize{elem_len};
   for (std::size_t j{0}; j < rank; ++j) {
     descriptor->dim[j].lower_bound = 1;
@@ -127,7 +181,14 @@ int CFI_establish(CFI_cdesc_t *descriptor, void *base_addr,
 }
 
 int CFI_is_contiguous(const CFI_cdesc_t *descriptor) {
-  return 0;  // TODO
+  CFI_index_t bytes = descriptor->elem_len;
+  for (int j{0}; j < descriptor->rank; ++j) {
+    if (bytes != descriptor->dim[j].sm) {
+      return 0;
+    }
+    bytes *= descriptor->dim[j].extent;
+  }
+  return 1;
 }
 
 int CFI_section(CFI_cdesc_t *result, const CFI_cdesc_t *source,
