@@ -71,8 +71,8 @@ void Prescanner::Prescan(ProvenanceRange range) {
   lineStart_ = start_;
   const bool beganInFixedForm{inFixedForm_};
   if (prescannerNesting_ > maxPrescannerNesting) {
-    Say("too many nested INCLUDE/#include files, possibly circular"_err_en_US,
-        GetProvenance(start_));
+    Say(GetProvenance(start_),
+        "too many nested INCLUDE/#include files, possibly circular"_err_en_US);
     return;
   }
   while (lineStart_ < limit_) {
@@ -168,8 +168,8 @@ void Prescanner::Statement() {
       break;
     case LineClassification::Kind::ConditionalCompilationDirective:
     case LineClassification::Kind::PreprocessorDirective:
-      Say("preprocessed line resembles a preprocessor directive"_en_US,
-          preprocessed->GetProvenanceRange());
+      Say(preprocessed->GetProvenanceRange(),
+          "preprocessed line resembles a preprocessor directive"_en_US);
       preprocessed->ToLowerCase().Emit(cooked_);
       break;
     case LineClassification::Kind::CompilerDirective:
@@ -216,22 +216,6 @@ TokenSequence Prescanner::TokenizePreprocessorDirective() {
   inPreprocessorDirective_ = false;
   at_ = saveAt;
   return tokens;
-}
-
-void Prescanner::Say(Message &&message) {
-  std::optional<ProvenanceRange> range{message.GetProvenanceRange(cooked_)};
-  CHECK(!range.has_value() || cooked_.IsValid(*range));
-  messages_.Put(std::move(message));
-}
-
-void Prescanner::Say(MessageFixedText text, ProvenanceRange r) {
-  CHECK(cooked_.IsValid(r));
-  messages_.Put({r, text});
-}
-
-void Prescanner::Say(MessageFormattedText &&text, ProvenanceRange r) {
-  CHECK(cooked_.IsValid(r));
-  messages_.Put({r, std::move(text)});
 }
 
 void Prescanner::NextLine() {
@@ -357,6 +341,7 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
   if (*at_ == '\n') {
     return false;
   }
+  const char *start{at_};
   if (*at_ == '\'' || *at_ == '"') {
     QuotedCharacterLiteral(tokens);
     preventHollerith_ = false;
@@ -375,7 +360,7 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
     } while (IsDecimalDigit(*at_));
     if ((*at_ == 'h' || *at_ == 'H') && n > 0 && n < maxHollerith &&
         !preventHollerith_) {
-      Hollerith(tokens, n);
+      Hollerith(tokens, n, start);
     } else if (*at_ == '.') {
       while (IsDecimalDigit(EmitCharAndAdvance(tokens, *at_))) {
       }
@@ -479,8 +464,8 @@ void Prescanner::QuotedCharacterLiteral(TokenSequence &tokens) {
     }
     if (*at_ == '\n') {
       if (!inPreprocessorDirective_) {
-        Say("incomplete character literal"_err_en_US,
-            GetProvenanceRange(start, end));
+        Say(GetProvenanceRange(start, end),
+            "incomplete character literal"_err_en_US);
       }
       break;
     }
@@ -505,19 +490,18 @@ void Prescanner::QuotedCharacterLiteral(TokenSequence &tokens) {
   inCharLiteral_ = false;
 }
 
-void Prescanner::Hollerith(TokenSequence &tokens, int count) {
+void Prescanner::Hollerith(
+    TokenSequence &tokens, int count, const char *start) {
   inCharLiteral_ = true;
   CHECK(*at_ == 'h' || *at_ == 'H');
   EmitChar(tokens, 'H');
-  const char *start{at_}, *end{at_ + 1};
   while (count-- > 0) {
     if (PadOutCharacterLiteral(tokens)) {
     } else if (*at_ == '\n') {
-      Say("incomplete Hollerith literal"_err_en_US,
-          GetProvenanceRange(start, end));
+      Say(GetProvenanceRange(start, at_),
+          "possible truncated Hollerith literal"_en_US);
       break;
     } else {
-      end = at_ + 1;
       NextChar();
       EmitChar(tokens, *at_);
       // Multi-byte character encodings should count as single characters.
@@ -602,14 +586,14 @@ std::optional<std::size_t> Prescanner::IsIncludeLine(const char *start) const {
   const char *p{SkipWhiteSpace(start)};
   for (char ch : "include"s) {
     if (ToLowerCaseLetter(*p++) != ch) {
-      return {};
+      return std::nullopt;
     }
   }
   p = SkipWhiteSpace(p);
   if (*p == '"' || *p == '\'') {
     return {p - start};
   }
-  return {};
+  return std::nullopt;
 }
 
 void Prescanner::FortranInclude(const char *firstQuote) {
@@ -629,8 +613,8 @@ void Prescanner::FortranInclude(const char *firstQuote) {
     path += *p;
   }
   if (*p != quote) {
-    Say("malformed path name string"_err_en_US,
-        GetProvenanceRange(firstQuote, p));
+    Say(GetProvenanceRange(firstQuote, p),
+        "malformed path name string"_err_en_US);
     return;
   }
   p = SkipWhiteSpace(p + 1);
@@ -638,8 +622,8 @@ void Prescanner::FortranInclude(const char *firstQuote) {
     const char *garbage{p};
     for (; *p != '\n' && *p != '!'; ++p) {
     }
-    Say("excess characters after path name"_en_US,
-        GetProvenanceRange(garbage, p));
+    Say(GetProvenanceRange(garbage, p),
+        "excess characters after path name"_en_US);
   }
   std::stringstream error;
   Provenance provenance{GetProvenance(lineStart_)};
@@ -653,8 +637,7 @@ void Prescanner::FortranInclude(const char *firstQuote) {
     allSources.PopSearchPathDirectory();
   }
   if (included == nullptr) {
-    Say(MessageFormattedText("INCLUDE: %s"_err_en_US, error.str().data()),
-        provenance);
+    Say(provenance, "INCLUDE: %s"_err_en_US, error.str().data());
   } else if (included->bytes() > 0) {
     ProvenanceRange includeLineRange{
         provenance, static_cast<std::size_t>(p - lineStart_)};
@@ -747,7 +730,7 @@ const char *Prescanner::FixedFormContinuationLine(bool mightNeedSpace) {
       // Extension: '&' as continuation marker
       if (features_.ShouldWarn(
               LanguageFeature::FixedFormContinuationWithColumn1Ampersand)) {
-        Say("nonstandard usage"_en_US, GetProvenance(lineStart_));
+        Say(GetProvenance(lineStart_), "nonstandard usage"_en_US);
       }
       return lineStart_ + 1;
     }
@@ -856,7 +839,7 @@ Prescanner::IsFixedFormCompilerDirectiveLine(const char *start) const {
   const char *p{start};
   char col1{*p++};
   if (!IsFixedFormCommentChar(col1)) {
-    return {};
+    return std::nullopt;
   }
   char sentinel[5], *sp{sentinel};
   int column{2};
@@ -877,11 +860,11 @@ Prescanner::IsFixedFormCompilerDirectiveLine(const char *start) const {
       ++p;
     } else {
       // This is a Continuation line, not an initial directive line.
-      return {};
+      return std::nullopt;
     }
   }
   if (sp == sentinel) {
-    return {};
+    return std::nullopt;
   }
   *sp = '\0';
   if (const char *ss{IsCompilerDirectiveSentinel(sentinel)}) {
@@ -889,7 +872,7 @@ Prescanner::IsFixedFormCompilerDirectiveLine(const char *start) const {
     return {LineClassification{
         LineClassification::Kind::CompilerDirective, payloadOffset, ss}};
   }
-  return {};
+  return std::nullopt;
 }
 
 std::optional<Prescanner::LineClassification>
@@ -897,7 +880,7 @@ Prescanner::IsFreeFormCompilerDirectiveLine(const char *start) const {
   char sentinel[8];
   const char *p{SkipWhiteSpace(start)};
   if (*p++ != '!') {
-    return {};
+    return std::nullopt;
   }
   for (std::size_t j{0}; j + 1 < sizeof sentinel; ++p, ++j) {
     if (*p == '\n') {
@@ -921,7 +904,7 @@ Prescanner::IsFreeFormCompilerDirectiveLine(const char *start) const {
     }
     sentinel[j] = ToLowerCaseLetter(*p);
   }
-  return {};
+  return std::nullopt;
 }
 
 Prescanner &Prescanner::AddCompilerDirectiveSentinel(const std::string &dir) {

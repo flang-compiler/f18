@@ -49,11 +49,18 @@ set(ERROR_TESTS
   resolve23.f90
   resolve24.f90
   resolve25.f90
+  resolve26.f90
+  resolve27.f90
+  resolve28.f90
+  resolve29.f90
 )
 
 # These test files have expected symbols in the source
 set(SYMBOL_TESTS
   symbol01.f90
+  symbol02.f90
+  symbol03.f90
+  symbol04.f90
 )
 
 # These test files have expected .mod file contents in the source
@@ -66,6 +73,7 @@ set(MODFILE_TESTS
   modfile06.f90
   modfile07.f90
   modfile08.f90
+  modfile09-*.f90
 )
 
 foreach(test ${ERROR_TESTS})

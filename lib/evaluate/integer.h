@@ -102,7 +102,7 @@ public:
 
   struct PowerWithErrors {
     Integer power;
-    bool divisionByZero, overflow, zeroToZero;
+    bool divisionByZero{false}, overflow{false}, zeroToZero{false};
   };
 
   // Constructors and value-generating static functions
@@ -205,7 +205,7 @@ public:
     // assumptions, so here you go, future programmer in some postapocalyptic
     // hellscape, and best of luck with the inexorable killer robots.
     for (; std::uint64_t digit = *p; ++p) {
-      if (digit >= '0' && digit < '0' + base) {
+      if (digit >= '0' && digit <= '9' && digit < '0' + base) {
         digit -= '0';
       } else if (base > 10 && digit >= 'A' && digit < 'A' + base - 10) {
         digit -= 'A' - 10;
@@ -431,7 +431,7 @@ public:
 
   constexpr std::int64_t ToInt64() const {
     std::int64_t signExtended = ToUInt64();
-    if (bits < 64) {
+    if constexpr (bits < 64) {
       signExtended |= -(signExtended >> (bits - 1)) << bits;
     }
     return signExtended;

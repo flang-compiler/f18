@@ -18,6 +18,7 @@
 #include "../common/enum-set.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
+#include "../parser/message.h"
 #include <cinttypes>
 
 namespace Fortran::evaluate {
@@ -26,7 +27,7 @@ namespace Fortran::evaluate {
 ENUM_CLASS(Ordering, Less, Equal, Greater)
 ENUM_CLASS(Relation, Less, Equal, Greater, Unordered)
 
-static constexpr Ordering CompareUnsigned(std::uint64_t x, std::uint64_t y) {
+template<typename A> static constexpr Ordering Compare(const A &x, const A &y) {
   if (x < y) {
     return Ordering::Less;
   } else if (x > y) {
@@ -82,6 +83,8 @@ template<typename A> struct ValueWithRealFlags {
 
 ENUM_CLASS(Rounding, TiesToEven, ToZero, Down, Up, TiesAwayFromZero)
 
+static constexpr Rounding defaultRounding{Rounding::TiesToEven};
+
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 constexpr bool IsHostLittleEndian{false};
 #elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -124,6 +127,24 @@ using HostUnsignedInt =
 
 // Force availability of copy construction and assignment
 template<typename A> using CopyableIndirection = common::Indirection<A, true>;
+
+// Classes that support a Fold(FoldingContext &) member function have the
+// FoldableTrait set.
+CLASS_TRAIT(FoldableTrait);
+struct FoldingContext {
+  explicit FoldingContext(parser::ContextualMessages &m,
+      Rounding round = defaultRounding, bool flush = false)
+    : messages{m}, rounding{round}, flushDenormalsToZero{flush} {}
+  FoldingContext(parser::ContextualMessages &m, const FoldingContext &c)
+    : messages{m}, rounding{c.rounding}, flushDenormalsToZero{
+                                             c.flushDenormalsToZero} {}
+
+  parser::ContextualMessages &messages;
+  Rounding rounding{defaultRounding};
+  bool flushDenormalsToZero{false};
+};
+
+void RealFlagWarnings(FoldingContext &, const RealFlags &, const char *op);
 
 }  // namespace Fortran::evaluate
 #endif  // FORTRAN_EVALUATE_COMMON_H_

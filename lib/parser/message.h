@@ -87,8 +87,17 @@ private:
 // on a constant text or a set of characters.
 class MessageExpectedText {
 public:
-  MessageExpectedText(const char *s, std::size_t n)
-    : u_{CharBlock{s, n == std::string::npos ? std::strlen(s) : n}} {}
+  MessageExpectedText(const char *s, std::size_t n) {
+    if (n == std::string::npos) {
+      n = std::strlen(s);
+    }
+    if (n == 1) {
+      // Treat a one-character string as a singleton set for better merging.
+      u_ = SetOfChars{*s};
+    } else {
+      u_ = CharBlock{s, n};
+    }
+  }
   constexpr explicit MessageExpectedText(CharBlock cb) : u_{cb} {}
   constexpr explicit MessageExpectedText(char ch) : u_{SetOfChars{ch}} {}
   constexpr explicit MessageExpectedText(SetOfChars set) : u_{set} {}
@@ -98,7 +107,7 @@ public:
   MessageExpectedText &operator=(MessageExpectedText &&) = default;
 
   std::string ToString() const;
-  void Incorporate(const MessageExpectedText &);
+  bool Merge(const MessageExpectedText &);
 
 private:
   std::variant<CharBlock, SetOfChars> u_;
@@ -116,7 +125,7 @@ public:
   Message(ProvenanceRange pr, const MessageFixedText &t)
     : location_{pr}, text_{t} {}
   Message(ProvenanceRange pr, const MessageFormattedText &s)
-    : location_{pr}, text_{std::move(s)} {}
+    : location_{pr}, text_{s} {}
   Message(ProvenanceRange pr, MessageFormattedText &&s)
     : location_{pr}, text_{std::move(s)} {}
   Message(ProvenanceRange pr, const MessageExpectedText &t)
@@ -125,11 +134,16 @@ public:
   Message(CharBlock csr, const MessageFixedText &t)
     : location_{csr}, text_{t} {}
   Message(CharBlock csr, const MessageFormattedText &s)
-    : location_{csr}, text_{std::move(s)} {}
+    : location_{csr}, text_{s} {}
   Message(CharBlock csr, MessageFormattedText &&s)
     : location_{csr}, text_{std::move(s)} {}
   Message(CharBlock csr, const MessageExpectedText &t)
     : location_{csr}, text_{t} {}
+
+  template<typename RANGE, typename A1, typename... As>
+  Message(RANGE r, const MessageFixedText &t, A1 a1, As... as)
+    : location_{r}, text_{
+                        MessageFormattedText{t, a1, std::forward<As>(as)...}} {}
 
   bool attachmentIsContext() const { return attachmentIsContext_; }
   Reference attachment() const { return attachment_; }
@@ -155,7 +169,10 @@ public:
   // corresponding ProvenanceRange.
   void ResolveProvenances(const CookedSource &);
 
-  void Incorporate(Message &);
+  bool IsMergeable() const {
+    return std::holds_alternative<MessageExpectedText>(text_);
+  }
+  bool Merge(const Message &);
 
 private:
   bool AtSameLocation(const Message &) const;
@@ -173,54 +190,52 @@ public:
   Messages(Messages &&that) : messages_{std::move(that.messages_)} {
     if (!messages_.empty()) {
       last_ = that.last_;
-      that.last_ = that.messages_.before_begin();
+      that.ResetLastPointer();
     }
   }
   Messages &operator=(Messages &&that) {
     messages_ = std::move(that.messages_);
     if (messages_.empty()) {
-      last_ = messages_.before_begin();
+      ResetLastPointer();
     } else {
       last_ = that.last_;
-      that.last_ = that.messages_.before_begin();
+      that.ResetLastPointer();
     }
     return *this;
   }
 
   bool empty() const { return messages_.empty(); }
 
-  Message &Put(Message &&m) {
-    last_ = messages_.emplace_after(last_, std::move(m));
-    return *last_;
-  }
-
-  template<typename... A> Message &Say(A &&... args) {
+  template<typename... A> Message &Say(A... args) {
     last_ = messages_.emplace_after(last_, std::forward<A>(args)...);
     return *last_;
   }
 
-  void Annex(Messages &that) {
+  void Annex(Messages &&that) {
     if (!that.messages_.empty()) {
       messages_.splice_after(last_, that.messages_);
       last_ = that.last_;
-      that.last_ = that.messages_.before_begin();
+      that.ResetLastPointer();
     }
   }
 
   void Restore(Messages &&that) {
-    that.Annex(*this);
+    that.Annex(std::move(*this));
     *this = std::move(that);
   }
 
-  void Incorporate(Messages &);
+  bool Merge(const Message &);
+  void Merge(Messages &&);
   void Copy(const Messages &);
   void ResolveProvenances(const CookedSource &);
   void Emit(std::ostream &, const CookedSource &cooked,
       bool echoSourceLines = true) const;
-
+  void AttachTo(Message &);
   bool AnyFatalError() const;
 
 private:
+  void ResetLastPointer() { last_ = messages_.before_begin(); }
+
   std::forward_list<Message> messages_;
   std::forward_list<Message>::iterator last_{messages_.before_begin()};
 };
@@ -228,6 +243,12 @@ private:
 class ContextualMessages {
 public:
   ContextualMessages(CharBlock at, Messages *m) : at_{at}, messages_{m} {}
+  ContextualMessages(CharBlock at, const ContextualMessages &context)
+    : at_{at}, messages_{context.messages_} {}
+
+  CharBlock at() const { return at_; }
+  Messages *messages() const { return messages_; }
+
   template<typename... A> void Say(A &&... args) {
     if (messages_ != nullptr) {
       messages_->Say(at_, std::forward<A>(args)...);
