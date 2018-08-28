@@ -49,6 +49,9 @@ Scope::size_type Scope::erase(const SourceName &name) {
   }
 }
 Symbol *Scope::FindSymbol(const SourceName &name) {
+  if (kind() == Kind::DerivedType) {
+    return parent_.FindSymbol(name);
+  }
   const auto it{find(name)};
   if (it != end()) {
     return it->second;
@@ -93,7 +96,6 @@ std::optional<parser::MessageFixedText> Scope::SetImportKind(ImportKind kind) {
     importKind_ = kind;
     return std::nullopt;
   }
-  std::optional<parser::MessageFixedText> error;
   bool hasNone{kind == ImportKind::None || *importKind_ == ImportKind::None};
   bool hasAll{kind == ImportKind::All || *importKind_ == ImportKind::All};
   // Check C8100 and C898: constraints on multiple IMPORT statements
