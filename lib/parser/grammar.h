@@ -277,9 +277,21 @@ TYPE_PARSER(construct<Program>(some(StartNewSubprogram{} >>
 // R502 program-unit ->
 //        main-program | external-subprogram | module | submodule | block-data
 // R503 external-subprogram -> function-subprogram | subroutine-subprogram
-TYPE_PARSER(construct<ProgramUnit>(indirect(functionSubprogram)) ||
+// N.B. "module" must precede "external-subprogram" in this sequence of
+// alternatives to avoid ambiguity with the MODULE keyword prefix that
+// they recognize.  I.e., "modulesubroutinefoo" should start a module
+// "subroutinefoo", not a subroutine "foo" with the MODULE prefix.  The
+// ambiguity is exacerbated by the extension that accepts a function
+// statement without an otherwise empty list of dummy arguments.  That
+// MODULE prefix is disallowed by a constraint (C1547) in this context,
+// so the standard language is not ambiguous, but disabling its misrecognition
+// here would require context-sensitive keyword recognition or (or via)
+// variant parsers for several productions; giving the "module" production
+// priority here is a cleaner solution, though regrettably subtle.  Enforcing
+// C1547 is done in semantics.
+TYPE_PARSER(construct<ProgramUnit>(indirect(Parser<Module>{})) ||
+            construct<ProgramUnit>(indirect(functionSubprogram)) ||
     construct<ProgramUnit>(indirect(subroutineSubprogram)) ||
-    construct<ProgramUnit>(indirect(Parser<Module>{})) ||
     construct<ProgramUnit>(indirect(Parser<Submodule>{})) ||
     construct<ProgramUnit>(indirect(Parser<BlockData>{})) ||
     construct<ProgramUnit>(indirect(Parser<MainProgram>{})))
@@ -347,6 +359,7 @@ TYPE_CONTEXT_PARSER("internal subprogram part"_en_US,
 // R1163 fail-image-stmt -> FAIL IMAGE
 TYPE_PARSER(first(construct<ActionStmt>(indirect(Parser<AllocateStmt>{})),
     construct<ActionStmt>(indirect(assignmentStmt)),
+    construct<ActionStmt>(indirect(pointerAssignmentStmt)),
     construct<ActionStmt>(indirect(Parser<BackspaceStmt>{})),
     construct<ActionStmt>(indirect(Parser<CallStmt>{})),
     construct<ActionStmt>(indirect(Parser<CloseStmt>{})),
@@ -366,7 +379,6 @@ TYPE_PARSER(first(construct<ActionStmt>(indirect(Parser<AllocateStmt>{})),
     construct<ActionStmt>(indirect(Parser<LockStmt>{})),
     construct<ActionStmt>(indirect(Parser<NullifyStmt>{})),
     construct<ActionStmt>(indirect(Parser<OpenStmt>{})),
-    construct<ActionStmt>(indirect(pointerAssignmentStmt)),
     construct<ActionStmt>(indirect(Parser<PrintStmt>{})),
     construct<ActionStmt>(indirect(Parser<ReadStmt>{})),
     construct<ActionStmt>(indirect(Parser<ReturnStmt>{})),
