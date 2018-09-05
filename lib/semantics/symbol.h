@@ -17,6 +17,7 @@
 
 #include "type.h"
 #include "../common/enum-set.h"
+#include "../common/fortran.h"
 #include <functional>
 #include <memory>
 
@@ -143,8 +144,42 @@ private:
   friend std::ostream &operator<<(std::ostream &, const ProcEntityDetails &);
 };
 
-// A derived type
-class DerivedTypeDetails {};
+class DerivedTypeDetails {
+public:
+  bool hasTypeParams() const { return hasTypeParams_; }
+  void set_hasTypeParams(bool x = true) { hasTypeParams_ = x; }
+
+private:
+  bool hasTypeParams_{false};
+};
+
+class ProcBindingDetails {
+public:
+  ProcBindingDetails(const Symbol &symbol) : symbol_{&symbol} {}
+  const Symbol &symbol() const { return *symbol_; }
+
+private:
+  const Symbol *symbol_;  // procedure bound to
+};
+
+class GenericBindingDetails {};
+
+class FinalProcDetails {};
+
+class TypeParamDetails {
+public:
+  TypeParamDetails(common::TypeParamAttr attr) : attr_{attr} {}
+  common::TypeParamAttr attr() const { return attr_; }
+  const std::optional<DeclTypeSpec> &type() const { return type_; }
+  void set_type(const DeclTypeSpec &type) {
+    CHECK(!type_);
+    type_ = type;
+  }
+
+private:
+  common::TypeParamAttr attr_;
+  std::optional<DeclTypeSpec> type_;
+};
 
 // Record the USE of a symbol: location is where (USE statement or renaming);
 // symbol is the USEd module.
@@ -165,15 +200,8 @@ private:
 // we can report the error if it is used.
 class UseErrorDetails {
 public:
-  UseErrorDetails(const SourceName &location, const Scope &module) {
-    add_occurrence(location, module);
-  }
-
-  UseErrorDetails &add_occurrence(
-      const SourceName &location, const Scope &module) {
-    occurrences_.push_back(std::make_pair(&location, &module));
-    return *this;
-  }
+  UseErrorDetails(const UseDetails &);
+  UseErrorDetails &add_occurrence(const SourceName &, const Scope &);
 
   using listType = std::list<std::pair<const SourceName *, const Scope *>>;
   const listType occurrences() const { return occurrences_; };
@@ -228,7 +256,8 @@ class UnknownDetails {};
 using Details = std::variant<UnknownDetails, MainProgramDetails, ModuleDetails,
     SubprogramDetails, SubprogramNameDetails, EntityDetails,
     ObjectEntityDetails, ProcEntityDetails, DerivedTypeDetails, UseDetails,
-    UseErrorDetails, GenericDetails>;
+    UseErrorDetails, GenericDetails, ProcBindingDetails, GenericBindingDetails,
+    FinalProcDetails, TypeParamDetails>;
 std::ostream &operator<<(std::ostream &, const Details &);
 std::string DetailsToString(const Details &);
 

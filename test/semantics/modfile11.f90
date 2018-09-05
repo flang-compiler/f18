@@ -12,32 +12,20 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-subroutine s1
-  integer x
-  block
-    import, none
-    !ERROR: 'x' from host scoping unit is not accessible due to IMPORT
-    x = 1
-  end block
+module m
+  type t(a, b, c)
+    integer, kind :: a
+    integer(8), len :: b, c
+    integer :: d
+  end type
 end
 
-subroutine s2
-  block
-    import, none
-    !ERROR: 'y' from host scoping unit is not accessible due to IMPORT
-    y = 1
-  end block
-end
-
-subroutine s3
-  integer j
-  block
-    import, only: j
-    type t
-      !ERROR: 'i' from host scoping unit is not accessible due to IMPORT
-      real :: x(10) = [(i, &
-        !ERROR: 'i' from host scoping unit is not accessible due to IMPORT
-        i=1,10)]
-    end type
-  end block
-end subroutine
+!Expect: m.mod
+!module m
+!  type::t(a,b,c)
+!    integer,kind::a
+!    integer(8),len::b
+!    integer(8),len::c
+!    integer::d
+!  end type
+!end

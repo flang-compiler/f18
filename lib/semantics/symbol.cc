@@ -73,6 +73,15 @@ const Symbol &UseDetails::module() const {
   return *symbol_->owner().symbol();
 }
 
+UseErrorDetails::UseErrorDetails(const UseDetails &useDetails) {
+  add_occurrence(useDetails.location(), *useDetails.module().scope());
+}
+UseErrorDetails &UseErrorDetails::add_occurrence(
+    const SourceName &location, const Scope &module) {
+  occurrences_.push_back(std::make_pair(&location, &module));
+  return *this;
+}
+
 GenericDetails::GenericDetails(const listType &specificProcs) {
   for (const auto *proc : specificProcs) {
     add_specificProc(proc);
@@ -118,6 +127,10 @@ std::string DetailsToString(const Details &details) {
           [](const UseDetails &) { return "Use"; },
           [](const UseErrorDetails &) { return "UseError"; },
           [](const GenericDetails &) { return "Generic"; },
+          [](const ProcBindingDetails &) { return "ProcBinding"; },
+          [](const GenericBindingDetails &) { return "GenericBinding"; },
+          [](const FinalProcDetails &) { return "FinalProc"; },
+          [](const TypeParamDetails &) { return "TypeParam"; },
           [](const auto &) { return "unknown"; },
       },
       details);
@@ -185,6 +198,9 @@ const DeclTypeSpec *Symbol::GetType() const {
             return x.type().has_value() ? &x.type().value() : nullptr;
           },
           [](const ProcEntityDetails &x) { return x.interface().type(); },
+          [](const TypeParamDetails &x) {
+            return x.type().has_value() ? &x.type().value() : nullptr;
+          },
           [](const auto &) {
             return static_cast<const DeclTypeSpec *>(nullptr);
           },
@@ -198,6 +214,7 @@ void Symbol::SetType(const DeclTypeSpec &type) {
           [&](EntityDetails &x) { x.set_type(type); },
           [&](ObjectEntityDetails &x) { x.set_type(type); },
           [&](ProcEntityDetails &x) { x.interface().set_type(type); },
+          [&](TypeParamDetails &x) { x.set_type(type); },
           [](auto &) {},
       },
       details_);
@@ -332,6 +349,17 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
             for (const auto *proc : x.specificProcs()) {
               os << ' ' << proc->name();
             }
+          },
+          [&](const ProcBindingDetails &x) {
+            os << " => " << x.symbol().name();
+          },
+          [&](const GenericBindingDetails &) { /* TODO */ },
+          [&](const FinalProcDetails &) {},
+          [&](const TypeParamDetails &x) {
+            if (x.type()) {
+              os << ' ' << *x.type();
+            }
+            os << ' ' << common::EnumToString(x.attr());
           },
       },
       details);
