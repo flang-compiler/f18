@@ -354,6 +354,7 @@ RealFlags Real<W, P, IM>::Round(
     if (Exponent() == 0) {
       flags.set(RealFlag::Underflow);  // output still denormal -> Underflow
     } else {
+#if defined __x86_64__
       // Rounding went up to the smallest normal number.
       // Still signal Underflow unless we're in a weird x86 edge case with
       // multiplication: if the sticky bit is set (i.e., the lower half of
@@ -365,6 +366,9 @@ RealFlags Real<W, P, IM>::Round(
       } else {
         flags.set(RealFlag::Underflow);
       }
+#else
+      flags.set(RealFlag::Underflow);
+#endif
     }
   }
   return flags;
