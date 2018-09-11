@@ -48,3 +48,32 @@ subroutine s2
   type, extends(t0) :: t1
   end type
 end subroutine
+
+module m4
+  type :: t1
+    private
+    sequence
+    private  ! not a fatal error
+  end type
+  !ERROR: A sequence type may not have the EXTENDS attribute
+  type, extends(t1) :: t2
+    sequence
+    integer i
+  end type
+  !ERROR: A sequence type may not have a CONTAINS statement
+  type :: t3
+    sequence
+    integer i
+  contains
+  end type
+contains
+  subroutine s3
+    type :: t1
+      !ERROR: PRIVATE is only allowed in a derived type that is in a module
+      private
+    contains
+      !ERROR: PRIVATE is only allowed in a derived type that is in a module
+      private
+    end type
+  end
+end
