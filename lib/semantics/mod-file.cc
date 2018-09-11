@@ -40,6 +40,7 @@ static constexpr auto magic{"!mod$ v1 sum:"};
 static const SourceName *GetSubmoduleParent(const parser::Program &);
 static std::string ModFilePath(
     const std::string &, const SourceName &, const std::string &);
+static std::vector<const Symbol *> CollectSymbols(const Scope &);
 static void PutEntity(std::ostream &, const Symbol &);
 static void PutObjectEntity(std::ostream &, const Symbol &);
 static void PutProcEntity(std::ostream &, const Symbol &);
@@ -123,48 +124,9 @@ std::string ModFileWriter::GetAsString(const Symbol &symbol) {
 // Put out the visible symbols from scope.
 void ModFileWriter::PutSymbols(const Scope &scope) {
   bool didContains{false};
-  for (const auto *symbol : SortSymbols(CollectSymbols(scope))) {
+  for (const auto *symbol : CollectSymbols(scope)) {
     PutSymbol(*symbol, didContains);
   }
-}
-
-// Sort symbols by their original order, not by name.
-ModFileWriter::symbolVector ModFileWriter::SortSymbols(
-    const ModFileWriter::symbolSet symbols) {
-  ModFileWriter::symbolVector sorted;
-  sorted.reserve(symbols.size());
-  for (const auto *symbol : symbols) {
-    sorted.push_back(symbol);
-  }
-  auto compare{[](const Symbol *x, const Symbol *y) {
-    return x->name().begin() < y->name().begin();
-  }};
-  std::sort(sorted.begin(), sorted.end(), compare);
-  return sorted;
-}
-
-// Return all symbols needed from this scope.
-ModFileWriter::symbolSet ModFileWriter::CollectSymbols(const Scope &scope) {
-  ModFileWriter::symbolSet symbols;
-  for (const auto &pair : scope) {
-    auto *symbol{pair.second};
-    // include all components of derived types and other non-private symbols
-    if (scope.kind() == Scope::Kind::DerivedType ||
-        !symbol->attrs().test(Attr::PRIVATE)) {
-      symbols.insert(symbol);
-      // ensure the type symbol is included too, even if private
-      if (const auto *type{symbol->GetType()}) {
-        auto category{type->category()};
-        if (category == DeclTypeSpec::TypeDerived ||
-            category == DeclTypeSpec::ClassDerived) {
-          auto *typeSymbol{type->derivedTypeSpec().scope()->symbol()};
-          symbols.insert(typeSymbol);
-        }
-      }
-      // TODO: other related symbols, e.g. in initial values
-    }
-  }
-  return symbols;
 }
 
 void ModFileWriter::PutSymbol(const Symbol &symbol, bool &didContains) {
@@ -206,13 +168,17 @@ void ModFileWriter::PutSymbol(const Symbol &symbol, bool &didContains) {
 }
 
 void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
+  auto &details{typeSymbol.get<DerivedTypeDetails>()};
   PutAttrs(decls_ << "type", typeSymbol.attrs(), ","s, ""s);
+  if (details.extends()) {
+    PutLower(decls_ << ",extends(", *details.extends()) << ')';
+  }
   PutLower(decls_ << "::", typeSymbol);
   auto &typeScope{*typeSymbol.scope()};
-  if (typeSymbol.get<DerivedTypeDetails>().hasTypeParams()) {
+  if (details.hasTypeParams()) {
     bool first{true};
     decls_ << '(';
-    for (const auto *symbol : SortSymbols(CollectSymbols(typeScope))) {
+    for (const auto *symbol : CollectSymbols(typeScope)) {
       if (symbol->has<TypeParamDetails>()) {
         PutLower(first ? decls_ : decls_ << ',', *symbol);
         first = false;
@@ -221,6 +187,9 @@ void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
     decls_ << ')';
   }
   decls_ << '\n';
+  if (details.sequence()) {
+    decls_ << "sequence\n";
+  }
   PutSymbols(typeScope);
   decls_ << "end type\n";
 }
@@ -304,10 +273,26 @@ void ModFileWriter::PutUseExtraAttr(
   }
 }
 
+// Collect the symbols of this scope sorted by their original order, not name.
+std::vector<const Symbol *> CollectSymbols(const Scope &scope) {
+  std::set<const Symbol *> symbols;  // to prevent duplicates
+  std::vector<const Symbol *> sorted;
+  sorted.reserve(scope.size());
+  for (const auto &pair : scope) {
+    auto *symbol{pair.second};
+    if (symbols.insert(symbol).second) {
+      sorted.push_back(symbol);
+    }
+  }
+  std::sort(sorted.begin(), sorted.end(), [](const Symbol *x, const Symbol *y) {
+    return x->name().begin() < y->name().begin();
+  });
+  return sorted;
+}
+
 void PutEntity(std::ostream &os, const Symbol &symbol) {
   std::visit(
       common::visitors{
-          [&](const EntityDetails &) { PutObjectEntity(os, symbol); },
           [&](const ObjectEntityDetails &) { PutObjectEntity(os, symbol); },
           [&](const ProcEntityDetails &) { PutProcEntity(os, symbol); },
           [&](const TypeParamDetails &) { PutTypeParam(os, symbol); },
