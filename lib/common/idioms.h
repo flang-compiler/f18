@@ -29,6 +29,7 @@
 #error g++ >= 7.2 is required
 #endif
 
+#include <functional>
 #include <list>
 #include <optional>
 #include <tuple>
@@ -53,10 +54,10 @@ namespace Fortran::common {
 // Helper templates for combining a list of lambdas into an anonymous
 // struct for use with std::visit() on a std::variant<> sum type.
 // E.g.: std::visit(visitors{
-//         [&](const UnaryExpr &x) { ... },
-//         [&](const BinaryExpr &x) { ... },
+//         [&](const firstType &x) { ... },
+//         [&](const secondType &x) { ... },
 //         ...
-//       }, structure.unionMember);
+//         [&](const auto &catchAll) { ... }}, variantObject);
 
 template<typename... LAMBDAS> struct visitors : LAMBDAS... {
   using LAMBDAS::operator()...;
@@ -103,7 +104,7 @@ template<typename... LAMBDAS> visitors(LAMBDAS... x)->visitors<LAMBDAS...>;
       return false; \
     } \
   } \
-  template<typename A> constexpr bool T { class_trait_ns_##T::trait_value<A>() }
+  template<typename A> constexpr bool T{class_trait_ns_##T::trait_value<A>()};
 
 // Define enum class NAME with the given enumerators, a static
 // function EnumToString() that maps enumerators to std::string,
@@ -128,14 +129,5 @@ template<typename A> struct ListItemCount {
         static_cast<int>(e), #__VA_ARGS__); \
   }
 
-// If a variant holds a value of a particular type, return a copy in a
-// std::optional<>.
-template<typename A, typename VARIANT>
-std::optional<A> GetIf(const VARIANT &u) {
-  if (const A * x{std::get_if<A>(&u)}) {
-    return {*x};
-  }
-  return std::nullopt;
-}
 }  // namespace Fortran::common
 #endif  // FORTRAN_COMMON_IDIOMS_H_
