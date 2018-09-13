@@ -13,29 +13,13 @@
 // limitations under the License.
 
 #include "type.h"
-#include "../common/idioms.h"
-#include <cinttypes>
-#include <optional>
-#include <variant>
+#include "../semantics/type.h"
+#include <string>
+
+using namespace std::literals::string_literals;
 
 namespace Fortran::evaluate {
-
-std::optional<std::int64_t> GenericScalar::ToInt64() const {
-  if (const auto *j{std::get_if<ScalarConstant<TypeCategory::Integer>>(&u)}) {
-    return std::visit(
-        [](const auto &k) { return std::optional<std::int64_t>{k.ToInt64()}; },
-        j->u);
-  }
-  return std::nullopt;
+std::string Type<TypeCategory::Derived>::Dump() const {
+  return "TYPE("s + spec().name().ToString() + ')';
 }
-
-std::optional<std::string> GenericScalar::ToString() const {
-  if (const auto *c{std::get_if<ScalarConstant<TypeCategory::Character>>(&u)}) {
-    if (const std::string * s{std::get_if<std::string>(&c->u)}) {
-      return std::optional<std::string>{*s};
-    }
-  }
-  return std::nullopt;
-}
-
 }  // namespace Fortran::evaluate

@@ -1496,10 +1496,6 @@ constexpr auto complexPartDesignator{construct<ComplexPartDesignator>(dataRef)};
 // Type parameter inquiries are initially recognized as structure components.
 TYPE_PARSER(construct<TypeParamInquiry>(structureComponent))
 
-// R918 array-section ->
-//        data-ref [( substring-range )] | complex-part-designator
-constexpr auto arraySection{construct<ArraySection>(designator)};
-
 // R919 subscript -> scalar-int-expr
 constexpr auto subscript{scalarIntExpr};
 
@@ -2629,7 +2625,7 @@ TYPE_CONTEXT_PARSER("PRINT statement"_en_US,
         "PRINT" >> format, defaulted("," >> nonemptyList(outputItem))))
 
 // R1215 format -> default-char-expr | label | *
-TYPE_PARSER(construct<Format>(label) ||
+TYPE_PARSER(construct<Format>(label / !"_."_ch) ||
     construct<Format>(defaultCharExpr / !"="_tok) || construct<Format>(star))
 
 // R1216 input-item -> variable | io-implied-do
@@ -3480,6 +3476,9 @@ TYPE_CONTEXT_PARSER("PAUSE statement"_en_US,
 //     is used only via scalar-default-char-variable
 //   R907 int-variable -> variable
 //     is used only via scalar-int-variable
+//   R918 array-section ->
+//        data-ref [( substring-range )] | complex-part-designator
+//     is not used because parsing is not sensitive to rank
 //   R1030 default-char-constant-expr -> default-char-expr
 //     is only used via scalar-default-char-constant-expr
 }  // namespace Fortran::parser
