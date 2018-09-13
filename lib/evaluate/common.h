@@ -70,7 +70,7 @@ static constexpr Relation Reverse(Relation relation) {
 ENUM_CLASS(
     RealFlag, Overflow, DivideByZero, InvalidArgument, Underflow, Inexact)
 
-using RealFlags = common::EnumSet<RealFlag, 5>;
+using RealFlags = common::EnumSet<RealFlag, RealFlag_enumSize>;
 
 template<typename A> struct ValueWithRealFlags {
   A AccumulateFlags(RealFlags &f) {
@@ -116,21 +116,19 @@ using HostUnsignedInt =
 // - There is no default constructor (Class() {}), usually to prevent the
 //   need for std::monostate as a default constituent in a std::variant<>.
 // - There are full copy and move semantics for construction and assignment.
-// - There's a Dump(std::ostream &) member function.
 #define CLASS_BOILERPLATE(t) \
   t() = delete; \
   t(const t &) = default; \
   t(t &&) = default; \
   t &operator=(const t &) = default; \
-  t &operator=(t &&) = default; \
-  std::ostream &Dump(std::ostream &) const;
+  t &operator=(t &&) = default;
 
 // Force availability of copy construction and assignment
 template<typename A> using CopyableIndirection = common::Indirection<A, true>;
 
 // Classes that support a Fold(FoldingContext &) member function have the
-// FoldableTrait set.
-CLASS_TRAIT(FoldableTrait);
+// IsFoldableTrait.
+CLASS_TRAIT(IsFoldableTrait)
 struct FoldingContext {
   explicit FoldingContext(parser::ContextualMessages &m,
       Rounding round = defaultRounding, bool flush = false)

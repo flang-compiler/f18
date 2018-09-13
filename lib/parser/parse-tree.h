@@ -50,10 +50,10 @@
 // although a C++ compiler wouldn't default them anyway due to the presence
 // of explicitly defaulted move constructors and move assignments.
 
-CLASS_TRAIT(EmptyTrait);
-CLASS_TRAIT(WrapperTrait);
-CLASS_TRAIT(UnionTrait);
-CLASS_TRAIT(TupleTrait);
+CLASS_TRAIT(EmptyTrait)
+CLASS_TRAIT(WrapperTrait)
+CLASS_TRAIT(UnionTrait)
+CLASS_TRAIT(TupleTrait)
 
 // Some parse tree nodes have fields in them to cache the results of a
 // successful semantic analysis later.  Their types are forward declared
@@ -62,9 +62,16 @@ namespace Fortran::semantics {
 class Symbol;
 }  // namespace Fortran::semantics
 
+// Expressions in the parse tree have owning pointers that can be set to
+// type-checked generic expression representations by semantic analysis.
+// OwningPointer<> is used for leak safety without having to include
+// the bulk of lib/evaluate/*.h headers into the parser proper.
 namespace Fortran::evaluate {
-struct GenericExpr;
+struct GenericExprWrapper;  // forward definition, wraps Expr<SomeType>
 }  // namespace Fortran::evaluate
+namespace Fortran::common {
+extern template class OwningPointer<evaluate::GenericExprWrapper>;
+}  // namespace Fortran::common
 
 // Most non-template classes in this file use these default definitions
 // for their move constructor and move assignment operator=, and disable
@@ -1688,6 +1695,9 @@ struct Expr {
   explicit Expr(Designator &&);
   explicit Expr(FunctionReference &&);
 
+  // Filled in later during semantic analysis of the expression.
+  common::OwningPointer<evaluate::GenericExprWrapper> typedExpr;
+
   std::variant<common::Indirection<CharLiteralConstantSubstring>,
       LiteralConstant, common::Indirection<Designator>, ArrayConstructor,
       StructureConstructor, common::Indirection<TypeParamInquiry>,
@@ -1811,13 +1821,6 @@ struct ArrayElement {
     : base{std::move(dr)}, subscripts(std::move(ss)) {}
   DataRef base;
   std::list<SectionSubscript> subscripts;
-};
-
-// R918 array-section ->
-//        data-ref [( substring-range )] | complex-part-designator
-struct ArraySection {
-  WRAPPER_CLASS_BOILERPLATE(ArraySection, Designator);
-  // at least one vector-valued or triplet subscript
 };
 
 // R933 allocate-object -> variable-name | structure-component
@@ -2074,9 +2077,13 @@ WRAPPER_CLASS(BlockStmt, std::optional<Name>);
 WRAPPER_CLASS(EndBlockStmt, std::optional<Name>);
 
 // R1109 block-specification-part ->
-//         [use-stmt]... [import-stmt]... [implicit-part]
+//         [use-stmt]... [import-stmt]...
 //         [[declaration-construct]... specification-construct]
 WRAPPER_CLASS(BlockSpecificationPart, SpecificationPart);
+// TODO: Because BlockSpecificationPart just wraps the more general
+// SpecificationPart, it can misrecognize an ImplicitPart as part of
+// the BlockSpecificationPart during parsing, and we have to detect and
+// flag such usage in semantics.
 // TODO: error if any COMMON, EQUIVALENCE, INTENT, NAMELIST, OPTIONAL,
 // VALUE, ENTRY, SAVE /common/, or statement function definition statement
 // appears in a block-specification part (C1107, C1570).
