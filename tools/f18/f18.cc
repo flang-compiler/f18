@@ -216,7 +216,7 @@ std::string CompileFortran(
     if (driver.moduleDirectory != "."s) {
       directories.insert(directories.begin(), driver.moduleDirectory);
     }
-    (void)Fortran::semantics::ValidateLabels(parseTree, parsing.cooked()));
+    (void)Fortran::semantics::ValidateLabels(parseTree, parsing.cooked());
     Fortran::semantics::ResolveNames(Fortran::semantics::Scope::globalScope,
         parseTree, parsing.cooked(), directories);
     Fortran::semantics::ModFileWriter writer;
