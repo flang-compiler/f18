@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "semantics.h"
+#include "check-do-concurrent.h"
 #include "mod-file.h"
 #include "resolve-labels.h"
 #include "resolve-names.h"
@@ -49,6 +50,10 @@ bool Semantics::Perform(parser::Program &program) {
     return false;
   }
   RewriteParseTree(messages_, globalScope_, program);
+  if (AnyFatalError()) {
+    return false;
+  }
+  CheckDoConcurrentConstraints(messages_, program);
   if (AnyFatalError()) {
     return false;
   }

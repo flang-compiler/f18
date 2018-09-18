@@ -15,6 +15,7 @@
 
 add_library(FortranSemantics
   attr.cc
+  check-do-concurrent.cc
   expression.cc
   mod-file.cc
   resolve-labels.cc
