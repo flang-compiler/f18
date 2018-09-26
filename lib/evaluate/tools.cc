@@ -25,17 +25,18 @@ namespace Fortran::evaluate {
 // Conversions of complex component expressions to REAL.
 ConvertRealOperandsResult ConvertRealOperands(
     parser::ContextualMessages &messages, Expr<SomeType> &&x,
-    Expr<SomeType> &&y) {
+    Expr<SomeType> &&y, int defaultRealKind) {
   return std::visit(
-      common::visitors{
-          [&](Expr<SomeInteger> &&ix,
-              Expr<SomeInteger> &&iy) -> ConvertRealOperandsResult {
-            // Can happen in a CMPLX() constructor.  Per F'2018,
-            // both integer operands are converted to default REAL.
-            return {AsSameKindExprs<TypeCategory::Real>(
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(ix))),
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(iy))))};
-          },
+      common::visitors{[&](Expr<SomeInteger> &&ix, Expr<SomeInteger> &&iy)
+                           -> ConvertRealOperandsResult {
+                         // Can happen in a CMPLX() constructor.  Per F'2018,
+                         // both integer operands are converted to default REAL.
+                         return {AsSameKindExprs<TypeCategory::Real>(
+                             ConvertToKind<TypeCategory::Real>(
+                                 defaultRealKind, std::move(ix)),
+                             ConvertToKind<TypeCategory::Real>(
+                                 defaultRealKind, std::move(iy)))};
+                       },
           [&](Expr<SomeInteger> &&ix,
               Expr<SomeReal> &&ry) -> ConvertRealOperandsResult {
             return {AsSameKindExprs<TypeCategory::Real>(
@@ -54,14 +55,18 @@ ConvertRealOperandsResult ConvertRealOperands(
           [&](Expr<SomeInteger> &&ix,
               BOZLiteralConstant &&by) -> ConvertRealOperandsResult {
             return {AsSameKindExprs<TypeCategory::Real>(
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(ix))),
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(by))))};
+                ConvertToKind<TypeCategory::Real>(
+                    defaultRealKind, std::move(ix)),
+                ConvertToKind<TypeCategory::Real>(
+                    defaultRealKind, std::move(by)))};
           },
           [&](BOZLiteralConstant &&bx,
               Expr<SomeInteger> &&iy) -> ConvertRealOperandsResult {
             return {AsSameKindExprs<TypeCategory::Real>(
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(bx))),
-                AsCategoryExpr(ConvertToType<DefaultReal>(std::move(iy))))};
+                ConvertToKind<TypeCategory::Real>(
+                    defaultRealKind, std::move(bx)),
+                ConvertToKind<TypeCategory::Real>(
+                    defaultRealKind, std::move(iy)))};
           },
           [&](Expr<SomeReal> &&rx,
               BOZLiteralConstant &&by) -> ConvertRealOperandsResult {
@@ -105,22 +110,22 @@ std::optional<Expr<SomeType>> MixedRealLeft(
       [&](auto &&rxk) -> Expr<SomeReal> {
         using resultType = ResultType<decltype(rxk)>;
         if constexpr (std::is_same_v<OPR<resultType>, Power<resultType>>) {
-          return AsCategoryExpr(AsExpr(
-              RealToIntPower<resultType>{std::move(rxk), std::move(iy)}));
+          return AsCategoryExpr(
+              RealToIntPower<resultType>{std::move(rxk), std::move(iy)});
         }
         // G++ 8.1.0 emits bogus warnings about missing return statements if
         // this statement is wrapped in an "else", as it should be.
-        return AsCategoryExpr(AsExpr(OPR<resultType>{
-            std::move(rxk), ConvertToType<resultType>(std::move(iy))}));
+        return AsCategoryExpr(OPR<resultType>{
+            std::move(rxk), ConvertToType<resultType>(std::move(iy))});
       },
       std::move(rx.u)));
 }
 
 std::optional<Expr<SomeComplex>> ConstructComplex(
     parser::ContextualMessages &messages, Expr<SomeType> &&real,
-    Expr<SomeType> &&imaginary) {
+    Expr<SomeType> &&imaginary, int defaultRealKind) {
   if (auto converted{ConvertRealOperands(
-          messages, std::move(real), std::move(imaginary))}) {
+          messages, std::move(real), std::move(imaginary), defaultRealKind)}) {
     return {std::visit(
         [](auto &&pair) {
           return MakeComplex(std::move(pair[0]), std::move(pair[1]));
@@ -132,10 +137,10 @@ std::optional<Expr<SomeComplex>> ConstructComplex(
 
 std::optional<Expr<SomeComplex>> ConstructComplex(
     parser::ContextualMessages &messages, std::optional<Expr<SomeType>> &&real,
-    std::optional<Expr<SomeType>> &&imaginary) {
+    std::optional<Expr<SomeType>> &&imaginary, int defaultRealKind) {
   if (auto parts{common::AllPresent(std::move(real), std::move(imaginary))}) {
     return ConstructComplex(messages, std::move(std::get<0>(*parts)),
-        std::move(std::get<1>(*parts)));
+        std::move(std::get<1>(*parts)), defaultRealKind);
   }
   return std::nullopt;
 }
@@ -144,7 +149,7 @@ Expr<SomeReal> GetComplexPart(const Expr<SomeComplex> &z, bool isImaginary) {
   return std::visit(
       [&](const auto &zk) {
         static constexpr int kind{ResultType<decltype(zk)>::kind};
-        return AsCategoryExpr(AsExpr(ComplexComponent<kind>{isImaginary, zk}));
+        return AsCategoryExpr(ComplexComponent<kind>{isImaginary, zk});
       },
       z.u);
 }
@@ -257,9 +262,9 @@ std::optional<Expr<SomeType>> NumericOperation(
             return Package(std::visit(
                 [&](auto &&ryk) -> Expr<SomeReal> {
                   using resultType = ResultType<decltype(ryk)>;
-                  return AsCategoryExpr(AsExpr(
+                  return AsCategoryExpr(
                       OPR<resultType>{ConvertToType<resultType>(std::move(ix)),
-                          std::move(ryk)}));
+                          std::move(ryk)});
                 },
                 std::move(ry.u)));
           },
@@ -342,7 +347,7 @@ std::optional<Expr<SomeType>> Negation(
             messages.Say("LOGICAL cannot be negated"_err_en_US);
             return NoExpr();
           },
-          [&](Expr<Type<TypeCategory::Derived>> &&x) {
+          [&](Expr<SomeDerived> &&x) {
             // TODO: defined operator
             messages.Say("derived type cannot be negated"_err_en_US);
             return NoExpr();
