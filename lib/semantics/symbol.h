@@ -120,6 +120,10 @@ public:
   void set_shape(const ArraySpec &shape);
   bool isDummy() const { return isDummy_; }
   bool isArray() const { return !shape_.empty(); }
+  bool isAssumedSize() const {
+    return isDummy() && isArray() && shape_.back().ubound().isAssumed() &&
+        !shape_.back().lbound().isAssumed();
+  }
 
 private:
   bool isDummy_;
@@ -269,11 +273,18 @@ std::string DetailsToString(const Details &);
 
 class Symbol {
 public:
-  ENUM_CLASS(Flag, Function, Subroutine, Implicit, ModFile);
+  ENUM_CLASS(Flag,
+      Function,  // symbol is a function
+      Subroutine,  // symbol is a subroutine
+      Implicit,  // symbol is implicitly typed
+      ModFile,  // symbol came from .mod file
+      ParentComp  // symbol is the "parent component" of an extended type
+  );
   using Flags = common::EnumSet<Flag, Flag_enumSize>;
 
   const Scope &owner() const { return *owner_; }
   const SourceName &name() const { return occurrences_.front(); }
+  const SourceName &lastOccurrence() const { return occurrences_.back(); }
   Attrs &attrs() { return attrs_; }
   const Attrs &attrs() const { return attrs_; }
   Flags &flags() { return flags_; }
@@ -333,6 +344,8 @@ public:
 
   bool operator==(const Symbol &that) const { return this == &that; }
   bool operator!=(const Symbol &that) const { return this != &that; }
+
+  int Rank() const;
 
 private:
   const Scope *owner_;
