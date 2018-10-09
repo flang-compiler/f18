@@ -191,9 +191,9 @@ public:
         encoding_ == Encoding::EUC_JP ? EUC_JPCharacterBytes
                                       : UTF8CharacterBytes)};
     if (chars.has_value()) {
-      Unparse(*chars);
+      Unparse(static_cast<std::uint64_t>(*chars));
     } else {
-      Unparse(x.v.size());
+      Unparse(static_cast<std::uint64_t>(x.v.size()));
     }
     Put('H');
   }
