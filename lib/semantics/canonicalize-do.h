@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_EVALUATE_INTRINSICS_H_
-#define FORTRAN_EVALUATE_INTRINSICS_H_
+#ifndef FORTRAN_SEMANTICS_CANONICALIZE_DO_H_
+#define FORTRAN_SEMANTICS_CANONICALIZE_DO_H_
 
-#include "../common/idioms.h"
+// Converts a LabelDo followed by a sequence of ExecutableConstructs (perhaps
+// logically nested) into the more structured DoConstruct (explicitly nested)
+namespace Fortran::parser {
+struct Program;
+void CanonicalizeDo(Program &program);
+}  // namespace Fortran::parser
 
-namespace Fortran::evaluate {
-
-// Placeholder
-ENUM_CLASS(IntrinsicProcedure, IAND, IEOR, IOR, LEN, MAX, MIN)
-
-}  // namespace Fortran::evaluate
-#endif  // FORTRAN_EVALUATE_INTRINSICS_H_
+#endif  // FORTRAN_SEMANTICS_CANONICALIZE_DO_H_

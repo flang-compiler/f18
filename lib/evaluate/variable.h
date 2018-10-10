@@ -25,6 +25,7 @@
 #include "intrinsics.h"
 #include "type.h"
 #include "../common/idioms.h"
+#include "../lib/common/template.h"
 #include "../semantics/symbol.h"
 #include <optional>
 #include <ostream>
@@ -37,9 +38,8 @@ using semantics::Symbol;
 
 // Forward declarations
 template<typename A> class Expr;
-class DataRef;
-class Variable;
-class ActualFunctionArg;
+struct DataRef;
+template<typename A> struct Variable;
 
 // Subscript and cosubscript expressions are of a kind that matches the
 // address size, at least at the top level.
@@ -49,7 +49,7 @@ using IndirectSubscriptIntegerExpr =
 // R913 structure-component & C920: Defined to be a multi-part
 // data-ref whose last part has no subscripts (or image-selector, although
 // that isn't explicit in the document).  Pointer and allocatable components
-// are not explicitly indirected in this representation.
+// are not explicitly indirected in this representation (TODO: yet?)
 // Complex components (%RE, %IM) are isolated below in ComplexPart.
 class Component {
 public:
@@ -58,9 +58,12 @@ public:
   Component(DataRef &&b, const Symbol &c) : base_{std::move(b)}, symbol_{&c} {}
   Component(CopyableIndirection<DataRef> &&b, const Symbol &c)
     : base_{std::move(b)}, symbol_{&c} {}
+
   const DataRef &base() const { return *base_; }
   DataRef &base() { return *base_; }
   const Symbol &symbol() const { return *symbol_; }
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const;
   Expr<SubscriptInteger> LEN() const;
   std::ostream &Dump(std::ostream &) const;
 
@@ -72,7 +75,8 @@ private:
 // R921 subscript-triplet
 class Triplet {
 public:
-  CLASS_BOILERPLATE(Triplet)
+  Triplet() {}
+  DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(Triplet)
   Triplet(std::optional<Expr<SubscriptInteger>> &&,
       std::optional<Expr<SubscriptInteger>> &&,
       std::optional<Expr<SubscriptInteger>> &&);
@@ -86,19 +90,13 @@ private:
 };
 
 // R919 subscript when rank 0, R923 vector-subscript when rank 1
-class Subscript {
-public:
-  CLASS_BOILERPLATE(Subscript)
-  explicit Subscript(const Expr<SubscriptInteger> &s)
-    : u_{IndirectSubscriptIntegerExpr::Make(s)} {}
+struct Subscript {
+  EVALUATE_UNION_CLASS_BOILERPLATE(Subscript)
   explicit Subscript(Expr<SubscriptInteger> &&s)
-    : u_{IndirectSubscriptIntegerExpr::Make(std::move(s))} {}
-  explicit Subscript(const Triplet &t) : u_{t} {}
-  explicit Subscript(Triplet &&t) : u_{std::move(t)} {}
+    : u{IndirectSubscriptIntegerExpr::Make(std::move(s))} {}
+  int Rank() const;
   std::ostream &Dump(std::ostream &) const;
-
-private:
-  std::variant<IndirectSubscriptIntegerExpr, Triplet> u_;
+  std::variant<IndirectSubscriptIntegerExpr, Triplet> u;
 };
 
 // R917 array-element, R918 array-section; however, the case of an
@@ -106,19 +104,20 @@ private:
 // as a ComplexPart instead.  C919 & C925 require that at most one set of
 // subscripts have rank greater than 0, but that is not explicit in
 // these types.
-class ArrayRef {
-public:
+struct ArrayRef {
   CLASS_BOILERPLATE(ArrayRef)
   ArrayRef(const Symbol &n, std::vector<Subscript> &&ss)
-    : u_{&n}, subscript_(std::move(ss)) {}
+    : u{&n}, subscript(std::move(ss)) {}
   ArrayRef(Component &&c, std::vector<Subscript> &&ss)
-    : u_{std::move(c)}, subscript_(std::move(ss)) {}
+    : u{std::move(c)}, subscript(std::move(ss)) {}
+
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const;
   Expr<SubscriptInteger> LEN() const;
   std::ostream &Dump(std::ostream &) const;
 
-private:
-  std::variant<const Symbol *, Component> u_;
-  std::vector<Subscript> subscript_;
+  std::variant<const Symbol *, Component> u;
+  std::vector<Subscript> subscript;
 };
 
 // R914 coindexed-named-object
@@ -134,15 +133,24 @@ public:
   CoarrayRef(std::vector<const Symbol *> &&,
       std::vector<Expr<SubscriptInteger>> &&,
       std::vector<Expr<SubscriptInteger>> &&);  // TODO: stat & team?
-  CoarrayRef &setStat(Variable &&);
-  CoarrayRef &setTeam(Variable &&, bool isTeamNumber = false);
+  CoarrayRef &set_stat(Variable<DefaultInteger> &&);
+  CoarrayRef &set_team(Variable<DefaultInteger> &&, bool isTeamNumber = false);
+
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const {
+    if (first) {
+      return base_.front();
+    } else {
+      return base_.back();
+    }
+  }
   Expr<SubscriptInteger> LEN() const;
   std::ostream &Dump(std::ostream &) const;
 
 private:
   std::vector<const Symbol *> base_;
   std::vector<Expr<SubscriptInteger>> subscript_, cosubscript_;
-  std::optional<CopyableIndirection<Variable>> stat_, team_;
+  std::optional<CopyableIndirection<Variable<DefaultInteger>>> stat_, team_;
   bool teamIsTeamNumber_{false};  // false: TEAM=, true: TEAM_NUMBER=
 };
 
@@ -151,18 +159,16 @@ private:
 // possible outcomes are spelled out.  Note that a data-ref cannot include
 // a terminal substring range or complex component designator; use
 // R901 designator for that.
-class DataRef {
-public:
-  CLASS_BOILERPLATE(DataRef)
-  explicit DataRef(const Symbol &n) : u_{&n} {}
-  explicit DataRef(Component &&c) : u_{std::move(c)} {}
-  explicit DataRef(ArrayRef &&a) : u_{std::move(a)} {}
-  explicit DataRef(CoarrayRef &&a) : u_{std::move(a)} {}
+struct DataRef {
+  EVALUATE_UNION_CLASS_BOILERPLATE(DataRef)
+  explicit DataRef(const Symbol &n) : u{&n} {}
+
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const;
   Expr<SubscriptInteger> LEN() const;
   std::ostream &Dump(std::ostream &) const;
 
-private:
-  std::variant<const Symbol *, Component, ArrayRef, CoarrayRef> u_;
+  std::variant<const Symbol *, Component, ArrayRef, CoarrayRef> u;
 };
 
 // R908 substring, R909 parent-string, R910 substring-range.
@@ -180,6 +186,8 @@ public:
 
   Expr<SubscriptInteger> first() const;
   Expr<SubscriptInteger> last() const;
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const;
   Expr<SubscriptInteger> LEN() const;
   std::optional<std::string> Fold(FoldingContext &);
   std::ostream &Dump(std::ostream &) const;
@@ -200,6 +208,10 @@ public:
   ComplexPart(DataRef &&z, Part p) : complex_{std::move(z)}, part_{p} {}
   const DataRef &complex() const { return complex_; }
   Part part() const { return part_; }
+  int Rank() const;
+  const Symbol *GetSymbol(bool first) const {
+    return complex_.GetSymbol(first);
+  }
   std::ostream &Dump(std::ostream &) const;
 
 private:
@@ -208,70 +220,123 @@ private:
 };
 
 // R901 designator is the most general data reference object, apart from
-// calls to pointer-valued functions.
-class Designator {
-public:
-  CLASS_BOILERPLATE(Designator)
-  explicit Designator(DataRef &&d) : u_{std::move(d)} {}
-  explicit Designator(Substring &&s) : u_{std::move(s)} {}
-  explicit Designator(ComplexPart &&c) : u_{std::move(c)} {}
-  std::ostream &Dump(std::ostream &) const;
+// calls to pointer-valued functions.  Its variant holds everything that
+// a DataRef can, and, when appropriate for the result type, a substring
+// reference or complex part (%RE/%IM).
+template<typename A> class Designator {
+  using DataRefs = decltype(DataRef::u);
+  using MaybeSubstring =
+      std::conditional_t<A::category == TypeCategory::Character,
+          std::variant<Substring>, std::variant<>>;
+  using MaybeComplexPart = std::conditional_t<A::category == TypeCategory::Real,
+      std::variant<ComplexPart>, std::variant<>>;
+  using Variant =
+      common::CombineVariants<DataRefs, MaybeSubstring, MaybeComplexPart>;
 
-private:
-  std::variant<DataRef, Substring, ComplexPart> u_;
-};
-
-class ProcedureDesignator {
 public:
-  CLASS_BOILERPLATE(ProcedureDesignator)
-  explicit ProcedureDesignator(IntrinsicProcedure p) : u_{p} {}
-  explicit ProcedureDesignator(const Symbol &n) : u_{&n} {}
-  explicit ProcedureDesignator(const Component &c) : u_{c} {}
-  explicit ProcedureDesignator(Component &&c) : u_{std::move(c)} {}
+  using Result = A;
+  static_assert(Result::isSpecificType);
+  EVALUATE_UNION_CLASS_BOILERPLATE(Designator)
+  explicit Designator(DataRef &&that)
+    : u{common::MoveVariant<Variant>(std::move(that.u))} {}
+  Designator &operator=(DataRef &&that) {
+    *this = Designator{std::move(that)};
+    return *this;
+  }
+
+  int Rank() const {
+    return std::visit(
+        common::visitors{[](const Symbol *sym) { return sym->Rank(); },
+            [](const auto &x) { return x.Rank(); }},
+        u);
+  }
+
+  const Symbol *GetSymbol(bool first) const {
+    return std::visit(common::visitors{[](const Symbol *sym) { return sym; },
+                          [=](const auto &x) { return x.GetSymbol(first); }},
+        u);
+  }
+
   Expr<SubscriptInteger> LEN() const;
-  std::ostream &Dump(std::ostream &) const;
 
-private:
-  std::variant<IntrinsicProcedure, const Symbol *, Component> u_;
+  std::ostream &Dump(std::ostream &o) const {
+    std::visit(common::visitors{[&](const Symbol *sym) {
+                                  o << sym->name().ToString();
+                                },
+                   [&](const auto &x) { x.Dump(o); }},
+        u);
+    return o;
+  }
+
+  Variant u;
 };
 
-template<typename ARG> class ProcedureRef {
+struct ProcedureDesignator {
+  EVALUATE_UNION_CLASS_BOILERPLATE(ProcedureDesignator)
+  explicit ProcedureDesignator(IntrinsicProcedure p) : u{p} {}
+  explicit ProcedureDesignator(const Symbol &n) : u{&n} {}
+  Expr<SubscriptInteger> LEN() const;
+  int Rank() const;
+  const Symbol *GetSymbol() const;
+  std::ostream &Dump(std::ostream &) const;
+
+  std::variant<IntrinsicProcedure, const Symbol *, Component> u;
+};
+
+using ActualFunctionArg = std::optional<CopyableIndirection<Expr<SomeType>>>;
+
+class UntypedFunctionRef {
 public:
-  using ArgumentType = CopyableIndirection<ARG>;
-  CLASS_BOILERPLATE(ProcedureRef)
-  ProcedureRef(ProcedureDesignator &&p, std::vector<ArgumentType> &&a)
-    : proc_{std::move(p)}, argument_(std::move(a)) {}
+  using Argument = ActualFunctionArg;
+  using Arguments = std::vector<Argument>;
+  CLASS_BOILERPLATE(UntypedFunctionRef)
+  UntypedFunctionRef(ProcedureDesignator &&p, Arguments &&a, int r)
+    : proc_{std::move(p)}, arguments_(std::move(a)), rank_{r} {}
+  UntypedFunctionRef(ProcedureDesignator &&p, Arguments &&a)
+    : proc_{std::move(p)}, arguments_(std::move(a)) {}
+
   const ProcedureDesignator &proc() const { return proc_; }
-  const std::vector<ArgumentType> &argument() const { return argument_; }
+  const Arguments &arguments() const { return arguments_; }
+
+  Expr<SubscriptInteger> LEN() const;
+  int Rank() const { return rank_; }
   std::ostream &Dump(std::ostream &) const;
 
-private:
+protected:
   ProcedureDesignator proc_;
-  std::vector<ArgumentType> argument_;
+  Arguments arguments_;
+  int rank_{proc_.Rank()};
 };
 
-using FunctionRef = ProcedureRef<ActualFunctionArg>;
-
-class Variable {
-public:
-  CLASS_BOILERPLATE(Variable)
-  explicit Variable(Designator &&d) : u_{std::move(d)} {}
-  explicit Variable(FunctionRef &&p) : u_{std::move(p)} {}
-  std::ostream &Dump(std::ostream &) const;
-
-private:
-  std::variant<Designator, FunctionRef> u_;
+template<typename A> struct FunctionRef : public UntypedFunctionRef {
+  using Result = A;
+  static_assert(Result::isSpecificType);
+  // Subtlety: There is a distinction that must be maintained here between an
+  // actual argument expression that *is* a variable and one that is not,
+  // e.g. between X and (X).  The parser attempts to parse each argument
+  // first as a variable, then as an expression, and the distinction appears
+  // in the parse tree.
+  using Argument = ActualFunctionArg;
+  using Arguments = std::vector<Argument>;
+  CLASS_BOILERPLATE(FunctionRef)
+  explicit FunctionRef(UntypedFunctionRef &&ufr)
+    : UntypedFunctionRef{std::move(ufr)} {}
+  FunctionRef(ProcedureDesignator &&p, Arguments &&a, int r = 0)
+    : UntypedFunctionRef{std::move(p), std::move(a), r} {}
 };
 
-class ActualFunctionArg {
-public:
-  CLASS_BOILERPLATE(ActualFunctionArg)
-  explicit ActualFunctionArg(Expr<SomeType> &&x) : u_{std::move(x)} {}
-  explicit ActualFunctionArg(Variable &&x) : u_{std::move(x)} {}
-  std::ostream &Dump(std::ostream &) const;
-
-private:
-  std::variant<CopyableIndirection<Expr<SomeType>>, Variable> u_;
+template<typename A> struct Variable {
+  using Result = A;
+  static_assert(Result::isSpecificType);
+  EVALUATE_UNION_CLASS_BOILERPLATE(Variable)
+  int Rank() const {
+    return std::visit([](const auto &x) { return x.Rank(); }, u);
+  }
+  std::ostream &Dump(std::ostream &o) const {
+    std::visit([&](const auto &x) { x.Dump(o); }, u);
+    return o;
+  }
+  std::variant<Designator<Result>, FunctionRef<Result>> u;
 };
 
 struct Label {  // TODO: this is a placeholder
@@ -283,17 +348,34 @@ struct Label {  // TODO: this is a placeholder
 
 class ActualSubroutineArg {
 public:
-  CLASS_BOILERPLATE(ActualSubroutineArg)
-  explicit ActualSubroutineArg(Expr<SomeType> &&x) : u_{std::move(x)} {}
-  explicit ActualSubroutineArg(Variable &&x) : u_{std::move(x)} {}
-  explicit ActualSubroutineArg(const Label &l) : u_{&l} {}
+  EVALUATE_UNION_CLASS_BOILERPLATE(ActualSubroutineArg)
+  explicit ActualSubroutineArg(ActualFunctionArg &&x) : u{std::move(x)} {}
+  explicit ActualSubroutineArg(const Label &l) : u{&l} {}
+  int Rank() const;
+  std::ostream &Dump(std::ostream &) const;
+
+public:
+  std::variant<ActualFunctionArg, const Label *> u;
+};
+
+class SubroutineCall {
+public:
+  using Argument = ActualSubroutineArg;
+  using Arguments = std::vector<Argument>;
+  CLASS_BOILERPLATE(SubroutineCall)
+  SubroutineCall(ProcedureDesignator &&p, Arguments &&a)
+    : proc_{std::move(p)}, arguments_(std::move(a)) {}
+  const ProcedureDesignator &proc() const { return proc_; }
+  const Arguments &arguments() const { return arguments_; }
+  int Rank() const { return 0; }  // TODO: elemental subroutine representation
   std::ostream &Dump(std::ostream &) const;
 
 private:
-  std::variant<CopyableIndirection<Expr<SomeType>>, Variable, const Label *> u_;
+  ProcedureDesignator proc_;
+  Arguments arguments_;
 };
 
-using SubroutineRef = ProcedureRef<ActualSubroutineArg>;
+FOR_EACH_CHARACTER_KIND(extern template class Designator)
 
 }  // namespace Fortran::evaluate
 

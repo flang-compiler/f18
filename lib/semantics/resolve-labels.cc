@@ -18,7 +18,6 @@
 #include "../parser/parse-tree-visitor.h"
 #include <cctype>
 #include <cstdarg>
-#include <iostream>
 
 namespace Fortran::semantics {
 
@@ -219,12 +218,9 @@ struct UnitAnalysis {
 
 class ParseTreeAnalyzer {
 public:
-  ParseTreeAnalyzer() {}
-  ParseTreeAnalyzer(ParseTreeAnalyzer &&that)
-    : programUnits_{std::move(that.programUnits_)},
-      errorHandler_{std::move(that.errorHandler_)}, currentPosition_{std::move(
-                                                        that.currentPosition_)},
-      constructNames_{std::move(that.constructNames_)} {}
+  ParseTreeAnalyzer(ParseTreeAnalyzer &&that) = default;
+  ParseTreeAnalyzer(parser::Messages &errorHandler)
+    : errorHandler_{errorHandler} {}
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
   template<typename A> constexpr void Post(const A &) {}
@@ -324,10 +320,10 @@ public:
 
   // C1414
   void Post(const parser::BlockData &blockData) {
-    if (!namesBothEqualOrBothNone(
-            std::get<parser::Statement<parser::BlockDataStmt>>(blockData.t)
-                .statement.v,
+    if (!firstNameNoneOrBothEqual(
             std::get<parser::Statement<parser::EndBlockDataStmt>>(blockData.t)
+                .statement.v,
+            std::get<parser::Statement<parser::BlockDataStmt>>(blockData.t)
                 .statement.v)) {
       errorHandler_
           .Say(currentPosition_,
@@ -920,8 +916,8 @@ private:
   }
 
   std::vector<UnitAnalysis> programUnits_;
-  parser::Messages errorHandler_;
-  parser::CharBlock currentPosition_;
+  parser::Messages &errorHandler_;
+  parser::CharBlock currentPosition_{nullptr};
   ProxyForScope currentScope_{0};
   std::vector<std::string> constructNames_;
 };
@@ -936,8 +932,9 @@ bool InInclusiveScope(const std::vector<ProxyForScope> &scopes,
   return true;
 }
 
-ParseTreeAnalyzer LabelAnalysis(const parser::Program &program) {
-  ParseTreeAnalyzer analysis;
+ParseTreeAnalyzer LabelAnalysis(
+    parser::Messages &errorHandler, const parser::Program &program) {
+  ParseTreeAnalyzer analysis{errorHandler};
   Walk(program, analysis);
   return analysis;
 }
@@ -1151,8 +1148,7 @@ void CheckDataTransferConstraints(const SourceStmtList &dataTransfers,
   CheckDataXferTargetConstraints(dataTransfers, labels, errorHandler);
 }
 
-bool CheckConstraints(ParseTreeAnalyzer &&parseTreeAnalysis,
-    const parser::CookedSource &cookedSource) {
+bool CheckConstraints(ParseTreeAnalyzer &&parseTreeAnalysis) {
   auto &errorHandler{parseTreeAnalysis.errorHandler()};
   for (const auto &programUnit : parseTreeAnalysis.programUnits()) {
     const auto &dos{programUnit.doStmtSources};
@@ -1164,15 +1160,12 @@ bool CheckConstraints(ParseTreeAnalyzer &&parseTreeAnalysis,
     const auto &dataTransfers{programUnit.formatStmtSources};
     CheckDataTransferConstraints(dataTransfers, labels, scopes, errorHandler);
   }
-  if (!errorHandler.empty()) {
-    errorHandler.Emit(std::cerr, cookedSource);
-  }
   return !errorHandler.AnyFatalError();
 }
 
 bool ValidateLabels(
-    const parser::Program &program, const parser::CookedSource &cookedSource) {
-  return CheckConstraints(LabelAnalysis(program), cookedSource);
+    parser::Messages &errorHandler, const parser::Program &program) {
+  return CheckConstraints(LabelAnalysis(errorHandler, program));
 }
 
 }  // namespace Fortran::semantics
