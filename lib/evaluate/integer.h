@@ -33,6 +33,10 @@
 #include <string>
 #include <type_traits>
 
+// Some environments, viz. clang on Darwin, allow the macro HUGE
+// to leak out of <math.h> even when it is never directly included.
+#undef HUGE
+
 namespace Fortran::evaluate::value {
 
 // Implements an integer as an assembly of smaller host integer parts
@@ -329,7 +333,7 @@ public:
     return result;
   }
 
-  static constexpr Integer BIT_SIZE() { return {std::uint64_t{bits}}; }
+  static constexpr Integer BIT_SIZE() { return {bits}; }
   static constexpr Integer HUGE() { return MASKR(bits - 1); }
 
   // Returns the number of full decimal digits that can be represented.
@@ -337,7 +341,7 @@ public:
     if (bits < 4) {
       return 0;
     }
-    Integer x{HUGE()}, ten{std::uint64_t{10}};
+    Integer x{HUGE()}, ten{10};
     int digits{0};
     while (x.CompareUnsigned(ten) != Ordering::Less) {
       ++digits;
@@ -813,7 +817,7 @@ public:
     if (isNegative != yIsNegative) {
       product.lower = product.lower.NOT();
       product.upper = product.upper.NOT();
-      Integer one{std::uint64_t{1}};
+      Integer one{1};
       auto incremented{product.lower.AddUnsigned(one)};
       product.lower = incremented.value;
       if (incremented.carry) {
@@ -877,8 +881,7 @@ public:
         // Dividend was (and remains) the most negative number.
         // See whether the original divisor was -1 (if so, it's 1 now).
         if (divisorOrdering == Ordering::Less &&
-            divisor.CompareUnsigned(Integer{std::uint64_t{1}}) ==
-                Ordering::Equal) {
+            divisor.CompareUnsigned(Integer{1}) == Ordering::Equal) {
           // most negative number / -1 is the sole overflow case
           return {*this, Integer{}, false, true};
         }

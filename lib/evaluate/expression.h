@@ -432,9 +432,9 @@ public:
 
   EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
   explicit Expr(const Scalar<Result> &x) : u{Constant<Result>{x}} {}
-  explicit Expr(std::int64_t n) : u{Constant<Result>{n}} {}
-  explicit Expr(std::uint64_t n) : u{Constant<Result>{n}} {}
-  explicit Expr(int n) : u{Constant<Result>{n}} {}
+  template<typename INT>
+  explicit Expr(std::enable_if_t<std::is_integral_v<INT>, INT> n)
+    : u{Constant<Result>{n}} {}
 
 private:
   using Conversions = std::variant<Convert<Result, TypeCategory::Integer>,
