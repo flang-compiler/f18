@@ -12,34 +12,20 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-module m1
-  implicit none
-contains
-  subroutine foo(x)
-    real :: x
-  end subroutine
-end module
+! Construct names
 
-!Note: PGI, Intel, GNU, and NAG allow this; Sun does not
-module m2
-  use m1
-  implicit none
+subroutine s1
+  real :: foo
   !ERROR: 'foo' is already declared in this scoping unit
-  interface foo
-    module procedure s
-  end interface
-contains
-  subroutine s(i)
-    integer :: i
-  end subroutine
-end module
-
-subroutine foo
-  !ERROR: Cannot use-associate 'foo'; it is already declared in this scope
-  use m1
+  foo: block
+  end block foo
 end
 
-subroutine bar
-  !ERROR: Cannot use-associate 'bar'; it is already declared in this scope
-  use m1, bar => foo
+subroutine s2(x)
+  logical :: x
+  foo: if (x) then
+  end if foo
+  !ERROR: 'foo' is already declared in this scoping unit
+  foo: do i = 1, 10
+  end do foo
 end
