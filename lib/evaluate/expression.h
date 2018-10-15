@@ -45,32 +45,29 @@ using common::RelationalOperator;
 // can be valid expressions in that context:
 // - Expr<Type<CATEGORY, KIND>> represents an expression whose result is of a
 //   specific intrinsic type category and kind, e.g. Type<TypeCategory::Real, 4>
+// - Expr<SomeDerived> wraps data and procedure references that result in an
+//   instance of a derived type
 // - Expr<SomeKind<CATEGORY>> is a union of Expr<Type<CATEGORY, K>> for each
 //   kind type parameter value K in that intrinsic type category.  It represents
 //   an expression with known category and any kind.
 // - Expr<SomeType> is a union of Expr<SomeKind<CATEGORY>> over the five
 //   intrinsic type categories of Fortran.  It represents any valid expression.
-template<typename A> class Expr;
+//
+// Every Expr specialization supports at least these interfaces:
+//   using Result = ...;  // type of a result of this expression
+//   using IsFoldableTrait = ...;
+//   DynamicType GetType() const;
+//   int Rank() const;
+//   std::ostream &Dump(std::ostream &) const;
+//   // If IsFoldableTrait::value is true, then these exist:
+//   std::optional<Constant<Result>> Fold(FoldingContext &c);
+//   std::optional<Scalar<Result>> ScalarValue() const;
 
 // Everything that can appear in, or as, a valid Fortran expression must be
 // represented with an instance of some class containing a Result typedef that
 // maps to some instantiation of Type<CATEGORY, KIND>, SomeKind<CATEGORY>,
 // or SomeType.
 template<typename A> using ResultType = typename std::decay_t<A>::Result;
-
-// Wraps a constant value in a class with its resolved type.
-template<typename T> struct Constant {
-  using Result = T;
-  using Value = Scalar<Result>;
-  CLASS_BOILERPLATE(Constant)
-  template<typename A> Constant(const A &x) : value{x} {}
-  template<typename A>
-  Constant(std::enable_if_t<!std::is_reference_v<A>, A> &&x)
-    : value(std::move(x)) {}
-  int Rank() const { return 0; }
-  std::ostream &Dump(std::ostream &) const;
-  Value value;
-};
 
 // BOZ literal "typeless" constants must be wide enough to hold a numeric
 // value of any supported kind of INTEGER or REAL.  They must also be
@@ -89,7 +86,6 @@ using BOZLiteralConstant = typename LargestReal::Scalar::Word;
 // from it via its derived() member function with compile-time type safety.
 template<typename DERIVED, typename RESULT, typename... OPERANDS>
 class Operation {
-  static_assert(RESULT::isSpecificType);
   // The extra "int" member is a dummy that allows a safe unused reference
   // to element 1 to arise indirectly in the definition of "right()" below
   // when the operation has but a single operand.
@@ -98,6 +94,7 @@ class Operation {
 public:
   using Derived = DERIVED;
   using Result = RESULT;
+  static_assert(Result::isSpecificIntrinsicType);
   static constexpr std::size_t operands{sizeof...(OPERANDS)};
   template<int J> using Operand = std::tuple_element_t<J, OperandTypes>;
   using IsFoldableTrait = std::true_type;
@@ -155,6 +152,9 @@ public:
     }
   }
 
+  static constexpr std::optional<DynamicType> GetType() {
+    return Result::GetType();
+  }
   int Rank() const {
     int rank{left().Rank()};
     if constexpr (operands > 1) {
@@ -416,6 +416,7 @@ template<typename RESULT> struct ExpressionBase {
     return d;
   }
 
+  std::optional<DynamicType> GetType() const;
   int Rank() const;
   std::ostream &Dump(std::ostream &) const;
   std::optional<Constant<Result>> Fold(FoldingContext &c);
@@ -554,6 +555,9 @@ template<> class Relational<SomeType> {
 public:
   using Result = LogicalResult;
   EVALUATE_UNION_CLASS_BOILERPLATE(Relational)
+  static constexpr std::optional<DynamicType> GetType() {
+    return Result::GetType();
+  }
   int Rank() const {
     return std::visit([](const auto &x) { return x.Rank(); }, u);
   }
@@ -601,20 +605,19 @@ public:
   common::MapTemplate<Expr, CategoryTypes<CAT>> u;
 };
 
-template<> class Expr<SomeDerived> : public ExpressionBase<SomeDerived> {
+// Note that Expr<SomeDerived> does not inherit from ExpressionBase
+// since Constant<SomeDerived> and Scalar<SomeDerived> are not defined
+// for derived types..
+template<> class Expr<SomeDerived> {
 public:
   using Result = SomeDerived;
   using IsFoldableTrait = std::false_type;
-  CLASS_BOILERPLATE(Expr)
+  EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
 
-  template<typename A>
-  explicit Expr(const semantics::DerivedTypeSpec &dts, const A &x)
-    : result{dts}, u{x} {}
-  template<typename A>
-  explicit Expr(Result &&r, std::enable_if_t<!std::is_reference_v<A>, A> &&x)
-    : result{std::move(r)}, u{std::move(x)} {}
+  std::optional<DynamicType> GetType() const;
+  int Rank() const;
+  std::ostream &Dump(std::ostream &) const;
 
-  Result result;
   std::variant<Designator<Result>, FunctionRef<Result>> u;
 };
 
@@ -667,8 +670,7 @@ struct GenericExprWrapper {
 };
 
 FOR_EACH_CATEGORY_TYPE(extern template class Expr)
-FOR_EACH_INTRINSIC_KIND(extern template struct ExpressionBase)
-FOR_EACH_CATEGORY_TYPE(extern template struct ExpressionBase)
+FOR_EACH_TYPE_AND_KIND(extern template struct ExpressionBase)
 
 }  // namespace Fortran::evaluate
 #endif  // FORTRAN_EVALUATE_EXPRESSION_H_
