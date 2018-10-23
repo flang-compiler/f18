@@ -14,57 +14,63 @@
 
 #include "semantics.h"
 #include "canonicalize-do.h"
+#include "default-kinds.h"
 #include "mod-file.h"
 #include "resolve-labels.h"
 #include "resolve-names.h"
 #include "rewrite-parse-tree.h"
 #include "scope.h"
 #include "symbol.h"
+#include <ostream>
 
 namespace Fortran::semantics {
 
 static void DoDumpSymbols(std::ostream &, const Scope &, int indent = 0);
 static void PutIndent(std::ostream &, int indent);
 
-Semantics &Semantics::set_searchDirectories(
-    const std::vector<std::string> &directories) {
-  for (auto directory : directories) {
-    directories_.push_back(directory);
-  }
-  return *this;
+SemanticsContext::SemanticsContext(
+    const IntrinsicTypeDefaultKinds &defaultKinds)
+  : defaultKinds_{defaultKinds},
+    intrinsics_{evaluate::IntrinsicProcTable::Configure(defaultKinds)},
+    foldingContext_{evaluate::FoldingContext{
+        parser::ContextualMessages{parser::CharBlock{}, &messages_}}} {}
+
+bool SemanticsContext::AnyFatalError() const {
+  return !messages_.empty() &&
+      (warningsAreErrors_ || messages_.AnyFatalError());
 }
 
-Semantics &Semantics::set_moduleDirectory(const std::string &directory) {
-  moduleDirectory_ = directory;
-  directories_.insert(directories_.begin(), directory);
-  return *this;
+bool Semantics::Perform() {
+  ValidateLabels(context_.messages(), program_);
+  if (AnyFatalError()) {
+    return false;
+  }
+  parser::CanonicalizeDo(program_);
+  ResolveNames(context_, program_);
+  if (AnyFatalError()) {
+    return false;
+  }
+  RewriteParseTree(context_, program_);
+  if (AnyFatalError()) {
+    return false;
+  }
+  ModFileWriter writer{context_};
+  writer.WriteAll();
+  if (AnyFatalError()) {
+    return false;
+  }
+  if (context_.debugExpressions()) {
+    AnalyzeExpressions(program_, context_);
+  }
+  return !AnyFatalError();
 }
 
-bool Semantics::Perform(parser::Program &program) {
-  ValidateLabels(messages_, program);
-  if (AnyFatalError()) {
-    return false;
-  }
-  parser::CanonicalizeDo(program);
-  ResolveNames(messages_, globalScope_, program, directories_, defaultKinds_);
-  if (AnyFatalError()) {
-    return false;
-  }
-  RewriteParseTree(messages_, globalScope_, program);
-  if (AnyFatalError()) {
-    return false;
-  }
-  ModFileWriter writer;
-  writer.set_directory(moduleDirectory_);
-  if (!writer.WriteAll(globalScope_)) {
-    messages_.Annex(writer.errors());
-    return false;
-  }
-  return true;
+void Semantics::EmitMessages(std::ostream &os) const {
+  context_.messages().Emit(os, cooked_);
 }
 
 void Semantics::DumpSymbols(std::ostream &os) {
-  DoDumpSymbols(os, globalScope_);
+  DoDumpSymbols(os, context_.globalScope());
 }
 
 void DoDumpSymbols(std::ostream &os, const Scope &scope, int indent) {
