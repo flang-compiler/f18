@@ -55,20 +55,13 @@ bool Semantics::Perform() {
   if (AnyFatalError()) {
     return false;
   }
-<<<<<<< HEAD
-  CheckDoConcurrentConstraints(messages_, program);
+  CheckDoConcurrentConstraints(context_.messages(), program_);
   if (AnyFatalError()) {
     return false;
   }
-  ModFileWriter writer;
-  writer.set_directory(moduleDirectory_);
-  if (!writer.WriteAll(globalScope_)) {
-    messages_.Annex(writer.errors());
-=======
   ModFileWriter writer{context_};
   writer.WriteAll();
   if (AnyFatalError()) {
->>>>>>> master
     return false;
   }
   if (context_.debugExpressions()) {
