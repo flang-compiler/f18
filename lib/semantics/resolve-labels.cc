@@ -198,6 +198,10 @@ bool firstNameNoneOrBothEqual(
   }
 }
 
+static unsigned SayLabel(parser::Label label) {
+  return static_cast<unsigned>(label);
+}
+
 struct UnitAnalysis {
   UnitAnalysis() { scopeModel.push_back(0); }
   UnitAnalysis(UnitAnalysis &&that)
@@ -323,8 +327,12 @@ public:
                 .statement.v,
             std::get<parser::Statement<parser::BlockDataStmt>>(blockData.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{"BLOCK DATA name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "END BLOCK DATA name mismatch"_err_en_US)
+          .Attach(
+              std::get<parser::Statement<parser::BlockDataStmt>>(blockData.t)
+                  .source,
+              "mismatched BLOCK DATA"_en_US);
     }
   }
   // C1564
@@ -337,17 +345,20 @@ public:
                 std::get<parser::Statement<parser::FunctionStmt>>(
                     functionSubprogram.t)
                     .statement.t))) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{"END FUNCTION name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "END FUNCTION name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::FunctionStmt>>(
+                      functionSubprogram.t)
+                      .source,
+              "mismatched FUNCTION"_en_US);
     }
   }
   void Post(const parser::InterfaceBlock &interfaceBlock) {
     auto &interfaceStmt{
-        std::get<parser::Statement<parser::InterfaceStmt>>(interfaceBlock.t)
-            .statement};
+        std::get<parser::Statement<parser::InterfaceStmt>>(interfaceBlock.t)};
     if (const auto *optionalGenericSpecPointer{
             std::get_if<std::optional<parser::GenericSpec>>(
-                &interfaceStmt.u)}) {
+                &interfaceStmt.statement.u)}) {
       if (optionalGenericSpecPointer->has_value()) {
         if (const auto *namePointer{
                 std::get_if<parser::Name>(&(*optionalGenericSpecPointer)->u)}) {
@@ -359,10 +370,12 @@ public:
             if (const auto *otherPointer{
                     std::get_if<parser::Name>(&optionalGenericSpec->u)}) {
               if (namePointer->ToString() != otherPointer->ToString()) {
-                errorHandler_.Say(currentPosition_,
-                    parser::MessageFormattedText{
-                        "INTERFACE generic-name (%s) mismatch"_en_US,
-                        namePointer->ToString().c_str()});
+                errorHandler_
+                    .Say(currentPosition_,
+                        parser::MessageFormattedText{
+                            "INTERFACE generic-name (%s) mismatch"_en_US,
+                            namePointer->ToString().c_str()})
+                    .Attach(interfaceStmt.source, "mismatched INTERFACE"_en_US);
               }
             }
           }
@@ -377,8 +390,10 @@ public:
                 .statement.v,
             std::get<parser::Statement<parser::ModuleStmt>>(module.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{"END MODULE name mismatch"_err_en_US});
+      errorHandler_.Say(currentPosition_, "END MODULE name mismatch"_err_en_US)
+          .Attach(
+              std::get<parser::Statement<parser::ModuleStmt>>(module.t).source,
+              "mismatched MODULE"_en_US);
     }
   }
   // C1569
@@ -390,9 +405,12 @@ public:
             std::get<parser::Statement<parser::MpSubprogramStmt>>(
                 separateModuleSubprogram.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "END MODULE PROCEDURE name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "END MODULE PROCEDURE name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::MpSubprogramStmt>>(
+                      separateModuleSubprogram.t)
+                      .source,
+              "mismatched MODULE PROCEDURE"_en_US);
     }
   }
   // C1401
@@ -409,9 +427,14 @@ public:
               .statement};
       if (endProgramStmt.v.has_value()) {
         if (programStmt.v.ToString() != endProgramStmt.v->ToString()) {
-          errorHandler_.Say(currentPosition_,
-              parser::MessageFormattedText{
-                  "END PROGRAM name mismatch"_err_en_US});
+          errorHandler_
+              .Say(currentPosition_, "END PROGRAM name mismatch"_err_en_US)
+              .Attach(
+                  std::get<
+                      std::optional<parser::Statement<parser::ProgramStmt>>>(
+                      mainProgram.t)
+                      ->source,
+                  "mismatched PROGRAM"_en_US);
         }
       }
     } else {
@@ -431,9 +454,12 @@ public:
             std::get<parser::Name>(
                 std::get<parser::Statement<parser::SubmoduleStmt>>(submodule.t)
                     .statement.t))) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "END SUBMODULE name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "END SUBMODULE name mismatch"_err_en_US)
+          .Attach(
+              std::get<parser::Statement<parser::SubmoduleStmt>>(submodule.t)
+                  .source,
+              "mismatched SUBMODULE"_en_US);
     }
   }
   // C1567
@@ -446,9 +472,12 @@ public:
                 std::get<parser::Statement<parser::SubroutineStmt>>(
                     subroutineSubprogram.t)
                     .statement.t))) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "END SUBROUTINE name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "END SUBROUTINE name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::SubroutineStmt>>(
+                      subroutineSubprogram.t)
+                      .source,
+              "mismatched SUBROUTINE"_en_US);
     }
   }
   // C739
@@ -460,8 +489,11 @@ public:
                 std::get<parser::Statement<parser::DerivedTypeStmt>>(
                     derivedTypeDef.t)
                     .statement.t))) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{"END TYPE name mismatch"_err_en_US});
+      errorHandler_.Say(currentPosition_, "END TYPE name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::DerivedTypeStmt>>(
+                      derivedTypeDef.t)
+                      .source,
+              "mismatched TYPE"_en_US);
     }
   }
 
@@ -623,9 +655,11 @@ private:
     if (!namesBothEqualOrBothNone(
             std::get<std::optional<parser::Name>>(std::get<0>(a.t).statement.t),
             std::get<2>(a.t).statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "%s construct name mismatch"_err_en_US, constructTag});
+      errorHandler_
+          .Say(currentPosition_,
+              parser::MessageFormattedText{
+                  "%s construct name mismatch"_err_en_US, constructTag})
+          .Attach(std::get<0>(a.t).source, "mismatched construct"_en_US);
     }
   }
 
@@ -636,9 +670,12 @@ private:
                 .statement.v,
             std::get<parser::Statement<parser::EndBlockStmt>>(blockConstruct.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "BLOCK construct name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "BLOCK construct name mismatch"_err_en_US)
+          .Attach(
+              std::get<parser::Statement<parser::BlockStmt>>(blockConstruct.t)
+                  .source,
+              "mismatched BLOCK"_en_US);
     }
   }
   // C1112
@@ -652,9 +689,13 @@ private:
                 std::get<parser::Statement<parser::EndChangeTeamStmt>>(
                     changeTeamConstruct.t)
                     .statement.t))) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "CHANGE TEAM construct name mismatch"_err_en_US});
+      errorHandler_
+          .Say(
+              currentPosition_, "CHANGE TEAM construct name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::ChangeTeamStmt>>(
+                      changeTeamConstruct.t)
+                      .source,
+              "mismatched CHANGE TEAM"_en_US);
     }
   }
 
@@ -666,8 +707,11 @@ private:
     if (!namesBothEqualOrBothNone(constructName,
             std::get<parser::Statement<parser::EndIfStmt>>(ifConstruct.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{"IF construct name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "IF construct name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::IfThenStmt>>(ifConstruct.t)
+                      .source,
+              "mismatched IF"_en_US);
     }
     for (const auto &elseIfBlock :
         std::get<std::list<parser::IfConstruct::ElseIfBlock>>(ifConstruct.t)) {
@@ -676,9 +720,12 @@ private:
                   std::get<parser::Statement<parser::ElseIfStmt>>(elseIfBlock.t)
                       .statement.t),
               constructName)) {
-        errorHandler_.Say(currentPosition_,
-            parser::MessageFormattedText{
-                "ELSE IF statement name mismatch"_err_en_US});
+        errorHandler_
+            .Say(currentPosition_, "ELSE IF statement name mismatch"_err_en_US)
+            .Attach(
+                std::get<parser::Statement<parser::IfThenStmt>>(ifConstruct.t)
+                    .source,
+                "mismatched IF"_en_US);
       }
     }
     if (std::get<std::optional<parser::IfConstruct::ElseBlock>>(ifConstruct.t)
@@ -690,9 +737,12 @@ private:
                       ->t)
                   .statement.v,
               constructName)) {
-        errorHandler_.Say(currentPosition_,
-            parser::MessageFormattedText{
-                "ELSE statement name mismatch"_err_en_US});
+        errorHandler_
+            .Say(currentPosition_, "ELSE statement name mismatch"_err_en_US)
+            .Attach(
+                std::get<parser::Statement<parser::IfThenStmt>>(ifConstruct.t)
+                    .source,
+                "mismatched IF"_en_US);
       }
     }
   }
@@ -703,17 +753,23 @@ private:
     const auto &constructName{std::get<0>(std::get<0>(a.t).statement.t)};
     if (!namesBothEqualOrBothNone(
             constructName, std::get<2>(a.t).statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "SELECT %s construct name mismatch"_err_en_US, selectTag});
+      errorHandler_
+          .Say(currentPosition_,
+              parser::MessageFormattedText{
+                  "SELECT %s construct name mismatch"_err_en_US, selectTag})
+          .Attach(std::get<0>(a.t).source,
+              parser::MessageFormattedText{"mismatched %s"_en_US, selectTag});
     }
     for (const auto &subpart : std::get<1>(a.t)) {
       if (!firstNameNoneOrBothEqual(std::get<std::optional<parser::Name>>(
                                         std::get<0>(subpart.t).statement.t),
               constructName)) {
-        errorHandler_.Say(currentPosition_,
-            parser::MessageFormattedText{
-                "%sCASE statement name mismatch"_err_en_US, selectSubTag});
+        errorHandler_
+            .Say(currentPosition_,
+                parser::MessageFormattedText{
+                    "%sCASE statement name mismatch"_err_en_US, selectSubTag})
+            .Attach(std::get<0>(a.t).source,
+                parser::MessageFormattedText{"mismatched %s"_en_US, selectTag});
       }
     }
   }
@@ -727,9 +783,12 @@ private:
     if (!namesBothEqualOrBothNone(constructName,
             std::get<parser::Statement<parser::EndWhereStmt>>(whereConstruct.t)
                 .statement.v)) {
-      errorHandler_.Say(currentPosition_,
-          parser::MessageFormattedText{
-              "WHERE construct name mismatch"_err_en_US});
+      errorHandler_
+          .Say(currentPosition_, "WHERE construct name mismatch"_err_en_US)
+          .Attach(std::get<parser::Statement<parser::WhereConstructStmt>>(
+                      whereConstruct.t)
+                      .source,
+              "mismatched WHERE"_en_US);
     }
     for (const auto &maskedElsewhere :
         std::get<std::list<parser::WhereConstruct::MaskedElsewhere>>(
@@ -740,9 +799,13 @@ private:
                       maskedElsewhere.t)
                       .statement.t),
               constructName)) {
-        errorHandler_.Say(currentPosition_,
-            parser::MessageFormattedText{
-                "ELSEWHERE (<mask>) statement name mismatch"_err_en_US});
+        errorHandler_
+            .Say(currentPosition_,
+                "ELSEWHERE (<mask>) statement name mismatch"_err_en_US)
+            .Attach(std::get<parser::Statement<parser::WhereConstructStmt>>(
+                        whereConstruct.t)
+                        .source,
+                "mismatched WHERE"_en_US);
       }
     }
     if (std::get<std::optional<parser::WhereConstruct::Elsewhere>>(
@@ -755,9 +818,13 @@ private:
                       ->t)
                   .statement.v,
               constructName)) {
-        errorHandler_.Say(currentPosition_,
-            parser::MessageFormattedText{
-                "ELSEWHERE statement name mismatch"_err_en_US});
+        errorHandler_
+            .Say(
+                currentPosition_, "ELSEWHERE statement name mismatch"_err_en_US)
+            .Attach(std::get<parser::Statement<parser::WhereConstructStmt>>(
+                        whereConstruct.t)
+                        .source,
+                "mismatched WHERE"_en_US);
       }
     }
   }
@@ -780,7 +847,7 @@ private:
     if (label < 1 || label > 99999) {
       errorHandler_.Say(currentPosition_,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' is out of range"_err_en_US, label});
+              "label '%u' is out of range"_err_en_US, SayLabel(label)});
     }
   }
 
@@ -794,7 +861,7 @@ private:
     if (!pair.second) {
       errorHandler_.Say(currentPosition_,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' is not distinct"_err_en_US, label});
+              "label '%u' is not distinct"_err_en_US, SayLabel(label)});
     }
   }
 
@@ -878,10 +945,9 @@ void CheckBranchesIntoDoBody(const SourceStmtList &branches,
       const auto &toPosition{branchTarget.parserCharBlock};
       for (const auto body : loopBodies) {
         if (!InBody(fromPosition, body) && InBody(toPosition, body)) {
-          errorHandler.Say(fromPosition,
-              parser::MessageFormattedText{
-                  "branch into '%s' from another scope"_en_US,
-                  body.first.ToString().c_str()});
+          errorHandler
+              .Say(fromPosition, "branch into loop body from outside"_en_US)
+              .Attach(body.first, "the loop branched into"_en_US);
         }
       }
     }
@@ -896,19 +962,18 @@ void CheckDoNesting(
       const auto &v2{*i2};
       if (v2.first.begin() < v1.second.end() &&
           v1.second.begin() < v2.second.begin()) {
-        errorHandler.Say(v2.second,
-            parser::MessageFormattedText{"'%s' doesn't properly nest"_err_en_US,
-                v1.first.ToString().c_str()});
+        errorHandler.Say(v1.first, "DO loop doesn't properly nest"_err_en_US)
+            .Attach(v2.first, "DO loop conflicts"_en_US);
       }
     }
   }
 }
 
 parser::CharBlock SkipLabel(const parser::CharBlock &position) {
-  const long maxPosition{position.end() - position.begin()};
-  if (maxPosition && (position[0] >= '0') && (position[0] <= '9')) {
-    long i{1l};
-    for (; (i < maxPosition) && std::isdigit(position[i]); ++i) {
+  const std::size_t maxPosition{position.size()};
+  if (maxPosition && parser::IsDecimalDigit(position[0])) {
+    std::size_t i{1l};
+    for (; (i < maxPosition) && parser::IsDecimalDigit(position[i]); ++i) {
     }
     for (; (i < maxPosition) && std::isspace(position[i]); ++i) {
     }
@@ -930,30 +995,30 @@ void CheckLabelDoConstraints(const SourceStmtList &dos,
       // C1133
       errorHandler.Say(position,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' cannot be found"_err_en_US, label});
+              "label '%u' cannot be found"_err_en_US, SayLabel(label)});
     } else if (doTarget.parserCharBlock.begin() < position.begin()) {
       // R1119
       errorHandler.Say(position,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' doesn't lexically follow DO stmt"_err_en_US,
-              label});
+              "label '%u' doesn't lexically follow DO stmt"_err_en_US,
+              SayLabel(label)});
     } else if (!InInclusiveScope(scopes, scope, doTarget.proxyForScope)) {
       // C1133
       errorHandler.Say(position,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' is not in scope"_en_US, label});
+              "label '%u' is not in scope"_en_US, SayLabel(label)});
     } else if (!doTarget.labeledStmtClassificationSet.test(
                    TargetStatementEnum::Do) &&
         !doTarget.labeledStmtClassificationSet.test(
             TargetStatementEnum::CompatibleDo)) {
       errorHandler.Say(doTarget.parserCharBlock,
           parser::MessageFormattedText{
-              "'%" PRIu64 "' invalid DO terminal statement"_err_en_US, label});
+              "'%u' invalid DO terminal statement"_err_en_US, SayLabel(label)});
     } else if (!doTarget.labeledStmtClassificationSet.test(
                    TargetStatementEnum::Do)) {
       errorHandler.Say(doTarget.parserCharBlock,
           parser::MessageFormattedText{
-              "'%" PRIu64 "' invalid DO terminal statement"_en_US, label});
+              "'%u' invalid DO terminal statement"_en_US, SayLabel(label)});
     } else {
       loopBodies.emplace_back(SkipLabel(position), doTarget.parserCharBlock);
     }
@@ -975,11 +1040,11 @@ void CheckScopeConstraints(const SourceStmtList &stmts,
     if (!HasScope(target.proxyForScope)) {
       errorHandler.Say(position,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' was not found"_err_en_US, label});
+              "label '%u' was not found"_err_en_US, SayLabel(label)});
     } else if (!InInclusiveScope(scopes, scope, target.proxyForScope)) {
       errorHandler.Say(position,
           parser::MessageFormattedText{
-              "label '%" PRIu64 "' is not in scope"_en_US, label});
+              "label '%u' is not in scope"_en_US, SayLabel(label)});
     }
   }
 }
@@ -994,14 +1059,22 @@ void CheckBranchTargetConstraints(const SourceStmtList &stmts,
               TargetStatementEnum::Branch) &&
           !branchTarget.labeledStmtClassificationSet.test(
               TargetStatementEnum::CompatibleBranch)) {
-        errorHandler.Say(branchTarget.parserCharBlock,
-            parser::MessageFormattedText{
-                "'%" PRIu64 "' not a branch target"_err_en_US, label});
+        errorHandler
+            .Say(branchTarget.parserCharBlock,
+                parser::MessageFormattedText{
+                    "'%u' not a branch target"_err_en_US, SayLabel(label)})
+            .Attach(stmt.parserCharBlock,
+                parser::MessageFormattedText{
+                    "control flow use of '%u'"_en_US, SayLabel(label)});
       } else if (!branchTarget.labeledStmtClassificationSet.test(
                      TargetStatementEnum::Branch)) {
-        errorHandler.Say(branchTarget.parserCharBlock,
-            parser::MessageFormattedText{
-                "'%" PRIu64 "' not a branch target"_en_US, label});
+        errorHandler
+            .Say(branchTarget.parserCharBlock,
+                parser::MessageFormattedText{
+                    "'%u' not a branch target"_en_US, SayLabel(label)})
+            .Attach(stmt.parserCharBlock,
+                parser::MessageFormattedText{
+                    "control flow use of '%u'"_en_US, SayLabel(label)});
       }
     }
   }
@@ -1022,9 +1095,13 @@ void CheckDataXferTargetConstraints(const SourceStmtList &stmts,
     if (HasScope(ioTarget.proxyForScope)) {
       if (!ioTarget.labeledStmtClassificationSet.test(
               TargetStatementEnum::Format)) {
-        errorHandler.Say(ioTarget.parserCharBlock,
-            parser::MessageFormattedText{
-                "'%" PRIu64 "' not a FORMAT"_err_en_US, label});
+        errorHandler
+            .Say(ioTarget.parserCharBlock,
+                parser::MessageFormattedText{
+                    "'%u' not a FORMAT"_err_en_US, SayLabel(label)})
+            .Attach(stmt.parserCharBlock,
+                parser::MessageFormattedText{
+                    "data transfer use of '%u'"_en_US, SayLabel(label)});
       }
     }
   }
