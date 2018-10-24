@@ -56,7 +56,7 @@ template<typename RESULT>
 auto ExpressionBase<RESULT>::Fold(FoldingContext &context)
     -> std::optional<Constant<Result>> {
   using Const = Constant<Result>;
-  if constexpr (Result::isSpecificType) {
+  if constexpr (Result::isSpecificIntrinsicType) {
     // Folding an expression of known type category and kind.
     return std::visit(
         [&](auto &x) -> std::optional<Const> {
@@ -97,7 +97,7 @@ auto ExpressionBase<RESULT>::Fold(FoldingContext &context)
         [&](auto &x) -> std::optional<Const> {
           if constexpr (IsFoldableTrait<std::decay_t<decltype(x)>>) {
             if (auto c{x.Fold(context)}) {
-              if constexpr (ResultType<decltype(*c)>::isSpecificType) {
+              if constexpr (ResultType<decltype(*c)>::isSpecificIntrinsicType) {
                 return {Const{c->value}};
               } else {
                 return {Const{common::MoveVariant<GenericScalar>(c->value.u)}};
@@ -472,14 +472,17 @@ std::ostream &ExpressionBase<RESULT>::Dump(std::ostream &o) const {
   return o;
 }
 
+std::ostream &Expr<SomeDerived>::Dump(std::ostream &o) const {
+  std::visit([&](const auto &x) { x.Dump(o); }, u);
+  return o;
+}
+
 template<int KIND>
 Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
   return std::visit(
       common::visitors{[](const Constant<Result> &c) {
-                         // std::string::size_type isn't convertible to uint64_t
-                         // on Darwin
-                         return AsExpr(Constant<SubscriptInteger>{
-                             static_cast<std::uint64_t>(c.value.size())});
+                         return AsExpr(
+                             Constant<SubscriptInteger>{c.value.size()});
                        },
           [](const Parentheses<Result> &x) { return x.left().LEN(); },
           [](const Concat<KIND> &c) {
@@ -497,7 +500,7 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
 template<typename RESULT>
 auto ExpressionBase<RESULT>::ScalarValue() const
     -> std::optional<Scalar<Result>> {
-  if constexpr (Result::isSpecificType) {
+  if constexpr (Result::isSpecificIntrinsicType) {
     if (auto *c{std::get_if<Constant<Result>>(&derived().u)}) {
       return {c->value};
     }
@@ -536,7 +539,27 @@ auto ExpressionBase<RESULT>::ScalarValue() const
 
 Expr<SomeType>::~Expr() {}
 
-// Rank()
+template<typename A>
+std::optional<DynamicType> ExpressionBase<A>::GetType() const {
+  if constexpr (Result::isSpecificIntrinsicType) {
+    return Result::GetType();
+  } else {
+    return std::visit(
+        [](const auto &x) -> std::optional<DynamicType> {
+          if constexpr (!std::is_same_v<std::decay_t<decltype(x)>,
+                            BOZLiteralConstant>) {
+            return x.GetType();
+          }
+          return std::nullopt;  // typeless -> no type
+        },
+        derived().u);
+  }
+}
+
+std::optional<DynamicType> Expr<SomeDerived>::GetType() const {
+  return std::visit([](const auto &x) { return x.GetType(); }, u);
+}
+
 template<typename A> int ExpressionBase<A>::Rank() const {
   return std::visit(
       [](const auto &x) {
@@ -548,6 +571,10 @@ template<typename A> int ExpressionBase<A>::Rank() const {
         }
       },
       derived().u);
+}
+
+int Expr<SomeDerived>::Rank() const {
+  return std::visit([](const auto &x) { return x.Rank(); }, u);
 }
 
 // Template instantiations to resolve the "extern template" declarations

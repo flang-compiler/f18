@@ -15,6 +15,7 @@
 #ifndef FORTRAN_SEMANTICS_EXPRESSION_H_
 #define FORTRAN_SEMANTICS_EXPRESSION_H_
 
+#include "default-kinds.h"
 #include "../evaluate/expression.h"
 #include "../evaluate/type.h"
 #include "../parser/parse-tree.h"
@@ -24,15 +25,6 @@ namespace Fortran::semantics {
 
 using MaybeExpr = std::optional<evaluate::Expr<evaluate::SomeType>>;
 
-struct IntrinsicTypeDefaultKinds {
-  int defaultIntegerKind{evaluate::DefaultInteger::kind};
-  int defaultRealKind{evaluate::DefaultReal::kind};
-  int defaultDoublePrecisionKind{evaluate::DefaultDoublePrecision::kind};
-  int defaultQuadPrecisionKind{evaluate::DefaultDoublePrecision::kind};
-  int defaultCharacterKind{evaluate::DefaultCharacter::kind};
-  int defaultLogicalKind{evaluate::DefaultLogical::kind};
-};
-
 // Semantic analysis of one expression.
 std::optional<evaluate::Expr<evaluate::SomeType>> AnalyzeExpr(
     evaluate::FoldingContext &, const IntrinsicTypeDefaultKinds &,
@@ -41,7 +33,7 @@ std::optional<evaluate::Expr<evaluate::SomeType>> AnalyzeExpr(
 // Semantic analysis of all expressions in a parse tree, which is
 // decorated with typed representations for top-level expressions.
 void AnalyzeExpressions(parser::Program &, evaluate::FoldingContext &,
-    const IntrinsicTypeDefaultKinds &);
+    const IntrinsicTypeDefaultKinds &, const evaluate::IntrinsicProcTable &);
 
 }  // namespace Fortran::semantics
 #endif  // FORTRAN_SEMANTICS_EXPRESSION_H_

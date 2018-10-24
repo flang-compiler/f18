@@ -23,14 +23,19 @@
 // (*"Signed" here means two's-complement, just to be clear.  Ones'-complement
 // and signed-magnitude encodings appear to be extinct in 2018.)
 
-#include "bit-population-count.h"
 #include "common.h"
 #include "leading-zero-bit-count.h"
+#include "../common/bit-population-count.h"
 #include <cinttypes>
 #include <climits>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <type_traits>
+
+// Some environments, viz. clang on Darwin, allow the macro HUGE
+// to leak out of <math.h> even when it is never directly included.
+#undef HUGE
 
 namespace Fortran::evaluate::value {
 
@@ -60,6 +65,10 @@ public:
   static constexpr int partBits{PARTBITS};
   using Part = PART;
   using BigPart = BIGPART;
+  static_assert(std::is_integral_v<Part>);
+  static_assert(std::is_unsigned_v<Part>);
+  static_assert(std::is_integral_v<BigPart>);
+  static_assert(std::is_unsigned_v<BigPart>);
   static_assert(CHAR_BIT * sizeof(BigPart) >= 2 * partBits);
   static constexpr bool littleEndian{IS_LITTLE_ENDIAN};
 
@@ -108,43 +117,64 @@ public:
   // Constructors and value-generating static functions
   constexpr Integer() { Clear(); }  // default constructor: zero
   constexpr Integer(const Integer &) = default;
-  constexpr Integer(std::uint64_t n) {
-    for (int j{0}; j + 1 < parts; ++j) {
-      SetLEPart(j, n);
-      if constexpr (partBits < 64) {
-        n >>= partBits;
+
+  // C++'s integral types can all be converted to Integer
+  // with silent truncation.
+  template<typename INT> constexpr Integer(INT n) {
+    static_assert(std::is_integral_v<INT>);
+    constexpr int nBits = CHAR_BIT * sizeof n;
+    if constexpr (nBits < partBits) {
+      if constexpr (std::is_unsigned_v<INT>) {
+        // Zero-extend an unsigned smaller value.
+        SetLEPart(0, n);
+        for (int j{1}; j < parts; ++j) {
+          SetLEPart(j, 0);
+        }
       } else {
-        n = 0;
+        // n has a signed type smaller than the usable
+        // bits in a Part.
+        // Avoid conversions that change both size and sign.
+        using SignedPart = std::make_signed_t<Part>;
+        Part p = static_cast<SignedPart>(n);
+        SetLEPart(0, p);
+        if constexpr (parts > 1) {
+          Part signExtension = static_cast<SignedPart>(-(n < 0));
+          for (int j{1}; j < parts; ++j) {
+            SetLEPart(j, signExtension);
+          }
+        }
+      }
+    } else {
+      // n has some integral type no smaller than the usable
+      // bits in a Part.
+      // Ensure that all shifts are smaller than a whole word.
+      if constexpr (std::is_unsigned_v<INT>) {
+        for (int j{0}; j < parts; ++j) {
+          SetLEPart(j, static_cast<Part>(n));
+          if constexpr (nBits > partBits) {
+            n >>= partBits;
+          } else {
+            n = 0;
+          }
+        }
+      } else {
+        INT signExtension{-(n < 0)};
+        if constexpr (nBits > partBits) {
+          signExtension <<= partBits;
+          for (int j{0}; j < parts; ++j) {
+            SetLEPart(j, static_cast<Part>(n));
+            n >>= partBits;
+            n |= signExtension;
+          }
+        } else {
+          static_assert(nBits == partBits);
+          SetLEPart(0, static_cast<Part>(n));
+          for (int j{1}; j < parts; ++j) {
+            SetLEPart(j, static_cast<Part>(signExtension));
+          }
+        }
       }
     }
-    SetLEPart(parts - 1, n);
-  }
-  constexpr Integer(std::int64_t n) {
-    std::int64_t signExtension{-(n < 0)};
-    signExtension <<= partBits;
-    for (int j{0}; j + 1 < parts; ++j) {
-      SetLEPart(j, n);
-      if constexpr (partBits < 64) {
-        n = (n >> partBits) | signExtension;
-      } else {
-        n = signExtension;
-      }
-    }
-    SetLEPart(parts - 1, n);
-  }
-  constexpr Integer(int ni) {
-    std::int64_t n{ni};
-    std::int64_t signExtension{-(n < 0)};
-    signExtension <<= partBits;
-    for (int j{0}; j + 1 < parts; ++j) {
-      SetLEPart(j, n);
-      if constexpr (partBits < 64) {
-        n = (n >> partBits) | signExtension;
-      } else {
-        n = signExtension;
-      }
-    }
-    SetLEPart(parts - 1, n);
   }
 
   constexpr Integer &operator=(const Integer &) = default;
@@ -303,7 +333,7 @@ public:
     return result;
   }
 
-  static constexpr Integer BIT_SIZE() { return {std::uint64_t{bits}}; }
+  static constexpr Integer BIT_SIZE() { return {bits}; }
   static constexpr Integer HUGE() { return MASKR(bits - 1); }
 
   // Returns the number of full decimal digits that can be represented.
@@ -311,7 +341,7 @@ public:
     if (bits < 4) {
       return 0;
     }
-    Integer x{HUGE()}, ten{std::uint64_t{10}};
+    Integer x{HUGE()}, ten{10};
     int digits{0};
     while (x.CompareUnsigned(ten) != Ordering::Less) {
       ++digits;
@@ -365,7 +395,7 @@ public:
   constexpr int POPCNT() const {
     int count{0};
     for (int j{0}; j < parts; ++j) {
-      count += BitPopulationCount(part_[j]);
+      count += common::BitPopulationCount(part_[j]);
     }
     return count;
   }
@@ -787,7 +817,7 @@ public:
     if (isNegative != yIsNegative) {
       product.lower = product.lower.NOT();
       product.upper = product.upper.NOT();
-      Integer one{std::uint64_t{1}};
+      Integer one{1};
       auto incremented{product.lower.AddUnsigned(one)};
       product.lower = incremented.value;
       if (incremented.carry) {
@@ -851,8 +881,7 @@ public:
         // Dividend was (and remains) the most negative number.
         // See whether the original divisor was -1 (if so, it's 1 now).
         if (divisorOrdering == Ordering::Less &&
-            divisor.CompareUnsigned(Integer{std::uint64_t{1}}) ==
-                Ordering::Equal) {
+            divisor.CompareUnsigned(Integer{1}) == Ordering::Equal) {
           // most negative number / -1 is the sole overflow case
           return {*this, Integer{}, false, true};
         }

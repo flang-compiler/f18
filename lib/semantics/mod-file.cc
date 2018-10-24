@@ -155,6 +155,7 @@ void ModFileWriter::PutSymbol(const Symbol &symbol, bool &didContains) {
             }
             PutLower(decls_ << "final::", symbol) << '\n';
           },
+          [](const HostAssocDetails &) {},
           [&](const auto &) { PutEntity(decls_, symbol); }},
       symbol.details());
 }
@@ -503,7 +504,8 @@ Scope *ModFileReader::Read(
   } else {
     parentScope = ancestor;
   }
-  ResolveNames(errors_, *parentScope, *parseTree, directories_);
+  // TODO: Check that default kinds of intrinsic types match?
+  ResolveNames(errors_, *parentScope, *parseTree, directories_, defaultKinds_);
   const auto &it{parentScope->find(name)};
   if (it == parentScope->end()) {
     return nullptr;
