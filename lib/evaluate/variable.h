@@ -21,6 +21,7 @@
 // Fortran 2018 language standard (q.v.) and uses strong typing to ensure
 // that only admissable combinations can be constructed.
 
+#include "call.h"
 #include "common.h"
 #include "intrinsics.h"
 #include "type.h"
@@ -37,7 +38,6 @@ namespace Fortran::evaluate {
 using semantics::Symbol;
 
 // Forward declarations
-template<typename A> class Expr;
 struct DataRef;
 template<typename A> struct Variable;
 
@@ -132,9 +132,11 @@ public:
   CLASS_BOILERPLATE(CoarrayRef)
   CoarrayRef(std::vector<const Symbol *> &&,
       std::vector<Expr<SubscriptInteger>> &&,
-      std::vector<Expr<SubscriptInteger>> &&);  // TODO: stat & team?
-  CoarrayRef &set_stat(Variable<DefaultInteger> &&);
-  CoarrayRef &set_team(Variable<DefaultInteger> &&, bool isTeamNumber = false);
+      std::vector<Expr<SubscriptInteger>> &&);
+  // These integral expressions for STAT= and TEAM= must be variables
+  // (i.e., Designator or pointer-valued FunctionRef).
+  CoarrayRef &set_stat(Expr<SomeInteger> &&);
+  CoarrayRef &set_team(Expr<SomeInteger> &&, bool isTeamNumber = false);
 
   int Rank() const;
   const Symbol *GetSymbol(bool first) const {
@@ -150,7 +152,7 @@ public:
 private:
   std::vector<const Symbol *> base_;
   std::vector<Expr<SubscriptInteger>> subscript_, cosubscript_;
-  std::optional<CopyableIndirection<Variable<DefaultInteger>>> stat_, team_;
+  std::optional<CopyableIndirection<Expr<SomeInteger>>> stat_, team_;
   bool teamIsTeamNumber_{false};  // false: TEAM=, true: TEAM_NUMBER=
 };
 
@@ -221,8 +223,8 @@ private:
 
 // R901 designator is the most general data reference object, apart from
 // calls to pointer-valued functions.  Its variant holds everything that
-// a DataRef can, and, when appropriate for the result type, a substring
-// reference or complex part (%RE/%IM).
+// a DataRef can, and possibly either a substring reference or a complex
+// part (%RE/%IM) reference.
 template<typename A> class Designator {
   using DataRefs = decltype(DataRef::u);
   using MaybeSubstring =
@@ -235,13 +237,23 @@ template<typename A> class Designator {
 
 public:
   using Result = A;
-  static_assert(Result::isSpecificType);
+  static_assert(Result::isSpecificIntrinsicType ||
+      std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   EVALUATE_UNION_CLASS_BOILERPLATE(Designator)
-  explicit Designator(DataRef &&that)
+  Designator(const DataRef &that) : u{common::MoveVariant<Variant>(that.u)} {}
+  Designator(DataRef &&that)
     : u{common::MoveVariant<Variant>(std::move(that.u))} {}
-  Designator &operator=(DataRef &&that) {
-    *this = Designator{std::move(that)};
-    return *this;
+
+  std::optional<DynamicType> GetType() const {
+    if constexpr (std::is_same_v<Result, SomeDerived>) {
+      if (const Symbol * sym{GetSymbol(false)}) {
+        return GetSymbolType(*sym);
+      } else {
+        return std::nullopt;
+      }
+    } else {
+      return Result::GetType();
+    }
   }
 
   int Rank() const {
@@ -271,27 +283,25 @@ public:
   Variant u;
 };
 
+FOR_EACH_CHARACTER_KIND(extern template class Designator)
+
 struct ProcedureDesignator {
   EVALUATE_UNION_CLASS_BOILERPLATE(ProcedureDesignator)
-  explicit ProcedureDesignator(IntrinsicProcedure p) : u{p} {}
+  explicit ProcedureDesignator(SpecificIntrinsic &&i) : u{std::move(i)} {}
   explicit ProcedureDesignator(const Symbol &n) : u{&n} {}
-  Expr<SubscriptInteger> LEN() const;
+  std::optional<DynamicType> GetType() const;
   int Rank() const;
+  bool IsElemental() const;
+  Expr<SubscriptInteger> LEN() const;
   const Symbol *GetSymbol() const;
   std::ostream &Dump(std::ostream &) const;
 
-  std::variant<IntrinsicProcedure, const Symbol *, Component> u;
+  std::variant<SpecificIntrinsic, const Symbol *, Component> u;
 };
-
-using ActualFunctionArg = std::optional<CopyableIndirection<Expr<SomeType>>>;
 
 class UntypedFunctionRef {
 public:
-  using Argument = ActualFunctionArg;
-  using Arguments = std::vector<Argument>;
   CLASS_BOILERPLATE(UntypedFunctionRef)
-  UntypedFunctionRef(ProcedureDesignator &&p, Arguments &&a, int r)
-    : proc_{std::move(p)}, arguments_(std::move(a)), rank_{r} {}
   UntypedFunctionRef(ProcedureDesignator &&p, Arguments &&a)
     : proc_{std::move(p)}, arguments_(std::move(a)) {}
 
@@ -299,36 +309,46 @@ public:
   const Arguments &arguments() const { return arguments_; }
 
   Expr<SubscriptInteger> LEN() const;
-  int Rank() const { return rank_; }
+  int Rank() const { return proc_.Rank(); }
+  bool IsElemental() const { return proc_.IsElemental(); }
   std::ostream &Dump(std::ostream &) const;
 
 protected:
   ProcedureDesignator proc_;
   Arguments arguments_;
-  int rank_{proc_.Rank()};
 };
 
 template<typename A> struct FunctionRef : public UntypedFunctionRef {
   using Result = A;
-  static_assert(Result::isSpecificType);
-  // Subtlety: There is a distinction that must be maintained here between an
-  // actual argument expression that *is* a variable and one that is not,
-  // e.g. between X and (X).  The parser attempts to parse each argument
-  // first as a variable, then as an expression, and the distinction appears
-  // in the parse tree.
-  using Argument = ActualFunctionArg;
-  using Arguments = std::vector<Argument>;
+  static_assert(Result::isSpecificIntrinsicType ||
+      std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   CLASS_BOILERPLATE(FunctionRef)
-  explicit FunctionRef(UntypedFunctionRef &&ufr)
-    : UntypedFunctionRef{std::move(ufr)} {}
-  FunctionRef(ProcedureDesignator &&p, Arguments &&a, int r = 0)
-    : UntypedFunctionRef{std::move(p), std::move(a), r} {}
+  FunctionRef(UntypedFunctionRef &&ufr) : UntypedFunctionRef{std::move(ufr)} {}
+  FunctionRef(ProcedureDesignator &&p, Arguments &&a)
+    : UntypedFunctionRef{std::move(p), std::move(a)} {}
+  std::optional<DynamicType> GetType() const {
+    if constexpr (std::is_same_v<Result, SomeDerived>) {
+      if (const Symbol * symbol{proc_.GetSymbol()}) {
+        return GetSymbolType(*symbol);
+      }
+    } else {
+      return Result::GetType();
+    }
+    return std::nullopt;
+  }
+  std::optional<Constant<Result>> Fold(FoldingContext &);  // for intrinsics
 };
+
+FOR_EACH_SPECIFIC_TYPE(extern template struct FunctionRef)
 
 template<typename A> struct Variable {
   using Result = A;
-  static_assert(Result::isSpecificType);
+  static_assert(Result::isSpecificIntrinsicType ||
+      std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   EVALUATE_UNION_CLASS_BOILERPLATE(Variable)
+  std::optional<DynamicType> GetType() const {
+    return std::visit([](const auto &x) { return x.GetType(); }, u);
+  }
   int Rank() const {
     return std::visit([](const auto &x) { return x.Rank(); }, u);
   }
@@ -346,22 +366,8 @@ struct Label {  // TODO: this is a placeholder
   std::ostream &Dump(std::ostream &) const;
 };
 
-class ActualSubroutineArg {
-public:
-  EVALUATE_UNION_CLASS_BOILERPLATE(ActualSubroutineArg)
-  explicit ActualSubroutineArg(ActualFunctionArg &&x) : u{std::move(x)} {}
-  explicit ActualSubroutineArg(const Label &l) : u{&l} {}
-  int Rank() const;
-  std::ostream &Dump(std::ostream &) const;
-
-public:
-  std::variant<ActualFunctionArg, const Label *> u;
-};
-
 class SubroutineCall {
 public:
-  using Argument = ActualSubroutineArg;
-  using Arguments = std::vector<Argument>;
   CLASS_BOILERPLATE(SubroutineCall)
   SubroutineCall(ProcedureDesignator &&p, Arguments &&a)
     : proc_{std::move(p)}, arguments_(std::move(a)) {}
@@ -375,8 +381,5 @@ private:
   Arguments arguments_;
 };
 
-FOR_EACH_CHARACTER_KIND(extern template class Designator)
-
 }  // namespace Fortran::evaluate
-
 #endif  // FORTRAN_EVALUATE_VARIABLE_H_

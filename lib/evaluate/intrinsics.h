@@ -15,12 +15,58 @@
 #ifndef FORTRAN_EVALUATE_INTRINSICS_H_
 #define FORTRAN_EVALUATE_INTRINSICS_H_
 
+#include "call.h"
+#include "type.h"
 #include "../common/idioms.h"
+#include "../parser/message.h"
+#include "../semantics/default-kinds.h"
+#include <memory>
+#include <optional>
+#include <ostream>
+#include <vector>
 
 namespace Fortran::evaluate {
 
-// Placeholder
-ENUM_CLASS(IntrinsicProcedure, IAND, IEOR, IOR, LEN, MAX, MIN)
+// Intrinsics are distinguished by their names and the characteristics
+// of their arguments, at least for now.
+using IntrinsicProcedure = const char *;  // not an owning pointer
 
+class Argument;
+
+struct CallCharacteristics {
+  parser::CharBlock name;
+  const Arguments &arguments;
+  bool isSubroutineCall{false};
+};
+
+struct SpecificIntrinsic {
+  explicit SpecificIntrinsic(IntrinsicProcedure n) : name{n} {}
+  SpecificIntrinsic(IntrinsicProcedure n, bool isElem, DynamicType dt, int r)
+    : name{n}, isElemental{isElem}, type{dt}, rank{r} {}
+  std::ostream &Dump(std::ostream &) const;
+
+  IntrinsicProcedure name;
+  bool isElemental{false};  // TODO: consider using Attrs instead
+  bool isPointer{false};  // NULL()
+  bool isRestrictedSpecific{false};  // can only call it if true
+  DynamicType type;
+  int rank{0};
+};
+
+class IntrinsicProcTable {
+private:
+  struct Implementation;
+
+public:
+  ~IntrinsicProcTable();
+  static IntrinsicProcTable Configure(
+      const semantics::IntrinsicTypeDefaultKinds &);
+  std::optional<SpecificIntrinsic> Probe(const CallCharacteristics &,
+      parser::ContextualMessages *messages = nullptr) const;
+  std::ostream &Dump(std::ostream &) const;
+
+private:
+  Implementation *impl_{nullptr};  // owning pointer
+};
 }  // namespace Fortran::evaluate
 #endif  // FORTRAN_EVALUATE_INTRINSICS_H_
