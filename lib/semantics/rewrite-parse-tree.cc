@@ -158,5 +158,4 @@ void RewriteParseTree(SemanticsContext &context, parser::Program &program) {
   RewriteMutator mutator{context.messages(), symbols};
   parser::Walk(program, mutator);
 }
-
-}  // namespace Fortran::semantics
+}
