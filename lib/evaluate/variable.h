@@ -23,10 +23,9 @@
 
 #include "call.h"
 #include "common.h"
-#include "intrinsics.h"
 #include "type.h"
 #include "../common/idioms.h"
-#include "../lib/common/template.h"
+#include "../common/template.h"
 #include "../semantics/symbol.h"
 #include <optional>
 #include <ostream>
@@ -179,24 +178,28 @@ struct DataRef {
 // variants of sections instead.
 class Substring {
 public:
-  using IsFoldableTrait = std::true_type;
+  using Strings = std::variant<std::string, std::u16string, std::u32string>;
   CLASS_BOILERPLATE(Substring)
-  Substring(DataRef &&, std::optional<Expr<SubscriptInteger>> &&,
-      std::optional<Expr<SubscriptInteger>> &&);
-  Substring(std::string &&, std::optional<Expr<SubscriptInteger>> &&,
-      std::optional<Expr<SubscriptInteger>> &&);
+  template<typename A>
+  Substring(A &&parent, std::optional<Expr<SubscriptInteger>> &&first,
+      std::optional<Expr<SubscriptInteger>> &&last)
+    : u_{std::move(parent)} {
+    SetBounds(first, last);
+  }
 
   Expr<SubscriptInteger> first() const;
   Expr<SubscriptInteger> last() const;
   int Rank() const;
   const Symbol *GetSymbol(bool first) const;
   Expr<SubscriptInteger> LEN() const;
-  std::optional<std::string> Fold(FoldingContext &);
+  std::optional<Strings> Fold(FoldingContext &);
   std::ostream &Dump(std::ostream &) const;
 
 private:
-  // TODO: character kinds > 1
-  std::variant<DataRef, std::string> u_;
+  using Variant = common::CombineVariants<std::variant<DataRef>, Strings>;
+  void SetBounds(std::optional<Expr<SubscriptInteger>> &,
+      std::optional<Expr<SubscriptInteger>> &);
+  Variant u_;
   std::optional<IndirectSubscriptIntegerExpr> first_, last_;
 };
 
@@ -285,28 +288,14 @@ public:
 
 FOR_EACH_CHARACTER_KIND(extern template class Designator)
 
-struct ProcedureDesignator {
-  EVALUATE_UNION_CLASS_BOILERPLATE(ProcedureDesignator)
-  explicit ProcedureDesignator(SpecificIntrinsic &&i) : u{std::move(i)} {}
-  explicit ProcedureDesignator(const Symbol &n) : u{&n} {}
-  std::optional<DynamicType> GetType() const;
-  int Rank() const;
-  bool IsElemental() const;
-  Expr<SubscriptInteger> LEN() const;
-  const Symbol *GetSymbol() const;
-  std::ostream &Dump(std::ostream &) const;
-
-  std::variant<SpecificIntrinsic, const Symbol *, Component> u;
-};
-
-class UntypedFunctionRef {
+class ProcedureRef {
 public:
-  CLASS_BOILERPLATE(UntypedFunctionRef)
-  UntypedFunctionRef(ProcedureDesignator &&p, Arguments &&a)
+  CLASS_BOILERPLATE(ProcedureRef)
+  ProcedureRef(ProcedureDesignator &&p, ActualArguments &&a)
     : proc_{std::move(p)}, arguments_(std::move(a)) {}
 
   const ProcedureDesignator &proc() const { return proc_; }
-  const Arguments &arguments() const { return arguments_; }
+  const ActualArguments &arguments() const { return arguments_; }
 
   Expr<SubscriptInteger> LEN() const;
   int Rank() const { return proc_.Rank(); }
@@ -315,17 +304,18 @@ public:
 
 protected:
   ProcedureDesignator proc_;
-  Arguments arguments_;
+  ActualArguments arguments_;
 };
 
-template<typename A> struct FunctionRef : public UntypedFunctionRef {
+template<typename A> struct FunctionRef : public ProcedureRef {
   using Result = A;
   static_assert(Result::isSpecificIntrinsicType ||
       std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   CLASS_BOILERPLATE(FunctionRef)
-  FunctionRef(UntypedFunctionRef &&ufr) : UntypedFunctionRef{std::move(ufr)} {}
-  FunctionRef(ProcedureDesignator &&p, Arguments &&a)
-    : UntypedFunctionRef{std::move(p), std::move(a)} {}
+  FunctionRef(ProcedureRef &&pr) : ProcedureRef{std::move(pr)} {}
+  FunctionRef(ProcedureDesignator &&p, ActualArguments &&a)
+    : ProcedureRef{std::move(p), std::move(a)} {}
+
   std::optional<DynamicType> GetType() const {
     if constexpr (std::is_same_v<Result, SomeDerived>) {
       if (const Symbol * symbol{proc_.GetSymbol()}) {
@@ -357,28 +347,6 @@ template<typename A> struct Variable {
     return o;
   }
   std::variant<Designator<Result>, FunctionRef<Result>> u;
-};
-
-struct Label {  // TODO: this is a placeholder
-  CLASS_BOILERPLATE(Label)
-  explicit Label(int lab) : label{lab} {}
-  int label;
-  std::ostream &Dump(std::ostream &) const;
-};
-
-class SubroutineCall {
-public:
-  CLASS_BOILERPLATE(SubroutineCall)
-  SubroutineCall(ProcedureDesignator &&p, Arguments &&a)
-    : proc_{std::move(p)}, arguments_(std::move(a)) {}
-  const ProcedureDesignator &proc() const { return proc_; }
-  const Arguments &arguments() const { return arguments_; }
-  int Rank() const { return 0; }  // TODO: elemental subroutine representation
-  std::ostream &Dump(std::ostream &) const;
-
-private:
-  ProcedureDesignator proc_;
-  Arguments arguments_;
 };
 }
 #endif  // FORTRAN_EVALUATE_VARIABLE_H_
