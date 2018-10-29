@@ -16,12 +16,15 @@
 #define FORTRAN_EVALUATE_COMMON_H_
 
 #include "../common/enum-set.h"
+#include "../common/fortran.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include "../parser/message.h"
 #include <cinttypes>
 
 namespace Fortran::evaluate {
+
+using common::RelationalOperator;
 
 // Integers are always ordered; reals may not be.
 ENUM_CLASS(Ordering, Less, Equal, Greater)
@@ -65,6 +68,31 @@ static constexpr Relation Reverse(Relation relation) {
   } else {
     return relation;
   }
+}
+
+static constexpr bool Satisfies(RelationalOperator op, Ordering order) {
+  switch (order) {
+  case Ordering::Less:
+    return op == RelationalOperator::LT || op == RelationalOperator::LE ||
+        op == RelationalOperator::NE;
+  case Ordering::Equal:
+    return op == RelationalOperator::LE || op == RelationalOperator::EQ ||
+        op == RelationalOperator::GE;
+  case Ordering::Greater:
+    return op == RelationalOperator::NE || op == RelationalOperator::GE ||
+        op == RelationalOperator::GT;
+  }
+  return false;  // silence g++ warning
+}
+
+static constexpr bool Satisfies(RelationalOperator op, Relation relation) {
+  switch (relation) {
+  case Relation::Less: return Satisfies(op, Ordering::Less);
+  case Relation::Equal: return Satisfies(op, Ordering::Equal);
+  case Relation::Greater: return Satisfies(op, Ordering::Greater);
+  case Relation::Unordered: return false;
+  }
+  return false;  // silence g++ warning
 }
 
 ENUM_CLASS(
@@ -142,9 +170,6 @@ template<typename A> using CopyableIndirection = common::Indirection<A, true>;
 // definition
 template<typename A> class Expr;
 
-// Classes that support a Fold(FoldingContext &) member function have the
-// IsFoldableTrait.
-CLASS_TRAIT(IsFoldableTrait)
 struct FoldingContext {
   explicit FoldingContext(const parser::ContextualMessages &m,
       Rounding round = defaultRounding, bool flush = false)

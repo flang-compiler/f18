@@ -18,6 +18,7 @@
 #include "symbol.h"
 #include "../common/idioms.h"
 #include "../evaluate/common.h"
+#include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../parser/parse-tree.h"
@@ -102,11 +103,16 @@ std::optional<DataRef> ExtractDataRef(std::optional<A> &&x) {
   return std::nullopt;
 }
 
+struct CallAndArguments {
+  ProcedureDesignator procedureDesignator;
+  ActualArguments arguments;
+};
+
 // This local class wraps some state and a highly overloaded Analyze()
 // member function that converts parse trees into (usually) generic
 // expressions.
 struct ExprAnalyzer {
-  ExprAnalyzer(semantics::SemanticsContext &context) : context{context} {}
+  explicit ExprAnalyzer(semantics::SemanticsContext &ctx) : context{ctx} {}
 
   MaybeExpr Analyze(const parser::Expr &);
   MaybeExpr Analyze(const parser::CharLiteralConstantSubstring &);
@@ -174,8 +180,8 @@ struct ExprAnalyzer {
   MaybeExpr TopLevelChecks(DataRef &&);
   void CheckUnsubscriptedComponent(const Component &);
 
-  std::optional<ProcedureDesignator> Procedure(
-      const parser::ProcedureDesignator &, const std::vector<ActualArgument> &);
+  std::optional<CallAndArguments> Procedure(
+      const parser::ProcedureDesignator &, ActualArguments &);
 
   template<typename... A> void Say(A... args) {
     context.foldingContext().messages.Say(std::forward<A>(args)...);
@@ -225,9 +231,10 @@ MaybeExpr AnalyzeHelper(ExprAnalyzer &ea, const parser::Integer<A> &x) {
 template<typename A>
 MaybeExpr AnalyzeHelper(ExprAnalyzer &ea, const parser::Constant<A> &x) {
   if (MaybeExpr result{AnalyzeHelper(ea, x.thing)}) {
-    if (std::optional<Constant<SomeType>> folded{
-            result->Fold(ea.context.foldingContext())}) {
-      return {AsGenericExpr(std::move(*folded))};
+    Expr<SomeType> folded{
+        Fold(ea.context.foldingContext(), std::move(*result))};
+    if (IsConstant(folded)) {
+      return {folded};
     }
     ea.Say("expression must be constant"_err_en_US);
   }
@@ -284,13 +291,10 @@ int ExprAnalyzer::Analyze(const std::optional<parser::KindParam> &kindParam,
           [&](const parser::Scalar<
               parser::Integer<parser::Constant<parser::Name>>> &n) {
             if (MaybeExpr ie{AnalyzeHelper(*this, n)}) {
-              if (std::optional<GenericScalar> sv{ie->ScalarValue()}) {
-                if (std::optional<std::int64_t> i64{sv->ToInt64()}) {
-                  std::int64_t i64v{*i64};
-                  int iv = i64v;
-                  if (iv == i64v) {
-                    return iv;
-                  }
+              if (std::optional<std::int64_t> i64{ToInt64(*ie)}) {
+                int iv = *i64;
+                if (iv == *i64) {
+                  return iv;
                 }
               }
             }
@@ -544,9 +548,9 @@ MaybeExpr ExprAnalyzer::Analyze(const parser::Name &n) {
 
 MaybeExpr ExprAnalyzer::Analyze(const parser::NamedConstant &n) {
   if (MaybeExpr value{Analyze(n.v)}) {
-    if (std::optional<Constant<SomeType>> folded{
-            value->Fold(context.foldingContext())}) {
-      return {AsGenericExpr(std::move(*folded))};
+    Expr<SomeType> folded{Fold(context.foldingContext(), std::move(*value))};
+    if (IsConstant(folded)) {
+      return {folded};
     }
     Say(n.v.source, "must be a constant"_err_en_US);
   }
@@ -808,12 +812,11 @@ MaybeExpr ExprAnalyzer::Analyze(const parser::StructureConstructor &) {
   return std::nullopt;
 }
 
-std::optional<ProcedureDesignator> ExprAnalyzer::Procedure(
-    const parser::ProcedureDesignator &pd,
-    const std::vector<ActualArgument> &arg) {
+std::optional<CallAndArguments> ExprAnalyzer::Procedure(
+    const parser::ProcedureDesignator &pd, ActualArguments &arguments) {
   return std::visit(
       common::visitors{
-          [&](const parser::Name &n) -> std::optional<ProcedureDesignator> {
+          [&](const parser::Name &n) -> std::optional<CallAndArguments> {
             if (n.symbol == nullptr) {
               Say("TODO INTERNAL no symbol for procedure designator name '%s'"_err_en_US,
                   n.ToString().data());
@@ -822,32 +825,27 @@ std::optional<ProcedureDesignator> ExprAnalyzer::Procedure(
             return std::visit(
                 common::visitors{
                     [&](const semantics::ProcEntityDetails &p)
-                        -> std::optional<ProcedureDesignator> {
+                        -> std::optional<CallAndArguments> {
                       if (p.HasExplicitInterface()) {
                         // TODO: check actual arguments vs. interface
                       } else {
-                        std::cerr
-                            << "pmk: arg[0] cat "
-                            << static_cast<int>(arg[0].GetType()->category)
-                            << '\n';
-                        CallCharacteristics cc{n.source, arg};
-                        std::optional<SpecificIntrinsic> si{
-                            context.intrinsics().Probe(
-                                cc, &context.foldingContext().messages)};
-                        if (si) {
-                          Say(n.source,
-                              "pmk debug: Probe succeeds: %s %s %d"_en_US,
-                              si->name, si->type.Dump().data(), si->rank);
-                          return {ProcedureDesignator{std::move(*si)}};
+                        CallCharacteristics cc{n.source};
+                        if (std::optional<SpecificCall> specificCall{
+                                context.intrinsics().Probe(cc, arguments,
+                                    &context.foldingContext().messages)}) {
+                          return {CallAndArguments{
+                              ProcedureDesignator{
+                                  std::move(specificCall->specificIntrinsic)},
+                              std::move(specificCall->arguments)}};
                         } else {
-                          Say(n.source, "pmk debug: Probe failed"_en_US);
                           // TODO: if name is not INTRINSIC, call with implicit
                           // interface
                         }
                       }
-                      return {ProcedureDesignator{*n.symbol}};
+                      return {CallAndArguments{ProcedureDesignator{*n.symbol},
+                          std::move(arguments)}};
                     },
-                    [&](const auto &) -> std::optional<ProcedureDesignator> {
+                    [&](const auto &) -> std::optional<CallAndArguments> {
                       Say("TODO: unimplemented/invalid kind of symbol as procedure designator '%s'"_err_en_US,
                           n.ToString().data());
                       return std::nullopt;
@@ -855,7 +853,7 @@ std::optional<ProcedureDesignator> ExprAnalyzer::Procedure(
                 n.symbol->details());
           },
           [&](const parser::ProcComponentRef &pcr)
-              -> std::optional<ProcedureDesignator> {
+              -> std::optional<CallAndArguments> {
             if (MaybeExpr component{AnalyzeHelper(*this, pcr.v)}) {
               // TODO distinguish PCR from TBP
               // TODO optional PASS argument for TBP
@@ -873,7 +871,7 @@ MaybeExpr ExprAnalyzer::Analyze(const parser::FunctionReference &funcRef) {
   // TODO: C1002: Allow a whole assumed-size array to appear if the dummy
   // argument would accept it.  Handle by special-casing the context
   // ActualArg -> Variable -> Designator.
-  Arguments arguments;
+  ActualArguments arguments;
   for (const auto &arg :
       std::get<std::list<parser::ActualArgSpec>>(funcRef.v.t)) {
     MaybeExpr actualArgExpr;
@@ -901,25 +899,25 @@ MaybeExpr ExprAnalyzer::Analyze(const parser::FunctionReference &funcRef) {
             }},
         std::get<parser::ActualArg>(arg.t).u);
     if (actualArgExpr.has_value()) {
-      arguments.emplace_back(std::move(*actualArgExpr));
+      arguments.emplace_back(std::make_optional(
+          Fold(context.foldingContext(), std::move(*actualArgExpr))));
       if (const auto &argKW{std::get<std::optional<parser::Keyword>>(arg.t)}) {
-        arguments.back().keyword = argKW->v.source;
+        arguments.back()->keyword = argKW->v.source;
       }
     } else {
       return std::nullopt;
     }
   }
 
-  // TODO: map generic to specific procedure
-  // TODO: validate arguments against interface
-  // TODO: distinguish applications of elemental functions
-  std::cerr << "pmk: arguments size " << arguments.size() << ", arg[0] cat "
-            << static_cast<int>(arguments[0].GetType()->category) << '\n';
-  if (std::optional<ProcedureDesignator> proc{Procedure(
+  // TODO: map user generic to specific procedure
+  // TODO: validate arguments against user interface
+  if (std::optional<CallAndArguments> proc{Procedure(
           std::get<parser::ProcedureDesignator>(funcRef.v.t), arguments)}) {
-    if (std::optional<DynamicType> dyType{proc->GetType()}) {
-      return TypedWrapper<FunctionRef, UntypedFunctionRef>(std::move(*dyType),
-          UntypedFunctionRef{std::move(*proc), std::move(arguments)});
+    if (std::optional<DynamicType> dyType{
+            proc->procedureDesignator.GetType()}) {
+      return TypedWrapper<FunctionRef, ProcedureRef>(std::move(*dyType),
+          ProcedureRef{std::move(proc->procedureDesignator),
+              std::move(proc->arguments)});
     }
   }
   return std::nullopt;
@@ -1181,7 +1179,8 @@ void ExprAnalyzer::CheckUnsubscriptedComponent(const Component &component) {
   if (baseRank > 0) {
     int componentRank{component.symbol().Rank()};
     if (componentRank > 0) {
-      Say("reference to whole rank-%d component '%%%s' of rank-%d array of derived type is not allowed"_err_en_US,
+      Say("reference to whole rank-%d component '%%%s' of "
+          "rank-%d array of derived type is not allowed"_err_en_US,
           componentRank, component.symbol().name().ToString().data(), baseRank);
     }
   }

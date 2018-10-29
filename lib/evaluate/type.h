@@ -231,81 +231,16 @@ template<typename CONST> struct TypeOfHelper {
 
 template<typename CONST> using TypeOf = typename TypeOfHelper<CONST>::type;
 
-// A variant union that can hold a scalar constant of any type chosen from
-// a set of types, which is passed in as a tuple of Type<> specializations.
-template<typename TYPES> struct SomeScalar {
-  using Types = TYPES;
-  CLASS_BOILERPLATE(SomeScalar)
-
-  template<typename A> SomeScalar(const A &x) : u{x} {}
-  template<typename A>
-  SomeScalar(std::enable_if_t<!std::is_reference_v<A>, A> &&x)
-    : u{std::move(x)} {}
-
-  std::optional<std::int64_t> ToInt64() const {
-    return std::visit(
-        [](const auto &x) -> std::optional<std::int64_t> {
-          if constexpr (TypeOf<decltype(x)>::category ==
-              TypeCategory::Integer) {
-            return {x.ToInt64()};
-          }
-          return std::nullopt;
-        },
-        u);
-  }
-
-  std::optional<std::string> ToString() const {
-    return std::visit(
-        [](const auto &x) -> std::optional<std::string> {
-          if constexpr (std::is_same_v<std::string,
-                            std::decay_t<decltype(x)>>) {
-            return {x};
-          }
-          return std::nullopt;
-        },
-        u);
-  }
-
-  std::optional<bool> IsTrue() const {
-    return std::visit(
-        [](const auto &x) -> std::optional<bool> {
-          if constexpr (TypeOf<decltype(x)>::category ==
-              TypeCategory::Logical) {
-            return {x.IsTrue()};
-          }
-          return std::nullopt;
-        },
-        u);
-  }
-
-  std::optional<DynamicType> GetType() const {
-    return std::visit(
-        [](const auto &x) {
-          using Ty = std::decay_t<decltype(x)>;
-          return TypeOf<Ty>::GetType();
-        },
-        u);
-  }
-
-  common::MapTemplate<Scalar, Types> u;
-};
-
-template<TypeCategory CATEGORY>
-using SomeKindScalar = SomeScalar<CategoryTypes<CATEGORY>>;
-using GenericScalar = SomeScalar<AllIntrinsicTypes>;
-
 // Represents a type of any supported kind within a particular category.
 template<TypeCategory CATEGORY> struct SomeKind {
   static constexpr bool isSpecificIntrinsicType{false};
   static constexpr TypeCategory category{CATEGORY};
-  using Scalar = SomeKindScalar<category>;
 };
 
 template<> class SomeKind<TypeCategory::Derived> {
 public:
   static constexpr bool isSpecificIntrinsicType{true};
   static constexpr TypeCategory category{TypeCategory::Derived};
-  using Scalar = void;
 
   CLASS_BOILERPLATE(SomeKind)
   explicit SomeKind(const semantics::DerivedTypeSpec &s) : spec_{&s} {}
@@ -332,7 +267,6 @@ using SomeCategory = std::tuple<SomeInteger, SomeReal, SomeComplex,
     SomeCharacter, SomeLogical, SomeDerived>;
 struct SomeType {
   static constexpr bool isSpecificIntrinsicType{false};
-  using Scalar = GenericScalar;
 };
 
 // For "[extern] template class", &c. boilerplate
@@ -383,8 +317,13 @@ struct SomeType {
   FOR_EACH_SPECIFIC_TYPE(PREFIX) \
   FOR_EACH_CATEGORY_TYPE(PREFIX)
 
-// Wraps a constant value in a class with its resolved type.
+// Wraps a constant scalar value of a specific intrinsic type
+// in a class with its resolved type.
+// N.B. Array constants are represented as array constructors
+// and derived type constants are structure constructors; generic
+// constants are generic expressions wrapping these constants.
 template<typename T> struct Constant {
+  // TODO: static_assert(T::isSpecificIntrinsicType);
   using Result = T;
   using Value = Scalar<Result>;
   CLASS_BOILERPLATE(Constant)
@@ -399,7 +338,7 @@ template<typename T> struct Constant {
       return value.GetType();
     }
   }
-  int Rank() const { return 0; }  // TODO: array constants
+  int Rank() const { return 0; }
   std::ostream &Dump(std::ostream &) const;
   Value value;
 };
