@@ -14,5 +14,6 @@
 
 add_subdirectory(common)
 add_subdirectory(evaluate)
+add_subdirectory(IntermediateRepresentation)
 add_subdirectory(parser)
 add_subdirectory(semantics)
