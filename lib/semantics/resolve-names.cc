@@ -39,6 +39,11 @@ class MessageHandler;
 class ResolveNamesVisitor;
 
 static GenericSpec MapGenericSpec(const parser::GenericSpec &);
+static const parser::Expr &GetExpr(const parser::ConstantExpr &);
+static const parser::Expr &GetExpr(const parser::IntConstantExpr &);
+static const parser::Expr &GetExpr(const parser::IntExpr &);
+static const parser::Expr &GetExpr(const parser::ScalarIntExpr &);
+static const parser::Expr &GetExpr(const parser::ScalarIntConstantExpr &);
 
 // ImplicitRules maps initial character of identifier to the DeclTypeSpec
 // representing the implicit type; std::nullopt if none.
@@ -160,7 +165,6 @@ public:
   bool Pre(const parser::DeclarationTypeSpec::TypeStar &);
   bool Pre(const parser::DeclarationTypeSpec::Record &);
   void Post(const parser::TypeParamSpec &);
-  void Post(const parser::TypeParamValue &);
   bool Pre(const parser::TypeGuardStmt &);
   void Post(const parser::TypeGuardStmt &);
 
@@ -179,12 +183,12 @@ private:
   bool expectDeclTypeSpec_{false};  // should only see decl-type-spec when true
   std::unique_ptr<DeclTypeSpec> declTypeSpec_;
   DerivedTypeSpec *derivedTypeSpec_{nullptr};
-  std::unique_ptr<ParamValue> typeParamValue_;
   SemanticsContext *context_{nullptr};
 
   void MakeIntrinsic(TypeCategory, int);
   void SetDeclTypeSpec(const DeclTypeSpec &declTypeSpec);
   static int GetKindParamValue(const std::optional<parser::KindSelector> &kind);
+  ParamValue GetParamValue(const parser::TypeParamValue &);
 };
 
 // Track statement source locations and save messages.
@@ -339,13 +343,12 @@ public:
 
   // Helpers to make a Symbol in the current scope
   template<typename D>
-  Symbol &MakeSymbol(
-      const SourceName &name, const Attrs &attrs, const D &details) {
+  Symbol &MakeSymbol(const SourceName &name, const Attrs &attrs, D &&details) {
     // Note: don't use FindSymbol here. If this is a derived type scope,
     // we want to detect if the name is already declared as a component.
     const auto &it{currScope().find(name)};
     if (it == currScope().end()) {
-      const auto pair{currScope().try_emplace(name, attrs, details)};
+      const auto pair{currScope().try_emplace(name, attrs, std::move(details))};
       CHECK(pair.second);  // name was not found, so must be able to add
       auto &symbol{*pair.first->second};
       symbol.add_occurrence(name);
@@ -358,7 +361,8 @@ public:
         // derived type with same name as a generic
         auto *derivedType{d->derivedType()};
         if (!derivedType) {
-          derivedType = &currScope().MakeSymbol(name, attrs, details);
+          derivedType =
+              &currScope().MakeSymbol(name, attrs, std::move(details));
           d->set_derivedType(*derivedType);
         } else {
           SayAlreadyDeclared(name, *derivedType);
@@ -369,7 +373,7 @@ public:
     if (symbol.CanReplaceDetails(details)) {
       // update the existing symbol
       symbol.attrs() |= attrs;
-      symbol.set_details(details);
+      symbol.set_details(std::move(details));
       return symbol;
     } else if constexpr (std::is_same_v<UnknownDetails, D>) {
       symbol.attrs() |= attrs;
@@ -383,16 +387,15 @@ public:
   }
   template<typename D>
   Symbol &MakeSymbol(
-      const parser::Name &name, const Attrs &attrs, const D &details) {
-    return MakeSymbol(name.source, attrs, details);
+      const parser::Name &name, const Attrs &attrs, D &&details) {
+    return MakeSymbol(name.source, attrs, std::move(details));
   }
   template<typename D>
-  Symbol &MakeSymbol(const parser::Name &name, const D &details) {
-    return MakeSymbol(name, Attrs(), details);
+  Symbol &MakeSymbol(const parser::Name &name, D &&details) {
+    return MakeSymbol(name, Attrs{}, std::move(details));
   }
-  template<typename D>
-  Symbol &MakeSymbol(const SourceName &name, const D &details) {
-    return MakeSymbol(name, Attrs(), details);
+  template<typename D> Symbol &MakeSymbol(const SourceName &name, D &&details) {
+    return MakeSymbol(name, Attrs{}, std::move(details));
   }
   Symbol &MakeSymbol(const SourceName &name, Attrs attrs = Attrs{}) {
     return MakeSymbol(name, attrs, UnknownDetails{});
@@ -631,7 +634,7 @@ private:
   const Symbol *ResolveDerivedType(const SourceName &);
   bool CanBeTypeBoundProc(const Symbol &);
   Symbol *FindExplicitInterface(const SourceName &);
-  Symbol &MakeTypeSymbol(const SourceName &, const Details &);
+  Symbol &MakeTypeSymbol(const SourceName &, Details &&);
   bool OkToAddComponent(const SourceName &, bool isParentComp = false);
 
   // Declare an object or procedure entity.
@@ -958,20 +961,26 @@ bool DeclTypeSpecVisitor::Pre(const parser::DeclarationTypeSpec::TypeStar &x) {
   SetDeclTypeSpec(DeclTypeSpec{DeclTypeSpec::TypeStar});
   return false;
 }
+
 void DeclTypeSpecVisitor::Post(const parser::TypeParamSpec &x) {
-  typeParamValue_.reset();
+  const auto &value{std::get<parser::TypeParamValue>(x.t)};
+  if (const auto &keyword{std::get<std::optional<parser::Keyword>>(x.t)}) {
+    derivedTypeSpec_->AddParamValue(keyword->v.source, GetParamValue(value));
+  } else {
+    derivedTypeSpec_->AddParamValue(GetParamValue(value));
+  }
 }
-void DeclTypeSpecVisitor::Post(const parser::TypeParamValue &x) {
-  typeParamValue_ = std::make_unique<ParamValue>(std::visit(
+
+ParamValue DeclTypeSpecVisitor::GetParamValue(const parser::TypeParamValue &x) {
+  return std::visit(
       common::visitors{
-          // TODO: create IntExpr from ScalarIntExpr
-          [&](const parser::ScalarIntExpr &x) { return Bound{IntExpr{}}; },
-          [&](const parser::Star &x) { return Bound::ASSUMED; },
-          [&](const parser::TypeParamValue::Deferred &x) {
-            return Bound::DEFERRED;
+          [](const parser::ScalarIntExpr &x) { return ParamValue{GetExpr(x)}; },
+          [](const parser::Star &) { return ParamValue::Assumed(); },
+          [](const parser::TypeParamValue::Deferred &) {
+            return ParamValue::Deferred();
           },
       },
-      x.u));
+      x.u);
 }
 
 bool DeclTypeSpecVisitor::Pre(const parser::DeclarationTypeSpec::Record &x) {
@@ -1050,7 +1059,7 @@ int DeclTypeSpecVisitor::GetKindParamValue(
     const std::optional<parser::KindSelector> &kind) {
   if (kind) {
     if (auto *intExpr{std::get_if<parser::ScalarIntConstantExpr>(&kind->u)}) {
-      const parser::Expr &expr{*intExpr->thing.thing.thing};
+      const auto &expr{GetExpr(*intExpr)};
       if (auto *lit{std::get_if<parser::LiteralConstant>(&expr.u)}) {
         if (auto *intLit{std::get_if<parser::IntLiteralConstant>(&lit->u)}) {
           return std::get<std::uint64_t>(intLit->t);
@@ -1239,10 +1248,12 @@ bool ArraySpecVisitor::Pre(const parser::AssumedShapeSpec &x) {
 }
 
 bool ArraySpecVisitor::Pre(const parser::ExplicitShapeSpec &x) {
-  const auto &lb{std::get<std::optional<parser::SpecificationExpr>>(x.t)};
-  const auto &ub{GetBound(std::get<parser::SpecificationExpr>(x.t))};
-  arraySpec_.push_back(lb ? ShapeSpec::MakeExplicit(GetBound(*lb), ub)
-                          : ShapeSpec::MakeExplicit(ub));
+  auto &&ub{GetBound(std::get<parser::SpecificationExpr>(x.t))};
+  if (const auto &lb{std::get<std::optional<parser::SpecificationExpr>>(x.t)}) {
+    arraySpec_.push_back(ShapeSpec::MakeExplicit(GetBound(*lb), std::move(ub)));
+  } else {
+    arraySpec_.push_back(ShapeSpec::MakeExplicit(Bound{1}, std::move(ub)));
+  }
   return true;
 }
 
@@ -1280,7 +1291,7 @@ void ArraySpecVisitor::PostAttrSpec() {
 }
 
 Bound ArraySpecVisitor::GetBound(const parser::SpecificationExpr &x) {
-  return Bound(IntExpr{});  // TODO: convert x.v to IntExpr
+  return Bound{GetExpr(x.v)};
 }
 
 // ScopeHandler implementation
@@ -1547,8 +1558,8 @@ bool ModuleVisitor::Pre(const parser::Module &x) {
   const auto &name{
       std::get<parser::Statement<parser::ModuleStmt>>(x.t).statement.v.source};
   auto &subpPart{std::get<std::optional<parser::ModuleSubprogramPart>>(x.t)};
-  auto &symbol{BeginModule(name, false, subpPart)};
-  MakeSymbol(name, symbol.details());
+  BeginModule(name, false, subpPart);
+  MakeSymbol(name, ModuleDetails{});
   return true;
 }
 
@@ -2119,7 +2130,14 @@ void DeclarationVisitor::Post(const parser::EntityDecl &x) {
   const auto &name{std::get<parser::ObjectName>(x.t).source};
   // TODO: CoarraySpec, CharLength, Initialization
   Attrs attrs{attrs_ ? *attrs_ : Attrs{}};
-  DeclareUnknownEntity(name, attrs);
+  Symbol &symbol{DeclareUnknownEntity(name, attrs)};
+  if (auto &init{std::get<std::optional<parser::Initialization>>(x.t)}) {
+    if (ConvertToObjectEntity(symbol)) {
+      if (auto *initExpr{std::get_if<parser::ConstantExpr>(&init->u)}) {
+        symbol.get<ObjectEntityDetails>().set_init(GetExpr(*initExpr));
+      }
+    }
+  }
 }
 
 void DeclarationVisitor::Post(const parser::PointerDecl &x) {
@@ -2139,9 +2157,14 @@ bool DeclarationVisitor::Pre(const parser::BindEntity &x) {
 }
 bool DeclarationVisitor::Pre(const parser::NamedConstantDef &x) {
   auto &name{std::get<parser::NamedConstant>(x.t).v.source};
-  // TODO: auto &expr{std::get<parser::ConstantExpr>(x.t)};
-  // TODO: old-style parameters: type based on expr
   auto &symbol{HandleAttributeStmt(Attr::PARAMETER, name)};
+  if (!ConvertToObjectEntity(symbol)) {
+    Say2(name, "PARAMETER attribute not allowed on '%s'"_err_en_US,
+        symbol.name(), "Declaration of '%s'"_en_US);
+    return false;
+  }
+  const auto &expr{std::get<parser::ConstantExpr>(x.t)};
+  symbol.get<ObjectEntityDetails>().set_init(GetExpr(expr));
   ApplyImplicitRules(symbol);
   return false;
 }
@@ -2369,10 +2392,12 @@ void DeclarationVisitor::Post(const parser::TypeParamDefStmt &x) {
   auto attr{std::get<common::TypeParamAttr>(x.t)};
   for (auto &decl : std::get<std::list<parser::TypeParamDecl>>(x.t)) {
     auto &name{std::get<parser::Name>(decl.t).source};
-    // TODO: initialization
-    // auto &init{
-    //    std::get<std::optional<parser::ScalarIntConstantExpr>>(decl.t)};
-    auto &symbol{MakeTypeSymbol(name, TypeParamDetails{attr})};
+    auto details{TypeParamDetails{attr}};
+    if (auto &init{
+            std::get<std::optional<parser::ScalarIntConstantExpr>>(decl.t)}) {
+      details.set_init(GetExpr(*init));
+    }
+    auto &symbol{MakeTypeSymbol(name, std::move(details))};
     SetType(name, symbol, *type);
   }
   EndDecl();
@@ -2408,7 +2433,14 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
     attrs.set(Attr::PRIVATE);
   }
   if (OkToAddComponent(name)) {
-    DeclareObjectEntity(name, attrs);
+    auto &symbol{DeclareObjectEntity(name, attrs)};
+    if (auto *details{symbol.detailsIf<ObjectEntityDetails>()}) {
+      if (auto &init{std::get<std::optional<parser::Initialization>>(x.t)}) {
+        if (auto *initExpr{std::get_if<parser::ConstantExpr>(&init->u)}) {
+          details->set_init(GetExpr(*initExpr));
+        }
+      }
+    }
   }
   ClearArraySpec();
 }
@@ -2620,7 +2652,7 @@ Symbol *DeclarationVisitor::FindExplicitInterface(const SourceName &name) {
 // Create a symbol for a type parameter, component, or procedure binding in
 // the current derived type scope.
 Symbol &DeclarationVisitor::MakeTypeSymbol(
-    const SourceName &name, const Details &details) {
+    const SourceName &name, Details &&details) {
   Scope &derivedType{currScope()};
   CHECK(derivedType.kind() == Scope::Kind::DerivedType);
   if (auto it{derivedType.find(name)}; it != derivedType.end()) {
@@ -3266,6 +3298,7 @@ void ResolveNamesVisitor::Post(const parser::Designator &x) {
       },
       x.u);
 }
+
 template<typename T>
 void ResolveNamesVisitor::Post(const parser::LoopBounds<T> &x) {
   ResolveName(x.name.thing.thing.source);
@@ -3378,5 +3411,21 @@ static GenericSpec MapGenericSpec(const parser::GenericSpec &genericSpec) {
           },
       },
       genericSpec.u);
+}
+
+static const parser::Expr &GetExpr(const parser::ConstantExpr &x) {
+  return *x.thing;
+}
+static const parser::Expr &GetExpr(const parser::IntExpr &x) {
+  return *x.thing;
+}
+static const parser::Expr &GetExpr(const parser::IntConstantExpr &x) {
+  return GetExpr(x.thing);
+}
+static const parser::Expr &GetExpr(const parser::ScalarIntExpr &x) {
+  return GetExpr(x.thing);
+}
+static const parser::Expr &GetExpr(const parser::ScalarIntConstantExpr &x) {
+  return GetExpr(x.thing);
 }
 }
