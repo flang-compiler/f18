@@ -114,8 +114,12 @@ class ObjectEntityDetails {
 public:
   ObjectEntityDetails(const EntityDetails &);
   ObjectEntityDetails(bool isDummy = false) : isDummy_{isDummy} {}
+  LazyExpr &init() { return init_; }
+  const LazyExpr &init() const { return init_; }
+  void set_init(const parser::Expr &);
   const std::optional<DeclTypeSpec> &type() const { return type_; }
   void set_type(const DeclTypeSpec &type);
+  ArraySpec &shape() { return shape_; }
   const ArraySpec &shape() const { return shape_; }
   void set_shape(const ArraySpec &shape);
   bool isDummy() const { return isDummy_; }
@@ -127,6 +131,7 @@ public:
 
 private:
   bool isDummy_;
+  LazyExpr init_;
   std::optional<DeclTypeSpec> type_;
   ArraySpec shape_;
   friend std::ostream &operator<<(std::ostream &, const ObjectEntityDetails &);
@@ -190,6 +195,11 @@ class TypeParamDetails {
 public:
   TypeParamDetails(common::TypeParamAttr attr) : attr_{attr} {}
   common::TypeParamAttr attr() const { return attr_; }
+  // std::optional<LazyExpr> &init() { return init_; }
+  // const std::optional<LazyExpr> &init() const { return init_; }
+  LazyExpr &init() { return init_; }
+  const LazyExpr &init() const { return init_; }
+  void set_init(const parser::Expr &);
   const std::optional<DeclTypeSpec> &type() const { return type_; }
   void set_type(const DeclTypeSpec &type) {
     CHECK(!type_);
@@ -198,6 +208,7 @@ public:
 
 private:
   common::TypeParamAttr attr_;
+  LazyExpr init_;
   std::optional<DeclTypeSpec> type_;
 };
 
@@ -346,7 +357,7 @@ public:
   const Details &details() const { return details_; }
   // Assign the details of the symbol from one of the variants.
   // Only allowed in certain cases.
-  void set_details(const Details &);
+  void set_details(Details &&);
 
   // Can the details of this symbol be replaced with the given details?
   bool CanReplaceDetails(const Details &details) const;
@@ -359,6 +370,7 @@ public:
   Symbol &GetUltimate();
   const Symbol &GetUltimate() const;
 
+  DeclTypeSpec *GetType();
   const DeclTypeSpec *GetType() const;
   void SetType(const DeclTypeSpec &);
 
@@ -395,12 +407,12 @@ std::ostream &operator<<(std::ostream &, Symbol::Flag);
 template<std::size_t BLOCK_SIZE> class Symbols {
 public:
   Symbol &Make(const Scope &owner, const SourceName &name, const Attrs &attrs,
-      const Details &details) {
+      Details &&details) {
     Symbol &symbol = Get();
     symbol.owner_ = &owner;
     symbol.occurrences_.push_back(name);
     symbol.attrs_ = attrs;
-    symbol.details_ = details;
+    symbol.details_ = std::move(details);
     return symbol;
   }
 
