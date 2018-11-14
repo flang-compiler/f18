@@ -34,7 +34,8 @@ std::optional<DynamicType> GetSymbolType(const semantics::Symbol &symbol) {
         if (IsValidKindOfIntrinsicType(category, kind)) {
           return std::make_optional(DynamicType{category, kind});
         }
-      } break;
+        break;
+      }
       case semantics::DeclTypeSpec::Category::TypeDerived:
       case semantics::DeclTypeSpec::Category::ClassDerived:
         return std::make_optional(DynamicType{
@@ -44,6 +45,16 @@ std::optional<DynamicType> GetSymbolType(const semantics::Symbol &symbol) {
     }
   }
   return std::nullopt;
+}
+
+std::string DynamicType::AsFortran() const {
+  if (category == TypeCategory::Derived) {
+    // TODO: derived type parameters
+    return "TYPE("s + derived->name().ToString() + ')';
+  } else {
+    // TODO: CHARACTER length
+    return EnumToString(category) + '(' + std::to_string(kind) + ')';
+  }
 }
 
 DynamicType DynamicType::ResultTypeForMultiply(const DynamicType &that) const {
@@ -88,7 +99,7 @@ DynamicType DynamicType::ResultTypeForMultiply(const DynamicType &that) const {
   return *this;
 }
 
-std::string SomeDerived::Dump() const {
+std::string SomeDerived::AsFortran() const {
   return "TYPE("s + spec().name().ToString() + ')';
 }
 }

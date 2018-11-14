@@ -49,15 +49,14 @@ struct DynamicType {
     return category == that.category && kind == that.kind &&
         derived == that.derived;
   }
-  std::string Dump() const {
-    return EnumToString(category) + '(' + std::to_string(kind) + ')';
-  }
-
+  std::string AsFortran() const;
   DynamicType ResultTypeForMultiply(const DynamicType &) const;
 
   TypeCategory category;
   int kind{0};
   const semantics::DerivedTypeSpec *derived{nullptr};
+  // TODO pmk: descriptor for character length
+  // TODO pmk: derived type kind parameters and descriptor for lengths
 };
 
 std::optional<DynamicType> GetSymbolType(const semantics::Symbol &);
@@ -69,14 +68,13 @@ template<TypeCategory CATEGORY, int KIND = 0> class Type;
 template<TypeCategory CATEGORY, int KIND> struct TypeBase {
   // Only types that represent a known kind of one of the five intrinsic
   // data types will have set this flag to true.
+  // TODO pmk: convert to type predicate expression
   static constexpr bool isSpecificIntrinsicType{true};
   static constexpr DynamicType dynamicType{CATEGORY, KIND};
-  static constexpr std::optional<DynamicType> GetType() {
-    return {dynamicType};
-  }
+  static constexpr DynamicType GetType() { return {dynamicType}; }
   static constexpr TypeCategory category{CATEGORY};
   static constexpr int kind{KIND};
-  static std::string Dump() { return dynamicType.Dump(); }
+  static std::string AsFortran() { return dynamicType.AsFortran(); }
 };
 
 template<int KIND>
@@ -168,6 +166,11 @@ using SubscriptInteger = Type<TypeCategory::Integer, 8>;
 using LogicalResult = Type<TypeCategory::Logical, 1>;
 using LargestReal = Type<TypeCategory::Real, 16>;
 
+// Many expressions, including subscripts, CHARACTER lengths, array bounds,
+// and effective type parameter values, are of a maximal kind of INTEGER.
+using IndirectSubscriptIntegerExpr =
+    CopyableIndirection<Expr<SubscriptInteger>>;
+
 // A predicate that is true when a kind value is a kind that could possibly
 // be supported for an intrinsic type category on some target instruction
 // set architecture.
@@ -179,8 +182,7 @@ static constexpr bool IsValidKindOfIntrinsicType(
   case TypeCategory::Real:
   case TypeCategory::Complex:
     return kind == 2 || kind == 4 || kind == 8 || kind == 10 || kind == 16;
-  case TypeCategory::Character:
-    return kind == 1;  // TODO: || kind == 2 || kind == 4;
+  case TypeCategory::Character: return kind == 1 || kind == 2 || kind == 4;
   case TypeCategory::Logical:
     return kind == 1 || kind == 2 || kind == 4 || kind == 8;
   default: return false;
@@ -239,17 +241,15 @@ template<TypeCategory CATEGORY> struct SomeKind {
 
 template<> class SomeKind<TypeCategory::Derived> {
 public:
-  static constexpr bool isSpecificIntrinsicType{true};
+  static constexpr bool isSpecificIntrinsicType{false};
   static constexpr TypeCategory category{TypeCategory::Derived};
 
   CLASS_BOILERPLATE(SomeKind)
   explicit SomeKind(const semantics::DerivedTypeSpec &s) : spec_{&s} {}
 
-  std::optional<DynamicType> GetType() const {
-    return {DynamicType{category, 0, spec_}};
-  }
+  DynamicType GetType() const { return DynamicType{category, 0, spec_}; }
   const semantics::DerivedTypeSpec &spec() const { return *spec_; }
-  std::string Dump() const;
+  std::string AsFortran() const;
 
 private:
   const semantics::DerivedTypeSpec *spec_;
@@ -323,23 +323,20 @@ struct SomeType {
 // and derived type constants are structure constructors; generic
 // constants are generic expressions wrapping these constants.
 template<typename T> struct Constant {
-  // TODO: static_assert(T::isSpecificIntrinsicType);
+  static_assert(T::isSpecificIntrinsicType);
   using Result = T;
   using Value = Scalar<Result>;
+
   CLASS_BOILERPLATE(Constant)
   template<typename A> Constant(const A &x) : value{x} {}
   template<typename A>
   Constant(std::enable_if_t<!std::is_reference_v<A>, A> &&x)
     : value(std::move(x)) {}
-  constexpr std::optional<DynamicType> GetType() const {
-    if constexpr (Result::isSpecificIntrinsicType) {
-      return Result::GetType();
-    } else {
-      return value.GetType();
-    }
-  }
+
+  constexpr DynamicType GetType() const { return Result::GetType(); }
   int Rank() const { return 0; }
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
+
   Value value;
 };
 }

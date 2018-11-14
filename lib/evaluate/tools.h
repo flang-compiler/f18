@@ -58,7 +58,7 @@ template<typename A> bool IsVariable(const A &) { return false; }
 template<typename A> bool IsVariable(const Designator<A> &designator) {
   if constexpr (common::HasMember<Substring, decltype(Designator<A>::u)>) {
     if (const auto *substring{std::get_if<Substring>(&designator.u)}) {
-      return substring->GetSymbol(false) != nullptr;
+      return substring->GetLastSymbol() != nullptr;
     }
   }
   return true;
@@ -82,6 +82,23 @@ template<typename A> bool IsConstant(const Parentheses<A> &p) {
 }
 template<typename A> bool IsConstant(const Expr<A> &expr) {
   return std::visit([](const auto &x) { return IsConstant(x); }, expr.u);
+}
+
+// Predicate: true when an expression is assumed-rank
+template<typename A> bool IsAssumedRank(const A &) { return false; }
+template<typename A> bool IsAssumedRank(const Designator<A> &designator) {
+  if (const auto *symbolPtr{
+          std::get_if<const semantics::Symbol *>(&designator.u)}) {
+    if (const auto *details{
+            (*symbolPtr)
+                ->template detailsIf<semantics::ObjectEntityDetails>()}) {
+      return details->IsAssumedRank();
+    }
+  }
+  return false;
+}
+template<typename A> bool IsAssumedRank(const Expr<A> &expr) {
+  return std::visit([](const auto &x) { return IsAssumedRank(x); }, expr.u);
 }
 
 // When an expression is a constant integer, extract its value.
@@ -110,8 +127,6 @@ std::optional<std::int64_t> ToInt64(const std::optional<A> &x) {
   }
 }
 
-// TODO: GetSymbol and Rank and GetType here, too
-
 // Generalizing packagers: these take operations and expressions of more
 // specific types and wrap them in Expr<> containers of more abstract types.
 
@@ -119,14 +134,19 @@ template<typename A> Expr<ResultType<A>> AsExpr(A &&x) {
   return Expr<ResultType<A>>{std::move(x)};
 }
 
-template<TypeCategory CAT>
-Expr<SomeKind<CAT>> AsCategoryExpr(Expr<SomeKind<CAT>> &&x) {
+template<typename T> Expr<T> AsExpr(Expr<T> &&x) {
+  static_assert(T::isSpecificIntrinsicType);
   return std::move(x);
 }
 
 template<typename A>
 Expr<SomeKind<ResultType<A>::category>> AsCategoryExpr(A &&x) {
   return Expr<SomeKind<ResultType<A>::category>>{AsExpr(std::move(x))};
+}
+
+template<TypeCategory CATEGORY>
+Expr<SomeKind<CATEGORY>> AsCategoryExpr(Expr<SomeKind<CATEGORY>> &&x) {
+  return std::move(x);
 }
 
 template<typename A> Expr<SomeType> AsGenericExpr(A &&x) {

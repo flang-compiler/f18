@@ -23,16 +23,16 @@ std::optional<int> UTF8CharacterBytes(const char *p) {
     return {1};
   }
   if ((*p & 0xf8) == 0xf0) {
-    if ((p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80 &&
+    if ((*p & 0x07) != 0 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80 &&
         (p[3] & 0xc0) == 0x80) {
       return {4};
     }
   } else if ((*p & 0xf0) == 0xe0) {
-    if ((p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80) {
+    if ((*p & 0x0f) != 0 && (p[1] & 0xc0) == 0x80 && (p[2] & 0xc0) == 0x80) {
       return {3};
     }
   } else if ((*p & 0xe0) == 0xc0) {
-    if ((p[1] & 0xc0) == 0x80) {
+    if ((*p & 0x1f) != 0 && (p[1] & 0xc0) == 0x80) {
       return {2};
     }
   }
@@ -82,14 +82,62 @@ std::optional<std::size_t> CountCharacters(
   return {chars};
 }
 
-std::string QuoteCharacterLiteral(
-    const std::string &str, bool doubleDoubleQuotes, bool doubleBackslash) {
+template<typename STRING>
+std::string QuoteCharacterLiteralHelper(
+    const STRING &str, bool doubleDoubleQuotes, bool doubleBackslash) {
   std::string result{'"'};
   const auto emit{[&](char ch) { result += ch; }};
-  for (char ch : str) {
-    EmitQuotedChar(ch, emit, emit, doubleDoubleQuotes, doubleBackslash);
+  for (auto ch : str) {
+    char32_t ch32{static_cast<unsigned char>(ch)};
+    EmitQuotedChar(ch32, emit, emit, doubleDoubleQuotes, doubleBackslash);
   }
   result += '"';
   return result;
+}
+
+std::string QuoteCharacterLiteral(
+    const std::string &str, bool doubleDoubleQuotes, bool doubleBackslash) {
+  return QuoteCharacterLiteralHelper(str, doubleDoubleQuotes, doubleBackslash);
+}
+
+std::string QuoteCharacterLiteral(
+    const std::u16string &str, bool doubleDoubleQuotes, bool doubleBackslash) {
+  return QuoteCharacterLiteralHelper(str, doubleDoubleQuotes, doubleBackslash);
+}
+
+std::string QuoteCharacterLiteral(
+    const std::u32string &str, bool doubleDoubleQuotes, bool doubleBackslash) {
+  return QuoteCharacterLiteralHelper(str, doubleDoubleQuotes, doubleBackslash);
+}
+
+std::optional<std::u32string> DecodeUTF8(const std::string &s) {
+  std::u32string result;
+  const std::uint8_t *p{reinterpret_cast<const std::uint8_t *>(s.data())};
+  for (auto bytes{s.size()}; bytes != 0;) {
+    decltype(bytes) charBytes{1};
+    char32_t ch{*p++};
+    if ((ch & 0xc0) > 0x40) {
+      if ((ch & 0xf8) == 0xf0 && bytes >= 4 && ch > 0xf0 &&
+          ((p[0] | p[1] | p[2]) & 0xc0) == 0x80) {
+        charBytes = 4;
+        ch = ((ch & 7) << 6) | (*p++ & 0x3f);
+        ch = (ch << 6) | (*p++ & 0x3f);
+        ch = (ch << 6) | (*p++ & 0x3f);
+      } else if ((ch & 0xf0) == 0xe0 && bytes >= 3 && ch > 0xe0 &&
+          ((p[0] | p[1]) & 0xc0) == 0x80) {
+        charBytes = 3;
+        ch = ((ch & 0xf) << 6) | (*p++ & 0x3f);
+        ch = (ch << 6) | (*p++ & 0x3f);
+      } else if ((ch & 0xe0) == 0xc0 && bytes >= 2 && ch > 0xc0 &&
+          (*p & 0xc0) == 0x80) {
+        charBytes = 2;
+        ch = ((ch & 0x1f) << 6) | (*p++ & 0x3f);
+      } else {
+        return std::nullopt;  // not valid UTF-8
+      }
+    }
+    bytes -= charBytes;
+  }
+  return {result};
 }
 }

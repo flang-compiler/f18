@@ -23,6 +23,7 @@
 
 #include "call.h"
 #include "common.h"
+#include "static-data.h"
 #include "type.h"
 #include "../common/idioms.h"
 #include "../common/template.h"
@@ -43,13 +44,17 @@ using semantics::Symbol;
 struct DataRef;
 template<typename A> struct Variable;
 
-// Subscript and cosubscript expressions are of a kind that matches the
-// address size, at least at the top level.
-using IndirectSubscriptIntegerExpr =
-    CopyableIndirection<Expr<SubscriptInteger>>;
-
-int GetSymbolRank(const Symbol &);
-const parser::CharBlock &GetSymbolName(const Symbol &);
+// Reference a base object in memory.  This can be a Fortran symbol,
+// static data (e.g., CHARACTER literal), or compiler-created temporary.
+struct BaseObject {
+  CLASS_BOILERPLATE(BaseObject)
+  explicit BaseObject(const Symbol &symbol) : u{&symbol} {}
+  explicit BaseObject(StaticDataObject::Pointer &&p) : u{std::move(p)} {}
+  int Rank() const;
+  Expr<SubscriptInteger> LEN() const;
+  std::ostream &AsFortran(std::ostream &) const;
+  std::variant<const Symbol *, StaticDataObject::Pointer> u;
+};
 
 // R913 structure-component & C920: Defined to be a multi-part
 // data-ref whose last part has no subscripts (or image-selector, although
@@ -66,11 +71,11 @@ public:
 
   const DataRef &base() const { return *base_; }
   DataRef &base() { return *base_; }
-  const Symbol &symbol() const { return *symbol_; }
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const;
+  const Symbol &GetFirstSymbol() const;
+  const Symbol &GetLastSymbol() const { return *symbol_; }
   Expr<SubscriptInteger> LEN() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
 private:
   CopyableIndirection<DataRef> base_;
@@ -88,7 +93,7 @@ public:
   std::optional<Expr<SubscriptInteger>> lower() const;
   std::optional<Expr<SubscriptInteger>> upper() const;
   std::optional<Expr<SubscriptInteger>> stride() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
 private:
   std::optional<IndirectSubscriptIntegerExpr> lower_, upper_, stride_;
@@ -100,7 +105,7 @@ struct Subscript {
   explicit Subscript(Expr<SubscriptInteger> &&s)
     : u{IndirectSubscriptIntegerExpr::Make(std::move(s))} {}
   int Rank() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
   std::variant<IndirectSubscriptIntegerExpr, Triplet> u;
 };
 
@@ -111,15 +116,16 @@ struct Subscript {
 // these types.
 struct ArrayRef {
   CLASS_BOILERPLATE(ArrayRef)
-  ArrayRef(const Symbol &n, std::vector<Subscript> &&ss)
-    : u{&n}, subscript(std::move(ss)) {}
+  ArrayRef(const Symbol &symbol, std::vector<Subscript> &&ss)
+    : u{&symbol}, subscript(std::move(ss)) {}
   ArrayRef(Component &&c, std::vector<Subscript> &&ss)
     : u{std::move(c)}, subscript(std::move(ss)) {}
 
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const;
+  const Symbol &GetFirstSymbol() const;
+  const Symbol &GetLastSymbol() const;
   Expr<SubscriptInteger> LEN() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
   std::variant<const Symbol *, Component> u;
   std::vector<Subscript> subscript;
@@ -144,15 +150,10 @@ public:
   CoarrayRef &set_team(Expr<SomeInteger> &&, bool isTeamNumber = false);
 
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const {
-    if (first) {
-      return base_.front();
-    } else {
-      return base_.back();
-    }
-  }
+  const Symbol &GetFirstSymbol() const { return *base_.front(); }
+  const Symbol &GetLastSymbol() const { return *base_.back(); }
   Expr<SubscriptInteger> LEN() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
 private:
   std::vector<const Symbol *> base_;
@@ -171,9 +172,10 @@ struct DataRef {
   explicit DataRef(const Symbol &n) : u{&n} {}
 
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const;
+  const Symbol &GetFirstSymbol() const;
+  const Symbol &GetLastSymbol() const;
   Expr<SubscriptInteger> LEN() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
   std::variant<const Symbol *, Component, ArrayRef, CoarrayRef> u;
 };
@@ -184,29 +186,34 @@ struct DataRef {
 // variants of sections instead.
 class Substring {
 public:
-  using Strings = std::variant<std::string, std::u16string, std::u32string>;
   CLASS_BOILERPLATE(Substring)
-  template<typename A>
-  Substring(A &&parent, std::optional<Expr<SubscriptInteger>> &&first,
+  Substring(DataRef &&parent, std::optional<Expr<SubscriptInteger>> &&first,
       std::optional<Expr<SubscriptInteger>> &&last)
-    : u_{std::move(parent)} {
+    : parent_{std::move(parent)} {
     SetBounds(first, last);
   }
+  Substring(StaticDataObject::Pointer &&parent,
+      std::optional<Expr<SubscriptInteger>> &&lower,
+      std::optional<Expr<SubscriptInteger>> &&upper)
+    : parent_{std::move(parent)} {
+    SetBounds(lower, upper);
+  }
 
-  Expr<SubscriptInteger> first() const;
-  Expr<SubscriptInteger> last() const;
+  Expr<SubscriptInteger> lower() const;
+  Expr<SubscriptInteger> upper() const;
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const;
+  BaseObject GetBaseObject() const;
+  const Symbol *GetLastSymbol() const;
   Expr<SubscriptInteger> LEN() const;
-  std::optional<Strings> Fold(FoldingContext &);
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
+
+  std::optional<Expr<SomeCharacter>> Fold(FoldingContext &);
 
 private:
-  using Variant = common::CombineVariants<std::variant<DataRef>, Strings>;
   void SetBounds(std::optional<Expr<SubscriptInteger>> &,
       std::optional<Expr<SubscriptInteger>> &);
-  Variant u_;
-  std::optional<IndirectSubscriptIntegerExpr> first_, last_;
+  std::variant<DataRef, StaticDataObject::Pointer> parent_;
+  std::optional<IndirectSubscriptIntegerExpr> lower_, upper_;
 };
 
 // R915 complex-part-designator
@@ -220,10 +227,9 @@ public:
   const DataRef &complex() const { return complex_; }
   Part part() const { return part_; }
   int Rank() const;
-  const Symbol *GetSymbol(bool first) const {
-    return complex_.GetSymbol(first);
-  }
-  std::ostream &Dump(std::ostream &) const;
+  const Symbol &GetFirstSymbol() const { return complex_.GetFirstSymbol(); }
+  const Symbol &GetLastSymbol() const { return complex_.GetLastSymbol(); }
+  std::ostream &AsFortran(std::ostream &) const;
 
 private:
   DataRef complex_;
@@ -253,41 +259,12 @@ public:
   Designator(DataRef &&that)
     : u{common::MoveVariant<Variant>(std::move(that.u))} {}
 
-  std::optional<DynamicType> GetType() const {
-    if constexpr (std::is_same_v<Result, SomeDerived>) {
-      if (const Symbol * sym{GetSymbol(false)}) {
-        return GetSymbolType(*sym);
-      } else {
-        return std::nullopt;
-      }
-    } else {
-      return Result::GetType();
-    }
-  }
-
-  int Rank() const {
-    return std::visit(
-        common::visitors{[](const Symbol *sym) { return GetSymbolRank(*sym); },
-            [](const auto &x) { return x.Rank(); }},
-        u);
-  }
-
-  const Symbol *GetSymbol(bool first) const {
-    return std::visit(common::visitors{[](const Symbol *sym) { return sym; },
-                          [=](const auto &x) { return x.GetSymbol(first); }},
-        u);
-  }
-
+  std::optional<DynamicType> GetType() const;
+  int Rank() const;
+  BaseObject GetBaseObject() const;
+  const Symbol *GetLastSymbol() const;
   Expr<SubscriptInteger> LEN() const;
-
-  std::ostream &Dump(std::ostream &o) const {
-    std::visit(common::visitors{[&](const Symbol *sym) {
-                                  o << GetSymbolName(*sym).ToString();
-                                },
-                   [&](const auto &x) { x.Dump(o); }},
-        u);
-    return o;
-  }
+  std::ostream &AsFortran(std::ostream &o) const;
 
   Variant u;
 };
@@ -306,7 +283,7 @@ public:
   Expr<SubscriptInteger> LEN() const;
   int Rank() const { return proc_.Rank(); }
   bool IsElemental() const { return proc_.IsElemental(); }
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
 protected:
   ProcedureDesignator proc_;
@@ -348,8 +325,8 @@ template<typename A> struct Variable {
   int Rank() const {
     return std::visit([](const auto &x) { return x.Rank(); }, u);
   }
-  std::ostream &Dump(std::ostream &o) const {
-    std::visit([&](const auto &x) { x.Dump(o); }, u);
+  std::ostream &AsFortran(std::ostream &o) const {
+    std::visit([&](const auto &x) { x.AsFortran(o); }, u);
     return o;
   }
   std::variant<Designator<Result>, FunctionRef<Result>> u;

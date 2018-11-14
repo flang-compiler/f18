@@ -37,11 +37,10 @@ struct ActualArgument {
 
   std::optional<DynamicType> GetType() const;
   int Rank() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
   std::optional<int> VectorSize() const;
 
   std::optional<parser::CharBlock> keyword;
-  bool isAssumedRank{false};  // TODO: make into a function of the value
   bool isAlternateReturn{false};  // when true, "value" is a label number
 
   // TODO: Mark legacy %VAL and %REF arguments
@@ -65,7 +64,7 @@ struct SpecificIntrinsic {
   SpecificIntrinsic(IntrinsicProcedure n, std::optional<DynamicType> &&dt,
       int r, semantics::Attrs a)
     : name{n}, type{std::move(dt)}, rank{r}, attrs{a} {}
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
   IntrinsicProcedure name;
   bool isRestrictedSpecific{false};  // if true, can only call it
@@ -83,7 +82,7 @@ struct ProcedureDesignator {
   bool IsElemental() const;
   Expr<SubscriptInteger> LEN() const;
   const semantics::Symbol *GetSymbol() const;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
   // TODO: When calling X%F, pass X as PASS argument unless NOPASS
   std::variant<SpecificIntrinsic, const semantics::Symbol *> u;

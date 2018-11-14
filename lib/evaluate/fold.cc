@@ -41,18 +41,16 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(FoldingContext &context,
     Designator<Type<TypeCategory::Character, KIND>> &&designator) {
   using CHAR = Type<TypeCategory::Character, KIND>;
   if (auto *substring{std::get_if<Substring>(&designator.u)}) {
-    if (auto folded{substring->Fold(context)}) {
-      if (auto *string{std::get_if<Scalar<CHAR>>(&*folded)}) {
-        return Expr<CHAR>{Constant<CHAR>{std::move(*string)}};
-      }
-      // A zero-length substring of an arbitrary data reference can
-      // be folded, but the C++ string type of the empty value will be
-      // std::string and that may not be right for multi-byte CHARACTER
-      // kinds.
-      if (auto length{ToInt64(Fold(context, substring->LEN()))}) {
-        if (*length == 0) {
-          return Expr<CHAR>{Constant<CHAR>{Scalar<CHAR>{}}};
+    if (std::optional<Expr<SomeCharacter>> folded{substring->Fold(context)}) {
+      if (auto *kindChar{std::get_if<Expr<CHAR>>(&folded->u)}) {
+        if (auto value{GetScalarConstantValue(*kindChar)}) {
+          return Expr<CHAR>{std::move(*value)};
         }
+      }
+    }
+    if (auto length{ToInt64(Fold(context, substring->LEN()))}) {
+      if (*length == 0) {
+        return Expr<CHAR>{Constant<CHAR>{Scalar<CHAR>{}}};
       }
     }
   }
@@ -353,22 +351,22 @@ Expr<T> FoldOperation(FoldingContext &context, Extremum<T> &&x) {
 template<int KIND>
 Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(
     FoldingContext &context, ComplexConstructor<KIND> &&x) {
-  using COMPLEX = Type<TypeCategory::Complex, KIND>;
+  using Result = Type<TypeCategory::Complex, KIND>;
   if (auto folded{FoldOperands(context, x.left(), x.right())}) {
-    return Expr<COMPLEX>{
-        Constant<COMPLEX>{Scalar<COMPLEX>{folded->first, folded->second}}};
+    return Expr<Result>{
+        Constant<Result>{Scalar<Result>{folded->first, folded->second}}};
   }
-  return Expr<COMPLEX>{std::move(x)};
+  return Expr<Result>{std::move(x)};
 }
 
 template<int KIND>
 Expr<Type<TypeCategory::Character, KIND>> FoldOperation(
     FoldingContext &context, Concat<KIND> &&x) {
-  using CHAR = Type<TypeCategory::Character, KIND>;
+  using Result = Type<TypeCategory::Character, KIND>;
   if (auto folded{FoldOperands(context, x.left(), x.right())}) {
-    return Expr<CHAR>{Constant<CHAR>{folded->first + folded->second}};
+    return Expr<Result>{Constant<Result>{folded->first + folded->second}};
   }
-  return Expr<CHAR>{std::move(x)};
+  return Expr<Result>{std::move(x)};
 }
 
 template<typename T>
@@ -422,7 +420,7 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
 // end per-operation folding functions
 
 template<typename T>
-Expr<T> FoldHelper<T>::FoldExpr(FoldingContext &context, Expr<T> &&expr) {
+Expr<T> ExpressionBase<T>::Rewrite(FoldingContext &context, Expr<T> &&expr) {
   return std::visit(
       [&](auto &&x) -> Expr<T> {
         if constexpr (T::isSpecificIntrinsicType) {
@@ -439,7 +437,7 @@ Expr<T> FoldHelper<T>::FoldExpr(FoldingContext &context, Expr<T> &&expr) {
       std::move(expr.u));
 }
 
-FOR_EACH_TYPE_AND_KIND(template struct FoldHelper)
+FOR_EACH_TYPE_AND_KIND(template class ExpressionBase)
 
 template<typename T>
 std::optional<Constant<T>>

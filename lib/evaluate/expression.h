@@ -54,17 +54,41 @@ using common::RelationalOperator;
 // - Expr<SomeType> is a union of Expr<SomeKind<CATEGORY>> over the five
 //   intrinsic type categories of Fortran.  It represents any valid expression.
 //
-// Every Expr specialization supports at least these interfaces:
-//   using Result = ...;  // type of a result of this expression
-//   DynamicType GetType() const;
-//   int Rank() const;
-//   std::ostream &Dump(std::ostream &) const;
-
 // Everything that can appear in, or as, a valid Fortran expression must be
 // represented with an instance of some class containing a Result typedef that
 // maps to some instantiation of Type<CATEGORY, KIND>, SomeKind<CATEGORY>,
 // or SomeType.
 template<typename A> using ResultType = typename std::decay_t<A>::Result;
+
+// Common Expr<> behaviors: every Expr<T> derives from ExpressionBase<T>.
+template<typename RESULT> class ExpressionBase {
+public:
+  using Result = RESULT;
+
+private:
+  using Derived = Expr<Result>;
+  Derived &derived() { return *static_cast<Derived *>(this); }
+  const Derived &derived() const { return *static_cast<const Derived *>(this); }
+
+public:
+  template<typename A> Derived &operator=(const A &x) {
+    Derived &d{derived()};
+    d.u = x;
+    return d;
+  }
+
+  template<typename A>
+  Derived &operator=(std::enable_if_t<!std::is_reference_v<A>, A> &&x) {
+    Derived &d{derived()};
+    d.u = std::move(x);
+    return d;
+  }
+
+  std::optional<DynamicType> GetType() const;
+  int Rank() const;
+  std::ostream &AsFortran(std::ostream &) const;
+  static Derived Rewrite(FoldingContext &, Derived &&);
+};
 
 // BOZ literal "typeless" constants must be wide enough to hold a numeric
 // value of any supported kind of INTEGER or REAL.  They must also be
@@ -160,10 +184,10 @@ public:
     }
   }
 
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 
 protected:
-  // Overridable functions for Dump()
+  // Overridable functions for AsFortran()
   static std::ostream &Prefix(std::ostream &o) { return o << '('; }
   static std::ostream &Infix(std::ostream &o) { return o << ','; }
   static std::ostream &Suffix(std::ostream &o) { return o << ')'; }
@@ -190,7 +214,7 @@ struct Convert : public Operation<Convert<TO, FROMCAT>, TO, SomeKind<FROMCAT>> {
   using Operand = SomeKind<FROMCAT>;
   using Base = Operation<Convert, Result, Operand>;
   using Base::Base;
-  std::ostream &Dump(std::ostream &) const;
+  std::ostream &AsFortran(std::ostream &) const;
 };
 
 template<typename A>
@@ -354,33 +378,51 @@ struct LogicalOperation
   LogicalOperator logicalOperator;
 };
 
-// Per-category expression representations
+// Array constructors
 
-// Common Expr<> behaviors
-template<typename RESULT> struct ExpressionBase {
-  using Result = RESULT;
-  using Derived = Expr<Result>;
+template<typename RESULT> struct ArrayConstructorValues;
 
-  Derived &derived() { return *static_cast<Derived *>(this); }
-  const Derived &derived() const { return *static_cast<const Derived *>(this); }
-
-  template<typename A> Derived &operator=(const A &x) {
-    Derived &d{derived()};
-    d.u = x;
-    return d;
-  }
-
-  template<typename A>
-  Derived &operator=(std::enable_if_t<!std::is_reference_v<A>, A> &&x) {
-    Derived &d{derived()};
-    d.u = std::move(x);
-    return d;
-  }
-
-  std::optional<DynamicType> GetType() const;
-  int Rank() const;
-  std::ostream &Dump(std::ostream &) const;
+template<typename VALUES, typename OPERAND> struct ImpliedDo {
+  using Values = VALUES;
+  using Operand = OPERAND;
+  using Result = ResultType<Values>;
+  static_assert(Operand::category == TypeCategory::Integer);
+  parser::CharBlock controlVariableName;
+  CopyableIndirection<Expr<Operand>> lower, upper, stride;
+  CopyableIndirection<Values> values;
 };
+
+template<typename RESULT> struct ArrayConstructorValue {
+  using Result = RESULT;
+  EVALUATE_UNION_CLASS_BOILERPLATE(ArrayConstructorValue)
+  template<typename INT>
+  using ImpliedDo = ImpliedDo<ArrayConstructorValues<Result>, INT>;
+  common::CombineVariants<std::variant<CopyableIndirection<Expr<Result>>>,
+      common::MapTemplate<ImpliedDo, IntegerTypes>>
+      u;
+};
+
+template<typename RESULT> struct ArrayConstructorValues {
+  using Result = RESULT;
+  CLASS_BOILERPLATE(ArrayConstructorValues)
+  template<typename A> void Push(A &&x) { values.emplace_back(std::move(x)); }
+  std::vector<ArrayConstructorValue<Result>> values;
+};
+
+template<typename RESULT>
+struct ArrayConstructor : public ArrayConstructorValues<RESULT> {
+  using Result = RESULT;
+  using ArrayConstructorValues<Result>::ArrayConstructorValues;
+  DynamicType GetType() const;
+  static constexpr int Rank() { return 1; }
+  Expr<SubscriptInteger> LEN() const;
+  std::ostream &AsFortran(std::ostream &) const;
+
+  Result result;
+  std::vector<Expr<SubscriptInteger>> typeParameterValues;
+};
+
+// Per-category expression representations
 
 template<int KIND>
 class Expr<Type<TypeCategory::Integer, KIND>>
@@ -401,8 +443,8 @@ private:
   using Operations = std::variant<Parentheses<Result>, Negate<Result>,
       Add<Result>, Subtract<Result>, Multiply<Result>, Divide<Result>,
       Power<Result>, Extremum<Result>>;
-  using Others =
-      std::variant<Constant<Result>, Designator<Result>, FunctionRef<Result>>;
+  using Others = std::variant<Constant<Result>, ArrayConstructor<Result>,
+      Designator<Result>, FunctionRef<Result>>;
 
 public:
   common::CombineVariants<Operations, Conversions, Others> u;
@@ -426,8 +468,8 @@ private:
   using Operations = std::variant<ComplexComponent<KIND>, Parentheses<Result>,
       Negate<Result>, Add<Result>, Subtract<Result>, Multiply<Result>,
       Divide<Result>, Power<Result>, RealToIntPower<Result>, Extremum<Result>>;
-  using Others =
-      std::variant<Constant<Result>, Designator<Result>, FunctionRef<Result>>;
+  using Others = std::variant<Constant<Result>, ArrayConstructor<Result>,
+      Designator<Result>, FunctionRef<Result>>;
 
 public:
   common::CombineVariants<Operations, Conversions, Others> u;
@@ -446,8 +488,8 @@ public:
   using Operations =
       std::variant<Parentheses<Result>, Multiply<Result>, Divide<Result>,
           Power<Result>, RealToIntPower<Result>, ComplexConstructor<KIND>>;
-  using Others =
-      std::variant<Constant<Result>, Designator<Result>, FunctionRef<Result>>;
+  using Others = std::variant<Constant<Result>, ArrayConstructor<Result>,
+      Designator<Result>, FunctionRef<Result>>;
 
 public:
   common::CombineVariants<Operations, Others> u;
@@ -468,8 +510,8 @@ public:
 
   Expr<SubscriptInteger> LEN() const;
 
-  std::variant<Constant<Result>, Designator<Result>, FunctionRef<Result>,
-      Parentheses<Result>, Concat<KIND>, Extremum<Result>>
+  std::variant<Constant<Result>, ArrayConstructor<Result>, Designator<Result>,
+      FunctionRef<Result>, Parentheses<Result>, Concat<KIND>, Extremum<Result>>
       u;
 };
 
@@ -511,13 +553,11 @@ template<> class Relational<SomeType> {
 public:
   using Result = LogicalResult;
   EVALUATE_UNION_CLASS_BOILERPLATE(Relational)
-  static constexpr std::optional<DynamicType> GetType() {
-    return Result::GetType();
-  }
+  static constexpr DynamicType GetType() { return Result::GetType(); }
   int Rank() const {
     return std::visit([](const auto &x) { return x.Rank(); }, u);
   }
-  std::ostream &Dump(std::ostream &o) const;
+  std::ostream &AsFortran(std::ostream &o) const;
   common::MapTemplate<Relational, DirectlyComparableTypes> u;
 };
 
@@ -544,14 +584,25 @@ private:
       Parentheses<Result>, Not<KIND>, LogicalOperation<KIND>>;
   using Relations = std::conditional_t<KIND == LogicalResult::kind,
       std::variant<Relational<SomeType>>, std::variant<>>;
-  using Others =
-      std::variant<Constant<Result>, Designator<Result>, FunctionRef<Result>>;
+  using Others = std::variant<Constant<Result>, ArrayConstructor<Result>,
+      Designator<Result>, FunctionRef<Result>>;
 
 public:
   common::CombineVariants<Operations, Relations, Others> u;
 };
 
 FOR_EACH_LOGICAL_KIND(extern template class Expr)
+
+// An expression whose result has a derived type.
+template<> class Expr<SomeDerived> : public ExpressionBase<SomeDerived> {
+public:
+  using Result = SomeDerived;
+  EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
+  // TODO: structure constructor
+  std::variant<Designator<Result>, ArrayConstructor<Result>,
+      FunctionRef<Result>>
+      u;
+};
 
 // A polymorphic expression of known intrinsic type category, but dynamic
 // kind, represented as a discriminated union over Expr<Type<CAT, K>>
@@ -562,21 +613,6 @@ public:
   using Result = SomeKind<CAT>;
   EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
   common::MapTemplate<Expr, CategoryTypes<CAT>> u;
-};
-
-// Note that Expr<SomeDerived> does not inherit from ExpressionBase
-// since Constant<SomeDerived> and Scalar<SomeDerived> are not defined
-// for derived types.
-template<> class Expr<SomeDerived> {
-public:
-  using Result = SomeDerived;
-  EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
-
-  std::optional<DynamicType> GetType() const;
-  int Rank() const;
-  std::ostream &Dump(std::ostream &) const;
-
-  std::variant<Designator<Result>, FunctionRef<Result>> u;
 };
 
 // A completely generic expression, polymorphic across all of the intrinsic type
@@ -627,6 +663,6 @@ struct GenericExprWrapper {
 };
 
 FOR_EACH_CATEGORY_TYPE(extern template class Expr)
-FOR_EACH_TYPE_AND_KIND(extern template struct ExpressionBase)
+FOR_EACH_TYPE_AND_KIND(extern template class ExpressionBase)
 }
 #endif  // FORTRAN_EVALUATE_EXPRESSION_H_
