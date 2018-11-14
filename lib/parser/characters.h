@@ -103,7 +103,7 @@ inline constexpr char HexadecimalDigitValue(char ch) {
 
 inline constexpr std::optional<char> BackslashEscapeValue(char ch) {
   switch (ch) {
-  // case 'a': return {'\a'};  pgf90 doesn't know about \a
+  // case 'a': return {'\a'};  // pgf90 has no \a
   case 'b': return {'\b'};
   case 'f': return {'\f'};
   case 'n': return {'\n'};
@@ -119,7 +119,7 @@ inline constexpr std::optional<char> BackslashEscapeValue(char ch) {
 
 inline constexpr std::optional<char> BackslashEscapeChar(char ch) {
   switch (ch) {
-  // case '\a': return {'a'};  pgf90 doesn't know about \a
+  // case '\a': return {'a'};  // pgf90 has no \a
   case '\b': return {'b'};
   case '\f': return {'f'};
   case '\n': return {'n'};
@@ -134,7 +134,7 @@ inline constexpr std::optional<char> BackslashEscapeChar(char ch) {
 }
 
 template<typename NORMAL, typename INSERTED>
-void EmitQuotedChar(char ch, const NORMAL &emit, const INSERTED &insert,
+void EmitQuotedChar(char32_t ch, const NORMAL &emit, const INSERTED &insert,
     bool doubleDoubleQuotes = true, bool doubleBackslash = true) {
   if (ch == '"') {
     if (doubleDoubleQuotes) {
@@ -146,7 +146,7 @@ void EmitQuotedChar(char ch, const NORMAL &emit, const INSERTED &insert,
       insert('\\');
     }
     emit('\\');
-  } else if (ch < ' ') {
+  } else if (ch < ' ' || (ch >= 0x80 && ch <= 0xff)) {
     insert('\\');
     if (std::optional escape{BackslashEscapeChar(ch)}) {
       emit(*escape);
@@ -156,17 +156,34 @@ void EmitQuotedChar(char ch, const NORMAL &emit, const INSERTED &insert,
       insert('0' + ((ch >> 3) & 7));
       insert('0' + (ch & 7));
     }
-  } else {
+  } else if (ch <= 0x7f) {
     emit(ch);
+  } else if (ch <= 0x7ff) {
+    emit(0xc0 | ((ch >> 6) & 0x1f));
+    emit(0x80 | (ch & 0x3f));
+  } else if (ch <= 0xffff) {
+    emit(0xe0 | ((ch >> 12) & 0x0f));
+    emit(0x80 | ((ch >> 6) & 0x3f));
+    emit(0x80 | (ch & 0x3f));
+  } else {
+    emit(0xf0 | ((ch >> 18) & 0x07));
+    emit(0x80 | ((ch >> 12) & 0x3f));
+    emit(0x80 | ((ch >> 6) & 0x3f));
+    emit(0x80 | (ch & 0x3f));
   }
 }
 
 std::string QuoteCharacterLiteral(const std::string &,
+    bool doubleDoubleQuotes = true, bool doubleBackslash = true);
+std::string QuoteCharacterLiteral(const std::u16string &,
+    bool doubleDoubleQuotes = true, bool doubleBackslash = true);
+std::string QuoteCharacterLiteral(const std::u32string &,
     bool doubleDoubleQuotes = true, bool doubleBackslash = true);
 
 std::optional<int> UTF8CharacterBytes(const char *);
 std::optional<int> EUC_JPCharacterBytes(const char *);
 std::optional<std::size_t> CountCharacters(
     const char *, std::size_t bytes, std::optional<int> (*)(const char *));
+std::optional<std::u32string> DecodeUTF8(const std::string &);
 }
 #endif  // FORTRAN_PARSER_CHARACTERS_H_

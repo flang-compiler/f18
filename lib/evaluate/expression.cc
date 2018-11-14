@@ -28,91 +28,134 @@ using namespace Fortran::parser::literals;
 
 namespace Fortran::evaluate {
 
-// Dump
+// AsFortran() formatting
 
 template<typename D, typename R, typename... O>
-std::ostream &Operation<D, R, O...>::Dump(std::ostream &o) const {
-  left().Dump(derived().Prefix(o));
+std::ostream &Operation<D, R, O...>::AsFortran(std::ostream &o) const {
+  left().AsFortran(derived().Prefix(o));
   if constexpr (operands > 1) {
-    right().Dump(derived().Infix(o));
+    right().AsFortran(derived().Infix(o));
   }
   return derived().Suffix(o);
 }
 
 template<typename TO, TypeCategory FROMCAT>
-std::ostream &Convert<TO, FROMCAT>::Dump(std::ostream &o) const {
+std::ostream &Convert<TO, FROMCAT>::AsFortran(std::ostream &o) const {
   static_assert(TO::category == TypeCategory::Integer ||
       TO::category == TypeCategory::Real ||
       TO::category == TypeCategory::Logical || !"Convert<> to bad category!");
   if constexpr (TO::category == TypeCategory::Integer) {
-    o << "INT";
+    o << "int";
   } else if constexpr (TO::category == TypeCategory::Real) {
-    o << "REAL";
+    o << "real";
   } else if constexpr (TO::category == TypeCategory::Logical) {
-    o << "LOGICAL";
+    o << "logical";
   }
-  return this->left().Dump(o << '(') << ",KIND=" << TO::kind << ')';
+  return this->left().AsFortran(o << '(') << ",kind=" << TO::kind << ')';
 }
 
 template<typename A> std::ostream &Relational<A>::Infix(std::ostream &o) const {
-  return o << '.' << EnumToString(opr) << '.';
+  switch (opr) {
+  case RelationalOperator::LT: o << '<'; break;
+  case RelationalOperator::LE: o << "<="; break;
+  case RelationalOperator::EQ: o << "=="; break;
+  case RelationalOperator::NE: o << "/="; break;
+  case RelationalOperator::GE: o << ">="; break;
+  case RelationalOperator::GT: o << '>'; break;
+  }
+  return o;
 }
 
-std::ostream &Relational<SomeType>::Dump(std::ostream &o) const {
-  std::visit([&](const auto &rel) { rel.Dump(o); }, u);
+std::ostream &Relational<SomeType>::AsFortran(std::ostream &o) const {
+  std::visit([&](const auto &rel) { rel.AsFortran(o); }, u);
   return o;
 }
 
 template<int KIND>
 std::ostream &LogicalOperation<KIND>::Infix(std::ostream &o) const {
   switch (logicalOperator) {
-  case LogicalOperator::And: o << ".AND."; break;
-  case LogicalOperator::Or: o << ".OR."; break;
-  case LogicalOperator::Eqv: o << ".EQV."; break;
-  case LogicalOperator::Neqv: o << ".NEQV."; break;
+  case LogicalOperator::And: o << ".and."; break;
+  case LogicalOperator::Or: o << ".or."; break;
+  case LogicalOperator::Eqv: o << ".eqv."; break;
+  case LogicalOperator::Neqv: o << ".neqv."; break;
   }
   return o;
 }
 
-template<typename T> std::ostream &Constant<T>::Dump(std::ostream &o) const {
+template<typename T>
+std::ostream &Constant<T>::AsFortran(std::ostream &o) const {
   if constexpr (T::category == TypeCategory::Integer) {
     return o << value.SignedDecimal() << '_' << T::kind;
   } else if constexpr (T::category == TypeCategory::Real ||
       T::category == TypeCategory::Complex) {
-    return o << value.DumpHexadecimal() << '_' << T::kind;
+    return value.AsFortran(o, T::kind);
   } else if constexpr (T::category == TypeCategory::Character) {
-    if constexpr (T::kind == 1) {
-      return o << T::kind << '_' << parser::QuoteCharacterLiteral(value);
-    } else {
-      return o << T::kind
-               << "_'(wide character dumping unimplemented)'";  // TODO
-    }
+    return o << T::kind << '_' << parser::QuoteCharacterLiteral(value);
   } else if constexpr (T::category == TypeCategory::Logical) {
     if (value.IsTrue()) {
-      o << ".TRUE.";
+      o << ".true.";
     } else {
-      o << ".FALSE.";
+      o << ".false.";
     }
     return o << '_' << Result::kind;
   } else {
-    return value.u.Dump(o);
+    return value.u.AsFortran(o);
   }
 }
 
+template<typename T>
+std::ostream &Emit(std::ostream &o, const CopyableIndirection<Expr<T>> &expr) {
+  return expr->AsFortran(o);
+}
+template<typename T>
+std::ostream &Emit(std::ostream &, const ArrayConstructorValues<T> &);
+
+template<typename ITEM, typename INT>
+std::ostream &Emit(std::ostream &o, const ImpliedDo<ITEM, INT> &implDo) {
+  o << '(';
+  Emit(o, *implDo.values);
+  o << ',' << INT::AsFortran() << "::";
+  o << implDo.controlVariableName.ToString();
+  o << '=';
+  implDo.lower->AsFortran(o) << ',';
+  implDo.upper->AsFortran(o) << ',';
+  implDo.stride->AsFortran(o) << ')';
+  return o;
+}
+
+template<typename T>
+std::ostream &Emit(std::ostream &o, const ArrayConstructorValues<T> &values) {
+  const char *sep{""};
+  for (const auto &value : values.values) {
+    o << sep;
+    std::visit([&](const auto &x) { Emit(o, x); }, value.u);
+    sep = ",";
+  }
+  return o;
+}
+
+template<typename T>
+std::ostream &ArrayConstructor<T>::AsFortran(std::ostream &o) const {
+  o << '[' << result.AsFortran() << "::";
+  Emit(o, *this);
+  return o << ']';
+}
+
 template<typename RESULT>
-std::ostream &ExpressionBase<RESULT>::Dump(std::ostream &o) const {
-  std::visit(common::visitors{[&](const BOZLiteralConstant &x) {
-                                o << "Z'" << x.Hexadecimal() << "'";
-                              },
-                 [&](const CopyableIndirection<Substring> &s) { s->Dump(o); },
-                 [&](const auto &x) { x.Dump(o); }},
+std::ostream &ExpressionBase<RESULT>::AsFortran(std::ostream &o) const {
+  std::visit(
+      common::visitors{[&](const BOZLiteralConstant &x) {
+                         o << "z'" << x.Hexadecimal() << "'";
+                       },
+          [&](const CopyableIndirection<Substring> &s) { s->AsFortran(o); },
+          [&](const auto &x) { x.AsFortran(o); }},
       derived().u);
   return o;
 }
 
-std::ostream &Expr<SomeDerived>::Dump(std::ostream &o) const {
-  std::visit([&](const auto &x) { x.Dump(o); }, u);
-  return o;
+template<typename T> Expr<SubscriptInteger> ArrayConstructor<T>::LEN() const {
+  // TODO pmk: extract from type spec in array constructor
+  return AsExpr(Constant<SubscriptInteger>{0});  // TODO placeholder
 }
 
 template<int KIND>
@@ -122,6 +165,7 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
                          return AsExpr(
                              Constant<SubscriptInteger>{c.value.size()});
                        },
+          [](const ArrayConstructor<Result> &a) { return a.LEN(); },
           [](const Parentheses<Result> &x) { return x.left().LEN(); },
           [](const Concat<KIND> &c) {
             return c.left().LEN() + c.right().LEN();
@@ -136,6 +180,11 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
 }
 
 Expr<SomeType>::~Expr() {}
+
+template<typename T> DynamicType ArrayConstructor<T>::GetType() const {
+  // TODO: pmk: parameterized derived types, CHARACTER length
+  return result.GetType();
+}
 
 template<typename A>
 std::optional<DynamicType> ExpressionBase<A>::GetType() const {
@@ -154,10 +203,6 @@ std::optional<DynamicType> ExpressionBase<A>::GetType() const {
   }
 }
 
-std::optional<DynamicType> Expr<SomeDerived>::GetType() const {
-  return std::visit([](const auto &x) { return x.GetType(); }, u);
-}
-
 template<typename A> int ExpressionBase<A>::Rank() const {
   return std::visit(
       [](const auto &x) {
@@ -171,10 +216,6 @@ template<typename A> int ExpressionBase<A>::Rank() const {
       derived().u);
 }
 
-int Expr<SomeDerived>::Rank() const {
-  return std::visit([](const auto &x) { return x.Rank(); }, u);
-}
-
 // Template instantiations to resolve the "extern template" declarations
 // that appear in expression.h.
 
@@ -184,8 +225,7 @@ FOR_EACH_INTEGER_KIND(template struct Relational)
 FOR_EACH_REAL_KIND(template struct Relational)
 FOR_EACH_CHARACTER_KIND(template struct Relational)
 template struct Relational<SomeType>;
-FOR_EACH_INTRINSIC_KIND(template struct ExpressionBase)
-FOR_EACH_CATEGORY_TYPE(template struct ExpressionBase)
+FOR_EACH_TYPE_AND_KIND(template class ExpressionBase)
 }
 
 // For reclamation of analyzed expressions to which owning pointers have
