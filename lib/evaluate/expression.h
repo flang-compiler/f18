@@ -612,6 +612,11 @@ class Expr<SomeKind<CAT>> : public ExpressionBase<SomeKind<CAT>> {
 public:
   using Result = SomeKind<CAT>;
   EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
+  int GetKind() const {
+    return std::visit(
+        [](const auto &x) { return std::decay_t<decltype(x)>::Result::kind; },
+        u);
+  }
   common::MapTemplate<Expr, CategoryTypes<CAT>> u;
 };
 
