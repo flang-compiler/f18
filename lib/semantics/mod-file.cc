@@ -43,9 +43,9 @@ static void PutObjectEntity(std::ostream &, const Symbol &);
 static void PutProcEntity(std::ostream &, const Symbol &);
 static void PutTypeParam(std::ostream &, const Symbol &);
 static void PutEntity(std::ostream &, const Symbol &, std::function<void()>);
-static void PutInit(std::ostream &, const LazyExpr &);
+static void PutInit(std::ostream &, const MaybeExpr &);
 static void PutBound(std::ostream &, const Bound &);
-static void PutExpr(std::ostream &, const LazyExpr &);
+static void PutExpr(std::ostream &, const SomeExpr &);
 static std::ostream &PutAttrs(
     std::ostream &, Attrs, std::string before = ","s, std::string after = ""s);
 static std::ostream &PutLower(std::ostream &, const Symbol &);
@@ -162,6 +162,7 @@ void ModFileWriter::PutSymbol(const Symbol &symbol, bool &didContains) {
             PutLower(decls_ << "final::", symbol) << '\n';
           },
           [](const HostAssocDetails &) {},
+          [](const MiscDetails &) {},
           [&](const auto &) { PutEntity(decls_, symbol); },
       },
       symbol.details());
@@ -371,9 +372,9 @@ void PutTypeParam(std::ostream &os, const Symbol &symbol) {
   PutInit(os, details.init());
 }
 
-void PutInit(std::ostream &os, const LazyExpr &init) {
-  if (init.Get()) {
-    PutExpr(os << '=', init);
+void PutInit(std::ostream &os, const MaybeExpr &init) {
+  if (init) {
+    PutExpr(os << '=', *init);
   }
 }
 
@@ -383,15 +384,11 @@ void PutBound(std::ostream &os, const Bound &x) {
   } else if (x.isDeferred()) {
     os << ':';
   } else {
-    PutExpr(os, x.GetExplicit());
+    x.GetExplicit()->AsFortran(os);
   }
 }
 
-void PutExpr(std::ostream &os, const LazyExpr &expr) {
-  if (auto x{expr.Get()}) {
-    x->AsFortran(os);
-  }
-}
+void PutExpr(std::ostream &os, const SomeExpr &expr) { expr.AsFortran(os); }
 
 // Write an entity (object or procedure) declaration.
 // writeType is called to write out the type.
@@ -525,7 +522,6 @@ Scope *ModFileReader::Read(const SourceName &name, Scope *ancestor) {
   std::string ancestorName;  // empty for module
   if (ancestor) {
     if (auto *scope{ancestor->FindSubmodule(name)}) {
-      scope->symbol()->add_occurrence(name);
       return scope;
     }
     ancestorName = ancestor->name().ToString();
