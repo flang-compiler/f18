@@ -121,7 +121,12 @@ public:
   Scope *FindSubmodule(const SourceName &) const;
   bool AddSubmodule(const SourceName &, Scope &);
 
-  DerivedTypeSpec &MakeDerivedTypeSpec(const SourceName &);
+  DeclTypeSpec &MakeNumericType(TypeCategory, int kind);
+  DeclTypeSpec &MakeLogicalType(int kind);
+  DeclTypeSpec &MakeCharacterType(ParamValue &&length, int kind = 0);
+  DeclTypeSpec &MakeDerivedType(const SourceName &);
+  DeclTypeSpec &MakeTypeStarType();
+  DeclTypeSpec &MakeClassStarType();
 
   // For modules read from module files, this is the stream of characters
   // that are referenced by SourceName objects.
@@ -151,6 +156,8 @@ private:
   std::list<Scope> children_;
   mapType symbols_;
   std::map<SourceName, Scope *> submodules_;
+  std::list<DeclTypeSpec> declTypeSpecs_;
+  std::list<CharacterTypeSpec> characterTypeSpecs_;
   std::list<DerivedTypeSpec> derivedTypeSpecs_;
   std::string chars_;
   std::optional<ImportKind> importKind_;
@@ -161,6 +168,7 @@ private:
   static Symbols<1024> allSymbols;
 
   bool CanImport(const SourceName &) const;
+  DeclTypeSpec &MakeLengthlessType(const DeclTypeSpec &);
 
   friend std::ostream &operator<<(std::ostream &, const Scope &);
 };
