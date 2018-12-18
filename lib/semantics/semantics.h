@@ -67,6 +67,9 @@ public:
     return *this;
   }
 
+  DeclTypeSpec &MakeNumericType(TypeCategory, int kind = 0);
+  DeclTypeSpec &MakeLogicalType(int kind = 0);
+
   bool AnyFatalError() const;
   template<typename... A> parser::Message &Say(A... args) {
     return messages_.Say(std::forward<A>(args)...);

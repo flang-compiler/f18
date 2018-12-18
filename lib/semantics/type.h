@@ -73,21 +73,68 @@ private:
   friend std::ostream &operator<<(std::ostream &, const Bound &);
 };
 
+// A type parameter value: integer expression or assumed or deferred.
+class ParamValue {
+public:
+  static const ParamValue Assumed() { return Category::Assumed; }
+  static const ParamValue Deferred() { return Category::Deferred; }
+  ParamValue(MaybeExpr &&expr);
+  ParamValue(std::int64_t);
+  bool isExplicit() const { return category_ == Category::Explicit; }
+  bool isAssumed() const { return category_ == Category::Assumed; }
+  bool isDeferred() const { return category_ == Category::Deferred; }
+  const MaybeExpr &GetExplicit() const { return expr_; }
+
+private:
+  enum class Category { Explicit, Deferred, Assumed };
+  ParamValue(Category category) : category_{category} {}
+  Category category_;
+  MaybeExpr expr_;
+  friend std::ostream &operator<<(std::ostream &, const ParamValue &);
+};
+
 class IntrinsicTypeSpec {
 public:
-  IntrinsicTypeSpec(TypeCategory, int kind);
-  const TypeCategory category() const { return category_; }
-  const int kind() const { return kind_; }
+  TypeCategory category() const { return category_; }
+  int kind() const { return kind_; }
   bool operator==(const IntrinsicTypeSpec &x) const {
     return category_ == x.category_ && kind_ == x.kind_;
   }
   bool operator!=(const IntrinsicTypeSpec &x) const { return !operator==(x); }
 
+protected:
+  IntrinsicTypeSpec(TypeCategory, int kind);
+
 private:
   TypeCategory category_;
   int kind_;
   friend std::ostream &operator<<(std::ostream &os, const IntrinsicTypeSpec &x);
-  // TODO: Character and len
+};
+
+class NumericTypeSpec : public IntrinsicTypeSpec {
+public:
+  NumericTypeSpec(TypeCategory category, int kind)
+    : IntrinsicTypeSpec(category, kind) {
+    CHECK(category == TypeCategory::Integer || category == TypeCategory::Real ||
+        category == TypeCategory::Complex);
+  }
+};
+
+class LogicalTypeSpec : public IntrinsicTypeSpec {
+public:
+  LogicalTypeSpec(int kind) : IntrinsicTypeSpec(TypeCategory::Logical, kind) {}
+};
+
+class CharacterTypeSpec : public IntrinsicTypeSpec {
+public:
+  CharacterTypeSpec(ParamValue &&length, int kind)
+    : IntrinsicTypeSpec(TypeCategory::Character, kind), length_{std::move(
+                                                            length)} {}
+  const ParamValue length() const { return length_; }
+
+private:
+  ParamValue length_;
+  friend std::ostream &operator<<(std::ostream &os, const CharacterTypeSpec &x);
 };
 
 class ShapeSpec {
@@ -144,29 +191,10 @@ private:
 
 using ArraySpec = std::list<ShapeSpec>;
 
-// A type parameter value: integer expression or assumed or deferred.
-class ParamValue {
-public:
-  static const ParamValue Assumed() { return Category::Assumed; }
-  static const ParamValue Deferred() { return Category::Deferred; }
-  ParamValue(MaybeExpr &&expr)
-    : category_{Category::Explicit}, expr_{std::move(expr)} {}
-  bool isExplicit() const { return category_ == Category::Explicit; }
-  bool isAssumed() const { return category_ == Category::Assumed; }
-  bool isDeferred() const { return category_ == Category::Deferred; }
-  const MaybeExpr &GetExplicit() const { return expr_; }
-
-private:
-  enum class Category { Explicit, Deferred, Assumed };
-  ParamValue(Category category) : category_{category} {}
-  Category category_;
-  MaybeExpr expr_;
-  friend std::ostream &operator<<(std::ostream &, const ParamValue &);
-};
-
 class DerivedTypeSpec {
 public:
   using listType = std::list<std::pair<std::optional<SourceName>, ParamValue>>;
+  DerivedTypeSpec &operator=(const DerivedTypeSpec &) = delete;
   explicit DerivedTypeSpec(const SourceName &name) : name_{name} {}
   DerivedTypeSpec() = delete;
   const SourceName &name() const { return name_; }
@@ -186,10 +214,21 @@ private:
 
 class DeclTypeSpec {
 public:
-  enum Category { Intrinsic, TypeDerived, ClassDerived, TypeStar, ClassStar };
+  enum Category {
+    Numeric,
+    Logical,
+    Character,
+    TypeDerived,
+    ClassDerived,
+    TypeStar,
+    ClassStar
+  };
 
-  // intrinsic-type-spec or TYPE(intrinsic-type-spec)
-  DeclTypeSpec(const IntrinsicTypeSpec &);
+  // intrinsic-type-spec or TYPE(intrinsic-type-spec), not character
+  DeclTypeSpec(const NumericTypeSpec &);
+  DeclTypeSpec(const LogicalTypeSpec &);
+  // character
+  DeclTypeSpec(CharacterTypeSpec &);
   // TYPE(derived-type-spec) or CLASS(derived-type-spec)
   DeclTypeSpec(Category, DerivedTypeSpec &);
   // TYPE(*) or CLASS(*)
@@ -200,17 +239,27 @@ public:
   bool operator!=(const DeclTypeSpec &that) const { return !operator==(that); }
 
   Category category() const { return category_; }
-  const IntrinsicTypeSpec &intrinsicTypeSpec() const;
-  DerivedTypeSpec &derivedTypeSpec();
+  bool IsNumeric(TypeCategory) const;
+  const IntrinsicTypeSpec *AsIntrinsic() const;
+  const DerivedTypeSpec *AsDerived() const;
+  const NumericTypeSpec &numericTypeSpec() const;
+  const LogicalTypeSpec &logicalTypeSpec() const;
+  const CharacterTypeSpec &characterTypeSpec() const;
   const DerivedTypeSpec &derivedTypeSpec() const;
+  DerivedTypeSpec &derivedTypeSpec();
+  void set_category(Category category) { category_ = category; }
 
 private:
   Category category_;
   union TypeSpec {
     TypeSpec() : derived{nullptr} {}
-    TypeSpec(IntrinsicTypeSpec intrinsic) : intrinsic{intrinsic} {}
+    TypeSpec(NumericTypeSpec numeric) : numeric{numeric} {}
+    TypeSpec(LogicalTypeSpec logical) : logical{logical} {}
+    TypeSpec(CharacterTypeSpec *character) : character{character} {}
     TypeSpec(DerivedTypeSpec *derived) : derived{derived} {}
-    IntrinsicTypeSpec intrinsic;
+    NumericTypeSpec numeric;
+    LogicalTypeSpec logical;
+    CharacterTypeSpec *character;
     DerivedTypeSpec *derived;
   } typeSpec_;
 };
@@ -223,13 +272,13 @@ std::ostream &operator<<(std::ostream &, const DeclTypeSpec &);
 class ProcInterface {
 public:
   const Symbol *symbol() const { return symbol_; }
-  const DeclTypeSpec *type() const { return type_ ? &*type_ : nullptr; }
+  const DeclTypeSpec *type() const { return type_; }
   void set_symbol(const Symbol &symbol);
   void set_type(const DeclTypeSpec &type);
 
 private:
   const Symbol *symbol_{nullptr};
-  std::optional<DeclTypeSpec> type_;
+  const DeclTypeSpec *type_{nullptr};
 };
 }
 

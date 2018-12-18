@@ -39,7 +39,7 @@ void DerivedTypeSpec::AddParamValue(
 }
 
 std::ostream &operator<<(std::ostream &o, const DerivedTypeSpec &x) {
-  o << "TYPE(" << x.name().ToString();
+  o << x.name().ToString();
   if (!x.paramValues_.empty()) {
     bool first = true;
     o << '(';
@@ -56,13 +56,12 @@ std::ostream &operator<<(std::ostream &o, const DerivedTypeSpec &x) {
     }
     o << ')';
   }
-  return o << ')';
+  return o;
 }
 
 Bound::Bound(int bound)
   : category_{Category::Explicit},
-    expr_{SomeExpr{evaluate::AsExpr(
-        evaluate::Constant<evaluate::SubscriptInteger>{bound})}} {}
+    expr_{evaluate::Expr<evaluate::SubscriptInteger>{bound}} {}
 
 Bound Bound::Clone() const { return Bound(category_, MaybeExpr{expr_}); }
 
@@ -95,6 +94,11 @@ std::ostream &operator<<(std::ostream &o, const ShapeSpec &x) {
   return o;
 }
 
+ParamValue::ParamValue(MaybeExpr &&expr)
+  : category_{Category::Explicit}, expr_{std::move(expr)} {}
+ParamValue::ParamValue(std::int64_t value)
+  : ParamValue(SomeExpr{evaluate::Expr<evaluate::SubscriptInteger>{value}}) {}
+
 std::ostream &operator<<(std::ostream &o, const ParamValue &x) {
   if (x.isAssumed()) {
     o << '*';
@@ -122,18 +126,52 @@ std::ostream &operator<<(std::ostream &os, const IntrinsicTypeSpec &x) {
   return os;
 }
 
-DeclTypeSpec::DeclTypeSpec(const IntrinsicTypeSpec &intrinsic)
-  : category_{Intrinsic}, typeSpec_{intrinsic} {}
-DeclTypeSpec::DeclTypeSpec(Category category, DerivedTypeSpec &derived)
-  : category_{category}, typeSpec_{&derived} {
+std::ostream &operator<<(std::ostream &os, const CharacterTypeSpec &x) {
+  return os << "CHARACTER(" << x.length() << ',' << x.kind() << ')';
+}
+
+DeclTypeSpec::DeclTypeSpec(const NumericTypeSpec &typeSpec)
+  : category_{Numeric}, typeSpec_{typeSpec} {}
+DeclTypeSpec::DeclTypeSpec(const LogicalTypeSpec &typeSpec)
+  : category_{Logical}, typeSpec_{typeSpec} {}
+DeclTypeSpec::DeclTypeSpec(CharacterTypeSpec &typeSpec)
+  : category_{Character}, typeSpec_{&typeSpec} {}
+DeclTypeSpec::DeclTypeSpec(Category category, DerivedTypeSpec &typeSpec)
+  : category_{category}, typeSpec_{&typeSpec} {
   CHECK(category == TypeDerived || category == ClassDerived);
 }
 DeclTypeSpec::DeclTypeSpec(Category category) : category_{category} {
   CHECK(category == TypeStar || category == ClassStar);
 }
-const IntrinsicTypeSpec &DeclTypeSpec::intrinsicTypeSpec() const {
-  CHECK(category_ == Intrinsic);
-  return typeSpec_.intrinsic;
+bool DeclTypeSpec::IsNumeric(TypeCategory tc) const {
+  return category_ == Numeric && numericTypeSpec().category() == tc;
+}
+const IntrinsicTypeSpec *DeclTypeSpec::AsIntrinsic() const {
+  switch (category_) {
+  case Numeric: return &typeSpec_.numeric;
+  case Logical: return &typeSpec_.logical;
+  case Character: return typeSpec_.character;
+  default: return nullptr;
+  }
+}
+const DerivedTypeSpec *DeclTypeSpec::AsDerived() const {
+  switch (category_) {
+  case TypeDerived:
+  case ClassDerived: return typeSpec_.derived;
+  default: return nullptr;
+  }
+}
+const NumericTypeSpec &DeclTypeSpec::numericTypeSpec() const {
+  CHECK(category_ == Numeric);
+  return typeSpec_.numeric;
+}
+const LogicalTypeSpec &DeclTypeSpec::logicalTypeSpec() const {
+  CHECK(category_ == Logical);
+  return typeSpec_.logical;
+}
+const CharacterTypeSpec &DeclTypeSpec::characterTypeSpec() const {
+  CHECK(category_ == Character);
+  return *typeSpec_.character;
 }
 DerivedTypeSpec &DeclTypeSpec::derivedTypeSpec() {
   CHECK(category_ == TypeDerived || category_ == ClassDerived);
@@ -148,7 +186,9 @@ bool DeclTypeSpec::operator==(const DeclTypeSpec &that) const {
     return false;
   }
   switch (category_) {
-  case Intrinsic: return typeSpec_.intrinsic == that.typeSpec_.intrinsic;
+  case Numeric: return typeSpec_.numeric == that.typeSpec_.numeric;
+  case Logical: return typeSpec_.logical == that.typeSpec_.logical;
+  case Character: return typeSpec_.character == that.typeSpec_.character;
   case TypeDerived:
   case ClassDerived: return typeSpec_.derived == that.typeSpec_.derived;
   default: return true;
@@ -157,10 +197,13 @@ bool DeclTypeSpec::operator==(const DeclTypeSpec &that) const {
 
 std::ostream &operator<<(std::ostream &o, const DeclTypeSpec &x) {
   switch (x.category()) {
-  case DeclTypeSpec::Intrinsic: return o << x.intrinsicTypeSpec();
-  case DeclTypeSpec::TypeDerived: return o << x.derivedTypeSpec();
+  case DeclTypeSpec::Numeric: return o << x.numericTypeSpec();
+  case DeclTypeSpec::Logical: return o << x.logicalTypeSpec();
+  case DeclTypeSpec::Character: return o << x.characterTypeSpec();
+  case DeclTypeSpec::TypeDerived:
+    return o << "TYPE(" << x.derivedTypeSpec() << ')';
   case DeclTypeSpec::ClassDerived:
-    return o << "CLASS(" << x.derivedTypeSpec().name().ToString() << ')';
+    return o << "CLASS(" << x.derivedTypeSpec() << ')';
   case DeclTypeSpec::TypeStar: return o << "TYPE(*)";
   case DeclTypeSpec::ClassStar: return o << "CLASS(*)";
   default: CRASH_NO_CASE; return o;
@@ -173,6 +216,6 @@ void ProcInterface::set_symbol(const Symbol &symbol) {
 }
 void ProcInterface::set_type(const DeclTypeSpec &type) {
   CHECK(!symbol_);
-  type_ = type;
+  type_ = &type;
 }
 }
