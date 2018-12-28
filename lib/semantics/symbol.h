@@ -31,6 +31,8 @@ namespace Fortran::semantics {
 class Scope;
 class Symbol;
 
+using SymbolList = std::list<const Symbol *>;
+
 // A module or submodule.
 class ModuleDetails {
 public:
@@ -182,7 +184,18 @@ private:
   const Symbol *symbol_;  // procedure bound to
 };
 
-class GenericBindingDetails {};
+class GenericBindingDetails {
+public:
+  GenericBindingDetails() {}
+  const SymbolList &specificProcs() const { return specificProcs_; }
+  void add_specificProc(const Symbol &proc) { specificProcs_.push_back(&proc); }
+  void add_specificProcs(const SymbolList &procs) {
+    specificProcs_.insert(specificProcs_.end(), procs.begin(), procs.end());
+  }
+
+private:
+  SymbolList specificProcs_;
+};
 
 class FinalProcDetails {};
 
@@ -236,7 +249,6 @@ class UseErrorDetails {
 public:
   UseErrorDetails(const UseDetails &);
   UseErrorDetails &add_occurrence(const SourceName &, const Scope &);
-
   using listType = std::list<std::pair<SourceName, const Scope *>>;
   const listType occurrences() const { return occurrences_; };
 
@@ -256,21 +268,13 @@ private:
 
 class GenericDetails {
 public:
-  using listType = std::list<const Symbol *>;
-  using procNamesType = std::list<std::pair<SourceName, bool>>;
-
   GenericDetails() {}
-  GenericDetails(const listType &specificProcs);
+  GenericDetails(const SymbolList &specificProcs);
   GenericDetails(Symbol *specific) : specific_{specific} {}
 
-  const listType specificProcs() const { return specificProcs_; }
-  const procNamesType specificProcNames() const { return specificProcNames_; }
+  const SymbolList specificProcs() const { return specificProcs_; }
 
-  void add_specificProc(const Symbol *proc) { specificProcs_.push_back(proc); }
-  void add_specificProcName(const SourceName &name, bool isModuleProc) {
-    specificProcNames_.emplace_back(name, isModuleProc);
-  }
-  void ClearSpecificProcNames() { specificProcNames_.clear(); }
+  void add_specificProc(const Symbol &proc) { specificProcs_.push_back(&proc); }
 
   Symbol *specific() { return specific_; }
   void set_specific(Symbol &specific);
@@ -286,9 +290,7 @@ public:
 
 private:
   // all of the specific procedures for this generic
-  listType specificProcs_;
-  // specific procs referenced by name and whether it's a module proc
-  procNamesType specificProcNames_;
+  SymbolList specificProcs_;
   // a specific procedure with the same name as this generic, if any
   Symbol *specific_{nullptr};
   // a derived type with the same name as this generic, if any

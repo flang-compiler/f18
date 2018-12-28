@@ -30,6 +30,7 @@
 #include "../parser/parse-tree-visitor.h"
 #include "../parser/parse-tree.h"
 #include <list>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -223,20 +224,26 @@ public:
   void Post(const parser::TypeParamSpec &);
   bool Pre(const parser::TypeGuardStmt &);
   void Post(const parser::TypeGuardStmt &);
+  bool Pre(const parser::AcSpec &);
 
 protected:
+  struct State {
+    bool expectDeclTypeSpec{false};  // should only see decl-type-spec when true
+    DeclTypeSpec *declTypeSpec{nullptr};
+    const parser::Name *derivedTypeName{nullptr};
+  };
+
   DeclTypeSpec *GetDeclTypeSpec();
   void BeginDeclTypeSpec();
   void EndDeclTypeSpec();
-  const parser::Name *derivedTypeName() const { return derivedTypeName_; }
+  State SetDeclTypeSpecState(State);
+  const parser::Name *derivedTypeName() const { return state_.derivedTypeName; }
   void SetDeclTypeSpec(const parser::Name &, DeclTypeSpec &);
   void SetDeclTypeSpec(DeclTypeSpec &);
   ParamValue GetParamValue(const parser::TypeParamValue &);
 
 private:
-  bool expectDeclTypeSpec_{false};  // should only see decl-type-spec when true
-  DeclTypeSpec *declTypeSpec_{nullptr};
-  const parser::Name *derivedTypeName_{nullptr};
+  State state_;
 
   void MakeNumericType(
       TypeCategory, const std::optional<parser::KindSelector> &);
@@ -486,8 +493,6 @@ public:
   void Post(const parser::InterfaceStmt &);
   void Post(const parser::EndInterfaceStmt &);
   bool Pre(const parser::GenericSpec &);
-  bool Pre(const parser::TypeBoundGenericStmt &);
-  void Post(const parser::TypeBoundGenericStmt &);
   bool Pre(const parser::ProcedureStmt &);
   void Post(const parser::GenericStmt &);
 
@@ -504,7 +509,12 @@ private:
   bool inInterfaceBlock_{false};  // set when in interface block
   bool isAbstract_{false};  // set when in abstract interface block
   const parser::Name *genericName_{nullptr};  // set in generic interface block
+  using ProcedureKind = parser::ProcedureStmt::Kind;
+  // mapping of generic to its specific proc names and kinds
+  std::multimap<Symbol *, std::pair<const parser::Name *, ProcedureKind>>
+      specificProcs_;
 
+  void AddSpecificProcs(const std::list<parser::Name> &, ProcedureKind);
   void ResolveSpecificsInGeneric(Symbol &generic);
 };
 
@@ -612,10 +622,10 @@ public:
   void Post(const parser::TypeBoundProcedureStmt::WithoutInterface &);
   void Post(const parser::TypeBoundProcedureStmt::WithInterface &);
   void Post(const parser::FinalProcedureStmt &);
+  bool Pre(const parser::TypeBoundGenericStmt &);
   bool Pre(const parser::AllocateStmt &);
   void Post(const parser::AllocateStmt &);
   bool Pre(const parser::StructureConstructor &);
-  void Post(const parser::StructureConstructor &);
 
 protected:
   bool BeginDecl();
@@ -625,6 +635,7 @@ protected:
   // Return pointer to the new symbol, or nullptr on error.
   Symbol *DeclareConstructEntity(const parser::Name &);
   bool CheckUseError(const parser::Name &);
+  void CheckAccessibility(const parser::Name &, bool, const Symbol &);
 
 private:
   // The attribute corresponding to the statement containing an ObjectDecl
@@ -655,7 +666,8 @@ private:
   const Symbol *ResolveDerivedType(const parser::Name * = nullptr);
   bool CanBeTypeBoundProc(const Symbol &);
   Symbol *FindExplicitInterface(const parser::Name &);
-  bool MakeTypeSymbol(const parser::Name &, Details &&);
+  const Symbol *FindTypeSymbol(const parser::Name &);
+  Symbol *MakeTypeSymbol(const parser::Name &, Details &&);
   bool OkToAddComponent(const parser::Name &, bool isParentComp = false);
 
   // Declare an object or procedure entity.
@@ -844,6 +856,7 @@ private:
   bool CheckAccessibleComponent(const parser::Name &);
   void CheckImports();
   void CheckImport(const SourceName &, const SourceName &);
+  bool SetProcFlag(const parser::Name &, Symbol &);
 };
 
 // ImplicitRules implementation
@@ -977,22 +990,27 @@ bool AttrsVisitor::Pre(const parser::IntentSpec &x) {
 
 // DeclTypeSpecVisitor implementation
 
-DeclTypeSpec *DeclTypeSpecVisitor::GetDeclTypeSpec() { return declTypeSpec_; }
+DeclTypeSpec *DeclTypeSpecVisitor::GetDeclTypeSpec() {
+  return state_.declTypeSpec;
+}
 
 void DeclTypeSpecVisitor::BeginDeclTypeSpec() {
-  CHECK(!expectDeclTypeSpec_);
-  CHECK(!declTypeSpec_);
-  expectDeclTypeSpec_ = true;
+  CHECK(!state_.expectDeclTypeSpec);
+  CHECK(!state_.declTypeSpec);
+  state_.expectDeclTypeSpec = true;
 }
 void DeclTypeSpecVisitor::EndDeclTypeSpec() {
-  CHECK(expectDeclTypeSpec_);
-  expectDeclTypeSpec_ = false;
-  declTypeSpec_ = nullptr;
-  derivedTypeName_ = nullptr;
+  CHECK(state_.expectDeclTypeSpec);
+  state_ = {};
+}
+DeclTypeSpecVisitor::State DeclTypeSpecVisitor::SetDeclTypeSpecState(State x) {
+  auto result{state_};
+  state_ = x;
+  return result;
 }
 
 void DeclTypeSpecVisitor::Post(const parser::TypeParamSpec &x) {
-  DerivedTypeSpec &derivedTypeSpec{declTypeSpec_->derivedTypeSpec()};
+  DerivedTypeSpec &derivedTypeSpec{state_.declTypeSpec->derivedTypeSpec()};
   const auto &value{std::get<parser::TypeParamValue>(x.t)};
   if (const auto &keyword{std::get<std::optional<parser::Keyword>>(x.t)}) {
     derivedTypeSpec.AddParamValue(keyword->v.source, GetParamValue(value));
@@ -1022,8 +1040,17 @@ bool DeclTypeSpecVisitor::Pre(const parser::TypeGuardStmt &) {
 void DeclTypeSpecVisitor::Post(const parser::TypeGuardStmt &) {
   // TODO: TypeGuardStmt
   EndDeclTypeSpec();
-  declTypeSpec_ = nullptr;
-  derivedTypeName_ = nullptr;
+}
+
+bool DeclTypeSpecVisitor::Pre(const parser::AcSpec &x) {
+  // AcSpec can occur within a TypeDeclarationStmt: save and restore state
+  auto savedState{SetDeclTypeSpecState({})};
+  BeginDeclTypeSpec();
+  Walk(x.type);
+  Walk(x.values);
+  EndDeclTypeSpec();
+  SetDeclTypeSpecState(savedState);
+  return false;
 }
 
 void DeclTypeSpecVisitor::Post(const parser::IntrinsicTypeSpec::Logical &x) {
@@ -1065,16 +1092,16 @@ void DeclTypeSpecVisitor::Post(const parser::DeclarationTypeSpec::TypeStar &) {
 }
 
 // Check that we're expecting to see a DeclTypeSpec (and haven't seen one yet)
-// and save it in declTypeSpec_.
+// and save it in state_.declTypeSpec.
 void DeclTypeSpecVisitor::SetDeclTypeSpec(DeclTypeSpec &declTypeSpec) {
-  CHECK(expectDeclTypeSpec_);
-  CHECK(!declTypeSpec_);
-  declTypeSpec_ = &declTypeSpec;
+  CHECK(state_.expectDeclTypeSpec);
+  CHECK(!state_.declTypeSpec);
+  state_.declTypeSpec = &declTypeSpec;
 }
 // Set both the derived type name and corresponding DeclTypeSpec.
 void DeclTypeSpecVisitor::SetDeclTypeSpec(
     const parser::Name &name, DeclTypeSpec &declTypeSpec) {
-  derivedTypeName_ = &name;
+  state_.derivedTypeName = &name;
   SetDeclTypeSpec(declTypeSpec);
 }
 
@@ -1716,7 +1743,7 @@ void InterfaceVisitor::Post(const parser::EndInterfaceStmt &) {
   isAbstract_ = false;
 }
 
-// Create a symbol for the name name in this GenericSpec, if any.
+// Create a symbol for the name in this GenericSpec, if any.
 bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
   genericName_ = GetGenericSpecName(x);
   if (!genericName_) {
@@ -1771,23 +1798,14 @@ bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
   return false;
 }
 
-bool InterfaceVisitor::Pre(const parser::TypeBoundGenericStmt &) {
-  return true;
-}
-void InterfaceVisitor::Post(const parser::TypeBoundGenericStmt &) {
-  // TODO: TypeBoundGenericStmt
-}
-
 bool InterfaceVisitor::Pre(const parser::ProcedureStmt &x) {
   if (!isGeneric()) {
     Say("A PROCEDURE statement is only allowed in a generic interface block"_err_en_US);
     return false;
   }
-  bool expectModuleProc = std::get<parser::ProcedureStmt::Kind>(x.t) ==
-      parser::ProcedureStmt::Kind::ModuleProcedure;
-  for (const auto &name : std::get<std::list<parser::Name>>(x.t)) {
-    GetGenericDetails().add_specificProcName(name.source, expectModuleProc);
-  }
+  auto kind{std::get<parser::ProcedureStmt::Kind>(x.t)};
+  const auto &names{std::get<std::list<parser::Name>>(x.t)};
+  AddSpecificProcs(names, kind);
   return false;
 }
 
@@ -1795,15 +1813,21 @@ void InterfaceVisitor::Post(const parser::GenericStmt &x) {
   if (auto &accessSpec{std::get<std::optional<parser::AccessSpec>>(x.t)}) {
     genericName_->symbol->attrs().set(AccessSpecToAttr(*accessSpec));
   }
-  for (const auto &name : std::get<std::list<parser::Name>>(x.t)) {
-    GetGenericDetails().add_specificProcName(name.source, false);
-  }
+  const auto &names{std::get<std::list<parser::Name>>(x.t)};
+  AddSpecificProcs(names, ProcedureKind::Procedure);
 }
 
 GenericDetails &InterfaceVisitor::GetGenericDetails() {
   CHECK(genericName_);
   CHECK(genericName_->symbol);
   return genericName_->symbol->get<GenericDetails>();
+}
+
+void InterfaceVisitor::AddSpecificProcs(
+    const std::list<parser::Name> &names, ProcedureKind kind) {
+  for (const auto &name : names) {
+    specificProcs_.emplace(genericName_->symbol, std::make_pair(&name, kind));
+  }
 }
 
 // By now we should have seen all specific procedures referenced by name in
@@ -1814,12 +1838,16 @@ void InterfaceVisitor::ResolveSpecificsInGeneric(Symbol &generic) {
   for (const auto *symbol : details.specificProcs()) {
     namesSeen.insert(symbol->name());
   }
-  for (const auto &[name, expectModuleProc] : details.specificProcNames()) {
-    const auto *symbol{currScope().FindSymbol(name)};
+  auto range{specificProcs_.equal_range(&generic)};
+  for (auto it{range.first}; it != range.second; ++it) {
+    auto *name{it->second.first};
+    auto kind{it->second.second};
+    const auto *symbol{FindSymbol(*name)};
     if (!symbol) {
-      Say(name, "Procedure '%s' not found"_err_en_US);
+      Say(*name, "Procedure '%s' not found"_err_en_US);
       continue;
     }
+    symbol = &symbol->GetUltimate();
     if (symbol == &generic) {
       if (auto *specific{generic.get<GenericDetails>().specific()}) {
         symbol = specific;
@@ -1827,23 +1855,24 @@ void InterfaceVisitor::ResolveSpecificsInGeneric(Symbol &generic) {
     }
     if (!symbol->has<SubprogramDetails>() &&
         !symbol->has<SubprogramNameDetails>()) {
-      Say(name, "'%s' is not a subprogram"_err_en_US);
+      Say(*name, "'%s' is not a subprogram"_err_en_US);
       continue;
     }
-    if (expectModuleProc) {
+    if (kind == ProcedureKind::ModuleProcedure) {
       const auto *d{symbol->detailsIf<SubprogramNameDetails>()};
       if (!d || d->kind() != SubprogramKind::Module) {
-        Say(name, "'%s' is not a module procedure"_err_en_US);
+        Say(*name, "'%s' is not a module procedure"_err_en_US);
       }
     }
-    if (!namesSeen.insert(name).second) {
-      Say(name, "Procedure '%s' is already specified in generic '%s'"_err_en_US,
-          name, generic.name());
+    if (!namesSeen.insert(name->source).second) {
+      Say(*name,
+          "Procedure '%s' is already specified in generic '%s'"_err_en_US,
+          name->source, generic.name());
       continue;
     }
-    details.add_specificProc(symbol);
+    details.add_specificProc(*symbol);
   }
-  details.ClearSpecificProcNames();
+  specificProcs_.erase(range.first, range.second);
 }
 
 // Check that the specific procedures are all functions or all subroutines.
@@ -1980,8 +2009,8 @@ void SubprogramVisitor::Post(const parser::FunctionSubprogram &) {
 bool SubprogramVisitor::Pre(const parser::InterfaceBody::Subroutine &x) {
   const auto &name{std::get<parser::Name>(
       std::get<parser::Statement<parser::SubroutineStmt>>(x.t).statement.t)};
-  return BeginSubprogram(
-      name, Symbol::Flag::Subroutine, /*hasModulePrefix*/ false, std::nullopt);
+  return BeginSubprogram(name, Symbol::Flag::Subroutine,
+      /*hasModulePrefix*/ false, std::nullopt);
 }
 void SubprogramVisitor::Post(const parser::InterfaceBody::Subroutine &) {
   EndSubprogram();
@@ -2117,7 +2146,7 @@ Symbol &SubprogramVisitor::PushSubprogramScope(
       symbol->attrs().set(Attr::EXTERNAL);
     }
     if (isGeneric()) {
-      GetGenericDetails().add_specificProc(symbol);
+      GetGenericDetails().add_specificProc(*symbol);
     }
     implicitRules().set_inheritFromParent(false);
   }
@@ -2175,6 +2204,16 @@ bool DeclarationVisitor::CheckUseError(const parser::Name &name) {
         name.ToString().data(), module->name().ToString().data());
   }
   return true;
+}
+
+// Report error if accessibility of symbol doesn't match isPrivate.
+void DeclarationVisitor::CheckAccessibility(
+    const parser::Name &name, bool isPrivate, const Symbol &symbol) {
+  if (symbol.attrs().test(Attr::PRIVATE) != isPrivate) {
+    Say2(name,
+        "'%s' does not have the same accessibility as its previous declaration"_err_en_US,
+        symbol, "Previous declaration of '%s'"_en_US);
+  }
 }
 
 void DeclarationVisitor::Post(const parser::DimensionStmt::Declaration &x) {
@@ -2612,6 +2651,62 @@ void DeclarationVisitor::Post(const parser::FinalProcedureStmt &x) {
   }
 }
 
+bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
+  const auto &genericSpec{
+      std::get<common::Indirection<parser::GenericSpec>>(x.t)};
+  const auto *genericName{GetGenericSpecName(*genericSpec)};
+  if (!genericName) {
+    return false;
+  }
+  bool isPrivate{derivedTypeInfo_.privateBindings};
+  if (auto &accessSpec{std::get<std::optional<parser::AccessSpec>>(x.t)}) {
+    isPrivate = accessSpec->v == parser::AccessSpec::Kind::Private;
+  }
+  const SymbolList *inheritedProcs{nullptr};  // specific procs from parent type
+  auto *genericSymbol{FindInScope(currScope(), *genericName)};
+  if (genericSymbol) {
+    if (!genericSymbol->has<GenericBindingDetails>()) {
+      genericSymbol = nullptr;  // MakeTypeSymbol will report the error below
+    }
+  } else if (const auto *inheritedSymbol{FindTypeSymbol(*genericName)}) {
+    // look in parent types:
+    if (inheritedSymbol->has<GenericBindingDetails>()) {
+      inheritedProcs =
+          &inheritedSymbol->get<GenericBindingDetails>().specificProcs();
+      CheckAccessibility(*genericName, isPrivate, *inheritedSymbol);
+    }
+  }
+  if (genericSymbol) {
+    CheckAccessibility(*genericName, isPrivate, *genericSymbol);
+  } else {
+    genericSymbol = MakeTypeSymbol(*genericName, GenericBindingDetails{});
+    if (!genericSymbol) {
+      return false;
+    }
+    if (isPrivate) {
+      genericSymbol->attrs().set(Attr::PRIVATE);
+    }
+  }
+  auto &details{genericSymbol->get<GenericBindingDetails>()};
+  if (inheritedProcs) {
+    details.add_specificProcs(*inheritedProcs);
+  }
+  for (const auto &bindingName : std::get<std::list<parser::Name>>(x.t)) {
+    const auto *symbol{FindTypeSymbol(bindingName)};
+    if (!symbol) {
+      Say(bindingName,
+          "Binding name '%s' not found in this derived type"_err_en_US);
+    } else if (!symbol->has<ProcBindingDetails>()) {
+      Say2(bindingName,
+          "'%s' is not the name of a specific binding of this type"_err_en_US,
+          *symbol, "Declaration of '%s'"_en_US);
+    } else {
+      details.add_specificProc(*symbol);
+    }
+  }
+  return false;
+}
+
 bool DeclarationVisitor::Pre(const parser::AllocateStmt &) {
   BeginDeclTypeSpec();
   return true;
@@ -2621,13 +2716,15 @@ void DeclarationVisitor::Post(const parser::AllocateStmt &) {
   EndDeclTypeSpec();
 }
 
-bool DeclarationVisitor::Pre(const parser::StructureConstructor &) {
+bool DeclarationVisitor::Pre(const parser::StructureConstructor &x) {
+  auto savedState{SetDeclTypeSpecState({})};
   BeginDeclTypeSpec();
-  return true;
-}
-void DeclarationVisitor::Post(const parser::StructureConstructor &) {
+  Walk(std::get<parser::DerivedTypeSpec>(x.t));
+  Walk(std::get<std::list<parser::ComponentSpec>>(x.t));
   ResolveDerivedType();
   EndDeclTypeSpec();
+  SetDeclTypeSpecState(savedState);
+  return false;
 }
 
 Symbol *DeclarationVisitor::DeclareConstructEntity(const parser::Name &name) {
@@ -2732,9 +2829,24 @@ Symbol *DeclarationVisitor::FindExplicitInterface(const parser::Name &name) {
   return symbol;
 }
 
+// Find a component by name in the current derived type or its parents.
+const Symbol *DeclarationVisitor::FindTypeSymbol(const parser::Name &name) {
+  for (const Scope *scope{&currScope()};;) {
+    CHECK(scope->kind() == Scope::Kind::DerivedType);
+    if (const auto *symbol{FindInScope(*scope, name)}) {
+      return symbol;
+    }
+    const auto *extends{scope->symbol()->get<DerivedTypeDetails>().extends()};
+    if (!extends) {
+      return nullptr;
+    }
+    scope = extends->scope();
+  }
+}
+
 // Create a symbol for a type parameter, component, or procedure binding in
 // the current derived type scope. Return false on error.
-bool DeclarationVisitor::MakeTypeSymbol(
+Symbol *DeclarationVisitor::MakeTypeSymbol(
     const parser::Name &name, Details &&details) {
   Scope &derivedType{currScope()};
   CHECK(derivedType.kind() == Scope::Kind::DerivedType);
@@ -2743,7 +2855,7 @@ bool DeclarationVisitor::MakeTypeSymbol(
         "Type parameter, component, or procedure binding '%s'"
         " already defined in this type"_err_en_US,
         *symbol, "Previous definition of '%s'"_en_US);
-    return false;
+    return nullptr;
   } else {
     auto attrs{GetAttrs()};
     // Apply binding-private-stmt if present and this is a procedure binding
@@ -2752,8 +2864,7 @@ bool DeclarationVisitor::MakeTypeSymbol(
         std::holds_alternative<ProcBindingDetails>(details)) {
       attrs.set(Attr::PRIVATE);
     }
-    MakeSymbol(name, attrs, details);
-    return true;
+    return &MakeSymbol(name, attrs, details);
   }
 }
 
@@ -3141,19 +3252,28 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
   if (const auto *name{std::get_if<parser::Name>(&x.u)}) {
     auto *symbol{FindSymbol(*name)};
     if (symbol == nullptr) {
-      symbol = &MakeSymbol(*name);
+      symbol = &MakeSymbol(context().globalScope(), name->source, Attrs{});
+      Resolve(*name, *symbol);
+      if (symbol->has<ModuleDetails>()) {
+        Say2(*name,
+            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US,
+            *symbol, "Declaration of '%s'"_en_US);
+        return;
+      }
       if (isImplicitNoneExternal() && !symbol->attrs().test(Attr::EXTERNAL)) {
         Say(*name,
             "'%s' is an external procedure without the EXTERNAL"
             " attribute in a scope with IMPLICIT NONE(EXTERNAL)"_err_en_US);
+        return;
       }
       symbol->attrs().set(Attr::EXTERNAL);
-      symbol->set_details(ProcEntityDetails{});
+      if (!symbol->has<ProcEntityDetails>()) {
+        symbol->set_details(ProcEntityDetails{});
+      }
       if (const auto type{GetImplicitType(*symbol)}) {
         symbol->get<ProcEntityDetails>().interface().set_type(*type);
       }
-      CHECK(expectedProcFlag_);
-      symbol->set(*expectedProcFlag_);
+      SetProcFlag(*name, *symbol);
     } else if (symbol->has<UnknownDetails>()) {
       CHECK(!"unexpected UnknownDetails");
     } else if (CheckUseError(*name)) {
@@ -3161,29 +3281,16 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
     } else {
       symbol = Resolve(*name, &symbol->GetUltimate());
       ConvertToProcEntity(*symbol);
-      if (symbol->test(Symbol::Flag::Function) &&
-          expectedProcFlag_ == Symbol::Flag::Subroutine) {
-        Say2(*name, "Cannot call function '%s' like a subroutine"_err_en_US,
-            *symbol, "Declaration of '%s'"_en_US);
-      } else if (symbol->test(Symbol::Flag::Subroutine) &&
-          expectedProcFlag_ == Symbol::Flag::Function) {
-        Say2(*name, "Cannot call subroutine '%s' like a function"_err_en_US,
-            *symbol, "Declaration of '%s'"_en_US);
-      } else if (symbol->has<ProcEntityDetails>()) {
-        symbol->set(*expectedProcFlag_);  // in case it hasn't been set yet
-        if (expectedProcFlag_ == Symbol::Flag::Function) {
-          ApplyImplicitRules(*symbol);
-        }
-      } else if (symbol->has<SubprogramDetails>()) {
-        // OK
-      } else if (symbol->has<SubprogramNameDetails>()) {
-        // OK
-      } else if (symbol->has<GenericDetails>()) {
-        // OK
-      } else if (symbol->has<DerivedTypeDetails>()) {
-        // OK: type constructor
-      } else if (symbol->has<ObjectEntityDetails>()) {
-        // OK: array mis-parsed as a call
+      if (!SetProcFlag(*name, *symbol)) {
+        return;  // reported error
+      }
+      if (symbol->has<ProcEntityDetails>() ||
+          symbol->has<SubprogramDetails>() ||
+          symbol->has<DerivedTypeDetails>() ||
+          symbol->has<ObjectEntityDetails>() ||
+          symbol->has<SubprogramNameDetails>() ||
+          symbol->has<GenericDetails>()) {
+        // these are all valid as procedure-designators
       } else if (symbol->test(Symbol::Flag::Implicit)) {
         Say(*name,
             "Use of '%s' as a procedure conflicts with its implicit definition"_err_en_US);
@@ -3194,6 +3301,29 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
       }
     }
   }
+}
+
+// Check and set the Function or Subroutine flag on symbol; false on error.
+bool ResolveNamesVisitor::SetProcFlag(
+    const parser::Name &name, Symbol &symbol) {
+  CHECK(expectedProcFlag_);
+  if (symbol.test(Symbol::Flag::Function) &&
+      expectedProcFlag_ == Symbol::Flag::Subroutine) {
+    Say2(name, "Cannot call function '%s' like a subroutine"_err_en_US, symbol,
+        "Declaration of '%s'"_en_US);
+    return false;
+  } else if (symbol.test(Symbol::Flag::Subroutine) &&
+      expectedProcFlag_ == Symbol::Flag::Function) {
+    Say2(name, "Cannot call subroutine '%s' like a function"_err_en_US, symbol,
+        "Declaration of '%s'"_en_US);
+    return false;
+  } else if (symbol.has<ProcEntityDetails>()) {
+    symbol.set(*expectedProcFlag_);  // in case it hasn't been set yet
+    if (expectedProcFlag_ == Symbol::Flag::Function) {
+      ApplyImplicitRules(symbol);
+    }
+  }
+  return true;
 }
 
 bool ModuleVisitor::Pre(const parser::AccessStmt &x) {
