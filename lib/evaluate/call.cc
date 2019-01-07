@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -59,11 +59,9 @@ std::ostream &SpecificIntrinsic::AsFortran(std::ostream &o) const {
 std::optional<DynamicType> ProcedureDesignator::GetType() const {
   if (const auto *intrinsic{std::get_if<SpecificIntrinsic>(&u)}) {
     return intrinsic->type;
+  } else {
+    return GetSymbolType(GetSymbol());
   }
-  if (const Symbol * symbol{GetSymbol()}) {
-    return GetSymbolType(symbol);
-  }
-  return std::nullopt;
 }
 
 int ProcedureDesignator::Rank() const {

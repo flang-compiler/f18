@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,10 @@
 #include "../parser/char-block.h"
 #include "../parser/message.h"
 #include <cinttypes>
+
+namespace Fortran::semantics {
+class DerivedTypeSpec;
+}
 
 namespace Fortran::semantics {
 class DerivedTypeSpec;
