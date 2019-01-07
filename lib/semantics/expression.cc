@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -715,7 +715,7 @@ MaybeExpr AnalyzeExpr(
   if (MaybeExpr value{AnalyzeExpr(context, n.v)}) {
     Expr<SomeType> folded{
         Fold(context.context().foldingContext(), std::move(*value))};
-    if (IsConstant(folded)) {
+    if (IsConstantExpr(folded)) {
       return {folded};
     }
     context.Say(n.v.source, "must be a constant"_err_en_US);

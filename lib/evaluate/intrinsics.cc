@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 
 #include "intrinsics.h"
 #include "expression.h"
+#include "fold.h"
 #include "tools.h"
 #include "type.h"
 #include "../common/enum-set.h"
@@ -543,11 +544,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"sin", {{"x", SameFloating}}, SameFloating},
     {"sinh", {{"x", SameFloating}}, SameFloating},
     {"size",
-        {{"array", Anything, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
-        KINDInt, Rank::vector},
-    {"size",
-        {{"array", Anything, Rank::anyOrAssumedRank},
-            {"dim", {IntType, KindCode::dimArg}, Rank::scalar},
+        {{"array", Anything, Rank::anyOrAssumedRank}, OptionalDIM,
             SubscriptDefaultKIND},
         KINDInt, Rank::scalar},
     {"spacing", {{"x", SameReal}}, SameReal},
