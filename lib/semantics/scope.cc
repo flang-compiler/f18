@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -100,11 +100,9 @@ DeclTypeSpec &Scope::MakeCharacterType(ParamValue &&length, int kind) {
   return declTypeSpecs_.back();
 }
 
-DeclTypeSpec &Scope::MakeDerivedType(const SourceName &name) {
-  derivedTypeSpecs_.emplace_back(name);
-  declTypeSpecs_.emplace_back(
-      DeclTypeSpec::TypeDerived, derivedTypeSpecs_.back());
-  return declTypeSpecs_.back();
+DeclTypeSpec &Scope::MakeDerivedType(const Symbol &typeSymbol) {
+  DerivedTypeSpec &spec{derivedTypeSpecs_.emplace_back(typeSymbol)};
+  return declTypeSpecs_.emplace_back(DeclTypeSpec::TypeDerived, spec);
 }
 
 Scope::ImportKind Scope::GetImportKind() const {

@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -124,7 +124,7 @@ public:
   DeclTypeSpec &MakeNumericType(TypeCategory, int kind);
   DeclTypeSpec &MakeLogicalType(int kind);
   DeclTypeSpec &MakeCharacterType(ParamValue &&length, int kind = 0);
-  DeclTypeSpec &MakeDerivedType(const SourceName &);
+  DeclTypeSpec &MakeDerivedType(const Symbol &);
   DeclTypeSpec &MakeTypeStarType();
   DeclTypeSpec &MakeClassStarType();
 
