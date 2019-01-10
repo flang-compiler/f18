@@ -281,7 +281,17 @@ std::ostream &BaseObject::AsFortran(std::ostream &o) const {
 
 template<int KIND>
 std::ostream &TypeParamInquiry<KIND>::AsFortran(std::ostream &o) const {
-  return Emit(o, u) << '%' << parameter.ToString();
+  std::visit(
+      common::visitors{
+          [&](const Symbol *sym) {
+            if (sym != nullptr) {
+              Emit(o, *sym) << '%';
+            }
+          },
+          [&](const Component &comp) { Emit(o, comp) << '%'; },
+      },
+      u);
+  return Emit(o, *parameter);
 }
 
 std::ostream &Component::AsFortran(std::ostream &o) const {
@@ -357,7 +367,7 @@ template<typename T>
 std::ostream &Designator<T>::AsFortran(std::ostream &o) const {
   std::visit(
       common::visitors{
-          [&](const Symbol *sym) { o << sym->name().ToString(); },
+          [&](const Symbol *sym) { Emit(o, *sym); },
           [&](const auto &x) { x.AsFortran(o); },
       },
       u);
