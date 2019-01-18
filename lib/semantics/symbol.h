@@ -108,7 +108,7 @@ private:
 // A name from an entity-decl -- could be object or function.
 class EntityDetails {
 public:
-  EntityDetails(bool isDummy = false) : isDummy_{isDummy} {}
+  explicit EntityDetails(bool isDummy = false) : isDummy_{isDummy} {}
   const DeclTypeSpec *type() const { return type_; }
   void set_type(const DeclTypeSpec &);
   void ReplaceType(const DeclTypeSpec &);
@@ -126,11 +126,16 @@ private:
 // Symbol is associated with a name or expression in a SELECT TYPE or ASSOCIATE.
 class AssocEntityDetails : public EntityDetails {
 public:
-  AssocEntityDetails(SomeExpr &&expr) : expr_{std::move(expr)} {}
-  const SomeExpr &expr() const { return expr_; }
+  AssocEntityDetails() {}
+  explicit AssocEntityDetails(SomeExpr &&expr) : expr_{std::move(expr)} {}
+  AssocEntityDetails(const AssocEntityDetails &) = default;
+  AssocEntityDetails(AssocEntityDetails &&) = default;
+  AssocEntityDetails &operator=(const AssocEntityDetails &) = default;
+  AssocEntityDetails &operator=(AssocEntityDetails &&) = default;
+  const MaybeExpr &expr() const { return expr_; }
 
 private:
-  SomeExpr expr_;
+  MaybeExpr expr_;
 };
 
 // An entity known to be an object.
@@ -175,7 +180,7 @@ private:
 class ProcEntityDetails : public EntityDetails {
 public:
   ProcEntityDetails() = default;
-  ProcEntityDetails(EntityDetails &&d);
+  explicit ProcEntityDetails(EntityDetails &&d);
 
   const ProcInterface &interface() const { return interface_; }
   ProcInterface &interface() { return interface_; }
@@ -437,12 +442,13 @@ public:
   int Rank() const;
 
   // Clones the Symbol in the context of a parameterized derived type instance
-  Symbol &Instantiate(
-      Scope &, const DerivedTypeSpec &, evaluate::FoldingContext &) const;
+  Symbol &Instantiate(Scope &, evaluate::FoldingContext &) const;
 
-  // If the symbol refers to a derived type with a parent component,
-  // return the symbol of the parent component's derived type.
-  const Symbol *GetParent() const;
+  // If there is a parent component, return a pointer to its
+  // derived type spec.
+  // The Scope * argument defaults to this->scope_ but should be overridden
+  // for a parameterized derived type instantiation with the instance's scope.
+  const DerivedTypeSpec *GetParentTypeSpec(const Scope * = nullptr) const;
 
 private:
   const Scope *owner_;
@@ -456,6 +462,11 @@ private:
   const std::string GetDetailsName() const;
   friend std::ostream &operator<<(std::ostream &, const Symbol &);
   friend std::ostream &DumpForUnparse(std::ostream &, const Symbol &, bool);
+
+  // If the symbol refers to a derived type with a parent component,
+  // return that parent component's symbol.
+  const Symbol *GetParentComponent(const Scope * = nullptr) const;
+
   template<std::size_t> friend class Symbols;
   template<class, std::size_t> friend struct std::array;
 };
