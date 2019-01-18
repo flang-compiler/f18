@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -25,10 +25,12 @@ integer(n) :: z
 type t(k)
   integer, kind :: k
 end type
+!ERROR: Type parameter 'k' lacks a value and has no default
+type(t( &
 !ERROR: Must have INTEGER type
-type(t(.true.)) :: w
+  .true.)) :: w
 !ERROR: Must have INTEGER type
-real :: w(l*2)
+real :: u(l*2)
 !ERROR: Must have INTEGER type
 character(len=l) :: v
 end
