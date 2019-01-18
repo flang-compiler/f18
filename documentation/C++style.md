@@ -40,7 +40,7 @@ remove the inclusion before committing.
 (e.g., `clear()` and `size()` member functions in a class that implements
 a container).
 1. Non-public data members should be named with leading miniscule (lower-case)
-letters, internal camelCase capitalization, and a trailing underscore,
+letters, internal camelCase capitalization, and an optional trailing underscore,
 e.g. `DoubleEntryBookkeepingSystem myLedger_;`.  POD structures with
 only public data members shouldn't use trailing underscores, since they
 don't have class functions from which data members need to be distinguishable.
