@@ -1,4 +1,4 @@
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ cmake_minimum_required(VERSION 3.9.0)
 if( GCC )
   set(CMAKE_CXX_COMPILER "${GCC}/bin/g++")
   set(CMAKE_CC_COMPILER "${GCC}/bin/gcc")
+  set(CMAKE_BUILD_RPATH "${GCC}/lib64")
   set(CMAKE_INSTALL_RPATH "${GCC}/lib64")
-  set(CMAKE_BUILD_WITH_INSTALL_RPATH true)
 endif()
 if(BUILD_WITH_CLANG)
   set(CMAKE_CXX_COMPILER "${BUILD_WITH_CLANG}/bin/clang")
@@ -28,6 +28,15 @@ if(BUILD_WITH_CLANG)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${GCC}")
   endif()
 endif()
+
+# Set RPATH in every executable, overriding the default setting.
+# If you set this first variable back to true (the default),
+# also set the second one.
+set(CMAKE_SKIP_BUILD_RPATH false)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH false)
+
+# Don't use the installation RPATH when building
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH true)
 
 # Reminder: Setting CMAKE_CXX_COMPILER must be done before calling project()
 
@@ -78,6 +87,14 @@ if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
    set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
    set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
    set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
+
+   # Building shared libraries is death on performance with GCC by default
+   # due to the need to preserve the right to override external entry points
+   # at dynamic link time.  -fno-semantic-interposition waives that right and
+   # recovers a little bit of that performance.
+   if (BUILD_SHARED_LIBS)
+     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-semantic-interposition")
+   endif()
 endif()
 
 set(FLANG_VERSION_MAJOR      "0")
