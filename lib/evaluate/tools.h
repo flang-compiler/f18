@@ -164,6 +164,16 @@ Expr<TO> ConvertToType(Expr<SomeKind<FROMCAT>> &&x) {
       Scalar<Part> zero;
       return Expr<TO>{ComplexConstructor<TO::kind>{
           ConvertToType<Part>(std::move(x)), Expr<Part>{Constant<Part>{zero}}}};
+    } else if constexpr (FROMCAT == TypeCategory::Complex) {
+      return Expr<TO>{std::visit(
+        [](auto &&z) {
+          using FromType = ResultType<decltype(z)>;
+          using FromPart = typename FromType::Part;
+          using FromGeneric = SomeKind<TypeCategory::Real>;
+          return Convert<TO, TypeCategory::Real>{Expr<FromGeneric>{
+              Expr<FromPart>{ComplexComponent<FromType::kind>{false, std::move(z)}}}};
+        },
+        std::move(x.u))};
     } else {
       return Expr<TO>{Convert<TO, FROMCAT>{std::move(x)}};
     }
