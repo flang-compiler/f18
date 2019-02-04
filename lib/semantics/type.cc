@@ -17,6 +17,7 @@
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
+#include "../common/restorer.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
 #include "../evaluate/type.h"
@@ -64,7 +65,7 @@ void DerivedTypeSpec::FoldParameterExpressions(
 }
 
 void DerivedTypeSpec::Instantiate(
-    Scope &containingScope, evaluate::FoldingContext &origFoldingContext) {
+    Scope &containingScope, SemanticsContext &semanticsContext) {
   CHECK(scope_ == nullptr);
   Scope &newScope{containingScope.MakeScope(Scope::Kind::DerivedType)};
   newScope.set_derivedTypeSpec(*this);
@@ -78,8 +79,8 @@ void DerivedTypeSpec::Instantiate(
   // parameter values to depend on those of their predecessors.
   // The folded values of the expressions replace the init() expressions
   // of the parameters' symbols in the instantiation's scope.
-  evaluate::FoldingContext foldingContext{origFoldingContext};
-  foldingContext.pdtInstance = this;
+  evaluate::FoldingContext &foldingContext{semanticsContext.foldingContext()};
+  auto restorer{foldingContext.WithPDTInstance(*this)};
 
   for (Symbol *symbol : typeDetails.OrderParameterDeclarations(typeSymbol_)) {
     const SourceName &name{symbol->name()};
@@ -102,7 +103,7 @@ void DerivedTypeSpec::Instantiate(
             !evaluate::ToInt64(expr).has_value()) {
           std::stringstream fortran;
           expr->AsFortran(fortran);
-          if (auto *msg{foldingContext.messages.Say(
+          if (auto *msg{foldingContext.messages().Say(
                   "Value of kind type parameter '%s' (%s) is not "
                   "scalar INTEGER constant"_err_en_US,
                   name.ToString().data(), fortran.str().data())}) {
@@ -139,7 +140,7 @@ void DerivedTypeSpec::Instantiate(
   // type's scope into the new instance.
   const Scope *typeScope{typeSymbol_.scope()};
   CHECK(typeScope != nullptr);
-  typeScope->InstantiateDerivedType(newScope, foldingContext);
+  typeScope->InstantiateDerivedType(newScope, semanticsContext);
 }
 
 std::ostream &operator<<(std::ostream &o, const DerivedTypeSpec &x) {
@@ -275,10 +276,6 @@ const NumericTypeSpec &DeclTypeSpec::numericTypeSpec() const {
 const LogicalTypeSpec &DeclTypeSpec::logicalTypeSpec() const {
   CHECK(category_ == Logical);
   return std::get<LogicalTypeSpec>(typeSpec_);
-}
-const CharacterTypeSpec &DeclTypeSpec::characterTypeSpec() const {
-  CHECK(category_ == Character);
-  return std::get<CharacterTypeSpec>(typeSpec_);
 }
 const DerivedTypeSpec &DeclTypeSpec::derivedTypeSpec() const {
   CHECK(category_ == TypeDerived || category_ == ClassDerived);

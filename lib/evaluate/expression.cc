@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@
 #include "tools.h"
 #include "variable.h"
 #include "../common/idioms.h"
-#include "../parser/characters.h"
 #include "../parser/message.h"
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <type_traits>
 
@@ -83,40 +83,19 @@ std::ostream &LogicalOperation<KIND>::Infix(std::ostream &o) const {
 }
 
 template<typename T>
-std::ostream &Constant<T>::AsFortran(std::ostream &o) const {
-  if constexpr (T::category == TypeCategory::Integer) {
-    return o << value.SignedDecimal() << '_' << T::kind;
-  } else if constexpr (T::category == TypeCategory::Real ||
-      T::category == TypeCategory::Complex) {
-    return value.AsFortran(o, T::kind);
-  } else if constexpr (T::category == TypeCategory::Character) {
-    return o << T::kind << '_' << parser::QuoteCharacterLiteral(value);
-  } else if constexpr (T::category == TypeCategory::Logical) {
-    if (value.IsTrue()) {
-      o << ".true.";
-    } else {
-      o << ".false.";
-    }
-    return o << '_' << Result::kind;
-  } else {
-    return value.u.AsFortran(o);
-  }
-}
-
-template<typename T>
 std::ostream &Emit(std::ostream &o, const CopyableIndirection<Expr<T>> &expr) {
   return expr->AsFortran(o);
 }
+
 template<typename T>
 std::ostream &Emit(std::ostream &, const ArrayConstructorValues<T> &);
 
-template<typename ITEM, typename INT>
-std::ostream &Emit(std::ostream &o, const ImpliedDo<ITEM, INT> &implDo) {
+template<typename T>
+std::ostream &Emit(std::ostream &o, const ImpliedDo<T> &implDo) {
   o << '(';
   Emit(o, *implDo.values);
-  o << ',' << INT::AsFortran() << "::";
-  o << implDo.controlVariableName.ToString();
-  o << '=';
+  o << ',' << ImpliedDoIndex::Result::AsFortran()
+    << "::" << implDo.name.ToString() << '=';
   implDo.lower->AsFortran(o) << ',';
   implDo.upper->AsFortran(o) << ',';
   implDo.stride->AsFortran(o) << ')';
@@ -136,8 +115,18 @@ std::ostream &Emit(std::ostream &o, const ArrayConstructorValues<T> &values) {
 
 template<typename T>
 std::ostream &ArrayConstructor<T>::AsFortran(std::ostream &o) const {
-  o << '[' << result.AsFortran() << "::";
-  Emit(o, *this);
+  o << '[' << GetType().AsFortran() << "::";
+  Emit(o, values);
+  return o << ']';
+}
+
+template<int KIND>
+std::ostream &ArrayConstructor<Type<TypeCategory::Character, KIND>>::AsFortran(
+    std::ostream &o) const {
+  std::stringstream len;
+  length->AsFortran(len);
+  o << '[' << GetType().AsFortran(len.str()) << "::";
+  Emit(o, values);
   return o << ']';
 }
 
@@ -149,15 +138,11 @@ std::ostream &ExpressionBase<RESULT>::AsFortran(std::ostream &o) const {
             o << "z'" << x.Hexadecimal() << "'";
           },
           [&](const CopyableIndirection<Substring> &s) { s->AsFortran(o); },
+          [&](const ImpliedDoIndex &i) { o << i.name.ToString(); },
           [&](const auto &x) { x.AsFortran(o); },
       },
       derived().u);
   return o;
-}
-
-template<typename T> Expr<SubscriptInteger> ArrayConstructor<T>::LEN() const {
-  // TODO pmk: extract from type spec in array constructor
-  return AsExpr(Constant<SubscriptInteger>{0});  // TODO placeholder
 }
 
 template<int KIND>
@@ -165,7 +150,7 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
   return std::visit(
       common::visitors{
           [](const Constant<Result> &c) {
-            return AsExpr(Constant<SubscriptInteger>{c.value.size()});
+            return AsExpr(Constant<SubscriptInteger>{ConstantLEN(c)});
           },
           [](const ArrayConstructor<Result> &a) { return a.LEN(); },
           [](const Parentheses<Result> &x) { return x.left().LEN(); },
@@ -183,11 +168,6 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
 }
 
 Expr<SomeType>::~Expr() {}
-
-template<typename T> DynamicType ArrayConstructor<T>::GetType() const {
-  // TODO: pmk: parameterized derived types, CHARACTER length
-  return result.GetType();
-}
 
 #if defined(__APPLE__) && defined(__GNUC__)
 template<typename A>
@@ -231,13 +211,19 @@ template<typename A> int ExpressionBase<A>::Rank() const {
       derived().u);
 }
 
+template<int KIND>
+ArrayConstructor<Type<TypeCategory::Character, KIND>>::~ArrayConstructor() {}
+
 // Equality testing for classes without EVALUATE_UNION_CLASS_BOILERPLATE()
 
-template<typename V, typename O>
-bool ImpliedDo<V, O>::operator==(const ImpliedDo<V, O> &that) const {
-  return controlVariableName == that.controlVariableName &&
-      lower == that.lower && upper == that.upper && stride == that.stride &&
-      values == that.values;
+bool ImpliedDoIndex::operator==(const ImpliedDoIndex &that) const {
+  return name == that.name;
+}
+
+template<typename T>
+bool ImpliedDo<T>::operator==(const ImpliedDo<T> &that) const {
+  return name == that.name && lower == that.lower && upper == that.upper &&
+      stride == that.stride && values == that.values;
 }
 
 template<typename R>
@@ -248,8 +234,13 @@ bool ArrayConstructorValues<R>::operator==(
 
 template<typename R>
 bool ArrayConstructor<R>::operator==(const ArrayConstructor<R> &that) const {
-  return *static_cast<const ArrayConstructorValues<R> *>(this) == that &&
-      result == that.result && typeParameterValues == that.typeParameterValues;
+  return type == that.type && values == that.values;
+}
+
+template<int KIND>
+bool ArrayConstructor<Type<TypeCategory::Character, KIND>>::operator==(
+    const ArrayConstructor<Type<TypeCategory::Character, KIND>> &that) const {
+  return length == that.length && values == that.values;
 }
 
 bool GenericExprWrapper::operator==(const GenericExprWrapper &that) const {

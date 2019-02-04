@@ -29,17 +29,17 @@ namespace Fortran::evaluate {
 
 // Constructors, accessors, mutators
 
+Triplet::Triplet() : stride_{Expr<SubscriptInteger>{1}} {}
+
 Triplet::Triplet(std::optional<Expr<SubscriptInteger>> &&l,
     std::optional<Expr<SubscriptInteger>> &&u,
-    std::optional<Expr<SubscriptInteger>> &&s) {
+    std::optional<Expr<SubscriptInteger>> &&s)
+  : stride_{s.has_value() ? std::move(*s) : Expr<SubscriptInteger>{1}} {
   if (l.has_value()) {
-    lower_ = IndirectSubscriptIntegerExpr::Make(std::move(*l));
+    lower_.emplace(std::move(*l));
   }
   if (u.has_value()) {
-    upper_ = IndirectSubscriptIntegerExpr::Make(std::move(*u));
-  }
-  if (s.has_value()) {
-    stride_ = IndirectSubscriptIntegerExpr::Make(std::move(*s));
+    upper_.emplace(std::move(*u));
   }
 }
 
@@ -57,11 +57,14 @@ std::optional<Expr<SubscriptInteger>> Triplet::upper() const {
   return std::nullopt;
 }
 
-std::optional<Expr<SubscriptInteger>> Triplet::stride() const {
-  if (stride_) {
-    return {**stride_};
+const Expr<SubscriptInteger> &Triplet::stride() const { return *stride_; }
+
+bool Triplet::IsStrideOne() const {
+  if (auto stride{ToInt64(*stride_)}) {
+    return stride == 1;
+  } else {
+    return false;
   }
-  return std::nullopt;
 }
 
 CoarrayRef::CoarrayRef(std::vector<const Symbol *> &&c,
@@ -90,13 +93,13 @@ std::optional<Expr<SomeInteger>> CoarrayRef::team() const {
 
 CoarrayRef &CoarrayRef::set_stat(Expr<SomeInteger> &&v) {
   CHECK(IsVariable(v));
-  stat_ = CopyableIndirection<Expr<SomeInteger>>::Make(std::move(v));
+  stat_.emplace(std::move(v));
   return *this;
 }
 
 CoarrayRef &CoarrayRef::set_team(Expr<SomeInteger> &&v, bool isTeamNumber) {
   CHECK(IsVariable(v));
-  team_ = CopyableIndirection<Expr<SomeInteger>>::Make(std::move(v));
+  team_.emplace(std::move(v));
   teamIsTeamNumber_ = isTeamNumber;
   return *this;
 }
@@ -104,10 +107,10 @@ CoarrayRef &CoarrayRef::set_team(Expr<SomeInteger> &&v, bool isTeamNumber) {
 void Substring::SetBounds(std::optional<Expr<SubscriptInteger>> &lower,
     std::optional<Expr<SubscriptInteger>> &upper) {
   if (lower.has_value()) {
-    lower_ = IndirectSubscriptIntegerExpr::Make(std::move(*lower));
+    lower_.emplace(std::move(*lower));
   }
   if (upper.has_value()) {
-    upper_ = IndirectSubscriptIntegerExpr::Make(std::move(*upper));
+    upper_.emplace(std::move(*upper));
   }
 }
 
@@ -141,7 +144,7 @@ std::optional<Expr<SomeCharacter>> Substring::Fold(FoldingContext &context) {
   *lower_ = evaluate::Fold(context, std::move(**lower_));
   std::optional<std::int64_t> lbi{ToInt64(**lower_)};
   if (lbi.has_value() && *lbi < 1) {
-    context.messages.Say(
+    context.messages().Say(
         "lower bound (%jd) on substring is less than one"_en_US,
         static_cast<std::intmax_t>(*lbi));
     *lbi = 1;
@@ -156,8 +159,12 @@ std::optional<Expr<SomeCharacter>> Substring::Fold(FoldingContext &context) {
     std::optional<std::int64_t> length;
     if (literal != nullptr) {
       length = (*literal)->data().size();
-    } else {
-      // TODO pmk: get max character length from symbol
+    } else if (const Symbol * symbol{GetLastSymbol()}) {
+      if (const semantics::DeclTypeSpec * type{symbol->GetType()}) {
+        if (type->category() == semantics::DeclTypeSpec::Character) {
+          length = ToInt64(type->characterTypeSpec().length().GetExplicit());
+        }
+      }
     }
     if (*ubi < 1 || (lbi.has_value() && *ubi < *lbi)) {
       // Zero-length string: canonicalize
@@ -165,8 +172,8 @@ std::optional<Expr<SomeCharacter>> Substring::Fold(FoldingContext &context) {
       lower_ = AsExpr(Constant<SubscriptInteger>{*lbi});
       upper_ = AsExpr(Constant<SubscriptInteger>{*ubi});
     } else if (length.has_value() && *ubi > *length) {
-      context.messages.Say("upper bound (&jd) on substring is greater "
-                           "than character length (%jd)"_en_US,
+      context.messages().Say("upper bound (&jd) on substring is greater "
+                             "than character length (%jd)"_en_US,
           static_cast<std::intmax_t>(*ubi), static_cast<std::int64_t>(*length));
       *ubi = *length;
     }
@@ -286,8 +293,8 @@ std::ostream &TypeParamInquiry<KIND>::AsFortran(std::ostream &o) const {
           },
           [&](const Component &comp) { Emit(o, comp) << '%'; },
       },
-      u);
-  return Emit(o, *parameter);
+      base_);
+  return Emit(o, *parameter_);
 }
 
 std::ostream &Component::AsFortran(std::ostream &o) const {
@@ -298,18 +305,16 @@ std::ostream &Component::AsFortran(std::ostream &o) const {
 std::ostream &Triplet::AsFortran(std::ostream &o) const {
   Emit(o, lower_) << ':';
   Emit(o, upper_);
-  if (stride_) {
-    Emit(o << ':', stride_);
-  }
+  Emit(o << ':', *stride_);
   return o;
 }
 
 std::ostream &Subscript::AsFortran(std::ostream &o) const { return Emit(o, u); }
 
 std::ostream &ArrayRef::AsFortran(std::ostream &o) const {
-  Emit(o, u);
+  Emit(o, base_);
   char separator{'('};
-  for (const Subscript &ss : subscript) {
+  for (const Subscript &ss : subscript_) {
     ss.AsFortran(o << separator);
     separator = ',';
   }
@@ -396,7 +401,7 @@ Expr<SubscriptInteger> ArrayRef::LEN() const {
           [](const Symbol *symbol) { return SymbolLEN(*symbol); },
           [](const Component &component) { return component.LEN(); },
       },
-      u);
+      base_);
 }
 
 Expr<SubscriptInteger> CoarrayRef::LEN() const {
@@ -457,20 +462,16 @@ int BaseObject::Rank() const {
 }
 
 int Component::Rank() const {
-  int baseRank{base_->Rank()};
-  int symbolRank{symbol_->Rank()};
-  CHECK(baseRank == 0 || symbolRank == 0);
-  return baseRank + symbolRank;
+  if (int rank{symbol_->Rank()}; rank > 0) {
+    return rank;
+  }
+  return base_->Rank();
 }
 
 int Subscript::Rank() const {
   return std::visit(
       common::visitors{
-          [](const IndirectSubscriptIntegerExpr &x) {
-            int rank{x->Rank()};
-            CHECK(rank <= 1);
-            return rank;
-          },
+          [](const IndirectSubscriptIntegerExpr &x) { return x->Rank(); },
           [](const Triplet &) { return 1; },
       },
       u);
@@ -478,22 +479,24 @@ int Subscript::Rank() const {
 
 int ArrayRef::Rank() const {
   int rank{0};
-  for (std::size_t j{0}; j < subscript.size(); ++j) {
-    rank += subscript[j].Rank();
+  for (const auto &expr : subscript_) {
+    rank += expr.Rank();
   }
-  if (std::holds_alternative<const Symbol *>(u)) {
+  if (rank > 0) {
     return rank;
-  } else {
-    int baseRank{std::get_if<Component>(&u)->Rank()};
-    CHECK(rank == 0 || baseRank == 0);
-    return baseRank + rank;
   }
+  return std::visit(
+      common::visitors{
+          [=](const Symbol *s) { return 0; },
+          [=](const Component &c) { return c.Rank(); },
+      },
+      base_);
 }
 
 int CoarrayRef::Rank() const {
   int rank{0};
-  for (std::size_t j{0}; j < subscript_.size(); ++j) {
-    rank += subscript_[j].Rank();
+  for (const auto &expr : subscript_) {
+    rank += expr.Rank();
   }
   return rank;
 }
@@ -546,7 +549,7 @@ const Symbol &ArrayRef::GetFirstSymbol() const {
             return &component.GetFirstSymbol();
           },
       },
-      u);
+      base_);
 }
 
 const Symbol &ArrayRef::GetLastSymbol() const {
@@ -557,7 +560,7 @@ const Symbol &ArrayRef::GetLastSymbol() const {
             return &component.GetLastSymbol();
           },
       },
-      u);
+      base_);
 }
 
 const Symbol &DataRef::GetFirstSymbol() const {
@@ -653,14 +656,14 @@ bool Component::operator==(const Component &that) const {
 template<int KIND>
 bool TypeParamInquiry<KIND>::operator==(
     const TypeParamInquiry<KIND> &that) const {
-  return parameter == that.parameter && u == that.u;
+  return parameter_ == that.parameter_ && base_ == that.base_;
 }
 bool Triplet::operator==(const Triplet &that) const {
   return lower_ == that.lower_ && upper_ == that.upper_ &&
-      stride_ == that.stride_;
+      *stride_ == *that.stride_;
 }
 bool ArrayRef::operator==(const ArrayRef &that) const {
-  return u == that.u && subscript == that.subscript;
+  return base_ == that.base_ && subscript_ == that.subscript_;
 }
 bool CoarrayRef::operator==(const CoarrayRef &that) const {
   return base_ == that.base_ && subscript_ == that.subscript_ &&
@@ -679,6 +682,6 @@ bool ProcedureRef::operator==(const ProcedureRef &that) const {
 }
 
 EXPAND_FOR_EACH_INTEGER_KIND(
-    TEMPLATE_INSTANTIATION, template struct TypeParamInquiry)
+    TEMPLATE_INSTANTIATION, template class TypeParamInquiry)
 FOR_EACH_SPECIFIC_TYPE(template class Designator)
 }
