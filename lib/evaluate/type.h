@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -44,26 +44,36 @@ namespace Fortran::evaluate {
 
 using common::TypeCategory;
 
+// Specific intrinsic types are represented by specializations of
+// this class template Type<CATEGORY, KIND>.
+template<TypeCategory CATEGORY, int KIND = 0> class Type;
+
+using SubscriptInteger = Type<TypeCategory::Integer, 8>;
+using LogicalResult = Type<TypeCategory::Logical, 1>;
+using LargestReal = Type<TypeCategory::Real, 16>;
+
 // DynamicType is suitable for use as the result type for
-// GetType() functions and member functions.
+// GetType() functions and member functions; consequently,
+// it must be capable of being used in a constexpr context.
+// So it does *not* hold anything requiring a destructor,
+// such as a CHARACTER length type parameter expression.
+// Those must be derived via LEN() member functions or packaged
+// elsewhere (e.g. as in ArrayConstructor).
 struct DynamicType {
-  bool operator==(const DynamicType &that) const;
+  bool operator==(const DynamicType &) const;
   std::string AsFortran() const;
+  std::string AsFortran(std::string &&charLenExpr) const;
   DynamicType ResultTypeForMultiply(const DynamicType &) const;
 
   TypeCategory category;
   int kind{0};  // set only for intrinsic types
-  const semantics::DerivedTypeSpec *derived{nullptr};
-  const semantics::Symbol *descriptor{nullptr};
+  const semantics::DerivedTypeSpec *derived{nullptr};  // TYPE(T), CLASS(T)
+  const semantics::Symbol *descriptor{nullptr};  // CHARACTER, CLASS(T/*)
 };
 
 // Result will be missing when a symbol is absent or
 // has an erroneous type, e.g., REAL(KIND=666).
 std::optional<DynamicType> GetSymbolType(const semantics::Symbol *);
-
-// Specific intrinsic types are represented by specializations of
-// this class template Type<CATEGORY, KIND>.
-template<TypeCategory CATEGORY, int KIND = 0> class Type;
 
 template<TypeCategory CATEGORY, int KIND = 0> struct TypeBase {
   static constexpr TypeCategory category{CATEGORY};
@@ -172,10 +182,6 @@ template<typename T> using Scalar = typename std::decay_t<T>::Scalar;
 template<TypeCategory CATEGORY, typename T>
 using SameKind = Type<CATEGORY, std::decay_t<T>::kind>;
 
-using SubscriptInteger = Type<TypeCategory::Integer, 8>;
-using LogicalResult = Type<TypeCategory::Logical, 1>;
-using LargestReal = Type<TypeCategory::Real, 16>;
-
 // Many expressions, including subscripts, CHARACTER lengths, array bounds,
 // and effective type parameter values, are of a maximal kind of INTEGER.
 using IndirectSubscriptIntegerExpr =
@@ -228,7 +234,7 @@ using AllIntrinsicTypes = common::CombineTuples<RelationalTypes, LogicalTypes>;
 using LengthlessIntrinsicTypes =
     common::CombineTuples<NumericTypes, LogicalTypes>;
 
-// Predicate: does a type represent a specific intrinsic type?
+// Predicates: does a type represent a specific intrinsic type?
 template<typename T>
 constexpr bool IsSpecificIntrinsicType{common::HasMember<T, AllIntrinsicTypes>};
 
@@ -348,29 +354,5 @@ struct SomeType {};
 #define FOR_EACH_TYPE_AND_KIND(PREFIX) \
   FOR_EACH_INTRINSIC_KIND(PREFIX) \
   FOR_EACH_CATEGORY_TYPE(PREFIX)
-
-// Wraps a constant scalar value of a specific intrinsic type
-// in a class with its resolved type.
-// N.B. Array constants are represented as array constructors
-// and derived type constants are structure constructors; generic
-// constants are generic expressions wrapping these constants.
-template<typename T> struct Constant {
-  static_assert(IsSpecificIntrinsicType<T>);
-  using Result = T;
-  using Value = Scalar<Result>;
-
-  CLASS_BOILERPLATE(Constant)
-  template<typename A> Constant(const A &x) : value{x} {}
-  template<typename A>
-  Constant(std::enable_if_t<!std::is_reference_v<A>, A> &&x)
-    : value(std::move(x)) {}
-
-  constexpr DynamicType GetType() const { return Result::GetType(); }
-  int Rank() const { return 0; }
-  bool operator==(const Constant &that) const { return value == that.value; }
-  std::ostream &AsFortran(std::ostream &) const;
-
-  Value value;
-};
 }
 #endif  // FORTRAN_EVALUATE_TYPE_H_

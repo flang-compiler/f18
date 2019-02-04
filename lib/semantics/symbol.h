@@ -22,10 +22,6 @@
 #include <list>
 #include <optional>
 
-namespace Fortran::evaluate {
-struct FoldingContext;
-}
-
 namespace Fortran::semantics {
 
 /// A Symbol consists of common information (name, owner, and attributes)
@@ -33,6 +29,7 @@ namespace Fortran::semantics {
 /// *Details classes.
 
 class Scope;
+class SemanticsContext;
 class Symbol;
 
 using SymbolList = std::list<const Symbol *>;
@@ -435,6 +432,7 @@ public:
             [](const AssocEntityDetails &x) { return x.type(); },
             [](const ProcEntityDetails &x) { return x.interface().type(); },
             [](const TypeParamDetails &x) { return x.type(); },
+            [](const UseDetails &x) { return x.symbol().GetType(); },
             [](const auto &) -> const DeclTypeSpec * { return nullptr; },
         },
         details_);
@@ -485,7 +483,7 @@ public:
   }
 
   // Clones the Symbol in the context of a parameterized derived type instance
-  Symbol &Instantiate(Scope &, evaluate::FoldingContext &) const;
+  Symbol &Instantiate(Scope &, SemanticsContext &) const;
 
   // If there is a parent component, return a pointer to its
   // derived type spec.

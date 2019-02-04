@@ -34,7 +34,7 @@ struct Expr;
 }
 
 namespace Fortran::evaluate {
-struct FoldingContext;
+class FoldingContext;
 }
 
 namespace Fortran::semantics {
@@ -149,7 +149,7 @@ public:
   CharacterTypeSpec(ParamValue &&length, KindExpr &&kind)
     : IntrinsicTypeSpec(TypeCategory::Character, std::move(kind)),
       length_{std::move(length)} {}
-  const ParamValue length() const { return length_; }
+  const ParamValue &length() const { return length_; }
 
 private:
   ParamValue length_;
@@ -238,7 +238,7 @@ public:
     }
   }
   void FoldParameterExpressions(evaluate::FoldingContext &);
-  void Instantiate(Scope &, evaluate::FoldingContext &);
+  void Instantiate(Scope &, SemanticsContext &);
   bool operator==(const DerivedTypeSpec &) const;  // for std::find()
 
 private:
@@ -280,7 +280,10 @@ public:
   bool IsNumeric(TypeCategory) const;
   const NumericTypeSpec &numericTypeSpec() const;
   const LogicalTypeSpec &logicalTypeSpec() const;
-  const CharacterTypeSpec &characterTypeSpec() const;
+  const CharacterTypeSpec &characterTypeSpec() const {
+    CHECK(category_ == Character);
+    return std::get<CharacterTypeSpec>(typeSpec_);
+  }
   const DerivedTypeSpec &derivedTypeSpec() const;
   DerivedTypeSpec &derivedTypeSpec();
 

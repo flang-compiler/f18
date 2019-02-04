@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -45,13 +45,18 @@ end
 subroutine s4
   real :: a(10), b(10)
   complex :: x
-  !ERROR: Variable 'x' is not scalar integer
+  integer :: i(2)
+  !ERROR: Variable 'x' is not integer
   forall(x=1:10)
     a(x) = b(x)
   end forall
-  !ERROR: Variable 'y' is not scalar integer
+  !ERROR: Variable 'y' is not integer
   forall(y=1:10)
     a(y) = b(y)
+  end forall
+  !ERROR: Index variable 'i' is not scalar
+  forall(i=1:10)
+    a(i) = b(i)
   end forall
 end
 
@@ -68,7 +73,7 @@ subroutine s6
   real, dimension(n) :: x
   data(x(i), i=1, n) / n * 0.0 /
   !ERROR: Index name 't' conflicts with existing identifier
-  data(x(t), t=1, n) / n * 0.0 /
+  forall(t=1:n) x(t) = 0.0
 contains
   subroutine t
   end
@@ -94,4 +99,23 @@ subroutine s8
     !ERROR: No explicit type declared for 'k'
     local_init(k)
   end do
+end
+
+subroutine s9
+  external bad1
+  real, parameter :: bad2
+  x = cos(0.)
+  do concurrent(i=1:2) &
+    !ERROR: Locality attribute not allowed on 'bad1'
+    local(bad1) &
+    !ERROR: Locality attribute not allowed on 'bad2'
+    local(bad2) &
+    !ERROR: Locality attribute not allowed on 'bad3'
+    local(bad3) &
+    !ERROR: Locality attribute not allowed on 'cos'
+    local(cos)
+  end do
+contains
+  subroutine bad3
+  end
 end
