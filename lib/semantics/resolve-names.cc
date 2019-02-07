@@ -399,8 +399,10 @@ public:
     messageHandler().set_currStmtSource(nullptr);
   }
 
-  // Special messages: already declared; about a type; two names & locations
+  // Special messages: already declared; referencing symbol's declaration;
+  // about a type; two names & locations
   void SayAlreadyDeclared(const parser::Name &, const Symbol &);
+  void SayWithDecl(const parser::Name &, const Symbol &, MessageFixedText &&);
   void SayDerivedType(const SourceName &, MessageFixedText &&, const Scope &);
   void Say2(const parser::Name &, MessageFixedText &&, const Symbol &,
       MessageFixedText &&);
@@ -621,7 +623,8 @@ public:
   bool Pre(const parser::BindStmt &) { return BeginAttrs(); }
   void Post(const parser::BindStmt &) { EndAttrs(); }
   bool Pre(const parser::BindEntity &);
-  void Post(const parser::NamedConstantDef &);
+  bool Pre(const parser::NamedConstantDef &);
+  bool Pre(const parser::NamedConstant &);
   bool Pre(const parser::AsynchronousStmt &);
   bool Pre(const parser::ContiguousStmt &);
   bool Pre(const parser::ExternalStmt &);
@@ -683,6 +686,8 @@ public:
   bool Pre(const parser::AllocateStmt &);
   void Post(const parser::AllocateStmt &);
   bool Pre(const parser::StructureConstructor &);
+  bool Pre(const parser::NamelistStmt::Group &);
+  bool Pre(const parser::IoControlSpec &);
 
 protected:
   bool BeginDecl();
@@ -783,8 +788,7 @@ public:
   bool Pre(const parser::AcSpec &);
   bool Pre(const parser::AcImpliedDo &);
   bool Pre(const parser::DataImpliedDo &);
-  bool Pre(const parser::DataStmtSet &);
-  void Post(const parser::DataStmtSet &);
+  bool Pre(const parser::DataStmtObject &);
   bool Pre(const parser::DoConstruct &);
   void Post(const parser::DoConstruct &);
   void Post(const parser::ConcurrentControl &);
@@ -1420,6 +1424,10 @@ void ScopeHandler::SayAlreadyDeclared(
     const parser::Name &name, const Symbol &prev) {
   Say2(name, "'%s' is already declared in this scoping unit"_err_en_US, prev,
       "Previous declaration of '%s'"_en_US);
+}
+void ScopeHandler::SayWithDecl(
+    const parser::Name &name, const Symbol &symbol, MessageFixedText &&msg) {
+  Say2(name, std::move(msg), symbol, "Declaration of '%s'"_en_US);
 }
 void ScopeHandler::SayDerivedType(
     const SourceName &name, MessageFixedText &&msg, const Scope &type) {
@@ -2350,11 +2358,9 @@ void DeclarationVisitor::CheckAccessibility(
 void DeclarationVisitor::CheckScalarIntegerType(const parser::Name &name) {
   if (name.symbol != nullptr) {
     const Symbol &symbol{*name.symbol};
-    if (const auto *details{symbol.detailsIf<ObjectEntityDetails>()}) {
-      if (details->IsArray()) {
-        Say(name, "Variable '%s' is not scalar"_err_en_US);
-        return;
-      }
+    if (symbol.IsObjectArray()) {
+      Say(name, "Variable '%s' is not scalar"_err_en_US);
+      return;
     }
     if (auto *type{symbol.GetType()}) {
       if (!type->IsNumeric(TypeCategory::Integer)) {
@@ -2400,17 +2406,28 @@ bool DeclarationVisitor::Pre(const parser::BindEntity &x) {
   }
   return false;
 }
-void DeclarationVisitor::Post(const parser::NamedConstantDef &x) {
+bool DeclarationVisitor::Pre(const parser::NamedConstantDef &x) {
   auto &name{std::get<parser::NamedConstant>(x.t).v};
   auto &symbol{HandleAttributeStmt(Attr::PARAMETER, name)};
   if (!ConvertToObjectEntity(symbol)) {
-    Say2(name, "PARAMETER attribute not allowed on '%s'"_err_en_US, symbol,
-        "Declaration of '%s'"_en_US);
-    return;
+    SayWithDecl(
+        name, symbol, "PARAMETER attribute not allowed on '%s'"_err_en_US);
+    return false;
   }
   const auto &expr{std::get<parser::ConstantExpr>(x.t)};
+  Walk(expr);
   symbol.get<ObjectEntityDetails>().set_init(EvaluateExpr(expr));
   ApplyImplicitRules(symbol);
+  return false;
+}
+bool DeclarationVisitor::Pre(const parser::NamedConstant &x) {
+  const parser::Name &name{x.v};
+  if (!FindSymbol(name)) {
+    Say(name, "Named constant '%s' not found"_err_en_US);
+  } else {
+    CheckUseError(name);
+  }
+  return false;
 }
 bool DeclarationVisitor::Pre(const parser::AsynchronousStmt &x) {
   return HandleAttributeStmt(Attr::ASYNCHRONOUS, x.v);
@@ -2423,8 +2440,8 @@ bool DeclarationVisitor::Pre(const parser::ExternalStmt &x) {
   for (const auto &name : x.v) {
     auto *symbol{FindSymbol(name)};
     if (!ConvertToProcEntity(*symbol)) {
-      Say2(name, "EXTERNAL attribute not allowed on '%s'"_err_en_US, *symbol,
-          "Declaration of '%s'"_en_US);
+      SayWithDecl(
+          name, *symbol, "EXTERNAL attribute not allowed on '%s'"_err_en_US);
     }
   }
   return false;
@@ -2528,7 +2545,7 @@ Symbol &DeclarationVisitor::DeclareObjectEntity(
       SetType(name, *type);
     }
     if (!arraySpec().empty()) {
-      if (!details->shape().empty()) {
+      if (details->IsArray()) {
         Say(name,
             "The dimensions of '%s' have already been declared"_err_en_US);
       } else {
@@ -2890,10 +2907,9 @@ void DeclarationVisitor::Post(
     }
     procedure = &procedure->GetUltimate();  // may come from USE
     if (!CanBeTypeBoundProc(*procedure)) {
-      Say2(procedureName,
+      SayWithDecl(procedureName, *procedure,
           "'%s' is not a module procedure or external procedure"
-          " with explicit interface"_err_en_US,
-          *procedure, "Declaration of '%s'"_en_US);
+          " with explicit interface"_err_en_US);
       continue;
     }
     if (auto *s{MakeTypeSymbol(bindingName, ProcBindingDetails{*procedure})}) {
@@ -2970,9 +2986,8 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
       Say(bindingName,
           "Binding name '%s' not found in this derived type"_err_en_US);
     } else if (!symbol->has<ProcBindingDetails>()) {
-      Say2(bindingName,
-          "'%s' is not the name of a specific binding of this type"_err_en_US,
-          *symbol, "Declaration of '%s'"_en_US);
+      SayWithDecl(bindingName, *symbol,
+          "'%s' is not the name of a specific binding of this type"_err_en_US);
     } else {
       details.add_specificProc(*symbol);
     }
@@ -2998,6 +3013,49 @@ bool DeclarationVisitor::Pre(const parser::StructureConstructor &x) {
   return false;
 }
 
+bool DeclarationVisitor::Pre(const parser::NamelistStmt::Group &x) {
+  if (currScope().kind() == Scope::Kind::Block) {
+    Say("NAMELIST statement is not allowed in a BLOCK construct"_err_en_US);
+    return false;
+  }
+
+  NamelistDetails details;
+  for (const auto &name : std::get<std::list<parser::Name>>(x.t)) {
+    auto *symbol{FindSymbol(name)};
+    if (!symbol) {
+      symbol = &MakeSymbol(name, ObjectEntityDetails{});
+      ApplyImplicitRules(*symbol);
+    } else if (!ConvertToObjectEntity(*symbol)) {
+      SayWithDecl(name, *symbol, "'%s' is not a variable"_err_en_US);
+    }
+    details.add_object(*symbol);
+  }
+
+  const auto &groupName{std::get<parser::Name>(x.t)};
+  auto *groupSymbol{FindInScope(currScope(), groupName)};
+  if (!groupSymbol) {
+    groupSymbol = &MakeSymbol(groupName, std::move(details));
+  } else if (groupSymbol->has<NamelistDetails>()) {
+    groupSymbol->get<NamelistDetails>().add_objects(details.objects());
+  } else {
+    SayAlreadyDeclared(groupName, *groupSymbol);
+  }
+  return false;
+}
+
+bool DeclarationVisitor::Pre(const parser::IoControlSpec &x) {
+  if (const auto *name{std::get_if<parser::Name>(&x.u)}) {
+    auto *symbol{FindSymbol(*name)};
+    if (!symbol) {
+      Say(*name, "Namelist group '%s' not found"_err_en_US);
+    } else if (!symbol->GetUltimate().has<NamelistDetails>()) {
+      SayWithDecl(
+          *name, *symbol, "'%s' is not the name of a namelist group"_err_en_US);
+    }
+  }
+  return true;
+}
+
 Symbol *DeclarationVisitor::DeclareLocalEntity(const parser::Name &name) {
   auto *prev{FindSymbol(name)};
   bool implicit{false};
@@ -3009,8 +3067,8 @@ Symbol *DeclarationVisitor::DeclareLocalEntity(const parser::Name &name) {
     implicit = true;
   }
   if (!ConvertToObjectEntity(*prev) || prev->attrs().test(Attr::PARAMETER)) {
-    Say2(name, "Locality attribute not allowed on '%s'"_err_en_US, *prev,
-        "Declaration of '%s'"_en_US);
+    SayWithDecl(
+        name, *prev, "Locality attribute not allowed on '%s'"_err_en_US);
     return nullptr;
   }
   if (prev->owner() == currScope()) {
@@ -3069,12 +3127,11 @@ void DeclarationVisitor::SetType(
   } else if (symbol.has<UseDetails>()) {
     // error recovery case, redeclaration of use-associated name
   } else if (!symbol.test(Symbol::Flag::Implicit)) {
-    Say2(name, "The type of '%s' has already been declared"_err_en_US, symbol,
-        "Declaration of '%s'"_en_US);
+    SayWithDecl(
+        name, symbol, "The type of '%s' has already been declared"_err_en_US);
   } else if (type != *prevType) {
-    Say2(name,
-        "The type of '%s' has already been implicitly declared"_err_en_US,
-        symbol, "Declaration of '%s'"_en_US);
+    SayWithDecl(name, symbol,
+        "The type of '%s' has already been implicitly declared"_err_en_US);
   } else {
     symbol.set(Symbol::Flag::Implicit, false);
   }
@@ -3122,10 +3179,9 @@ Symbol *DeclarationVisitor::FindExplicitInterface(const parser::Name &name) {
   if (!symbol) {
     Say(name, "Explicit interface '%s' not found"_err_en_US);
   } else if (!symbol->HasExplicitInterface()) {
-    Say2(name,
+    SayWithDecl(name, *symbol,
         "'%s' is not an abstract interface or a procedure with an"
-        " explicit interface"_err_en_US,
-        *symbol, "Declaration of '%s'"_en_US);
+        " explicit interface"_err_en_US);
     symbol = nullptr;
   }
   return symbol;
@@ -3283,11 +3339,19 @@ bool ConstructVisitor::Pre(const parser::DataImpliedDo &x) {
   return false;
 }
 
-bool ConstructVisitor::Pre(const parser::DataStmtSet &) {
-  PushScope(Scope::Kind::ImpliedDos, nullptr);
-  return true;
+bool ConstructVisitor::Pre(const parser::DataStmtObject &x) {
+  std::visit(
+      common::visitors{
+          [&](const common::Indirection<parser::Variable> &y) { Walk(*y); },
+          [&](const parser::DataImpliedDo &y) {
+            PushScope(Scope::Kind::ImpliedDos, nullptr);
+            Walk(y);
+            PopScope();
+          },
+      },
+      x.u);
+  return false;
 }
-void ConstructVisitor::Post(const parser::DataStmtSet &) { PopScope(); }
 
 bool ConstructVisitor::Pre(const parser::DoConstruct &x) {
   if (x.IsDoConcurrent()) {
@@ -3325,12 +3389,9 @@ void ConstructVisitor::Post(const parser::ConcurrentControl &x) {
     if (auto *type{prev->GetType()}) {
       symbol.SetType(*type);
     }
-    if (const auto *details{prev->detailsIf<ObjectEntityDetails>()}) {
-      if (details->IsArray()) {
-        Say2(name, "Index variable '%s' is not scalar"_err_en_US, *prev,
-            "Declaration of '%s'"_en_US);
-        return;
-      }
+    if (prev->IsObjectArray()) {
+      SayWithDecl(name, *prev, "Index variable '%s' is not scalar"_err_en_US);
+      return;
     }
   }
   CheckScalarIntegerType(name);
@@ -3681,8 +3742,8 @@ const parser::Name *ResolveNamesVisitor::FindComponent(
   }
   auto &symbol{*base->symbol};
   if (!symbol.has<AssocEntityDetails>() && !ConvertToObjectEntity(symbol)) {
-    Say2(*base, "'%s' is an invalid base for a component reference"_err_en_US,
-        symbol, "Declaration of '%s'"_en_US);
+    SayWithDecl(*base, symbol,
+        "'%s' is an invalid base for a component reference"_err_en_US);
     return nullptr;
   }
   auto *type{symbol.GetType()};
@@ -3727,8 +3788,8 @@ const parser::Name *ResolveNamesVisitor::FindComponent(
     Say(*base,
         "'%s' is not an object of derived type; it is implicitly typed"_err_en_US);
   } else {
-    Say2(*base, "'%s' is not an object of derived type"_err_en_US, symbol,
-        "Declaration of '%s'"_en_US);
+    SayWithDecl(
+        *base, symbol, "'%s' is not an object of derived type"_err_en_US);
   }
   return nullptr;
 }
@@ -3764,9 +3825,8 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
       symbol = &MakeSymbol(context().globalScope(), name->source, Attrs{});
       Resolve(*name, *symbol);
       if (symbol->has<ModuleDetails>()) {
-        Say2(*name,
-            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US,
-            *symbol, "Declaration of '%s'"_en_US);
+        SayWithDecl(*name, *symbol,
+            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
         return;
       }
       if (isImplicitNoneExternal() && !symbol->attrs().test(Attr::EXTERNAL)) {
@@ -3804,9 +3864,8 @@ void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
         Say(*name,
             "Use of '%s' as a procedure conflicts with its implicit definition"_err_en_US);
       } else {
-        Say2(*name,
-            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US,
-            *symbol, "Declaration of '%s'"_en_US);
+        SayWithDecl(*name, *symbol,
+            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
       }
     }
   }
@@ -3818,13 +3877,13 @@ bool ResolveNamesVisitor::SetProcFlag(
   CHECK(expectedProcFlag_);
   if (symbol.test(Symbol::Flag::Function) &&
       expectedProcFlag_ == Symbol::Flag::Subroutine) {
-    Say2(name, "Cannot call function '%s' like a subroutine"_err_en_US, symbol,
-        "Declaration of '%s'"_en_US);
+    SayWithDecl(
+        name, symbol, "Cannot call function '%s' like a subroutine"_err_en_US);
     return false;
   } else if (symbol.test(Symbol::Flag::Subroutine) &&
       expectedProcFlag_ == Symbol::Flag::Function) {
-    Say2(name, "Cannot call subroutine '%s' like a function"_err_en_US, symbol,
-        "Declaration of '%s'"_en_US);
+    SayWithDecl(
+        name, symbol, "Cannot call subroutine '%s' like a function"_err_en_US);
     return false;
   } else if (symbol.has<ProcEntityDetails>()) {
     symbol.set(*expectedProcFlag_);  // in case it hasn't been set yet
