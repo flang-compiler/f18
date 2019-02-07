@@ -152,6 +152,7 @@ std::string DetailsToString(const Details &details) {
           [](const GenericDetails &) { return "Generic"; },
           [](const ProcBindingDetails &) { return "ProcBinding"; },
           [](const GenericBindingDetails &) { return "GenericBinding"; },
+          [](const NamelistDetails &) { return "Namelist"; },
           [](const FinalProcDetails &) { return "FinalProc"; },
           [](const TypeParamDetails &) { return "TypeParam"; },
           [](const MiscDetails &) { return "Misc"; },
@@ -211,6 +212,11 @@ void Symbol::SetType(const DeclTypeSpec &type) {
           [](auto &) {},
       },
       details_);
+}
+
+bool Symbol::IsObjectArray() const {
+  const auto *details{std::get_if<ObjectEntityDetails>(&details_)};
+  return details && details->IsArray();
 }
 
 bool Symbol::IsSubprogram() const {
@@ -374,6 +380,12 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
             for (const auto *proc : x.specificProcs()) {
               os << sep << proc->name();
               sep = ',';
+            }
+          },
+          [&](const NamelistDetails &x) {
+            os << ": ";
+            for (const auto *object : x.objects()) {
+              os << ' ' << object->name();
             }
           },
           [&](const FinalProcDetails &) {},
