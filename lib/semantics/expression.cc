@@ -25,9 +25,10 @@
 #include "../parser/parse-tree.h"
 #include <functional>
 #include <optional>
+#include <set>
 
 // TODO pmk remove when scaffolding is obsolete
-#undef PMKDEBUG
+#undef PMKDEBUG  // #define PMKDEBUG 1
 #if PMKDEBUG
 #include "dump-parse-tree.h"
 #include <iostream>
@@ -608,7 +609,8 @@ static MaybeExpr AnalyzeExpr(
   auto kind{AnalyzeKindParam(context, x.kind, defaultKind)};
   if (letterKind.has_value() && kind != *letterKind) {
     context.Say(
-        "explicit kind parameter on real constant disagrees with exponent letter"_en_US);
+        "explicit kind parameter on real constant disagrees with "
+        "exponent letter"_en_US);
   }
   auto result{common::SearchTypes(
       RealTypeVisitor{kind, x.real.source, context.GetFoldingContext()})};
@@ -1039,7 +1041,8 @@ static MaybeExpr AnalyzeExpr(
           context.Say(name, "type parameter is not INTEGER"_err_en_US);
         } else {
           context.Say(name,
-              "type parameter inquiry must be applied to a designator"_err_en_US);
+              "type parameter inquiry must be applied to "
+              "a designator"_err_en_US);
         }
       } else if (dtSpec == nullptr || dtSpec->scope() == nullptr) {
         context.Say(name,
@@ -1129,13 +1132,23 @@ std::optional<Expr<Type<TypeCategory::Integer, KIND>>> GetSpecificIntExpr(
 
 // Array constructors
 
-struct ArrayConstructorContext {
+class ArrayConstructorContext {
+public:
+  ArrayConstructorContext(
+      ExpressionAnalysisContext &c, std::optional<DynamicTypeWithLength> &t)
+    : exprContext_{c}, type_{t} {}
+  ArrayConstructorContext(const ArrayConstructorContext &) = default;
   void Push(MaybeExpr &&);
   void Add(const parser::AcValue &);
-  ExpressionAnalysisContext &exprContext;
-  std::optional<DynamicTypeWithLength> &type;
-  bool typesMustMatch{false};
-  ArrayConstructorValues<SomeType> values;
+  std::optional<DynamicTypeWithLength> &type() const { return type_; }
+  const ArrayConstructorValues<SomeType> &values() { return values_; }
+
+private:
+  ExpressionAnalysisContext &exprContext_;
+  std::optional<DynamicTypeWithLength> &type_;
+  bool explicitType_{type_.has_value()};
+  std::optional<std::int64_t> constantLength_;
+  ArrayConstructorValues<SomeType> values_;
 };
 
 void ArrayConstructorContext::Push(MaybeExpr &&x) {
@@ -1149,30 +1162,55 @@ void ArrayConstructorContext::Push(MaybeExpr &&x) {
       xType.length =
           std::visit([](const auto &kc) { return kc.LEN(); }, charExpr->u);
     }
-    if (!type.has_value()) {
+    if (!type_.has_value()) {
       // If there is no explicit type-spec in an array constructor, the type
       // of the array is the declared type of all of the elements, which must
-      // be well-defined.
+      // be well-defined and all match.
       // TODO: Possible language extension: use the most general type of
       // the values as the type of a numeric constructed array, convert all
       // of the other values to that type.  Alternative: let the first value
       // determine the type, and convert the others to that type.
-      type = std::move(xType);
-      values.Push(std::move(*x));
-    } else if (typesMustMatch) {
-      if (static_cast<const DynamicType &>(*type) ==
+      // TODO pmk: better type compatibility checks for derived types
+      CHECK(!explicitType_);
+      type_ = std::move(xType);
+      constantLength_ = ToInt64(type_->length);
+      values_.Push(std::move(*x));
+    } else if (!explicitType_) {
+      if (static_cast<const DynamicType &>(*type_) ==
           static_cast<const DynamicType &>(xType)) {
-        values.Push(std::move(*x));
+        values_.Push(std::move(*x));
+        if (auto thisLen{ToInt64(xType.length)}) {
+          if (constantLength_.has_value()) {
+            if (exprContext_.context().warnOnNonstandardUsage() &&
+                *thisLen != *constantLength_) {
+              exprContext_.Say(
+                  "Character literal in array constructor without explicit "
+                  "type has different length than earlier element"_en_US);
+            }
+            if (*thisLen > *constantLength_) {
+              // Language extension: use the longest literal to determine the
+              // length of the array constructor's character elements, not the
+              // first, when there is no explicit type.
+              *constantLength_ = *thisLen;
+              type_->length = std::move(xType.length);
+            }
+          } else {
+            constantLength_ = *thisLen;
+            type_->length = std::move(xType.length);
+          }
+        }
       } else {
-        exprContext.Say(
-            "Values in array constructor must have the same declared type when no explicit type appears"_err_en_US);
+        exprContext_.Say(
+            "Values in array constructor must have the same declared type "
+            "when no explicit type appears"_err_en_US);
       }
     } else {
-      if (auto cast{ConvertToType(*type, std::move(*x))}) {
-        values.Push(std::move(*cast));
+      if (auto cast{ConvertToType(*type_, std::move(*x))}) {
+        values_.Push(std::move(*cast));
       } else {
-        exprContext.Say(
-            "Value in array constructor could not be converted to the type of the array"_err_en_US);
+        exprContext_.Say(
+            "Value in array constructor could not be converted to the type "
+            "of the array"_err_en_US);
       }
     }
   }
@@ -1186,31 +1224,33 @@ void ArrayConstructorContext::Add(const parser::AcValue &x) {
             // Transform l:u(:s) into (_,_=l,u(,s)) with an anonymous index '_'
             std::optional<Expr<IntType>> lower{
                 GetSpecificIntExpr<IntType::kind>(
-                    exprContext, std::get<0>(triplet.t))};
+                    exprContext_, std::get<0>(triplet.t))};
             std::optional<Expr<IntType>> upper{
                 GetSpecificIntExpr<IntType::kind>(
-                    exprContext, std::get<1>(triplet.t))};
+                    exprContext_, std::get<1>(triplet.t))};
             std::optional<Expr<IntType>> stride{
                 GetSpecificIntExpr<IntType::kind>(
-                    exprContext, std::get<2>(triplet.t))};
+                    exprContext_, std::get<2>(triplet.t))};
             if (lower.has_value() && upper.has_value()) {
               if (!stride.has_value()) {
                 stride = Expr<IntType>{1};
               }
-              if (!type.has_value()) {
-                type = DynamicTypeWithLength{IntType::GetType()};
+              if (!type_.has_value()) {
+                type_ = DynamicTypeWithLength{IntType::GetType()};
               }
-              ArrayConstructorContext nested{exprContext, type, typesMustMatch};
+              ArrayConstructorContext nested{*this};
               parser::CharBlock name;
               nested.Push(Expr<SomeType>{
                   Expr<SomeInteger>{Expr<IntType>{ImpliedDoIndex{name}}}});
-              values.Push(ImpliedDo<SomeType>{name, std::move(*lower),
+              values_.Push(ImpliedDo<SomeType>{name, std::move(*lower),
                   std::move(*upper), std::move(*stride),
-                  std::move(nested.values)});
+                  std::move(nested.values_)});
             }
           },
           [&](const common::Indirection<parser::Expr> &expr) {
-            if (MaybeExpr v{exprContext.Analyze(*expr)}) {
+            auto restorer{
+                exprContext_.GetContextualMessages().SetLocation(expr->source)};
+            if (MaybeExpr v{exprContext_.Analyze(*expr)}) {
               Push(std::move(*v));
             }
           },
@@ -1223,20 +1263,21 @@ void ArrayConstructorContext::Add(const parser::AcValue &x) {
             int kind{IntType::kind};
             if (auto &its{std::get<std::optional<parser::IntegerTypeSpec>>(
                     control.t)}) {
-              kind = IntegerTypeSpecKind(exprContext, *its);
+              kind = IntegerTypeSpecKind(exprContext_, *its);
             }
-            bool inserted{exprContext.AddAcImpliedDo(name, kind)};
+            bool inserted{exprContext_.AddAcImpliedDo(name, kind)};
             if (!inserted) {
-              exprContext.SayAt(name,
-                  "Implied DO index is active in surrounding implied DO loop and cannot have the same name"_err_en_US);
+              exprContext_.SayAt(name,
+                  "Implied DO index is active in surrounding implied DO loop "
+                  "and cannot have the same name"_err_en_US);
             }
             std::optional<Expr<IntType>> lower{
-                GetSpecificIntExpr<IntType::kind>(exprContext, bounds.lower)};
+                GetSpecificIntExpr<IntType::kind>(exprContext_, bounds.lower)};
             std::optional<Expr<IntType>> upper{
-                GetSpecificIntExpr<IntType::kind>(exprContext, bounds.upper)};
+                GetSpecificIntExpr<IntType::kind>(exprContext_, bounds.upper)};
             std::optional<Expr<IntType>> stride{
-                GetSpecificIntExpr<IntType::kind>(exprContext, bounds.step)};
-            ArrayConstructorContext nested{exprContext, type, typesMustMatch};
+                GetSpecificIntExpr<IntType::kind>(exprContext_, bounds.step)};
+            ArrayConstructorContext nested{*this};
             for (const auto &value :
                 std::get<std::list<parser::AcValue>>(impliedDo->t)) {
               nested.Add(value);
@@ -1245,12 +1286,12 @@ void ArrayConstructorContext::Add(const parser::AcValue &x) {
               if (!stride.has_value()) {
                 stride = Expr<IntType>{1};
               }
-              values.Push(ImpliedDo<SomeType>{name, std::move(*lower),
+              values_.Push(ImpliedDo<SomeType>{name, std::move(*lower),
                   std::move(*upper), std::move(*stride),
-                  std::move(nested.values)});
+                  std::move(nested.values_)});
             }
             if (inserted) {
-              exprContext.RemoveAcImpliedDo(name);
+              exprContext_.RemoveAcImpliedDo(name);
             }
           },
       },
@@ -1263,7 +1304,7 @@ template<typename T>
 ArrayConstructorValues<T> MakeSpecific(
     ArrayConstructorValues<SomeType> &&from) {
   ArrayConstructorValues<T> to;
-  for (ArrayConstructorValue<SomeType> &x : from.values) {
+  for (ArrayConstructorValue<SomeType> &x : from.values()) {
     std::visit(
         common::visitors{
             [&](CopyableIndirection<Expr<SomeType>> &&expr) {
@@ -1284,20 +1325,25 @@ ArrayConstructorValues<T> MakeSpecific(
 
 struct ArrayConstructorTypeVisitor {
   using Result = MaybeExpr;
-  using Types = LengthlessIntrinsicTypes;
+  using Types = AllTypes;
   template<typename T> Result Test() {
-    if (type.category == T::category && type.kind == T::kind) {
-      if constexpr (T::category == TypeCategory::Character) {
-        CHECK(type.length.has_value());
+    if (type.category == T::category) {
+      if constexpr (T::category == TypeCategory::Derived) {
+        CHECK(type.derived != nullptr);
         return AsMaybeExpr(ArrayConstructor<T>{
-            MakeSpecific<T>(std::move(values)), std::move(*type.length)});
-      } else {
-        return AsMaybeExpr(
-            ArrayConstructor<T>{T{}, MakeSpecific<T>(std::move(values))});
+            *type.derived, MakeSpecific<T>(std::move(values))});
+      } else if (type.kind == T::kind) {
+        if constexpr (T::category == TypeCategory::Character) {
+          CHECK(type.length.has_value());
+          return AsMaybeExpr(ArrayConstructor<T>{
+              std::move(*type.length), MakeSpecific<T>(std::move(values))});
+        } else {
+          return AsMaybeExpr(
+              ArrayConstructor<T>{MakeSpecific<T>(std::move(values))});
+        }
       }
-    } else {
-      return std::nullopt;
     }
+    return std::nullopt;
   }
   DynamicTypeWithLength type;
   ArrayConstructorValues<SomeType> values;
@@ -1308,23 +1354,142 @@ static MaybeExpr AnalyzeExpr(ExpressionAnalysisContext &exprContext,
   const parser::AcSpec &acSpec{array.v};
   std::optional<DynamicTypeWithLength> type{
       AnalyzeTypeSpec(exprContext, acSpec.type)};
-  bool typesMustMatch{!type.has_value()};
-  ArrayConstructorContext context{exprContext, type, typesMustMatch};
+  ArrayConstructorContext context{exprContext, type};
   for (const parser::AcValue &value : acSpec.values) {
     context.Add(value);
   }
   if (type.has_value()) {
     ArrayConstructorTypeVisitor visitor{
-        std::move(*type), std::move(context.values)};
+        std::move(*type), std::move(context.values())};
     return common::SearchTypes(std::move(visitor));
   }
   return std::nullopt;
 }
 
-static MaybeExpr AnalyzeExpr(
-    ExpressionAnalysisContext &context, const parser::StructureConstructor &) {
-  context.Say("TODO: StructureConstructor unimplemented"_en_US);
-  return std::nullopt;
+static MaybeExpr AnalyzeExpr(ExpressionAnalysisContext &context,
+    const parser::StructureConstructor &structure) {
+  auto &parsedType{std::get<parser::DerivedTypeSpec>(structure.t)};
+  parser::CharBlock typeName{std::get<parser::Name>(parsedType.t).source};
+  if (parsedType.derivedTypeSpec == nullptr) {
+    context.Say("INTERNAL: StructureConstructor lacks type"_err_en_US);
+    return std::nullopt;
+  }
+  const auto &spec{*parsedType.derivedTypeSpec};
+  CHECK(spec.scope() != nullptr);
+  const Symbol &typeSymbol{spec.typeSymbol()};
+
+  if (typeSymbol.attrs().test(semantics::Attr::ABSTRACT)) {  // C796
+    if (auto *msg{context.Say(typeName,
+            "ABSTRACT derived type '%s' cannot be used in a structure constructor"_err_en_US,
+            typeName.ToString().data())}) {
+      msg->Attach(
+          typeSymbol.name(), "Declaration of ABSTRACT derived type"_en_US);
+    }
+  }
+
+  // This list holds all of the components in the derived type and its
+  // parents.  The symbols for whole parent components appear after their
+  // own components and before the components of the types that extend them.
+  // E.g., TYPE :: A; REAL X; END TYPE
+  //       TYPE, EXTENDS(A) :: B; REAL Y; END TYPE
+  // produces the component list X, A, Y.
+  // The order is important below because a structure constructor can
+  // initialize X or A by name, but not both.
+  const auto &details{typeSymbol.get<semantics::DerivedTypeDetails>()};
+  std::list<const Symbol *> components{details.OrderComponents(*spec.scope())};
+  auto nextAnonymous{components.begin()};
+
+  std::set<parser::CharBlock> unavailable;
+  bool anyKeyword{false};
+  StructureConstructor result{spec};
+  bool checkConflicts{true};
+
+  for (const auto &component :
+      std::get<std::list<parser::ComponentSpec>>(structure.t)) {
+    const parser::Expr &expr{
+        *std::get<parser::ComponentDataSource>(component.t).v};
+    parser::CharBlock source{expr.source};
+    const Symbol *symbol{nullptr};
+    if (const auto &kw{std::get<std::optional<parser::Keyword>>(component.t)}) {
+      source = kw->v.source;
+      symbol = kw->v.symbol;
+      anyKeyword = true;
+    } else {
+      if (anyKeyword) {  // C7100
+        context.Say(source,
+            "Value in structure constructor lacks a component name"_err_en_US);
+        checkConflicts = false;  // stem cascade
+      }
+      while (nextAnonymous != components.end()) {
+        symbol = *nextAnonymous++;
+        if (!symbol->test(Symbol::Flag::ParentComp)) {
+          break;
+        }
+      }
+      if (symbol == nullptr) {
+        context.Say(
+            source, "Unexpected value in structure constructor"_err_en_US);
+      }
+    }
+    if (symbol != nullptr) {
+      if (symbol->has<semantics::TypeParamDetails>()) {
+        context.Say(source,
+            "Type parameter '%s' cannot be a component of this structure constructor"_err_en_US,
+            symbol->name().ToString().data());
+      } else if (checkConflicts) {
+        auto componentIter{
+            std::find(components.begin(), components.end(), symbol)};
+        if (unavailable.find(symbol->name()) != unavailable.cend()) {
+          // C797, C798
+          context.Say(source,
+              "Component '%s' conflicts with another component earlier in this structure constructor"_err_en_US,
+              symbol->name().ToString().data());
+        } else if (symbol->test(Symbol::Flag::ParentComp)) {
+          // Make earlier components unavailable once a whole parent appears.
+          for (auto it{components.begin()}; it != componentIter; ++it) {
+            unavailable.insert((*it)->name());
+          }
+        } else {
+          // Make whole parent components unavailable after any of their
+          // constituents appear.
+          for (auto it{componentIter}; it != components.end(); ++it) {
+            if ((*it)->test(Symbol::Flag::ParentComp)) {
+              unavailable.insert((*it)->name());
+            }
+          }
+        }
+      }
+      unavailable.insert(symbol->name());
+      if (MaybeExpr value{AnalyzeExpr(context, expr)}) {
+        // TODO pmk: C7104, C7105 check that pointer components are
+        // being initialized with data/procedure designators appropriately
+        result.Add(*symbol, std::move(*value));
+      }
+    }
+  }
+
+  // Ensure that unmentioned component objects have default initializers.
+  for (const Symbol *symbol : components) {
+    if (!symbol->test(Symbol::Flag::ParentComp) &&
+        unavailable.find(symbol->name()) == unavailable.cend() &&
+        !symbol->attrs().test(semantics::Attr::ALLOCATABLE)) {
+      if (const auto *details{
+              symbol->detailsIf<semantics::ObjectEntityDetails>()}) {
+        if (details->init().has_value()) {
+          result.Add(*symbol, common::Clone(*details->init()));
+        } else {  // C799
+          if (auto *msg{context.Say(typeName,
+                  "Structure constructor lacks a value for component '%s'"_err_en_US,
+                  symbol->name().ToString().data())}) {
+            msg->Attach(symbol->name(), "Absent component"_en_US);
+          }
+        }
+      }
+    }
+  }
+
+  // TODO pmk check type compatibility on component expressions
+  return AsMaybeExpr(Expr<SomeDerived>{std::move(result)});
 }
 
 static std::optional<CallAndArguments> Procedure(
@@ -1740,6 +1905,7 @@ MaybeExpr ExpressionAnalysisContext::Analyze(const parser::Expr &expr) {
     return AnalyzeExpr(*this, expr.u);
   }
 }
+
 MaybeExpr ExpressionAnalysisContext::Analyze(const parser::Variable &variable) {
   return AnalyzeExpr(*this, variable.u);
 }
@@ -1853,7 +2019,7 @@ public:
     if (expr.typedExpr.get() == nullptr) {
       if (MaybeExpr checked{AnalyzeExpr(context_, expr)}) {
 #if PMKDEBUG
-//      checked->AsFortran(std::cout << "checked expression: ") << '\n';
+//        checked->AsFortran(std::cout << "checked expression: ") << '\n';
 #endif
         expr.typedExpr.reset(
             new evaluate::GenericExprWrapper{std::move(*checked)});

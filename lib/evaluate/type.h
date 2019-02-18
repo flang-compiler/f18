@@ -33,11 +33,13 @@
 #include <cinttypes>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 namespace Fortran::semantics {
 class DerivedTypeSpec;
 class Symbol;
+bool IsDescriptor(const Symbol &);
 }
 
 namespace Fortran::evaluate {
@@ -68,7 +70,6 @@ struct DynamicType {
   TypeCategory category;
   int kind{0};  // set only for intrinsic types
   const semantics::DerivedTypeSpec *derived{nullptr};  // TYPE(T), CLASS(T)
-  const semantics::Symbol *descriptor{nullptr};  // CHARACTER, CLASS(T/*)
 };
 
 // Result will be missing when a symbol is absent or
@@ -176,8 +177,6 @@ public:
 
 // Type functions
 
-template<typename T> using Scalar = typename std::decay_t<T>::Scalar;
-
 // Given a specific type, find the type of the same kind in another category.
 template<TypeCategory CATEGORY, typename T>
 using SameKind = Type<CATEGORY, std::decay_t<T>::kind>;
@@ -245,6 +244,49 @@ template<typename T>
 constexpr bool IsLengthlessIntrinsicType{
     common::HasMember<T, LengthlessIntrinsicTypes>};
 
+// Represents a type of any supported kind within a particular category.
+template<TypeCategory CATEGORY> struct SomeKind {
+  static constexpr TypeCategory category{CATEGORY};
+  constexpr bool operator==(const SomeKind &) const { return true; }
+};
+
+// Represents a completely generic type (but not typeless).
+struct SomeType {};
+
+// Represents a derived type
+class StructureConstructor;
+
+template<> class SomeKind<TypeCategory::Derived> {
+public:
+  static constexpr TypeCategory category{TypeCategory::Derived};
+  using Scalar = StructureConstructor;
+
+  CLASS_BOILERPLATE(SomeKind)
+  explicit SomeKind(const semantics::DerivedTypeSpec &dts) : spec_{&dts} {}
+
+  DynamicType GetType() const { return DynamicType{category, 0, spec_}; }
+  const semantics::DerivedTypeSpec &spec() const { return *spec_; }
+  bool operator==(const SomeKind &) const;
+  std::string AsFortran() const;
+
+private:
+  const semantics::DerivedTypeSpec *spec_;
+};
+
+using SomeInteger = SomeKind<TypeCategory::Integer>;
+using SomeReal = SomeKind<TypeCategory::Real>;
+using SomeComplex = SomeKind<TypeCategory::Complex>;
+using SomeCharacter = SomeKind<TypeCategory::Character>;
+using SomeLogical = SomeKind<TypeCategory::Logical>;
+using SomeDerived = SomeKind<TypeCategory::Derived>;
+using SomeCategory = std::tuple<SomeInteger, SomeReal, SomeComplex,
+    SomeCharacter, SomeLogical, SomeDerived>;
+
+using AllTypes =
+    common::CombineTuples<AllIntrinsicTypes, std::tuple<SomeDerived>>;
+
+template<typename T> using Scalar = typename std::decay_t<T>::Scalar;
+
 // When Scalar<T> is S, then TypeOf<S> is T.
 // TypeOf is implemented by scanning all supported types for a match
 // with Type<T>::Scalar.
@@ -262,46 +304,6 @@ template<typename CONST> struct TypeOfHelper {
 };
 
 template<typename CONST> using TypeOf = typename TypeOfHelper<CONST>::type;
-
-// Represents a type of any supported kind within a particular category.
-template<TypeCategory CATEGORY> struct SomeKind {
-  static constexpr TypeCategory category{CATEGORY};
-  constexpr bool operator==(const SomeKind &) const { return true; }
-};
-
-template<> class SomeKind<TypeCategory::Derived> {
-public:
-  static constexpr TypeCategory category{TypeCategory::Derived};
-
-  CLASS_BOILERPLATE(SomeKind)
-  explicit SomeKind(const semantics::DerivedTypeSpec &dts,
-      const semantics::Symbol *sym = nullptr)
-    : spec_{&dts}, descriptor_{sym} {}
-
-  DynamicType GetType() const {
-    return DynamicType{category, 0, spec_, descriptor_};
-  }
-  const semantics::DerivedTypeSpec &spec() const { return *spec_; }
-  const semantics::Symbol *descriptor() const { return descriptor_; }
-  bool operator==(const SomeKind &) const;
-  std::string AsFortran() const;
-
-private:
-  const semantics::DerivedTypeSpec *spec_;
-  const semantics::Symbol *descriptor_{nullptr};
-};
-
-using SomeInteger = SomeKind<TypeCategory::Integer>;
-using SomeReal = SomeKind<TypeCategory::Real>;
-using SomeComplex = SomeKind<TypeCategory::Complex>;
-using SomeCharacter = SomeKind<TypeCategory::Character>;
-using SomeLogical = SomeKind<TypeCategory::Logical>;
-using SomeDerived = SomeKind<TypeCategory::Derived>;
-
-// Represents a completely generic type (but not typeless).
-using SomeCategory = std::tuple<SomeInteger, SomeReal, SomeComplex,
-    SomeCharacter, SomeLogical, SomeDerived>;
-struct SomeType {};
 
 // For generating "[extern] template class", &c. boilerplate
 #define EXPAND_FOR_EACH_INTEGER_KIND(M, P) \
@@ -334,15 +336,18 @@ struct SomeType {};
 #define FOR_EACH_LOGICAL_KIND(PREFIX) \
   EXPAND_FOR_EACH_LOGICAL_KIND(FOR_EACH_LOGICAL_KIND_HELP, PREFIX)
 
-#define FOR_EACH_INTRINSIC_KIND(PREFIX) \
+#define FOR_EACH_LENGTHLESS_INTRINSIC_KIND(PREFIX) \
   FOR_EACH_INTEGER_KIND(PREFIX) \
   FOR_EACH_REAL_KIND(PREFIX) \
   FOR_EACH_COMPLEX_KIND(PREFIX) \
-  FOR_EACH_CHARACTER_KIND(PREFIX) \
   FOR_EACH_LOGICAL_KIND(PREFIX)
+#define FOR_EACH_INTRINSIC_KIND(PREFIX) \
+  FOR_EACH_LENGTHLESS_INTRINSIC_KIND(PREFIX) \
+  FOR_EACH_CHARACTER_KIND(PREFIX)
 #define FOR_EACH_SPECIFIC_TYPE(PREFIX) \
   FOR_EACH_INTRINSIC_KIND(PREFIX) \
   PREFIX<SomeDerived>;
+
 #define FOR_EACH_CATEGORY_TYPE(PREFIX) \
   PREFIX<SomeInteger>; \
   PREFIX<SomeReal>; \

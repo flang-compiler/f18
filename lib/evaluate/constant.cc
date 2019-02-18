@@ -13,12 +13,30 @@
 // limitations under the License.
 
 #include "constant.h"
+#include "expression.h"
 #include "type.h"
 #include "../parser/characters.h"
 
 namespace Fortran::evaluate {
-template<typename T>
-std::ostream &Constant<T>::AsFortran(std::ostream &o) const {
+
+template<typename RESULT, typename VALUE>
+ConstantBase<RESULT, VALUE>::~ConstantBase() {}
+
+static void ShapeAsFortran(
+    std::ostream &o, const std::vector<std::int64_t> &shape) {
+  if (shape.size() > 1) {
+    o << ",shape=";
+    char ch{'['};
+    for (auto dim : shape) {
+      o << ch << dim;
+      ch = ',';
+    }
+    o << "])";
+  }
+}
+
+template<typename RESULT, typename VALUE>
+std::ostream &ConstantBase<RESULT, VALUE>::AsFortran(std::ostream &o) const {
   if (Rank() > 1) {
     o << "reshape(";
   }
@@ -32,14 +50,14 @@ std::ostream &Constant<T>::AsFortran(std::ostream &o) const {
     } else {
       o << ',';
     }
-    if constexpr (T::category == TypeCategory::Integer) {
-      o << value.SignedDecimal() << '_' << T::kind;
-    } else if constexpr (T::category == TypeCategory::Real ||
-        T::category == TypeCategory::Complex) {
-      value.AsFortran(o, T::kind);
-    } else if constexpr (T::category == TypeCategory::Character) {
-      o << T::kind << '_' << parser::QuoteCharacterLiteral(value);
-    } else if constexpr (T::category == TypeCategory::Logical) {
+    if constexpr (Result::category == TypeCategory::Integer) {
+      o << value.SignedDecimal() << '_' << Result::kind;
+    } else if constexpr (Result::category == TypeCategory::Real ||
+        Result::category == TypeCategory::Complex) {
+      value.AsFortran(o, Result::kind);
+    } else if constexpr (Result::category == TypeCategory::Character) {
+      o << Result::kind << '_' << parser::QuoteCharacterLiteral(value);
+    } else if constexpr (Result::category == TypeCategory::Logical) {
       if (value.IsTrue()) {
         o << ".true.";
       } else {
@@ -47,46 +65,167 @@ std::ostream &Constant<T>::AsFortran(std::ostream &o) const {
       }
       o << '_' << Result::kind;
     } else {
-      value.u.AsFortran(o);
+      StructureConstructor{AsConstant().derivedTypeSpec(), value}.AsFortran(o);
     }
   }
   if (Rank() > 0) {
     o << ']';
   }
-  if (Rank() > 1) {
-    o << ",shape=";
-    char ch{'['};
-    for (auto dim : shape_) {
-      o << ch << dim;
-      ch = ',';
-    }
-    o << "])";
-  }
+  ShapeAsFortran(o, shape_);
   return o;
 }
 
-template<typename T>
-auto Constant<T>::At(const std::vector<std::int64_t> &index) const -> Value {
-  CHECK(index.size() == static_cast<std::size_t>(Rank()));
+static std::int64_t SubscriptsToOffset(const std::vector<std::int64_t> &index,
+    const std::vector<std::int64_t> &shape) {
+  CHECK(index.size() == shape.size());
   std::int64_t stride{1}, offset{0};
   int dim{0};
   for (std::int64_t j : index) {
-    std::int64_t bound{shape_[dim++]};
+    std::int64_t bound{shape[dim++]};
     CHECK(j >= 1 && j <= bound);
     offset += stride * (j - 1);
     stride *= bound;
   }
-  return values_.at(offset);
+  return offset;
 }
 
-template<typename T> Constant<SubscriptInteger> Constant<T>::SHAPE() const {
+template<typename RESULT, typename VALUE>
+auto ConstantBase<RESULT, VALUE>::At(
+    const std::vector<std::int64_t> &index) const -> ScalarValue {
+  return values_.at(SubscriptsToOffset(index, shape_));
+}
+
+static Constant<SubscriptInteger> ShapeAsConstant(
+    const std::vector<std::int64_t> &shape) {
   using IntType = Scalar<SubscriptInteger>;
   std::vector<IntType> result;
-  for (std::int64_t dim : shape_) {
+  for (std::int64_t dim : shape) {
     result.emplace_back(dim);
   }
-  return {std::move(result), std::vector<std::int64_t>{Rank()}};
+  return {std::move(result),
+      std::vector<std::int64_t>{static_cast<std::int64_t>(shape.size())}};
 }
 
+template<typename RESULT, typename VALUE>
+Constant<SubscriptInteger> ConstantBase<RESULT, VALUE>::SHAPE() const {
+  return ShapeAsConstant(shape_);
+}
+
+// Constant<Type<TypeCategory::Character, KIND> specializations
+template<int KIND>
+Constant<Type<TypeCategory::Character, KIND>>::Constant(const ScalarValue &str)
+  : values_{str}, length_{static_cast<std::int64_t>(values_.size())} {}
+
+template<int KIND>
+Constant<Type<TypeCategory::Character, KIND>>::Constant(ScalarValue &&str)
+  : values_{std::move(str)}, length_{
+                                 static_cast<std::int64_t>(values_.size())} {}
+
+template<int KIND>
+Constant<Type<TypeCategory::Character, KIND>>::Constant(std::int64_t len,
+    std::vector<ScalarValue> &&strings, std::vector<std::int64_t> &&dims)
+  : length_{len} {
+  values_.assign(strings.size() * length_,
+      static_cast<typename ScalarValue::value_type>(' '));
+  std::int64_t at{0};
+  for (const auto &str : strings) {
+    auto strLen{static_cast<std::int64_t>(str.size())};
+    if (strLen > length_) {
+      values_.replace(at, length_, str.substr(0, length_));
+    } else {
+      values_.replace(at, strLen, str);
+    }
+    at += length_;
+  }
+  CHECK(at == static_cast<std::int64_t>(values_.size()));
+}
+
+template<int KIND> Constant<Type<TypeCategory::Character, KIND>>::~Constant() {}
+
+static std::int64_t ShapeElements(const std::vector<std::int64_t> &shape) {
+  std::int64_t elements{1};
+  for (auto dim : shape) {
+    elements *= dim;
+  }
+  return elements;
+}
+
+template<int KIND>
+bool Constant<Type<TypeCategory::Character, KIND>>::empty() const {
+  return size() == 0;
+}
+
+template<int KIND>
+std::size_t Constant<Type<TypeCategory::Character, KIND>>::size() const {
+  if (length_ == 0) {
+    return ShapeElements(shape_);
+  } else {
+    return static_cast<std::int64_t>(values_.size()) / length_;
+  }
+}
+
+template<int KIND>
+auto Constant<Type<TypeCategory::Character, KIND>>::At(
+    const std::vector<std::int64_t> &index) const -> ScalarValue {
+  auto offset{SubscriptsToOffset(index, shape_)};
+  return values_.substr(offset, length_);
+}
+
+template<int KIND>
+Constant<SubscriptInteger>
+Constant<Type<TypeCategory::Character, KIND>>::SHAPE() const {
+  return ShapeAsConstant(shape_);
+}
+
+template<int KIND>
+std::ostream &Constant<Type<TypeCategory::Character, KIND>>::AsFortran(
+    std::ostream &o) const {
+  if (Rank() > 1) {
+    o << "reshape(";
+  }
+  if (Rank() > 0) {
+    o << '[' << GetType().AsFortran() << "::";
+  }
+  auto total{static_cast<std::int64_t>(size())};
+  for (std::int64_t j{0}; j < total; ++j) {
+    ScalarValue value{values_.substr(j * length_, length_)};
+    if (j > 0) {
+      o << ',';
+    }
+    o << Result::kind << '_' << parser::QuoteCharacterLiteral(value);
+  }
+  if (Rank() > 0) {
+    o << ']';
+  }
+  ShapeAsFortran(o, shape_);
+  return o;
+}
+
+// Constant<SomeDerived> specialization
+Constant<SomeDerived>::Constant(const StructureConstructor &x)
+  : Base{x.values()}, derivedTypeSpec_{&x.derivedTypeSpec()} {}
+
+Constant<SomeDerived>::Constant(StructureConstructor &&x)
+  : Base{std::move(x.values())}, derivedTypeSpec_{&x.derivedTypeSpec()} {}
+
+Constant<SomeDerived>::Constant(const semantics::DerivedTypeSpec &spec,
+    std::vector<StructureConstructorValues> &&x, std::vector<std::int64_t> &&s)
+  : Base{std::move(x), std::move(s)}, derivedTypeSpec_{&spec} {}
+
+static std::vector<StructureConstructorValues> GetValues(
+    std::vector<StructureConstructor> &&x) {
+  std::vector<StructureConstructorValues> result;
+  for (auto &&structure : std::move(x)) {
+    result.emplace_back(std::move(structure.values()));
+  }
+  return result;
+}
+
+Constant<SomeDerived>::Constant(const semantics::DerivedTypeSpec &spec,
+    std::vector<StructureConstructor> &&x, std::vector<std::int64_t> &&s)
+  : Base{GetValues(std::move(x)), std::move(s)}, derivedTypeSpec_{&spec} {}
+
+FOR_EACH_LENGTHLESS_INTRINSIC_KIND(template class ConstantBase)
+template class ConstantBase<SomeDerived, StructureConstructorValues>;
 FOR_EACH_INTRINSIC_KIND(template class Constant)
 }

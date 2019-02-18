@@ -24,6 +24,7 @@
 #include "../common/default-kinds.h"
 #include "../common/fortran.h"
 #include "../common/indirection.h"
+#include "../common/restorer.h"
 #include "../evaluate/common.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
@@ -712,6 +713,7 @@ protected:
       const parser::Name &, const std::optional<parser::IntegerTypeSpec> &);
   bool CheckUseError(const parser::Name &);
   void CheckAccessibility(const parser::Name &, bool, const Symbol &);
+  bool CheckAccessibleComponent(const SourceName &, const Symbol &);
   void CheckScalarIntegerType(const parser::Name &);
   void CheckCommonBlocks();
 
@@ -959,7 +961,6 @@ private:
   const parser::Name *ResolveName(const parser::Name &);
   const parser::Name *FindComponent(const parser::Name *, const parser::Name &);
 
-  bool CheckAccessibleComponent(const parser::Name &);
   void CheckImports();
   void CheckImport(const SourceName &, const SourceName &);
   bool SetProcFlag(const parser::Name &, Symbol &);
@@ -1538,8 +1539,13 @@ Symbol &ScopeHandler::Resolve(const parser::Name &name, Symbol &symbol) {
   return *Resolve(name, &symbol);
 }
 Symbol *ScopeHandler::Resolve(const parser::Name &name, Symbol *symbol) {
-  if (symbol && !name.symbol) {
-    name.symbol = symbol;
+  if (symbol) {
+    // TODO: Should name.symbol be unconditionally updated?
+    // Or should it be an internal error if name.symbol is
+    // set to a distinct symbol?
+    if (name.symbol == nullptr) {
+      name.symbol = symbol;
+    }
   }
   return symbol;
 }
@@ -2384,6 +2390,37 @@ void DeclarationVisitor::CheckAccessibility(
   }
 }
 
+// Check that component is accessible from current scope.
+bool DeclarationVisitor::CheckAccessibleComponent(
+    const SourceName &name, const Symbol &symbol) {
+  if (!symbol.attrs().test(Attr::PRIVATE)) {
+    return true;
+  }
+  // component must be in a module/submodule because of PRIVATE:
+  const Scope *moduleScope{&symbol.owner()};
+  CHECK(moduleScope->kind() == Scope::Kind::DerivedType);
+  while (moduleScope->kind() != Scope::Kind::Module &&
+      moduleScope->kind() != Scope::Kind::Global) {
+    moduleScope = &moduleScope->parent();
+  }
+  if (moduleScope->kind() == Scope::Kind::Module) {
+    for (auto *scope{&currScope()}; scope->kind() != Scope::Kind::Global;
+         scope = &scope->parent()) {
+      if (scope == moduleScope) {
+        return true;
+      }
+    }
+    Say(name,
+        "PRIVATE component '%s' is only accessible within module '%s'"_err_en_US,
+        name.ToString(), moduleScope->name());
+  } else {
+    Say(name,
+        "PRIVATE component '%s' is only accessible within its module"_err_en_US,
+        name.ToString());
+  }
+  return false;
+}
+
 void DeclarationVisitor::CheckScalarIntegerType(const parser::Name &name) {
   if (name.symbol != nullptr) {
     const Symbol &symbol{*name.symbol};
@@ -2696,12 +2733,12 @@ void DeclarationVisitor::Post(const parser::DerivedTypeSpec &x) {
       seenAnyName = true;
       name = optKeyword->v.source;
       auto it{std::find_if(parameterDecls.begin(), parameterDecls.end(),
-          [&](Symbol *symbol) { return symbol->name() == name; })};
+          [&](const Symbol *symbol) { return symbol->name() == name; })};
       if (it == parameterDecls.end()) {
         Say(name,
             "'%s' is not the name of a parameter for this type"_err_en_US);
       } else {
-        Resolve(optKeyword->v, *it);
+        Resolve(optKeyword->v, const_cast<Symbol *>(*it));
       }
     } else if (seenAnyName) {
       Say(typeName.source, "Type parameter value must have a name"_err_en_US);
@@ -2732,7 +2769,7 @@ void DeclarationVisitor::Post(const parser::DerivedTypeSpec &x) {
   for (const SourceName &name : parameterNames) {
     if (!spec.FindParameter(name)) {
       auto it{std::find_if(parameterDecls.begin(), parameterDecls.end(),
-          [&](Symbol *symbol) { return symbol->name() == name; })};
+          [&](const Symbol *symbol) { return symbol->name() == name; })};
       CHECK(it != parameterDecls.end());
       auto &symbol{**it};
       const auto *details{symbol.detailsIf<TypeParamDetails>()};
@@ -2767,6 +2804,9 @@ void DeclarationVisitor::Post(const parser::DerivedTypeSpec &x) {
     }
     SetDeclTypeSpec(type);
   }
+  // Capture the DerivedTypeSpec in the parse tree for use in building
+  // structure constructor expressions.
+  x.derivedTypeSpec = &GetDeclTypeSpec()->derivedTypeSpec();
 }
 
 void DeclarationVisitor::Post(const parser::DerivedTypeDef &x) {
@@ -2826,14 +2866,20 @@ void DeclarationVisitor::Post(const parser::DerivedTypeStmt &x) {
   if (auto *extendsName{derivedTypeInfo_.extends}) {
     if (const Symbol * extends{ResolveDerivedType(*extendsName)}) {
       // Declare the "parent component"; private if the type is
+      // Any symbol stored in the EXTENDS() clause is temporarily
+      // hidden so that a new symbol can be created for the parent
+      // component without producing spurious errors about already
+      // existing.
+      auto restorer{common::ScopedSet(extendsName->symbol, nullptr)};
       if (OkToAddComponent(*extendsName, extends)) {
-        symbol.get<DerivedTypeDetails>().set_extends(extendsName->source);
         auto &comp{DeclareEntity<ObjectEntityDetails>(*extendsName, Attrs{})};
         comp.attrs().set(Attr::PRIVATE, extends->attrs().test(Attr::PRIVATE));
         comp.set(Symbol::Flag::ParentComp);
         DeclTypeSpec &type{currScope().MakeDerivedType(*extends)};
         type.derivedTypeSpec().set_scope(*extends->scope());
         comp.SetType(type);
+        DerivedTypeDetails &details{symbol.get<DerivedTypeDetails>()};
+        details.add_component(comp);
       }
     }
   }
@@ -2894,6 +2940,7 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
         }
       }
     }
+    currScope().symbol()->get<DerivedTypeDetails>().add_component(symbol);
   }
   ClearArraySpec();
 }
@@ -3056,10 +3103,38 @@ void DeclarationVisitor::Post(const parser::AllocateStmt &) {
 bool DeclarationVisitor::Pre(const parser::StructureConstructor &x) {
   auto savedState{SetDeclTypeSpecState({})};
   BeginDeclTypeSpec();
-  Walk(std::get<parser::DerivedTypeSpec>(x.t));
-  Walk(std::get<std::list<parser::ComponentSpec>>(x.t));
+  auto &parsedType{std::get<parser::DerivedTypeSpec>(x.t)};
+  Walk(parsedType);
+  const DeclTypeSpec *type{GetDeclTypeSpec()};
   EndDeclTypeSpec();
   SetDeclTypeSpecState(savedState);
+
+  if (type == nullptr) {
+    return false;
+  }
+  const DerivedTypeSpec *spec{type->AsDerived()};
+  const Scope *typeScope{spec ? spec->scope() : nullptr};
+  if (typeScope == nullptr) {
+    return false;
+  }
+
+  // N.B C7102 is implicitly enforced by having inaccessible types not
+  // being found in resolution.
+
+  for (const auto &component :
+      std::get<std::list<parser::ComponentSpec>>(x.t)) {
+    // Visit the component spec expression, but not the keyword, since
+    // we need to resolve its symbol in the scope of the derived type.
+    Walk(std::get<parser::ComponentDataSource>(component.t));
+    if (const auto &kw{std::get<std::optional<parser::Keyword>>(component.t)}) {
+      if (const Symbol * symbol{FindInTypeOrParents(*typeScope, kw->v)}) {
+        CheckAccessibleComponent(kw->v.source, *symbol);  // C7102
+      } else {  // C7101
+        Say(kw->v.source,
+            "Keyword '%s' is not a component of this derived type"_err_en_US);
+      }
+    }
+  }
   return false;
 }
 
@@ -3927,8 +4002,8 @@ const parser::Name *ResolveNamesVisitor::FindComponent(
     }
   } else if (const DerivedTypeSpec * derived{type->AsDerived()}) {
     if (const Scope * scope{derived->scope()}) {
-      if (FindInTypeOrParents(*scope, component)) {
-        if (CheckAccessibleComponent(component)) {
+      if (Resolve(component, FindInTypeOrParents(*scope, component.source))) {
+        if (CheckAccessibleComponent(component.source, *component.symbol)) {
           return &component;
         }
       } else {
@@ -3946,30 +4021,6 @@ const parser::Name *ResolveNamesVisitor::FindComponent(
         *base, symbol, "'%s' is not an object of derived type"_err_en_US);
   }
   return nullptr;
-}
-
-// Check that component is accessible from current scope.
-bool ResolveNamesVisitor::CheckAccessibleComponent(
-    const parser::Name &component) {
-  CHECK(component.symbol);
-  auto &symbol{*component.symbol};
-  if (!symbol.attrs().test(Attr::PRIVATE)) {
-    return true;
-  }
-  CHECK(symbol.owner().kind() == Scope::Kind::DerivedType);
-  // component must be in a module/submodule because of PRIVATE:
-  const Scope &moduleScope{symbol.owner().parent()};
-  CHECK(moduleScope.kind() == Scope::Kind::Module);
-  for (auto *scope{&currScope()}; scope->kind() != Scope::Kind::Global;
-       scope = &scope->parent()) {
-    if (scope == &moduleScope) {
-      return true;
-    }
-  }
-  Say(component,
-      "PRIVATE component '%s' is only accessible within module '%s'"_err_en_US,
-      component.ToString(), moduleScope.name());
-  return false;
 }
 
 void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {

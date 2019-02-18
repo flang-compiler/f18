@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 -->
 
 As a general principle, this compiler will accept by default and
@@ -53,6 +53,9 @@ Extensions, deletions, and legacy features supported by default
   could have a label
 * The character `&` in column 1 in fixed form source is a variant form
   of continuation line.
+* Character literals as elements of an array constructor without an explicit
+  type specifier need not have the same length; the longest literal determines
+  the length parameter of the implicit type, not the first.
 
 Extensions supported when enabled by options
 --------------------------------------------
@@ -79,3 +82,4 @@ Extensions and legacy features deliberately not supported
 * `B` suffix on unquoted octal constants
 * `Z` prefix on unquoted hexadecimal constants (dangerous)
 * `T` and `F` as abbreviations for `.TRUE.` and `.FALSE.` (dangerous)
+* Use of host FORMAT labels in internal subprograms (PGI-only feature)
