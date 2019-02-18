@@ -105,7 +105,7 @@ std::ostream &Emit(std::ostream &o, const ImpliedDo<T> &implDo) {
 template<typename T>
 std::ostream &Emit(std::ostream &o, const ArrayConstructorValues<T> &values) {
   const char *sep{""};
-  for (const auto &value : values.values) {
+  for (const auto &value : values.values()) {
     o << sep;
     std::visit([&](const auto &x) { Emit(o, x); }, value.u);
     sep = ",";
@@ -116,7 +116,7 @@ std::ostream &Emit(std::ostream &o, const ArrayConstructorValues<T> &values) {
 template<typename T>
 std::ostream &ArrayConstructor<T>::AsFortran(std::ostream &o) const {
   o << '[' << GetType().AsFortran() << "::";
-  Emit(o, values);
+  Emit(o, *this);
   return o << ']';
 }
 
@@ -124,9 +124,15 @@ template<int KIND>
 std::ostream &ArrayConstructor<Type<TypeCategory::Character, KIND>>::AsFortran(
     std::ostream &o) const {
   std::stringstream len;
-  length->AsFortran(len);
+  LEN().AsFortran(len);
   o << '[' << GetType().AsFortran(len.str()) << "::";
-  Emit(o, values);
+  Emit(o, *this);
+  return o << ']';
+}
+
+std::ostream &ArrayConstructor<SomeDerived>::AsFortran(std::ostream &o) const {
+  o << '[' << GetType().AsFortran() << "::";
+  Emit(o, *this);
   return o << ']';
 }
 
@@ -150,7 +156,7 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
   return std::visit(
       common::visitors{
           [](const Constant<Result> &c) {
-            return AsExpr(Constant<SubscriptInteger>{ConstantLEN(c)});
+            return AsExpr(Constant<SubscriptInteger>{c.LEN()});
           },
           [](const ArrayConstructor<Result> &a) { return a.LEN(); },
           [](const Parentheses<Result> &x) { return x.left().LEN(); },
@@ -211,9 +217,6 @@ template<typename A> int ExpressionBase<A>::Rank() const {
       derived().u);
 }
 
-template<int KIND>
-ArrayConstructor<Type<TypeCategory::Character, KIND>>::~ArrayConstructor() {}
-
 // Equality testing for classes without EVALUATE_UNION_CLASS_BOILERPLATE()
 
 bool ImpliedDoIndex::operator==(const ImpliedDoIndex &that) const {
@@ -229,18 +232,71 @@ bool ImpliedDo<T>::operator==(const ImpliedDo<T> &that) const {
 template<typename R>
 bool ArrayConstructorValues<R>::operator==(
     const ArrayConstructorValues<R> &that) const {
-  return values == that.values;
-}
-
-template<typename R>
-bool ArrayConstructor<R>::operator==(const ArrayConstructor<R> &that) const {
-  return type == that.type && values == that.values;
+  return values_ == that.values_;
 }
 
 template<int KIND>
 bool ArrayConstructor<Type<TypeCategory::Character, KIND>>::operator==(
-    const ArrayConstructor<Type<TypeCategory::Character, KIND>> &that) const {
-  return length == that.length && values == that.values;
+    const ArrayConstructor &that) const {
+  return length_ == that.length_ &&
+      static_cast<const Base &>(*this) == static_cast<const Base &>(that);
+}
+
+bool ArrayConstructor<SomeDerived>::operator==(
+    const ArrayConstructor &that) const {
+  return derivedTypeSpec_ == that.derivedTypeSpec_ &&
+      static_cast<const Base &>(*this) == static_cast<const Base &>(that);
+  ;
+}
+
+StructureConstructor::StructureConstructor(
+    const semantics::DerivedTypeSpec &spec,
+    const StructureConstructorValues &values)
+  : derivedTypeSpec_{&spec}, values_{values} {}
+StructureConstructor::StructureConstructor(
+    const semantics::DerivedTypeSpec &spec, StructureConstructorValues &&values)
+  : derivedTypeSpec_{&spec}, values_{std::move(values)} {}
+
+bool StructureConstructor::operator==(const StructureConstructor &that) const {
+  return derivedTypeSpec_ == that.derivedTypeSpec_ && values_ == that.values_;
+}
+
+DynamicType StructureConstructor::GetType() const {
+  return {TypeCategory::Derived, 0, derivedTypeSpec_};
+}
+
+StructureConstructor &StructureConstructor::Add(
+    const Symbol &symbol, Expr<SomeType> &&expr) {
+  values_.emplace(&symbol, std::move(expr));
+  return *this;
+}
+
+std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
+  DerivedTypeSpecAsFortran(o, *derivedTypeSpec_);
+  if (values_.empty()) {
+    o << '(';
+  } else {
+    char ch{'('};
+    for (const auto &[symbol, value] : values_) {
+      value->AsFortran(o << ch << symbol->name().ToString() << '=');
+      ch = ',';
+    }
+  }
+  return o << ')';
+}
+
+std::ostream &DerivedTypeSpecAsFortran(
+    std::ostream &o, const semantics::DerivedTypeSpec &spec) {
+  o << "TYPE("s << spec.typeSymbol().name().ToString();
+  if (!spec.parameters().empty()) {
+    char ch{'('};
+    for (const auto &[name, value] : spec.parameters()) {
+      value.GetExplicit()->AsFortran(o << ch << name.ToString() << '=');
+      ch = ',';
+    }
+    o << ')';
+  }
+  return o;
 }
 
 bool GenericExprWrapper::operator==(const GenericExprWrapper &that) const {
@@ -257,7 +313,8 @@ FOR_EACH_REAL_KIND(template struct Relational)
 FOR_EACH_CHARACTER_KIND(template struct Relational)
 template struct Relational<SomeType>;
 FOR_EACH_TYPE_AND_KIND(template class ExpressionBase)
-FOR_EACH_SPECIFIC_TYPE(template struct ArrayConstructor)
+FOR_EACH_INTRINSIC_KIND(template class ArrayConstructorValues)
+FOR_EACH_INTRINSIC_KIND(template class ArrayConstructor)
 }
 
 // For reclamation of analyzed expressions to which owning pointers have

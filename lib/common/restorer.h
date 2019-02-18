@@ -29,12 +29,13 @@ template<typename A> class Restorer {
 public:
   explicit Restorer(A &p) : p_{p}, original_{std::move(p)} {}
   ~Restorer() { p_ = std::move(original_); }
+
 private:
   A &p_;
   A original_;
 };
 
-template<typename A> Restorer<A> ScopedSet(A &to, A &&from) {
+template<typename A, typename B> Restorer<A> ScopedSet(A &to, B &&from) {
   Restorer<A> result{to};
   to = std::move(from);
   return result;
