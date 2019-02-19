@@ -664,7 +664,7 @@ public:
   bool Pre(const parser::DeclarationTypeSpec::Class &);
   bool Pre(const parser::DeclarationTypeSpec::Record &);
   void Post(const parser::DerivedTypeSpec &);
-  void Post(const parser::DerivedTypeDef &x);
+  bool Pre(const parser::DerivedTypeDef &);
   bool Pre(const parser::DerivedTypeStmt &x);
   void Post(const parser::DerivedTypeStmt &x);
   bool Pre(const parser::TypeParamDefStmt &x) { return BeginDecl(); }
@@ -674,7 +674,7 @@ public:
   bool Pre(const parser::SequenceStmt &x);
   bool Pre(const parser::ComponentDefStmt &) { return BeginDecl(); }
   void Post(const parser::ComponentDefStmt &) { EndDecl(); }
-  void Post(const parser::ComponentDecl &x);
+  void Post(const parser::ComponentDecl &);
   bool Pre(const parser::ProcedureDeclarationStmt &);
   void Post(const parser::ProcedureDeclarationStmt &);
   bool Pre(const parser::ProcComponentDefStmt &);
@@ -682,6 +682,7 @@ public:
   void Post(const parser::ProcInterface &x);
   void Post(const parser::ProcDecl &x);
   bool Pre(const parser::TypeBoundProcedurePart &);
+  void Post(const parser::ContainsStmt &);
   bool Pre(const parser::TypeBoundProcBinding &) { return BeginAttrs(); }
   void Post(const parser::TypeBoundProcBinding &) { EndAttrs(); }
   void Post(const parser::TypeBoundProcedureStmt::WithoutInterface &);
@@ -725,13 +726,14 @@ private:
     std::optional<ParamValue> length;
     std::optional<KindExpr> kind;
   } charInfo_;
-  // Info about current derived type while walking DerivedTypeStmt
+  // Info about current derived type while walking DerivedTypeDef
   struct {
     const parser::Name *extends{nullptr};  // EXTENDS(name)
     bool privateComps{false};  // components are private by default
     bool privateBindings{false};  // bindings are private by default
     bool sawContains{false};  // currently processing bindings
     bool sequence{false};  // is a sequence type
+    const Symbol *type{nullptr};  // derived type being defined
   } derivedTypeInfo_;
   // Info about common blocks in the current scope
   struct {
@@ -2809,13 +2811,18 @@ void DeclarationVisitor::Post(const parser::DerivedTypeSpec &x) {
   x.derivedTypeSpec = &GetDeclTypeSpec()->derivedTypeSpec();
 }
 
-void DeclarationVisitor::Post(const parser::DerivedTypeDef &x) {
-  std::set<SourceName> paramNames;
+// The descendents of DerivedTypeDef in the parse tree are visited directly
+// in this Pre() routine so that recursive use of the derived type can be
+// supported in the components.
+bool DeclarationVisitor::Pre(const parser::DerivedTypeDef &x) {
+  auto &stmt{std::get<parser::Statement<parser::DerivedTypeStmt>>(x.t)};
+  Walk(stmt);
+  Walk(std::get<std::list<parser::Statement<parser::TypeParamDefStmt>>>(x.t));
   auto &scope{currScope()};
   CHECK(scope.symbol() != nullptr);
   CHECK(scope.symbol()->scope() == &scope);
   auto &details{scope.symbol()->get<DerivedTypeDetails>()};
-  auto &stmt{std::get<parser::Statement<parser::DerivedTypeStmt>>(x.t)};
+  std::set<SourceName> paramNames;
   for (auto &paramName : std::get<std::list<parser::Name>>(stmt.statement.t)) {
     details.add_paramName(paramName.source);
     auto *symbol{FindInScope(scope, paramName)};
@@ -2838,6 +2845,7 @@ void DeclarationVisitor::Post(const parser::DerivedTypeDef &x) {
           currScope());  // C742
     }
   }
+  Walk(std::get<std::list<parser::Statement<parser::PrivateOrSequence>>>(x.t));
   if (derivedTypeInfo_.sequence) {
     details.set_sequence(true);
     if (derivedTypeInfo_.extends) {
@@ -2848,39 +2856,50 @@ void DeclarationVisitor::Post(const parser::DerivedTypeDef &x) {
       Say(stmt.source,
           "A sequence type may not have type parameters"_err_en_US);  // C740
     }
-    if (derivedTypeInfo_.sawContains) {
-      Say(stmt.source,
-          "A sequence type may not have a CONTAINS statement"_err_en_US);  // C740
-    }
   }
+  Walk(std::get<std::list<parser::Statement<parser::ComponentDefStmt>>>(x.t));
+  Walk(std::get<std::optional<parser::TypeBoundProcedurePart>>(x.t));
+  Walk(std::get<parser::Statement<parser::EndTypeStmt>>(x.t));
   derivedTypeInfo_ = {};
   PopScope();
+  return false;
 }
 bool DeclarationVisitor::Pre(const parser::DerivedTypeStmt &x) {
   return BeginAttrs();
 }
 void DeclarationVisitor::Post(const parser::DerivedTypeStmt &x) {
   auto &name{std::get<parser::Name>(x.t)};
+  // Resolve the EXTENDS() clause before creating the derived
+  // type's symbol to foil attempts to recursively extend a type.
+  auto *extendsName{derivedTypeInfo_.extends};
+  const Symbol *extendsType{nullptr};
+  if (extendsName != nullptr) {
+    if (extendsName->source == name.source) {
+      Say(extendsName->source,
+          "Derived type '%s' cannot extend itself"_err_en_US);
+    } else {
+      extendsType = ResolveDerivedType(*extendsName);
+    }
+  }
   auto &symbol{MakeSymbol(name, GetAttrs(), DerivedTypeDetails{})};
+  derivedTypeInfo_.type = &symbol;
   PushScope(Scope::Kind::DerivedType, &symbol);
-  if (auto *extendsName{derivedTypeInfo_.extends}) {
-    if (const Symbol * extends{ResolveDerivedType(*extendsName)}) {
-      // Declare the "parent component"; private if the type is
-      // Any symbol stored in the EXTENDS() clause is temporarily
-      // hidden so that a new symbol can be created for the parent
-      // component without producing spurious errors about already
-      // existing.
-      auto restorer{common::ScopedSet(extendsName->symbol, nullptr)};
-      if (OkToAddComponent(*extendsName, extends)) {
-        auto &comp{DeclareEntity<ObjectEntityDetails>(*extendsName, Attrs{})};
-        comp.attrs().set(Attr::PRIVATE, extends->attrs().test(Attr::PRIVATE));
-        comp.set(Symbol::Flag::ParentComp);
-        DeclTypeSpec &type{currScope().MakeDerivedType(*extends)};
-        type.derivedTypeSpec().set_scope(*extends->scope());
-        comp.SetType(type);
-        DerivedTypeDetails &details{symbol.get<DerivedTypeDetails>()};
-        details.add_component(comp);
-      }
+  if (extendsType != nullptr) {
+    // Declare the "parent component"; private if the type is
+    // Any symbol stored in the EXTENDS() clause is temporarily
+    // hidden so that a new symbol can be created for the parent
+    // component without producing spurious errors about already
+    // existing.
+    auto restorer{common::ScopedSet(extendsName->symbol, nullptr)};
+    if (OkToAddComponent(*extendsName, extendsType)) {
+      auto &comp{DeclareEntity<ObjectEntityDetails>(*extendsName, Attrs{})};
+      comp.attrs().set(Attr::PRIVATE, extendsType->attrs().test(Attr::PRIVATE));
+      comp.set(Symbol::Flag::ParentComp);
+      DeclTypeSpec &type{currScope().MakeDerivedType(*extendsType)};
+      type.derivedTypeSpec().set_scope(*extendsType->scope());
+      comp.SetType(type);
+      DerivedTypeDetails &details{symbol.get<DerivedTypeDetails>()};
+      details.add_component(comp);
     }
   }
   EndAttrs();
@@ -2930,6 +2949,16 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
   if (derivedTypeInfo_.privateComps &&
       !attrs.HasAny({Attr::PUBLIC, Attr::PRIVATE})) {
     attrs.set(Attr::PRIVATE);
+  }
+  if (!attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
+    if (const auto *declType{GetDeclTypeSpec()}) {
+      if (const auto *derived{declType->AsDerived()}) {
+        if (derivedTypeInfo_.type == &derived->typeSymbol()) {  // C737
+          Say("Recursive use of the derived type requires "
+              "POINTER or ALLOCATABLE"_err_en_US);
+        }
+      }
+    }
   }
   if (OkToAddComponent(name)) {
     auto &symbol{DeclareObjectEntity(name, attrs)};
@@ -2985,6 +3014,12 @@ void DeclarationVisitor::Post(const parser::ProcDecl &x) {
 bool DeclarationVisitor::Pre(const parser::TypeBoundProcedurePart &x) {
   derivedTypeInfo_.sawContains = true;
   return true;
+}
+
+void DeclarationVisitor::Post(const parser::ContainsStmt &) {
+  if (derivedTypeInfo_.sequence) {
+    Say("A sequence type may not have a CONTAINS statement"_err_en_US);  // C740
+  }
 }
 
 void DeclarationVisitor::Post(
