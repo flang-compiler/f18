@@ -42,14 +42,14 @@ static void PutEntity(std::ostream &, const Symbol &);
 static void PutObjectEntity(std::ostream &, const Symbol &);
 static void PutProcEntity(std::ostream &, const Symbol &);
 static void PutPassName(std::ostream &, const std::optional<SourceName> &);
-static void PutBindName(std::ostream &, const MaybeExpr &);
 static void PutTypeParam(std::ostream &, const Symbol &);
 static void PutEntity(std::ostream &, const Symbol &, std::function<void()>);
 static void PutInit(std::ostream &, const MaybeExpr &);
 static void PutInit(std::ostream &, const MaybeIntExpr &);
 static void PutBound(std::ostream &, const Bound &);
-static std::ostream &PutAttrs(
-    std::ostream &, Attrs, std::string before = ","s, std::string after = ""s);
+static std::ostream &PutAttrs(std::ostream &, Attrs,
+    const MaybeExpr & = std::nullopt, std::string before = ","s,
+    std::string after = ""s);
 static std::ostream &PutLower(std::ostream &, const Symbol &);
 static std::ostream &PutLower(std::ostream &, const DeclTypeSpec &);
 static std::ostream &PutLower(std::ostream &, const std::string &);
@@ -151,7 +151,7 @@ void ModFileWriter::PutSymbol(
               PutLower(typeBindings << '(', x.symbol()) << ')';
             }
             PutPassName(typeBindings, x.passName());
-            PutAttrs(typeBindings, symbol.attrs(), ","s, ""s);
+            PutAttrs(typeBindings, symbol.attrs());
             PutLower(typeBindings << "::", symbol);
             if (!deferred && x.symbol().name() != symbol.name()) {
               PutLower(typeBindings << "=>", x.symbol());
@@ -166,7 +166,7 @@ void ModFileWriter::PutSymbol(
           },
           [&](const NamelistDetails &x) {
             PutLower(decls_ << "namelist/", symbol);
-            char sep = '/';
+            char sep{'/'};
             for (const auto *object : x.objects()) {
               PutLower(decls_ << sep, *object);
               sep = ',';
@@ -181,6 +181,10 @@ void ModFileWriter::PutSymbol(
               sep = ',';
             }
             decls_ << '\n';
+            if (symbol.attrs().test(Attr::BIND_C)) {
+              PutAttrs(decls_, symbol.attrs(), x.bindName(), ""s);
+              PutLower(decls_ << "::/", symbol) << "/\n";
+            }
           },
           [&](const FinalProcDetails &) {
             PutLower(typeBindings << "final::", symbol) << '\n';
@@ -194,7 +198,7 @@ void ModFileWriter::PutSymbol(
 
 void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
   auto &details{typeSymbol.get<DerivedTypeDetails>()};
-  PutAttrs(decls_ << "type", typeSymbol.attrs(), ","s, ""s);
+  PutAttrs(decls_ << "type", typeSymbol.attrs());
   if (const DerivedTypeSpec * extends{typeSymbol.GetParentTypeSpec()}) {
     PutLower(decls_ << ",extends(", extends->typeSymbol()) << ')';
   }
@@ -231,7 +235,7 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   if (isInterface) {
     os << "interface\n";
   }
-  PutAttrs(os, attrs, ""s, " "s);
+  PutAttrs(os, attrs, std::nullopt, ""s, " "s);
   os << (details.isFunction() ? "function " : "subroutine ");
   PutLower(os, symbol) << '(';
   int n = 0;
@@ -240,8 +244,7 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
     PutLower(os, *dummy);
   }
   os << ')';
-  PutBindName(os, details.bindName());
-  PutAttrs(os, bindAttrs, " "s, ""s);
+  PutAttrs(os, bindAttrs, details.bindName(), " "s, ""s);
   if (details.isFunction()) {
     const Symbol &result{details.result()};
     if (result.name() != symbol.name()) {
@@ -311,6 +314,12 @@ std::vector<const Symbol *> CollectSymbols(const Scope &scope) {
       }
     }
   }
+  for (const auto &pair : scope.commonBlocks()) {
+    auto *symbol{pair.second};
+    if (symbols.insert(symbol).second) {
+      sorted.push_back(symbol);
+    }
+  }
   std::sort(sorted.begin(), sorted.end(), [](const Symbol *x, const Symbol *y) {
     bool xIsNml{x->has<NamelistDetails>()};
     bool yIsNml{y->has<NamelistDetails>()};
@@ -374,7 +383,6 @@ void PutObjectEntity(std::ostream &os, const Symbol &symbol) {
     auto *type{symbol.GetType()};
     CHECK(type);
     PutLower(os, *type);
-    PutBindName(os, details.bindName());
   });
   PutShape(os, details.shape());
   PutInit(os, details.init());
@@ -392,19 +400,12 @@ void PutProcEntity(std::ostream &os, const Symbol &symbol) {
     }
     os << ')';
     PutPassName(os, details.passName());
-    PutBindName(os, details.bindName());
   });
 }
 
 void PutPassName(std::ostream &os, const std::optional<SourceName> &passName) {
   if (passName) {
     PutLower(os << ",pass(", passName->ToString()) << ')';
-  }
-}
-
-void PutBindName(std::ostream &os, const MaybeExpr &bindName) {
-  if (bindName) {
-    bindName->AsFortran(os << ",bind(c, name=") << ')';
   }
 }
 
@@ -446,16 +447,29 @@ void PutBound(std::ostream &os, const Bound &x) {
 void PutEntity(
     std::ostream &os, const Symbol &symbol, std::function<void()> writeType) {
   writeType();
-  PutAttrs(os, symbol.attrs());
+  MaybeExpr bindName;
+  std::visit(
+      common::visitors{
+          [&](const SubprogramDetails &x) { bindName = x.bindName(); },
+          [&](const ObjectEntityDetails &x) { bindName = x.bindName(); },
+          [&](const ProcEntityDetails &x) { bindName = x.bindName(); },
+          [&](const auto &) {},
+      },
+      symbol.details());
+  PutAttrs(os, symbol.attrs(), bindName);
   PutLower(os << "::", symbol);
 }
 
 // Put out each attribute to os, surrounded by `before` and `after` and
 // mapped to lower case.
-std::ostream &PutAttrs(
-    std::ostream &os, Attrs attrs, std::string before, std::string after) {
+std::ostream &PutAttrs(std::ostream &os, Attrs attrs, const MaybeExpr &bindName,
+    std::string before, std::string after) {
   attrs.set(Attr::PUBLIC, false);  // no need to write PUBLIC
   attrs.set(Attr::EXTERNAL, false);  // no need to write EXTERNAL
+  if (bindName) {
+    bindName->AsFortran(os << before << "bind(c, name=") << ')' << after;
+    attrs.set(Attr::BIND_C, false);
+  }
   for (std::size_t i{0}; i < Attr_enumSize; ++i) {
     Attr attr{static_cast<Attr>(i)};
     if (attrs.test(attr)) {
