@@ -32,14 +32,6 @@ subroutine s3
   procedure(real) :: y
 end
 
-subroutine s4
-  integer x
-  !ERROR: 'x' is already declared in this scoping unit
-  common /x/ y
-  !ERROR: 's4' is already declared in this scoping unit
-  common /s4/ z
-end
-
 subroutine s5
   integer x(2)
   !ERROR: The dimensions of 'x' have already been declared
@@ -48,17 +40,21 @@ subroutine s5
   real y(2)
 end
 
-subroutine s6(x)
+function f6(x) result(r)
   !ERROR: Dummy argument 'x' may not appear in a COMMON block
   !ERROR: ALLOCATABLE object 'y' may not appear in a COMMON block
   common x,y,z
   allocatable y
+  !ERROR: Function result 'r' may not appear in a COMMON block
+  common r
 end
 
 module m7
+  !ERROR: Variable 'w' with BIND attribute may not appear in a COMMON block
   !ERROR: Variable 'z' with BIND attribute may not appear in a COMMON block
-  common z
+  common w,z
   integer, bind(c) :: z
+  integer, bind(c,name="w") :: w
 end
 
 module m8
@@ -116,4 +112,16 @@ module m12
   type(t2) :: x2
   !ERROR: Derived type variable 'x2' may not appear in a COMMON block due to component with default initialization
   common x2
+end
+
+subroutine s13
+  block
+    !ERROR: COMMON statement is not allowed in a BLOCK construct
+    common x
+  end block
+end
+
+subroutine s14
+  !ERROR: 'c' appears as a COMMON block in a BIND statement but not in a COMMON statement
+  bind(c) :: /c/
 end
