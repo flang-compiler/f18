@@ -280,10 +280,19 @@ protected:
     } derived;
   };
 
+  // Walk the parse tree of a type spec and return the DeclTypeSpec for it.
+  template<typename T> const DeclTypeSpec *ProcessTypeSpec(const T &x) {
+    auto save{common::ScopedSet(state_, State{})};
+    BeginDeclTypeSpec();
+    Walk(x);
+    const auto *type{GetDeclTypeSpec()};
+    EndDeclTypeSpec();
+    return type;
+  }
+
   const DeclTypeSpec *GetDeclTypeSpec();
   void BeginDeclTypeSpec();
   void EndDeclTypeSpec();
-  State SetDeclTypeSpecState(State);
   void SetDeclTypeSpec(const DeclTypeSpec &);
   void SetDeclTypeSpecCategory(DeclTypeSpec::Category);
   DeclTypeSpec::Category GetDeclTypeSpecCategory() const {
@@ -405,6 +414,7 @@ public:
 
   // Special messages: already declared; referencing symbol's declaration;
   // about a type; two names & locations
+  void SayAlreadyDeclared(const SourceName &, const Symbol &);
   void SayAlreadyDeclared(const parser::Name &, const Symbol &);
   void SayWithDecl(const parser::Name &, const Symbol &, MessageFixedText &&);
   void SayDerivedType(const SourceName &, MessageFixedText &&, const Scope &);
@@ -552,7 +562,6 @@ private:
 class InterfaceVisitor : public virtual ScopeHandler {
 public:
   bool Pre(const parser::InterfaceStmt &);
-  void Post(const parser::InterfaceStmt &);
   void Post(const parser::EndInterfaceStmt &);
   bool Pre(const parser::GenericSpec &);
   bool Pre(const parser::ProcedureStmt &);
@@ -599,14 +608,22 @@ public:
   bool Pre(const parser::SeparateModuleSubprogram &);
   void Post(const parser::SeparateModuleSubprogram &);
   bool Pre(const parser::Suffix &);
+  bool Pre(const parser::PrefixSpec &);
+  void Post(const parser::ImplicitPart &);
 
 protected:
   // Set when we see a stmt function that is really an array element assignment
   bool badStmtFuncFound_{false};
 
 private:
-  // Function result name from parser::Suffix, if any.
-  const parser::Name *funcResultName_{nullptr};
+  // Info about the current function: parse tree of the type in the PrefixSpec;
+  // name and symbol of the function result from the Suffix; source location.
+  struct {
+    const parser::DeclarationTypeSpec *parsedType{nullptr};
+    const parser::Name *resultName{nullptr};
+    Symbol *resultSymbol{nullptr};
+    const SourceName *source{nullptr};
+  } funcInfo_;
 
   bool BeginSubprogram(const parser::Name &, Symbol::Flag, bool hasModulePrefix,
       const std::optional<parser::InternalSubprogramPart> &);
@@ -949,7 +966,6 @@ public:
   template<typename T> bool Pre(const T &) { return true; }
   template<typename T> void Post(const T &) {}
 
-  bool Pre(const parser::PrefixSpec &);
   void Post(const parser::SpecificationPart &);
   bool Pre(const parser::MainProgram &);
   void Post(const parser::EndProgramStmt &);
@@ -962,11 +978,8 @@ public:
   void Post(const parser::Designator &);
   template<typename T> void Post(const parser::LoopBounds<T> &);
   void Post(const parser::ProcComponentRef &);
-  void Post(const parser::ProcedureDesignator &);
   bool Pre(const parser::FunctionReference &);
-  void Post(const parser::FunctionReference &);
   bool Pre(const parser::CallStmt &);
-  void Post(const parser::CallStmt &);
   bool Pre(const parser::ImportStmt &);
   void Post(const parser::TypeGuardStmt &);
   bool Pre(const parser::StmtFunctionStmt &);
@@ -989,7 +1002,9 @@ private:
 
   void CheckImports();
   void CheckImport(const SourceName &, const SourceName &);
-  bool SetProcFlag(const parser::Name &, Symbol &);
+  void HandleCall(Symbol::Flag, const parser::Call &);
+  void HandleProcedureName(Symbol::Flag, const parser::Name &);
+  bool SetProcFlag(const parser::Name &, Symbol &, Symbol::Flag);
 };
 
 // ImplicitRules implementation
@@ -1186,12 +1201,6 @@ void DeclTypeSpecVisitor::BeginDeclTypeSpec() {
 void DeclTypeSpecVisitor::EndDeclTypeSpec() {
   CHECK(state_.expectDeclTypeSpec);
   state_ = {};
-}
-
-DeclTypeSpecVisitor::State DeclTypeSpecVisitor::SetDeclTypeSpecState(State x) {
-  auto result{state_};
-  state_ = x;
-  return result;
 }
 
 void DeclTypeSpecVisitor::SetDeclTypeSpecCategory(
@@ -1474,12 +1483,28 @@ Bound ArraySpecVisitor::GetBound(const parser::SpecificationExpr &x) {
 
 void ScopeHandler::SayAlreadyDeclared(
     const parser::Name &name, const Symbol &prev) {
-  Say2(name, "'%s' is already declared in this scoping unit"_err_en_US, prev,
-      "Previous declaration of '%s'"_en_US);
+  SayAlreadyDeclared(name.source, prev);
 }
+void ScopeHandler::SayAlreadyDeclared(
+    const SourceName &name, const Symbol &prev) {
+  auto &msg{
+      Say(name, "'%s' is already declared in this scoping unit"_err_en_US)};
+  if (const auto *details{prev.detailsIf<UseDetails>()}) {
+    msg.Attach(details->location(),
+        "It is use-associated with '%s' in module '%s'"_err_en_US,
+        details->symbol().name().ToString().c_str(),
+        details->module().name().ToString().c_str());
+  } else {
+    msg.Attach(prev.name(), "Previous declaration of '%s'"_en_US,
+        prev.name().ToString().c_str());
+  }
+}
+
 void ScopeHandler::SayWithDecl(
     const parser::Name &name, const Symbol &symbol, MessageFixedText &&msg) {
-  Say2(name, std::move(msg), symbol, "Declaration of '%s'"_en_US);
+  Say2(name, std::move(msg), symbol,
+      symbol.test(Symbol::Flag::Implicit) ? "Implicit declaration of '%s'"_en_US
+                                          : "Declaration of '%s'"_en_US);
 }
 void ScopeHandler::SayDerivedType(
     const SourceName &name, MessageFixedText &&msg, const Scope &type) {
@@ -1696,11 +1721,12 @@ bool ScopeHandler::ConvertToProcEntity(Symbol &symbol) {
     symbol.set_details(ProcEntityDetails{});
   } else if (auto *details{symbol.detailsIf<EntityDetails>()}) {
     symbol.set_details(ProcEntityDetails{std::move(*details)});
+    if (symbol.GetType() && !symbol.test(Symbol::Flag::Implicit)) {
+      CHECK(!symbol.test(Symbol::Flag::Subroutine));
+      symbol.set(Symbol::Flag::Function);
+    }
   } else {
     return false;
-  }
-  if (symbol.GetType()) {
-    symbol.set(Symbol::Flag::Function);
   }
   return true;
 }
@@ -1933,15 +1959,9 @@ bool InterfaceVisitor::Pre(const parser::InterfaceStmt &x) {
   isAbstract_ = std::holds_alternative<parser::Abstract>(x.u);
   return true;
 }
-void InterfaceVisitor::Post(const parser::InterfaceStmt &) {}
 
 void InterfaceVisitor::Post(const parser::EndInterfaceStmt &) {
-  if (genericName_) {
-    if (const auto *proc{GetGenericDetails().CheckSpecific()}) {
-      SayAlreadyDeclared(*genericName_, *proc);
-    }
-    genericName_ = nullptr;
-  }
+  genericName_ = nullptr;
   inInterfaceBlock_ = false;
   isAbstract_ = false;
 }
@@ -2084,6 +2104,9 @@ void InterfaceVisitor::ResolveSpecificsInGeneric(Symbol &generic) {
 void InterfaceVisitor::CheckGenericProcedures(Symbol &generic) {
   ResolveSpecificsInGeneric(generic);
   auto &details{generic.get<GenericDetails>()};
+  if (const auto *proc{details.CheckSpecific()}) {
+    SayAlreadyDeclared(generic.name(), *proc);
+  }
   auto &specifics{details.specificProcs()};
   if (specifics.empty()) {
     if (details.derivedType()) {
@@ -2166,9 +2189,31 @@ bool SubprogramVisitor::HandleStmtFunction(const parser::StmtFunctionStmt &x) {
 
 bool SubprogramVisitor::Pre(const parser::Suffix &suffix) {
   if (suffix.resultName) {
-    funcResultName_ = &suffix.resultName.value();
+    funcInfo_.resultName = &suffix.resultName.value();
   }
   return true;
+}
+
+bool SubprogramVisitor::Pre(const parser::PrefixSpec &x) {
+  // Save this to process after UseStmt and ImplicitPart
+  if (const auto *parsedType{std::get_if<parser::DeclarationTypeSpec>(&x.u)}) {
+    funcInfo_.parsedType = parsedType;
+    funcInfo_.source = currStmtSource();
+    return false;
+  } else {
+    return true;
+  }
+}
+
+void SubprogramVisitor::Post(const parser::ImplicitPart &) {
+  // If the function has a type in the prefix, process it now
+  if (funcInfo_.parsedType) {
+    messageHandler().set_currStmtSource(funcInfo_.source);
+    if (const auto *type{ProcessTypeSpec(*funcInfo_.parsedType)}) {
+      funcInfo_.resultSymbol->SetType(*type);
+    }
+  }
+  funcInfo_ = {};
 }
 
 bool HasModulePrefix(const std::list<parser::PrefixSpec> &prefixes) {
@@ -2232,10 +2277,6 @@ bool SubprogramVisitor::Pre(const parser::SubroutineStmt &stmt) {
   return BeginAttrs();
 }
 bool SubprogramVisitor::Pre(const parser::FunctionStmt &stmt) {
-  if (!subpNamesOnly_) {
-    BeginDeclTypeSpec();
-    CHECK(!funcResultName_);
-  }
   return BeginAttrs();
 }
 
@@ -2257,23 +2298,18 @@ void SubprogramVisitor::Post(const parser::FunctionStmt &stmt) {
     Symbol &dummy{MakeSymbol(dummyName, EntityDetails(true))};
     details.add_dummyArg(dummy);
   }
-  // add function result to function scope
-  EntityDetails funcResultDetails;
-  funcResultDetails.set_funcResult(true);
-  if (auto *type{GetDeclTypeSpec()}) {
-    funcResultDetails.set_type(*type);
-  }
-  EndDeclTypeSpec();
-
   const parser::Name *funcResultName;
-  if (funcResultName_ && funcResultName_->source != name.source) {
-    funcResultName = funcResultName_;
+  if (funcInfo_.resultName && funcInfo_.resultName->source != name.source) {
+    funcResultName = funcInfo_.resultName;
   } else {
     EraseSymbol(name);  // was added by PushSubprogramScope
     funcResultName = &name;
   }
-  details.set_result(MakeSymbol(*funcResultName, funcResultDetails));
-  funcResultName_ = nullptr;
+  // add function result to function scope
+  EntityDetails funcResultDetails;
+  funcResultDetails.set_funcResult(true);
+  funcInfo_.resultSymbol = &MakeSymbol(*funcResultName, funcResultDetails);
+  details.set_result(*funcInfo_.resultSymbol);
 }
 
 SubprogramDetails &SubprogramVisitor::PostSubprogramStmt(
@@ -2340,6 +2376,20 @@ Symbol &SubprogramVisitor::PushSubprogramScope(
     const parser::Name &name, Symbol::Flag subpFlag) {
   auto *symbol{GetSpecificFromGeneric(name)};
   if (!symbol) {
+    if (auto *prev{FindSymbol(name)}) {
+      if (prev->attrs().test(Attr::EXTERNAL) &&
+          prev->has<ProcEntityDetails>()) {
+        // this subprogram was previously called, now being declared
+        if (!prev->test(subpFlag)) {
+          Say2(name,
+              subpFlag == Symbol::Flag::Function
+                  ? "'%s' was previously called as a subroutine"_err_en_US
+                  : "'%s' was previously called as a function"_err_en_US,
+              *prev, "Previous call of '%s'"_en_US);
+        }
+        EraseSymbol(name);
+      }
+    }
     symbol = &MakeSymbol(name, SubprogramDetails{});
     symbol->set(subpFlag);
   }
@@ -3239,14 +3289,8 @@ void DeclarationVisitor::Post(const parser::AllocateStmt &) {
 }
 
 bool DeclarationVisitor::Pre(const parser::StructureConstructor &x) {
-  auto savedState{SetDeclTypeSpecState({})};
-  BeginDeclTypeSpec();
   auto &parsedType{std::get<parser::DerivedTypeSpec>(x.t)};
-  Walk(parsedType);
-  const DeclTypeSpec *type{GetDeclTypeSpec()};
-  EndDeclTypeSpec();
-  SetDeclTypeSpecState(savedState);
-
+  const DeclTypeSpec *type{ProcessTypeSpec(parsedType)};
   if (type == nullptr) {
     return false;
   }
@@ -3615,31 +3659,29 @@ Symbol *DeclarationVisitor::DeclareLocalEntity(const parser::Name &name) {
 
 Symbol *DeclarationVisitor::DeclareStatementEntity(const parser::Name &name,
     const std::optional<parser::IntegerTypeSpec> &type) {
+  const DeclTypeSpec *declTypeSpec{nullptr};
   if (auto *prev{FindSymbol(name)}) {
     if (prev->owner() == currScope()) {
       SayAlreadyDeclared(name, *prev);
       return nullptr;
     }
     name.symbol = nullptr;
+    declTypeSpec = prev->GetType();
   }
   Symbol &symbol{DeclareEntity<ObjectEntityDetails>(name, {})};
-  if (symbol.has<ObjectEntityDetails>()) {
-    const DeclTypeSpec *declTypeSpec{nullptr};
-    if (type.has_value()) {
-      BeginDeclTypeSpec();
-      DeclarationVisitor::Post(*type);
-      declTypeSpec = GetDeclTypeSpec();
-      EndDeclTypeSpec();
-    }
-    if (declTypeSpec != nullptr) {
-      SetType(name, *declTypeSpec);
-    } else {
-      ApplyImplicitRules(symbol);
-    }
-    CheckScalarIntegerType(name);
-    return Resolve(name, &symbol);
+  if (!symbol.has<ObjectEntityDetails>()) {
+    return nullptr;  // error was reported in DeclareEntity
   }
-  return nullptr;
+  if (type.has_value()) {
+    declTypeSpec = ProcessTypeSpec(*type);
+  }
+  if (declTypeSpec != nullptr) {
+    SetType(name, *declTypeSpec);
+  } else {
+    ApplyImplicitRules(symbol);
+  }
+  CheckScalarIntegerType(name);
+  return Resolve(name, &symbol);
 }
 
 // Set the type of an entity or report an error.
@@ -3831,12 +3873,7 @@ bool ConstructVisitor::Pre(const parser::LocalitySpec::Shared &x) {
 }
 
 bool ConstructVisitor::Pre(const parser::AcSpec &x) {
-  // AcSpec can occur within a TypeDeclarationStmt: save and restore state
-  auto savedState{SetDeclTypeSpecState({})};
-  BeginDeclTypeSpec();
-  Walk(x.type);
-  EndDeclTypeSpec();
-  SetDeclTypeSpecState(savedState);
+  ProcessTypeSpec(x.type);
   PushScope(Scope::Kind::ImpliedDos, nullptr);
   Walk(x.values);
   PopScope();
@@ -4126,23 +4163,13 @@ const DeclTypeSpec &ConstructVisitor::ToDeclTypeSpec(
 
 // ResolveNamesVisitor implementation
 
-bool ResolveNamesVisitor::Pre(const parser::PrefixSpec &x) {
-  return true;  // TODO
+bool ResolveNamesVisitor::Pre(const parser::FunctionReference &x) {
+  HandleCall(Symbol::Flag::Function, x.v);
+  return false;
 }
-
-bool ResolveNamesVisitor::Pre(const parser::FunctionReference &) {
-  expectedProcFlag_ = Symbol::Flag::Function;
-  return true;
-}
-void ResolveNamesVisitor::Post(const parser::FunctionReference &) {
-  expectedProcFlag_ = std::nullopt;
-}
-bool ResolveNamesVisitor::Pre(const parser::CallStmt &) {
-  expectedProcFlag_ = Symbol::Flag::Subroutine;
-  return true;
-}
-void ResolveNamesVisitor::Post(const parser::CallStmt &) {
-  expectedProcFlag_ = std::nullopt;
+bool ResolveNamesVisitor::Pre(const parser::CallStmt &x) {
+  HandleCall(Symbol::Flag::Subroutine, x.v);
+  return false;
 }
 
 bool ResolveNamesVisitor::Pre(const parser::ImportStmt &x) {
@@ -4307,77 +4334,83 @@ const parser::Name *ResolveNamesVisitor::FindComponent(
   return nullptr;
 }
 
-void ResolveNamesVisitor::Post(const parser::ProcedureDesignator &x) {
-  if (const auto *name{std::get_if<parser::Name>(&x.u)}) {
-    auto *symbol{FindSymbol(*name)};
-    if (symbol == nullptr) {
-      symbol = &MakeSymbol(context().globalScope(), name->source, Attrs{});
-      Resolve(*name, *symbol);
-      if (symbol->has<ModuleDetails>()) {
-        SayWithDecl(*name, *symbol,
-            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
-        return;
-      }
-      if (isImplicitNoneExternal() && !symbol->attrs().test(Attr::EXTERNAL)) {
-        Say(*name,
-            "'%s' is an external procedure without the EXTERNAL"
-            " attribute in a scope with IMPLICIT NONE(EXTERNAL)"_err_en_US);
-        return;
-      }
-      symbol->attrs().set(Attr::EXTERNAL);
-      if (!symbol->has<ProcEntityDetails>()) {
-        // symbol->set_details(ProcEntityDetails{});
-        ConvertToProcEntity(*symbol);
-      }
-      if (const auto type{GetImplicitType(*symbol)}) {
-        symbol->get<ProcEntityDetails>().interface().set_type(*type);
-      }
-      SetProcFlag(*name, *symbol);
-    } else if (symbol->has<UnknownDetails>()) {
-      CHECK(!"unexpected UnknownDetails");
-    } else if (CheckUseError(*name)) {
-      // error was reported
-    } else {
-      symbol = Resolve(*name, &symbol->GetUltimate());
+void ResolveNamesVisitor::HandleCall(
+    Symbol::Flag procFlag, const parser::Call &call) {
+  std::visit(
+      common::visitors{
+          [&](const parser::Name &x) { HandleProcedureName(procFlag, x); },
+          [&](const parser::ProcComponentRef &x) { Walk(x); },
+      },
+      std::get<parser::ProcedureDesignator>(call.t).u);
+  Walk(std::get<std::list<parser::ActualArgSpec>>(call.t));
+}
+
+void ResolveNamesVisitor::HandleProcedureName(
+    Symbol::Flag flag, const parser::Name &name) {
+  CHECK(flag == Symbol::Flag::Function || flag == Symbol::Flag::Subroutine);
+  auto *symbol{FindSymbol(name)};
+  if (symbol == nullptr) {
+    symbol = &MakeSymbol(context().globalScope(), name.source, Attrs{});
+    Resolve(name, *symbol);
+    if (symbol->has<ModuleDetails>()) {
+      SayWithDecl(name, *symbol,
+          "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
+      return;
+    }
+    if (isImplicitNoneExternal() && !symbol->attrs().test(Attr::EXTERNAL)) {
+      Say(name,
+          "'%s' is an external procedure without the EXTERNAL"
+          " attribute in a scope with IMPLICIT NONE(EXTERNAL)"_err_en_US);
+      return;
+    }
+    symbol->attrs().set(Attr::EXTERNAL);
+    if (!symbol->has<ProcEntityDetails>()) {
       ConvertToProcEntity(*symbol);
-      if (!SetProcFlag(*name, *symbol)) {
-        return;  // reported error
-      }
-      if (symbol->has<ProcEntityDetails>() ||
-          symbol->has<SubprogramDetails>() ||
-          symbol->has<DerivedTypeDetails>() ||
-          symbol->has<ObjectEntityDetails>() ||
-          symbol->has<SubprogramNameDetails>() ||
-          symbol->has<GenericDetails>()) {
-        // these are all valid as procedure-designators
-      } else if (symbol->test(Symbol::Flag::Implicit)) {
-        Say(*name,
-            "Use of '%s' as a procedure conflicts with its implicit definition"_err_en_US);
-      } else {
-        SayWithDecl(*name, *symbol,
-            "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
-      }
+    }
+    if (const auto type{GetImplicitType(*symbol)}) {
+      symbol->get<ProcEntityDetails>().interface().set_type(*type);
+    }
+    SetProcFlag(name, *symbol, flag);
+  } else if (symbol->has<UnknownDetails>()) {
+    CHECK(!"unexpected UnknownDetails");
+  } else if (CheckUseError(name)) {
+    // error was reported
+  } else {
+    symbol = Resolve(name, &symbol->GetUltimate());
+    ConvertToProcEntity(*symbol);
+    if (!SetProcFlag(name, *symbol, flag)) {
+      return;  // reported error
+    }
+    if (symbol->has<SubprogramNameDetails>() || symbol->has<GenericDetails>() ||
+        symbol->has<DerivedTypeDetails>() || symbol->has<SubprogramDetails>() ||
+        symbol->has<ProcEntityDetails>() ||
+        symbol->has<ObjectEntityDetails>()) {
+      // these are all valid as procedure-designators
+    } else if (symbol->test(Symbol::Flag::Implicit)) {
+      Say(name,
+          "Use of '%s' as a procedure conflicts with its implicit definition"_err_en_US);
+    } else {
+      SayWithDecl(name, *symbol,
+          "Use of '%s' as a procedure conflicts with its declaration"_err_en_US);
     }
   }
 }
 
 // Check and set the Function or Subroutine flag on symbol; false on error.
 bool ResolveNamesVisitor::SetProcFlag(
-    const parser::Name &name, Symbol &symbol) {
-  CHECK(expectedProcFlag_);
-  if (symbol.test(Symbol::Flag::Function) &&
-      expectedProcFlag_ == Symbol::Flag::Subroutine) {
+    const parser::Name &name, Symbol &symbol, Symbol::Flag flag) {
+  if (symbol.test(Symbol::Flag::Function) && flag == Symbol::Flag::Subroutine) {
     SayWithDecl(
         name, symbol, "Cannot call function '%s' like a subroutine"_err_en_US);
     return false;
   } else if (symbol.test(Symbol::Flag::Subroutine) &&
-      expectedProcFlag_ == Symbol::Flag::Function) {
+      flag == Symbol::Flag::Function) {
     SayWithDecl(
         name, symbol, "Cannot call subroutine '%s' like a function"_err_en_US);
     return false;
   } else if (symbol.has<ProcEntityDetails>()) {
-    symbol.set(*expectedProcFlag_);  // in case it hasn't been set yet
-    if (expectedProcFlag_ == Symbol::Flag::Function) {
+    symbol.set(flag);  // in case it hasn't been set yet
+    if (flag == Symbol::Flag::Function) {
       ApplyImplicitRules(symbol);
     }
   }
