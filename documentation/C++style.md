@@ -204,6 +204,8 @@ optional deep copy semantics; reassignable.
 Often better than a reference (due to ownership) or `std::unique_ptr<>`
 (due to non-nullability and copyability).
 Can be wrapped in `std::optional<>` when nullability is required.
+* `ForwardReference<>`: A non-nullable `OwningPointer<>`, or a variant of
+`Indirection<>` that works with forward-declared content types; it's both.
 * `CountedReference<>`: A nullable pointer with shared ownership via
 reference counting, null by default, shallowly copyable, reassignable.
 Safe to use *only* when the data are private to just one
@@ -221,6 +223,7 @@ A feature matrix:
 | `shared_ptr<>`       | yes      | yes          | yes    | yes          | shallowly         | no                 |
 | `OwningPointer<>`    | yes      | yes          | yes    | yes          | optionally deeply | yes                |
 | `Indirection<>`      | no       | n/a          | yes    | yes          | optionally deeply | no                 |
+| `ForwardReference<>` | no       | n/a          | yes    | yes          | optionally deeply | yes                |
 | `CountedReference<>` | yes      | yes          | yes    | yes          | shallowly         | no                 |
 
 ### Overall design preferences
