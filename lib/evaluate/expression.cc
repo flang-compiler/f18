@@ -43,15 +43,18 @@ template<typename TO, TypeCategory FROMCAT>
 std::ostream &Convert<TO, FROMCAT>::AsFortran(std::ostream &o) const {
   static_assert(TO::category == TypeCategory::Integer ||
       TO::category == TypeCategory::Real ||
+      TO::category == TypeCategory::Character ||
       TO::category == TypeCategory::Logical || !"Convert<> to bad category!");
-  if constexpr (TO::category == TypeCategory::Integer) {
-    o << "int";
+  if constexpr (TO::category == TypeCategory::Character) {
+    this->left().AsFortran(o << "achar(iachar(") << ')';
+  } else if constexpr (TO::category == TypeCategory::Integer) {
+    this->left().AsFortran(o << "int(");
   } else if constexpr (TO::category == TypeCategory::Real) {
-    o << "real";
-  } else if constexpr (TO::category == TypeCategory::Logical) {
-    o << "logical";
+    this->left().AsFortran(o << "real(");
+  } else {
+    this->left().AsFortran(o << "logical(");
   }
-  return this->left().AsFortran(o << '(') << ",kind=" << TO::kind << ')';
+  return o << ",kind=" << TO::kind << ')';
 }
 
 template<typename A> std::ostream &Relational<A>::Infix(std::ostream &o) const {
@@ -84,7 +87,7 @@ std::ostream &LogicalOperation<KIND>::Infix(std::ostream &o) const {
 
 template<typename T>
 std::ostream &Emit(std::ostream &o, const CopyableIndirection<Expr<T>> &expr) {
-  return expr->AsFortran(o);
+  return expr.value().AsFortran(o);
 }
 
 template<typename T>
@@ -93,12 +96,12 @@ std::ostream &Emit(std::ostream &, const ArrayConstructorValues<T> &);
 template<typename T>
 std::ostream &Emit(std::ostream &o, const ImpliedDo<T> &implDo) {
   o << '(';
-  Emit(o, *implDo.values);
+  Emit(o, implDo.values());
   o << ',' << ImpliedDoIndex::Result::AsFortran()
-    << "::" << implDo.name.ToString() << '=';
-  implDo.lower->AsFortran(o) << ',';
-  implDo.upper->AsFortran(o) << ',';
-  implDo.stride->AsFortran(o) << ')';
+    << "::" << implDo.name().ToString() << '=';
+  implDo.lower().AsFortran(o) << ',';
+  implDo.upper().AsFortran(o) << ',';
+  implDo.stride().AsFortran(o) << ')';
   return o;
 }
 
@@ -143,7 +146,10 @@ std::ostream &ExpressionBase<RESULT>::AsFortran(std::ostream &o) const {
           [&](const BOZLiteralConstant &x) {
             o << "z'" << x.Hexadecimal() << "'";
           },
-          [&](const CopyableIndirection<Substring> &s) { s->AsFortran(o); },
+          [&](const NullPointer &) { o << "NULL()"; },
+          [&](const CopyableIndirection<Substring> &s) {
+            s.value().AsFortran(o);
+          },
           [&](const ImpliedDoIndex &i) { o << i.name.ToString(); },
           [&](const auto &x) { x.AsFortran(o); },
       },
@@ -160,6 +166,10 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
           },
           [](const ArrayConstructor<Result> &a) { return a.LEN(); },
           [](const Parentheses<Result> &x) { return x.left().LEN(); },
+          [](const Convert<Result> &x) {
+            return std::visit(
+                [&](const auto &kx) { return kx.LEN(); }, x.left().u);
+          },
           [](const Concat<KIND> &c) {
             return c.left().LEN() + c.right().LEN();
           },
@@ -169,6 +179,7 @@ Expr<SubscriptInteger> Expr<Type<TypeCategory::Character, KIND>>::LEN() const {
           },
           [](const Designator<Result> &dr) { return dr.LEN(); },
           [](const FunctionRef<Result> &fr) { return fr.LEN(); },
+          [](const SetLength<KIND> &x) { return x.right(); },
       },
       u);
 }
@@ -194,8 +205,9 @@ std::optional<DynamicType> ExpressionBase<A>::GetType() const {
   } else {
     return std::visit(
         [](const auto &x) -> std::optional<DynamicType> {
-          if constexpr (!std::is_same_v<std::decay_t<decltype(x)>,
-                            BOZLiteralConstant>) {
+          using Ty = std::decay_t<decltype(x)>;
+          if constexpr (!std::is_same_v<Ty, BOZLiteralConstant> &&
+              !std::is_same_v<Ty, NullPointer>) {
             return x.GetType();
           }
           return std::nullopt;  // typeless really means "no type"
@@ -225,8 +237,9 @@ bool ImpliedDoIndex::operator==(const ImpliedDoIndex &that) const {
 
 template<typename T>
 bool ImpliedDo<T>::operator==(const ImpliedDo<T> &that) const {
-  return name == that.name && lower == that.lower && upper == that.upper &&
-      stride == that.stride && values == that.values;
+  return name_ == that.name_ && lower_ == that.lower_ &&
+      upper_ == that.upper_ && stride_ == that.stride_ &&
+      values_ == that.values_;
 }
 
 template<typename R>
@@ -278,7 +291,7 @@ std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
   } else {
     char ch{'('};
     for (const auto &[symbol, value] : values_) {
-      value->AsFortran(o << ch << symbol->name().ToString() << '=');
+      value.value().AsFortran(o << ch << symbol->name().ToString() << '=');
       ch = ',';
     }
   }
@@ -287,7 +300,7 @@ std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
 
 std::ostream &DerivedTypeSpecAsFortran(
     std::ostream &o, const semantics::DerivedTypeSpec &spec) {
-  o << "TYPE("s << spec.typeSymbol().name().ToString();
+  o << spec.typeSymbol().name().ToString();
   if (!spec.parameters().empty()) {
     char ch{'('};
     for (const auto &[name, value] : spec.parameters()) {
