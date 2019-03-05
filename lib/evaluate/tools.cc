@@ -347,6 +347,10 @@ std::optional<Expr<SomeType>> Negation(
             messages.Say("BOZ literal cannot be negated"_err_en_US);
             return NoExpr();
           },
+          [&](NullPointer &&) {
+            messages.Say("NULL() cannot be negated"_err_en_US);
+            return NoExpr();
+          },
           [&](Expr<SomeInteger> &&x) { return Package(-std::move(x)); },
           [&](Expr<SomeReal> &&x) { return Package(-std::move(x)); },
           [&](Expr<SomeComplex> &&x) { return Package(-std::move(x)); },
@@ -501,7 +505,8 @@ std::optional<Expr<SomeType>> ConvertToNumeric(int kind, Expr<SomeType> &&x) {
   return std::visit(
       [=](auto &&cx) -> std::optional<Expr<SomeType>> {
         using cxType = std::decay_t<decltype(cx)>;
-        if constexpr (!std::is_same_v<cxType, BOZLiteralConstant>) {
+        if constexpr (!std::is_same_v<cxType, BOZLiteralConstant> &&
+            !std::is_same_v<cxType, NullPointer>) {
           if constexpr (IsNumericTypeCategory(ResultType<cxType>::category)) {
             return std::make_optional(
                 Expr<SomeType>{ConvertToKind<TO>(kind, std::move(cx))});
@@ -522,12 +527,25 @@ std::optional<Expr<SomeType>> ConvertToType(
   case TypeCategory::Complex:
     return ConvertToNumeric<TypeCategory::Complex>(type.kind, std::move(x));
   case TypeCategory::Character:
-    if (auto fromType{x.GetType()}) {
-      if (fromType->category == TypeCategory::Character &&
-          fromType->kind == type.kind) {
-        // TODO pmk: adjusting CHARACTER length via conversion
-        return std::move(x);
+    if (auto *cx{UnwrapExpr<Expr<SomeCharacter>>(x)}) {
+      auto converted{
+          ConvertToKind<TypeCategory::Character>(type.kind, std::move(*cx))};
+      if (type.charLength != nullptr) {
+        if (const auto &len{type.charLength->GetExplicit()}) {
+          Expr<SomeInteger> lenParam{*len};
+          Expr<SubscriptInteger> length{Convert<SubscriptInteger>{lenParam}};
+          converted = std::visit(
+              [&](auto &&x) {
+                using Ty = std::decay_t<decltype(x)>;
+                using CharacterType = typename Ty::Result;
+                return Expr<SomeCharacter>{
+                    Expr<CharacterType>{SetLength<CharacterType::kind>{
+                        std::move(x), std::move(length)}}};
+              },
+              std::move(converted.u));
+        }
       }
+      return Expr<SomeType>{std::move(converted)};
     }
     break;
   case TypeCategory::Logical:
@@ -538,12 +556,25 @@ std::optional<Expr<SomeType>> ConvertToType(
     break;
   case TypeCategory::Derived:
     if (auto fromType{x.GetType()}) {
-      if (type == fromType) {
+      if (type == *fromType) {
         return std::move(x);
       }
     }
     break;
   default: CRASH_NO_CASE;
+  }
+  return std::nullopt;
+}
+
+std::optional<Expr<SomeType>> ConvertToType(
+    const semantics::Symbol &symbol, Expr<SomeType> &&x) {
+  if (int xRank{x.Rank()}; xRank > 0) {
+    if (symbol.Rank() != xRank) {
+      return std::nullopt;
+    }
+  }
+  if (auto symType{GetSymbolType(symbol)}) {
+    return ConvertToType(*symType, std::move(x));
   }
   return std::nullopt;
 }

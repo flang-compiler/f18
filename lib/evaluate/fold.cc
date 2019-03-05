@@ -79,7 +79,7 @@ Subscript FoldOperation(FoldingContext &context, Subscript &&subscript) {
   return std::visit(
       common::visitors{
           [&](IndirectSubscriptIntegerExpr &&expr) {
-            *expr = Fold(context, std::move(*expr));
+            expr.value() = Fold(context, std::move(expr.value()));
             return Subscript(std::move(expr));
           },
           [&](Triplet &&triplet) {
@@ -161,20 +161,21 @@ Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&funcRef) {
   ActualArguments args{std::move(funcRef.arguments())};
   for (std::optional<ActualArgument> &arg : args) {
     if (arg.has_value()) {
-      *arg->value = FoldOperation(context, std::move(*arg->value));
+      arg.value().value() =
+          FoldOperation(context, std::move(arg.value().value()));
     }
   }
   if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
     std::string name{intrinsic->name};
     if (name == "kind") {
       if constexpr (common::HasMember<T, IntegerTypes>) {
-        return Expr<T>{args[0]->value->GetType()->kind};
+        return Expr<T>{args[0].value().GetType()->kind};
       } else {
         common::die("kind() result not integral");
       }
     } else if (name == "len") {
       if constexpr (std::is_same_v<T, SubscriptInteger>) {
-        if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(*args[0]->value)}) {
+        if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0].value())}) {
           return std::visit([](auto &kx) { return kx.LEN(); }, charExpr->u);
         }
       } else {
@@ -250,7 +251,7 @@ public:
 
 private:
   bool FoldArray(const CopyableIndirection<Expr<T>> &expr) {
-    Expr<T> folded{Fold(context_, common::Clone(*expr))};
+    Expr<T> folded{Fold(context_, common::Clone(expr.value()))};
     if (auto *c{UnwrapExpr<Constant<T>>(folded)}) {
       // Copy elements in Fortran array element order
       std::vector<std::int64_t> shape{c->shape()};
@@ -276,20 +277,20 @@ private:
   }
   bool FoldArray(const ImpliedDo<T> &iDo) {
     Expr<SubscriptInteger> lower{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.lower})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.lower()})};
     Expr<SubscriptInteger> upper{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.upper})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.upper()})};
     Expr<SubscriptInteger> stride{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.stride})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.stride()})};
     std::optional<std::int64_t> start{ToInt64(lower)}, end{ToInt64(upper)},
         step{ToInt64(stride)};
     if (start.has_value() && end.has_value() && step.has_value()) {
       bool result{true};
-      for (std::int64_t &j{context_.StartImpliedDo(iDo.name, *start)};
+      for (std::int64_t &j{context_.StartImpliedDo(iDo.name(), *start)};
            j <= *end; j += *step) {
-        result &= FoldArray(*iDo.values);
+        result &= FoldArray(iDo.values());
       }
-      context_.EndImpliedDo(iDo.name);
+      context_.EndImpliedDo(iDo.name());
       return result;
     } else {
       return false;
@@ -322,7 +323,7 @@ Expr<SomeDerived> FoldOperation(
     FoldingContext &context, StructureConstructor &&structure) {
   StructureConstructor result{structure.derivedTypeSpec()};
   for (auto &&[symbol, value] : std::move(structure.values())) {
-    result.Add(*symbol, Fold(context, std::move(*value)));
+    result.Add(*symbol, Fold(context, std::move(value.value())));
   }
   return Expr<SomeDerived>{Constant<SomeDerived>{result}};
 }
@@ -366,6 +367,23 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
 
 // Unary operations
 
+template<typename TO, typename FROM> std::optional<TO> ConvertString(FROM &&s) {
+  if constexpr (std::is_same_v<TO, FROM>) {
+    return std::make_optional<TO>(std::move(s));
+  } else {
+    // Fortran character conversion is well defined between distinct kinds
+    // only when the actual characters are valid 7-bit ASCII.
+    TO str;
+    for (auto iter{s.cbegin()}; iter != s.cend(); ++iter) {
+      if (static_cast<std::uint64_t>(*iter) > 127) {
+        return std::nullopt;
+      }
+      str.push_back(*iter);
+    }
+    return std::make_optional<TO>(std::move(str));
+  }
+}
+
 template<typename TO, TypeCategory FROMCAT>
 Expr<TO> FoldOperation(
     FoldingContext &context, Convert<TO, FROMCAT> &&convert) {
@@ -383,7 +401,7 @@ Expr<TO> FoldOperation(
                     "INTEGER(%d) to INTEGER(%d) conversion overflowed"_en_US,
                     Operand::kind, TO::kind);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             } else if constexpr (Operand::category == TypeCategory::Real) {
               auto converted{value->template ToInteger<Scalar<TO>>()};
               if (converted.flags.test(RealFlag::InvalidArgument)) {
@@ -395,7 +413,7 @@ Expr<TO> FoldOperation(
                     "REAL(%d) to INTEGER(%d) conversion overflowed"_en_US,
                     Operand::kind, TO::kind);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             }
           } else if constexpr (TO::category == TypeCategory::Real) {
             if constexpr (Operand::category == TypeCategory::Integer) {
@@ -406,7 +424,7 @@ Expr<TO> FoldOperation(
                     TO::kind);
                 RealFlagWarnings(context, converted.flags, buffer);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             } else if constexpr (Operand::category == TypeCategory::Real) {
               auto converted{Scalar<TO>::Convert(*value)};
               if (!converted.flags.empty()) {
@@ -417,11 +435,16 @@ Expr<TO> FoldOperation(
               if (context.flushSubnormalsToZero()) {
                 converted.value = converted.value.FlushSubnormalToZero();
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
+            }
+          } else if constexpr (TO::category == TypeCategory::Character &&
+              Operand::category == TypeCategory::Character) {
+            if (auto converted{ConvertString<Scalar<TO>>(std::move(*value))}) {
+              return ScalarConstantToExpr(std::move(*converted));
             }
           } else if constexpr (TO::category == TypeCategory::Logical &&
               Operand::category == TypeCategory::Logical) {
-            return Expr<TO>{Constant<TO>{value->IsTrue()}};
+            return Expr<TO>{value->IsTrue()};
           }
         }
         return Expr<TO>{std::move(convert)};
@@ -680,6 +703,24 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(
   return Expr<Result>{std::move(x)};
 }
 
+template<int KIND>
+Expr<Type<TypeCategory::Character, KIND>> FoldOperation(
+    FoldingContext &context, SetLength<KIND> &&x) {
+  using Result = Type<TypeCategory::Character, KIND>;
+  if (auto folded{FoldOperands(context, x.left(), x.right())}) {
+    auto oldLength{static_cast<std::int64_t>(folded->first.size())};
+    auto newLength{folded->second.ToInt64()};
+    if (newLength < oldLength) {
+      folded->first.erase(newLength);
+    } else {
+      folded->first.append(newLength - oldLength, ' ');
+    }
+    CHECK(static_cast<std::int64_t>(folded->first.size()) == newLength);
+    return Expr<Result>{Constant<Result>{std::move(folded->first)}};
+  }
+  return Expr<Result>{std::move(x)};
+}
+
 template<typename T>
 Expr<LogicalResult> FoldOperation(
     FoldingContext &context, Relational<T> &&relation) {
@@ -737,11 +778,14 @@ Expr<T> ExpressionBase<T>::Rewrite(FoldingContext &context, Expr<T> &&expr) {
           return FoldOperation(context, std::move(x));
         } else if constexpr (std::is_same_v<T, SomeDerived>) {
           return FoldOperation(context, std::move(x));
-        } else if constexpr (std::is_same_v<BOZLiteralConstant,
-                                 std::decay_t<decltype(x)>>) {
-          return std::move(expr);
         } else {
-          return Expr<T>{Fold(context, std::move(x))};
+          using Ty = std::decay_t<decltype(x)>;
+          if constexpr (std::is_same_v<Ty, BOZLiteralConstant> ||
+              std::is_same_v<Ty, NullPointer>) {
+            return std::move(expr);
+          } else {
+            return Expr<T>{Fold(context, std::move(x))};
+          }
         }
       },
       std::move(expr.u));
@@ -767,6 +811,7 @@ struct ConstExprContext {
 bool IsConstExpr(ConstExprContext &, const BOZLiteralConstant &) {
   return true;
 }
+bool IsConstExpr(ConstExprContext &, const NullPointer &) { return true; }
 template<typename A> bool IsConstExpr(ConstExprContext &, const Constant<A> &) {
   return true;
 }
@@ -838,14 +883,14 @@ bool IsConstExpr(
 }
 template<typename V>
 bool IsConstExpr(ConstExprContext &context, const ImpliedDo<V> &impliedDo) {
-  if (!IsConstExpr(context, impliedDo.lower) ||
-      !IsConstExpr(context, impliedDo.upper) ||
-      !IsConstExpr(context, impliedDo.stride)) {
+  if (!IsConstExpr(context, impliedDo.lower()) ||
+      !IsConstExpr(context, impliedDo.upper()) ||
+      !IsConstExpr(context, impliedDo.stride())) {
     return false;
   }
   ConstExprContext newContext{context};
-  newContext.constantNames.insert(impliedDo.name);
-  return IsConstExpr(newContext, impliedDo.values);
+  newContext.constantNames.insert(impliedDo.name());
+  return IsConstExpr(newContext, impliedDo.values());
 }
 template<typename A>
 bool IsConstExpr(
@@ -923,7 +968,7 @@ bool IsConstExpr(ConstExprContext &context, const Designator<A> &designator) {
   return IsConstExpr(context, designator.u);
 }
 bool IsConstExpr(ConstExprContext &context, const ActualArgument &arg) {
-  return IsConstExpr(context, *arg.value);
+  return IsConstExpr(context, arg.value());
 }
 template<typename A>
 bool IsConstExpr(ConstExprContext &context, const FunctionRef<A> &funcRef) {
@@ -943,7 +988,7 @@ bool IsConstExpr(ConstExprContext &context, const Expr<A> &expr) {
 }
 template<typename A>
 bool IsConstExpr(ConstExprContext &context, const CopyableIndirection<A> &x) {
-  return IsConstExpr(context, *x);
+  return IsConstExpr(context, x.value());
 }
 template<typename A>
 bool IsConstExpr(ConstExprContext &context, const std::optional<A> &maybe) {

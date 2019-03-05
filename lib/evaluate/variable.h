@@ -55,6 +55,13 @@ struct BaseObject {
   Expr<SubscriptInteger> LEN() const;
   bool operator==(const BaseObject &) const;
   std::ostream &AsFortran(std::ostream &) const;
+  const Symbol *symbol() const {
+    if (const auto *result{std::get_if<const Symbol *>(&u)}) {
+      return *result;
+    } else {
+      return nullptr;
+    }
+  }
   std::variant<const Symbol *, StaticDataObject::Pointer> u;
 };
 
@@ -73,8 +80,8 @@ public:
   Component(CopyableIndirection<DataRef> &&b, const Symbol &c)
     : base_{std::move(b)}, symbol_{&c} {}
 
-  const DataRef &base() const { return *base_; }
-  DataRef &base() { return *base_; }
+  const DataRef &base() const { return base_.value(); }
+  DataRef &base() { return base_.value(); }
   int Rank() const;
   const Symbol &GetFirstSymbol() const;
   const Symbol &GetLastSymbol() const { return *symbol_; }
