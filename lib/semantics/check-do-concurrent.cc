@@ -18,6 +18,7 @@
 #include "semantics.h"
 #include "symbol.h"
 #include "type.h"
+#include "../evaluate/traversal.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree-visitor.h"
 
@@ -300,10 +301,21 @@ static CS GatherLocalVariableNames(
   }
   return names;
 }
+
 static CS GatherReferencesFromExpression(const parser::Expr &expression) {
-  GatherSymbols gatherSymbols;
-  parser::Walk(expression, gatherSymbols);
-  return gatherSymbols.symbols;
+  // Use the new expression traversal framework if possible, for testing.
+  if (expression.typedExpr.has_value()) {
+    struct CollectSymbols : public virtual evaluate::VisitorBase<CS> {
+      explicit CollectSymbols(int) {}
+      void Handle(const Symbol *symbol) { result().push_back(symbol); }
+    };
+    return evaluate::Visitor<CS, CollectSymbols>{0}.Traverse(
+        expression.typedExpr.value());
+  } else {
+    GatherSymbols gatherSymbols;
+    parser::Walk(expression, gatherSymbols);
+    return gatherSymbols.symbols;
+  }
 }
 
 // Find a canonical DO CONCURRENT and enforce semantics checks on its body
