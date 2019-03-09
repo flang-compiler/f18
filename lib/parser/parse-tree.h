@@ -538,8 +538,6 @@ WRAPPER_CLASS(Program, std::list<ProgramUnit>);
 
 // R603 name -> letter [alphanumeric-character]...
 struct Name {
-  Name() {}
-  COPY_AND_ASSIGN_BOILERPLATE(Name);
   std::string ToString() const { return source.ToString(); }
   CharBlock source;
   mutable semantics::Symbol *symbol{nullptr};  // filled in during semantics
@@ -1812,6 +1810,7 @@ struct ArrayElement {
   BOILERPLATE(ArrayElement);
   ArrayElement(DataRef &&dr, std::list<SectionSubscript> &&ss)
     : base{std::move(dr)}, subscripts(std::move(ss)) {}
+  Substring ConvertToSubstring();
   DataRef base;
   std::list<SectionSubscript> subscripts;
 };
@@ -3094,6 +3093,8 @@ struct Call {
 struct FunctionReference {
   WRAPPER_CLASS_BOILERPLATE(FunctionReference, Call);
   Designator ConvertToArrayElementRef();
+  StructureConstructor ConvertToStructureConstructor(
+      const semantics::DerivedTypeSpec &);
 };
 
 // R1521 call-stmt -> CALL procedure-designator [( [actual-arg-spec-list] )]

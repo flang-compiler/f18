@@ -89,32 +89,62 @@ static Designator MakeArrayElementRef(Name &name, std::list<Expr> &subscripts) {
   return Designator{DataRef{common::Indirection{std::move(arrayElement)}}};
 }
 
+static std::optional<Expr> ActualArgToExpr(
+    parser::CharBlock at, ActualArgSpec &arg) {
+  return std::visit(
+      common::visitors{
+          [&](common::Indirection<Expr> &y) {
+            return std::make_optional<Expr>(std::move(y.value()));
+          },
+          [&](common::Indirection<Variable> &y) {
+            return std::visit(
+                [&](auto &indirection) {
+                  std::optional<Expr> result{std::move(indirection.value())};
+                  result->source = at;
+                  return result;
+                },
+                y.value().u);
+          },
+          [&](auto &) -> std::optional<Expr> { return std::nullopt; },
+      },
+      std::get<ActualArg>(arg.t).u);
+}
+
 Designator FunctionReference::ConvertToArrayElementRef() {
   auto &name{std::get<parser::Name>(std::get<ProcedureDesignator>(v.t).u)};
   std::list<Expr> args;
   for (auto &arg : std::get<std::list<ActualArgSpec>>(v.t)) {
-    std::visit(
-        common::visitors{
-            [&](common::Indirection<Expr> &y) {
-              args.push_back(std::move(y.value()));
-            },
-            [&](common::Indirection<Variable> &y) {
-              args.push_back(std::visit(
-                  common::visitors{
-                      [&](common::Indirection<Designator> &z) {
-                        return Expr{std::move(z.value())};
-                      },
-                      [&](common::Indirection<FunctionReference> &z) {
-                        return Expr{std::move(z.value())};
-                      },
-                  },
-                  y.value().u));
-            },
-            [&](auto &) { CHECK(!"unexpected kind of ActualArg"); },
-        },
-        std::get<ActualArg>(arg.t).u);
+    args.emplace_back(std::move(ActualArgToExpr(name.source, arg).value()));
   }
   return MakeArrayElementRef(name, args);
+}
+
+StructureConstructor FunctionReference::ConvertToStructureConstructor(
+    const semantics::DerivedTypeSpec &derived) {
+  Name name{std::get<parser::Name>(std::get<ProcedureDesignator>(v.t).u)};
+  std::list<ComponentSpec> components;
+  for (auto &arg : std::get<std::list<ActualArgSpec>>(v.t)) {
+    std::optional<Keyword> keyword;
+    if (auto &kw{std::get<std::optional<Keyword>>(arg.t)}) {
+      keyword.emplace(Keyword{Name{kw->v}});
+    }
+    components.emplace_back(std::move(keyword),
+        ComponentDataSource{ActualArgToExpr(name.source, arg).value()});
+  }
+  DerivedTypeSpec spec{std::move(name), std::list<TypeParamSpec>{}};
+  spec.derivedTypeSpec = &derived;
+  return StructureConstructor{std::move(spec), std::move(components)};
+}
+
+Substring ArrayElement::ConvertToSubstring() {
+  auto iter{subscripts.begin()};
+  CHECK(iter != subscripts.end());
+  auto &triplet{std::get<SubscriptTriplet>(iter->u)};
+  SubstringRange range{
+      std::move(std::get<0>(triplet.t)), std::move(std::get<1>(triplet.t))};
+  CHECK(!std::get<2>(triplet.t).has_value());
+  CHECK(++iter == subscripts.end());
+  return Substring{std::move(base), std::move(range)};
 }
 
 // R1544 stmt-function-stmt
