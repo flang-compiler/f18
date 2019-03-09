@@ -196,7 +196,8 @@ MaybeExpr TypedWrapper(const DynamicType &dyType, WRAPPED &&x) {
 
 // Wraps a data reference in a typed Designator<>.
 static MaybeExpr Designate(DataRef &&ref) {
-  if (std::optional<DynamicType> dyType{GetSymbolType(ref.GetLastSymbol())}) {
+  if (std::optional<DynamicType> dyType{
+          GetSymbolType(ref.GetLastSymbol().GetUltimate())}) {
     return TypedWrapper<Designator, DataRef>(
         std::move(*dyType), std::move(ref));
   }
@@ -204,43 +205,10 @@ static MaybeExpr Designate(DataRef &&ref) {
   return std::nullopt;
 }
 
-// Catch and resolve the ambiguous parse of a substring reference
-// that looks like a 1-D array element or section.
-static MaybeExpr ResolveAmbiguousSubstring(ArrayRef &&ref) {
-  if (std::optional<DynamicType> dyType{GetSymbolType(ref.GetLastSymbol())}) {
-    if (dyType->category == TypeCategory::Character && ref.size() == 1) {
-      DataRef base{std::visit([](auto &&y) { return DataRef{std::move(y)}; },
-          std::move(ref.base()))};
-      std::optional<Expr<SubscriptInteger>> lower, upper;
-      if (std::visit(
-              common::visitors{
-                  [&](IndirectSubscriptIntegerExpr &&x) {
-                    lower = std::move(x.value());
-                    return true;
-                  },
-                  [&](Triplet &&triplet) {
-                    lower = triplet.lower();
-                    upper = triplet.upper();
-                    return triplet.IsStrideOne();
-                  },
-              },
-              std::move(ref.at(0).u))) {
-        return WrapperHelper<TypeCategory::Character, Designator, Substring>(
-            dyType->kind,
-            Substring{std::move(base), std::move(lower), std::move(upper)});
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
 // Some subscript semantic checks must be deferred until all of the
-// subscripts are in hand.  This is also where we can catch the
-// ambiguous parse of a substring reference that looks like a 1-D array
-// element or section.
+// subscripts are in hand.
 MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
-  const Symbol &symbol{ref.GetLastSymbol()};
+  const Symbol &symbol{ref.GetLastSymbol().GetUltimate()};
   int symbolRank{symbol.Rank()};
   int subscripts = ref.size();
   if (subscripts == 0) {
@@ -250,9 +218,6 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
     }
   }
   if (subscripts != symbolRank) {
-    if (MaybeExpr substring{ResolveAmbiguousSubstring(std::move(ref))}) {
-      return substring;
-    }
     Say("Reference to rank-%d object '%s' has %d subscripts"_err_en_US,
         symbolRank, symbol.name().ToString().data(), subscripts);
   } else if (subscripts == 0) {
@@ -333,7 +298,49 @@ MaybeExpr ExpressionAnalyzer::TopLevelChecks(DataRef &&dataRef) {
   return Designate(std::move(dataRef));
 }
 
+// Parse tree correction after a substring S(j:k) was misparsed as an
+// array section.  N.B. Fortran substrings have to have a range, not a
+// single index.
+static void FixMisparsedSubstring(const parser::Designator &d) {
+  auto &mutate{const_cast<parser::Designator &>(d)};
+  if (auto *dataRef{std::get_if<parser::DataRef>(&mutate.u)}) {
+    if (auto *ae{std::get_if<common::Indirection<parser::ArrayElement>>(
+            &dataRef->u)}) {
+      parser::ArrayElement &arrElement{ae->value()};
+      if (!arrElement.subscripts.empty()) {
+        auto iter{arrElement.subscripts.begin()};
+        if (auto *triplet{std::get_if<parser::SubscriptTriplet>(&iter->u)}) {
+          if (!std::get<2>(triplet->t).has_value() /* no stride */ &&
+              ++iter == arrElement.subscripts.end() /* one subscript */) {
+            if (Symbol *
+                symbol{std::visit(
+                    common::visitors{
+                        [](parser::Name &n) { return n.symbol; },
+                        [](common::Indirection<parser::StructureComponent>
+                                &sc) { return sc.value().component.symbol; },
+                        [](auto &) -> Symbol * { return nullptr; },
+                    },
+                    arrElement.base.u)}) {
+              const Symbol &ultimate{symbol->GetUltimate()};
+              if (const semantics::DeclTypeSpec *type{ultimate.GetType()}) {
+                if (!ultimate.IsObjectArray() &&
+                    type->category() == semantics::DeclTypeSpec::Character) {
+                  // The ambiguous S(j:k) was parsed as an array section
+                  // reference, but it's now clear that it's a substring.
+                  // Fix the parse tree in situ.
+                  mutate.u = arrElement.ConvertToSubstring();
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::Designator &d) {
+  FixMisparsedSubstring(d);
   // These checks have to be deferred to these "top level" data-refs where
   // we can be sure that there are no following subscripts (yet).
   if (MaybeExpr result{Analyze(d.u)}) {
@@ -627,23 +634,24 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Name &n) {
   if (std::optional<int> kind{IsAcImpliedDo(n.source)}) {
     return AsMaybeExpr(ConvertToKind<TypeCategory::Integer>(
         *kind, AsExpr(ImpliedDoIndex{n.source})));
-  } else if (n.symbol == nullptr) {
-    // error should have been reported in name resolution
-  } else if (n.symbol->attrs().test(semantics::Attr::PARAMETER)) {
-    if (auto *details{n.symbol->detailsIf<semantics::ObjectEntityDetails>()}) {
-      if (auto &init{details->init()}) {
-        return init;
+  } else if (n.symbol != nullptr) {
+    const Symbol &ultimate{n.symbol->GetUltimate()};
+    if (ultimate.attrs().test(semantics::Attr::PARAMETER)) {
+      if (auto *details{ultimate.detailsIf<semantics::ObjectEntityDetails>()}) {
+        if (auto &init{details->init()}) {
+          return init;
+        }
       }
+      // TODO: enumerators, do they have the PARAMETER attribute?
+    } else if (ultimate.detailsIf<semantics::TypeParamDetails>()) {
+      // A bare reference to a derived type parameter (within a parameterized
+      // derived type definition)
+      return AsMaybeExpr(MakeTypeParamInquiry(&ultimate));
+    } else if (MaybeExpr result{Designate(DataRef{*n.symbol})}) {
+      return result;
+    } else {
+      Say(n.source, "not of a supported type and kind"_err_en_US);
     }
-    // TODO: enumerators, do they have the PARAMETER attribute?
-  } else if (n.symbol->detailsIf<semantics::TypeParamDetails>()) {
-    // A bare reference to a derived type parameter (within a parameterized
-    // derived type definition)
-    return AsMaybeExpr(MakeTypeParamInquiry(n.symbol));
-  } else if (MaybeExpr result{Designate(DataRef{*n.symbol})}) {
-    return result;
-  } else {
-    Say(n.source, "not of a supported type and kind"_err_en_US);
   }
   return std::nullopt;
 }
@@ -1201,7 +1209,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(
   auto &parsedType{std::get<parser::DerivedTypeSpec>(structure.t)};
   parser::CharBlock typeName{std::get<parser::Name>(parsedType.t).source};
   if (parsedType.derivedTypeSpec == nullptr) {
-    Say("INTERNAL: StructureConstructor lacks type"_err_en_US);
+    Say("INTERNAL: parser::StructureConstructor lacks type"_err_en_US);
     return std::nullopt;
   }
   const auto &spec{*parsedType.derivedTypeSpec};
@@ -1210,7 +1218,8 @@ MaybeExpr ExpressionAnalyzer::Analyze(
 
   if (typeSymbol.attrs().test(semantics::Attr::ABSTRACT)) {  // C796
     if (auto *msg{Say(typeName,
-            "ABSTRACT derived type '%s' cannot be used in a structure constructor"_err_en_US,
+            "ABSTRACT derived type '%s' cannot be used in a "
+            "structure constructor"_err_en_US,
             typeName.ToString().data())}) {
       msg->Attach(
           typeSymbol.name(), "Declaration of ABSTRACT derived type"_en_US);
@@ -1382,38 +1391,31 @@ auto ExpressionAnalyzer::Procedure(const parser::ProcedureDesignator &pd,
                   n.ToString().data());
               return std::nullopt;
             }
-            return std::visit(
-                common::visitors{
-                    [&](const semantics::ProcEntityDetails &p)
-                        -> std::optional<CallAndArguments> {
-                      if (p.HasExplicitInterface()) {
-                        // TODO: check actual arguments vs. interface
-                      } else {
-                        CallCharacteristics cc{n.source};
-                        if (std::optional<SpecificCall> specificCall{
-                                context().intrinsics().Probe(
-                                    cc, arguments, &GetContextualMessages())}) {
-                          return {CallAndArguments{
-                              ProcedureDesignator{
-                                  std::move(specificCall->specificIntrinsic)},
-                              std::move(specificCall->arguments)}};
-                        } else {
-                          // TODO: if name is not INTRINSIC, call with implicit
-                          // interface
-                        }
-                      }
-                      return {CallAndArguments{ProcedureDesignator{*n.symbol},
-                          std::move(arguments)}};
-                    },
-                    [&](const auto &) -> std::optional<CallAndArguments> {
-                      // TODO pmk WIP: resolve ambiguous array reference or
-                      // structure constructor usage that reach here
-                      Say("TODO: unimplemented/invalid kind of symbol as procedure designator '%s'"_err_en_US,
-                          n.ToString().data());
-                      return std::nullopt;
-                    },
-                },
-                n.symbol->details());
+            const Symbol &ultimate{n.symbol->GetUltimate()};
+            if (const auto *proc{
+                    ultimate.detailsIf<semantics::ProcEntityDetails>()}) {
+              if (proc->HasExplicitInterface()) {
+                // TODO: check actual arguments vs. interface
+              } else {
+                CallCharacteristics cc{n.source};
+                if (std::optional<SpecificCall> specificCall{
+                        context().intrinsics().Probe(
+                            cc, arguments, &GetContextualMessages())}) {
+                  return {
+                      CallAndArguments{ProcedureDesignator{std::move(
+                                           specificCall->specificIntrinsic)},
+                          std::move(specificCall->arguments)}};
+                } else {
+                  // TODO: if name is not INTRINSIC, call with implicit
+                  // interface
+                }
+              }
+              return {CallAndArguments{
+                  ProcedureDesignator{*n.symbol}, std::move(arguments)}};
+            } else {
+              Say(n.source, "not a procedure"_err_en_US);
+              return std::nullopt;
+            }
           },
           [&](const parser::ProcComponentRef &pcr)
               -> std::optional<CallAndArguments> {
@@ -1756,21 +1758,65 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::DefinedBinary &) {
   return std::nullopt;
 }
 
+// Converts, if appropriate, an original misparse of ambiguous syntax like
+// A(1) as a function reference into an array reference or a structure
+// constructor.
+template<typename... A>
+void FixMisparsedFunctionReference(const std::variant<A...> &constU) {
+  // The parse tree is updated in situ when resolving an ambiguous parse.
+  using uType = std::decay_t<decltype(constU)>;
+  auto &u{const_cast<uType &>(constU)};
+  if (auto *func{
+          std::get_if<common::Indirection<parser::FunctionReference>>(&u)}) {
+    parser::FunctionReference &funcRef{func->value()};
+    auto &proc{std::get<parser::ProcedureDesignator>(funcRef.v.t)};
+    if (auto *name{std::get_if<parser::Name>(&proc.u)}) {
+      if (name->symbol == nullptr) {
+        return;
+      }
+      Symbol &symbol{name->symbol->GetUltimate()};
+      if (symbol.has<semantics::ObjectEntityDetails>()) {
+        if constexpr (common::HasMember<common::Indirection<parser::Designator>,
+                          uType>) {
+          u = common::Indirection{funcRef.ConvertToArrayElementRef()};
+        } else {
+          common::die("can't fix misparsed function as array reference");
+        }
+      } else if (symbol.has<semantics::DerivedTypeDetails>()) {
+        if constexpr (common::HasMember<parser::StructureConstructor, uType>) {
+          CHECK(symbol.scope() != nullptr);
+          const semantics::DeclTypeSpec *type{
+              symbol.scope()->FindInstantiatedDerivedType(
+                  semantics::DerivedTypeSpec{symbol})};
+          CHECK(type != nullptr);
+          u = funcRef.ConvertToStructureConstructor(type->derivedTypeSpec());
+        } else {
+          common::die("can't fix misparsed function as structure constructor");
+        }
+      }
+    }
+  }
+}
+
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr &expr) {
   if (expr.typedExpr.has_value()) {
     // Expression was already checked by ExprChecker
     return std::make_optional<Expr<SomeType>>(expr.typedExpr.value().v);
-  } else if (!expr.source.empty()) {
-    // Analyze the expression in a specified source position context for better
-    // error reporting.
-    auto save{GetFoldingContext().messages().SetLocation(expr.source)};
-    return Analyze(expr.u);
   } else {
-    return Analyze(expr.u);
+    FixMisparsedFunctionReference(expr.u);
+    if (!expr.source.empty()) {
+      // Analyze the expression in a specified source position context for
+      // better error reporting.
+      auto save{GetFoldingContext().messages().SetLocation(expr.source)};
+      return Analyze(expr.u);
+    } else {
+      return Analyze(expr.u);
+    }
   }
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::Variable &variable) {
+  FixMisparsedFunctionReference(variable.u);
   return Analyze(variable.u);
 }
 
@@ -1892,6 +1938,21 @@ void ExprChecker::Enter(const parser::Expr &expr) {
       DumpTree(std::cout, expr);
 #endif
     }
+  }
+}
+
+void ExprChecker::Enter(const parser::Variable &var) {
+#if PMKDEBUG
+  if (MaybeExpr checked{AnalyzeExpr(context_, var)}) {
+//    checked->AsFortran(std::cout << "checked variable: ") << '\n';
+#else
+  if (AnalyzeExpr(context_, var)) {
+#endif
+  } else {
+#if PMKDEBUG
+    std::cout << "TODO: expression analysis failed for this variable: ";
+    DumpTree(std::cout, var);
+#endif
   }
 }
 }
