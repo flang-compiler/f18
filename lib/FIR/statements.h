@@ -15,6 +15,7 @@
 #ifndef FORTRAN_FIR_STATEMENTS_H_
 #define FORTRAN_FIR_STATEMENTS_H_
 
+#include "basicblock.h"
 #include "common.h"
 #include "mixin.h"
 #include <initializer_list>
@@ -22,23 +23,46 @@
 
 namespace Fortran::FIR {
 
-#define HANDLE_STMT(num, opcode, name) struct name;
-#include "statement.def"
+class ReturnStmt;
+class BranchStmt;
+class SwitchStmt;
+class SwitchCaseStmt;
+class SwitchTypeStmt;
+class SwitchRankStmt;
+class IndirectBranchStmt;
+class UnreachableStmt;
+class IncrementStmt;
+class DoConditionStmt;
+class ApplyExprStmt;
+class LocateExprStmt;
+class AllocateInsn;
+class DeallocateInsn;
+class AllocateLocalInsn;
+class LoadInsn;
+class StoreInsn;
+class DisassociateInsn;
+class CallStmt;
+class RuntimeStmt;
+class IORuntimeStmt;
+class ScopeEnterStmt;
+class ScopeExitStmt;
+class PHIStmt;
 
-struct Statement;
+class Statement;
 
 CLASS_TRAIT(StatementTrait)
 CLASS_TRAIT(TerminatorTrait)
 CLASS_TRAIT(ActionTrait)
 
-struct Evaluation
-  : public SumTypeCopyMixin<std::variant<Expression *, Variable *,
-        PathVariable *, const semantics::Symbol *>> {
+class Evaluation : public SumTypeCopyMixin<std::variant<Expression *,
+                       Variable *, PathVariable *, const semantics::Symbol *>> {
+public:
   SUM_TYPE_COPY_MIXIN(Evaluation)
-  Evaluation(PathVariable *pv) : SumTypeCopyMixin{pv} {
+  Evaluation(PathVariable *pv) : SumTypeCopyMixin(pv) {
     if (const auto *designator{
             std::get_if<common::Indirection<parser::Designator>>(&pv->u)}) {
-      if (const auto *obj{std::get_if<parser::ObjectName>(&(*designator)->u)}) {
+      if (const auto *obj{
+              std::get_if<parser::ObjectName>(&designator->value().u)}) {
         u = obj->symbol;
       }
     }
@@ -47,36 +71,46 @@ struct Evaluation
   std::string dump() const;
 };
 
-struct Stmt_impl {
+class Stmt_impl {
+public:
   using StatementTrait = std::true_type;
 };
 
-struct TerminatorStmt_impl : public Stmt_impl {
+// Every basic block must end in a terminator
+class TerminatorStmt_impl : public Stmt_impl {
+public:
   virtual std::list<BasicBlock *> succ_blocks() const { return {}; }
   using TerminatorTrait = std::true_type;
 };
 
-struct ReturnStmt : public TerminatorStmt_impl {
-  static ReturnStmt Create() { return ReturnStmt{nullptr}; }
-  static ReturnStmt Create(Expression *expression) {
-    return ReturnStmt{expression};
-  }
+// Transfer control out of the current procedure
+class ReturnStmt : public TerminatorStmt_impl {
+public:
+  static ReturnStmt Create() { return ReturnStmt{}; }
+  static ReturnStmt Create(Expression *e) { return ReturnStmt{*e}; }
+  static ReturnStmt Create(Expression &&e) { return ReturnStmt{std::move(e)}; }
+
+  bool IsVoid() const { return !returnValue_.has_value(); }
 
 private:
-  Expression *returnValue_;
-  explicit ReturnStmt(Expression *);
+  std::optional<Expression> returnValue_;
+  explicit ReturnStmt() : returnValue_{std::nullopt} {}
+  explicit ReturnStmt(const Expression &e) : returnValue_{e} {}
+  explicit ReturnStmt(Expression &&e) : returnValue_{e} {}
 };
 
-struct BranchStmt : public TerminatorStmt_impl {
+// Encodes two-way conditional branch and one-way absolute branch
+class BranchStmt : public TerminatorStmt_impl {
+public:
   static BranchStmt Create(
-      Expression *condition, BasicBlock *trueBlock, BasicBlock *falseBlock) {
+      Statement *condition, BasicBlock *trueBlock, BasicBlock *falseBlock) {
     return BranchStmt{condition, trueBlock, falseBlock};
   }
   static BranchStmt Create(BasicBlock *succ) {
     return BranchStmt{nullptr, succ, nullptr};
   }
   bool hasCondition() const { return condition_ != nullptr; }
-  Expression *getCond() const { return condition_; }
+  Statement *getCond() const { return condition_; }
   std::list<BasicBlock *> succ_blocks() const override {
     if (hasCondition()) {
       return {succs_[TrueIndex], succs_[FalseIndex]};
@@ -88,15 +122,16 @@ struct BranchStmt : public TerminatorStmt_impl {
 
 private:
   explicit BranchStmt(
-      Expression *condition, BasicBlock *trueBlock, BasicBlock *falseBlock);
-  static constexpr unsigned TrueIndex{0u};
-  static constexpr unsigned FalseIndex{1u};
-  Expression *condition_;
+      Statement *condition, BasicBlock *trueBlock, BasicBlock *falseBlock);
+  static constexpr int TrueIndex{0};
+  static constexpr int FalseIndex{1};
+  Statement *condition_;
   BasicBlock *succs_[2];
 };
 
-/// Switch on an expression into a set of constant values
-struct SwitchStmt : public TerminatorStmt_impl {
+// Switch on an expression into a set of constant values
+class SwitchStmt : public TerminatorStmt_impl {
+public:
   using ValueType = Expression *;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
@@ -115,8 +150,9 @@ private:
   ValueSuccPairListType valueSuccPairs_;
 };
 
-/// Switch on an expression into a set of value (open or closed) ranges
-struct SwitchCaseStmt : public TerminatorStmt_impl {
+// Switch on an expression into a set of value (open or closed) ranges
+class SwitchCaseStmt : public TerminatorStmt_impl {
+public:
   struct Default {};
   struct Exactly {  // selector == v
     Expression *v;
@@ -152,9 +188,9 @@ private:
   ValueSuccPairListType valueSuccPairs_;
 };
 
-using Type = const semantics::DeclTypeSpec *;  // FIXME
-/// Switch on the TYPE of the selector into a set of TYPES, etc.
-struct SwitchTypeStmt : public TerminatorStmt_impl {
+// Switch on the TYPE of the selector into a set of TYPES, etc.
+class SwitchTypeStmt : public TerminatorStmt_impl {
+public:
   struct Default {};
   struct TypeSpec {
     Type v;
@@ -180,8 +216,9 @@ private:
   ValueSuccPairListType valueSuccPairs_;
 };
 
-/// Switch on the RANK of the selector into a set of constant integers, etc.
-struct SwitchRankStmt : public TerminatorStmt_impl {
+// Switch on the RANK of the selector into a set of constant integers, etc.
+class SwitchRankStmt : public TerminatorStmt_impl {
+public:
   struct Default {};  // RANK DEFAULT
   struct AssumedSize {};  // RANK(*)
   struct Exactly {  // RANK(n)
@@ -205,29 +242,33 @@ private:
   ValueSuccPairListType valueSuccPairs_;
 };
 
-struct IndirectBrStmt : public TerminatorStmt_impl {
+class IndirectBranchStmt : public TerminatorStmt_impl {
+public:
   using TargetListType = std::vector<BasicBlock *>;
-  static IndirectBrStmt Create(
+  static IndirectBranchStmt Create(
       Variable *variable, const TargetListType &potentialTargets) {
-    return IndirectBrStmt{variable, potentialTargets};
+    return IndirectBranchStmt{variable, potentialTargets};
   }
 
 private:
-  explicit IndirectBrStmt(
+  explicit IndirectBranchStmt(
       Variable *variable, const TargetListType &potentialTargets)
     : variable_{variable}, potentialTargets_{potentialTargets} {}
   Variable *variable_;
   TargetListType potentialTargets_;
 };
 
-struct UnreachableStmt : public TerminatorStmt_impl {
+// This statement is not reachable
+class UnreachableStmt : public TerminatorStmt_impl {
+public:
   static UnreachableStmt Create() { return UnreachableStmt{}; }
 
 private:
   explicit UnreachableStmt() = default;
 };
 
-struct ActionStmt_impl : public Stmt_impl {
+class ActionStmt_impl : public Stmt_impl {
+public:
   using ActionTrait = std::true_type;
 
 protected:
@@ -237,143 +278,168 @@ protected:
   std::optional<evaluate::DynamicType> type;
 };
 
-struct AssignmentStmt : public ActionStmt_impl {
-  static AssignmentStmt Create(const PathVariable *lhs, const Expression *rhs) {
-    return AssignmentStmt{lhs, rhs};
+class IncrementStmt : public ActionStmt_impl {
+public:
+  static IncrementStmt Create(Statement *v1, Statement *v2) {
+    return IncrementStmt(v1, v2);
   }
-  const PathVariable *GetLeftHandSide() const { return lhs_; }
-  const Expression *GetRightHandSide() const { return rhs_; }
+  Statement *leftValue() const { return value_[0]; }
+  Statement *rightValue() const { return value_[1]; }
 
 private:
-  explicit AssignmentStmt(const PathVariable *lhs, const Expression *rhs)
-    : lhs_{lhs}, rhs_{rhs} {}
-
-  const PathVariable *lhs_;
-  const Expression *rhs_;
+  explicit IncrementStmt(Statement *v1, Statement *v2);
+  Statement *value_[2];
 };
 
-struct PointerAssignStmt : public ActionStmt_impl {
-  static PointerAssignStmt Create(
-      const Expression *lhs, const Expression *rhs) {
-    return PointerAssignStmt{lhs, rhs};
+class DoConditionStmt : public ActionStmt_impl {
+public:
+  static DoConditionStmt Create(
+      Statement *dir, Statement *left, Statement *right) {
+    return DoConditionStmt(dir, left, right);
   }
-  const Expression *GetLeftHandSide() const { return lhs_; }
-  const Expression *GetRightHandSide() const { return rhs_; }
+  Statement *direction() const { return value_[0]; }
+  Statement *leftValue() const { return value_[1]; }
+  Statement *rightValue() const { return value_[2]; }
 
 private:
-  explicit PointerAssignStmt(const Expression *lhs, const Expression *rhs)
-    : lhs_{lhs}, rhs_{rhs} {}
-  const parser::PointerAssignmentStmt *assign_;
-  const Expression *lhs_;
-  const Expression *rhs_;
+  explicit DoConditionStmt(Statement *dir, Statement *left, Statement *right);
+  Statement *value_[3];
 };
 
-struct LabelAssignStmt : public ActionStmt_impl {
-  static LabelAssignStmt Create(const semantics::Symbol *lhs, BasicBlock *rhs) {
-    return LabelAssignStmt{lhs, rhs};
-  }
+// Compute the value of an expression
+class ApplyExprStmt : public ActionStmt_impl {
+public:
+  static ApplyExprStmt Create(const Expression *e) { return ApplyExprStmt{*e}; }
+  static ApplyExprStmt Create(Expression &&e) { return ApplyExprStmt{e}; }
+
+  const Expression &expression() const { return expression_; }
 
 private:
-  explicit LabelAssignStmt(const semantics::Symbol *lhs, BasicBlock *rhs)
-    : lhs_{lhs}, rhs_{rhs} {}
+  explicit ApplyExprStmt(const Expression &e) : expression_{e} {}
 
-  const semantics::Symbol *lhs_;
-  BasicBlock *rhs_;
+  Expression expression_;
 };
 
-struct MemoryStmt_impl : public ActionStmt_impl {
-  // FIXME: ought to use a Type, let backend compute size...
+// Base class of all addressable statements
+class Addressable_impl : public ActionStmt_impl {
+protected:
+  Addressable_impl() : addrExpr_{std::nullopt} {}
+  explicit Addressable_impl(const Expression &ae) : addrExpr_{ae} {}
+  std::optional<Expression> addrExpr_;
+};
+
+// Compute the location of an expression
+class LocateExprStmt : public Addressable_impl {
+public:
+  static LocateExprStmt Create(const Expression *e) {
+    return LocateExprStmt(*e);
+  }
+  static LocateExprStmt Create(Expression &&e) { return LocateExprStmt(e); }
+
+  const Expression &expression() const { return *addrExpr_; }
+
+private:
+  explicit LocateExprStmt(const Expression &e) : Addressable_impl{e} {}
+};
+
+// has memory effect
+class MemoryStmt_impl : public ActionStmt_impl {
 protected:
   MemoryStmt_impl() {}
 };
 
-/// ALLOCATE allocate space for a pointer target or allocatable and populate the
-/// reference
-struct AllocateStmt : public MemoryStmt_impl {
-  static AllocateStmt Create(const Expression *object) {
-    return AllocateStmt{object};
+// Allocate storage (per ALLOCATE)
+class AllocateInsn : public Addressable_impl, public MemoryStmt_impl {
+public:
+  static AllocateInsn Create(Type type, int alignment = 0) {
+    return AllocateInsn{type, alignment};
   }
 
 private:
-  explicit AllocateStmt(const Expression *object) : object_{object} {}
-  const Expression *object_;  // POINTER|ALLOCATABLE to be allocated
-  // TODO: maybe add other arguments
+  explicit AllocateInsn(Type type, int alignment)
+    : type_{type}, alignment_{alignment} {}
+
+  Type type_;
+  int alignment_;
 };
 
-/// DEALLOCATE deallocate allocatable variables and pointer targets. pointers
-/// become disassociated
-struct DeallocateStmt : public MemoryStmt_impl {
-  static DeallocateStmt Create(const Expression *object) {
-    return DeallocateStmt{object};
+// Deallocate storage (per DEALLOCATE)
+class DeallocateInsn : public MemoryStmt_impl {
+public:
+  static DeallocateInsn Create(const AllocateInsn *alloc) {
+    return DeallocateInsn{alloc};
   }
 
 private:
-  explicit DeallocateStmt(const Expression *object) : object_{object} {}
-  const Expression *object_;  // POINTER|ALLOCATABLE to be deallocated
-  // TODO: maybe add other arguments
+  explicit DeallocateInsn(const AllocateInsn *alloc) : alloc_{alloc} {}
+  const AllocateInsn *alloc_;
 };
 
-struct AllocLocalInsn : public MemoryStmt_impl {
-  static AllocLocalInsn Create(Type type, unsigned alignment = 0u) {
-    return AllocLocalInsn{type, alignment};
+// Allocate space for a temporary by its Type. The lifetime of the temporary
+// will not exceed that of the containing Procedure.
+class AllocateLocalInsn : public Addressable_impl, public MemoryStmt_impl {
+public:
+  static AllocateLocalInsn Create(
+      Type type, int alignment = 0, const Expression *expr = nullptr) {
+    if (expr != nullptr) {
+      return AllocateLocalInsn{type, alignment, *expr};
+    }
+    return AllocateLocalInsn{type, alignment};
   }
 
 private:
-  explicit AllocLocalInsn(Type type, unsigned alignment)
-    : alignment_{alignment} {}
-  unsigned alignment_;
+  explicit AllocateLocalInsn(Type type, int alignment, const Expression &expr)
+    : Addressable_impl{expr}, type_{type}, alignment_{alignment} {}
+  explicit AllocateLocalInsn(Type type, int alignment)
+    : type_{type}, alignment_{alignment} {}
+
+  Type type_;
+  int alignment_;
 };
 
-struct LoadInsn : public MemoryStmt_impl {
-  static LoadInsn Create(const Expression *address) {
-    return LoadInsn{address};
-  }
+// Load value(s) from a location
+class LoadInsn : public MemoryStmt_impl {
+public:
+  static LoadInsn Create(Statement *addr) { return LoadInsn{addr}; }
 
 private:
-  explicit LoadInsn(const Expression *address) : address_{address} {}
-  const Expression *address_;
+  explicit LoadInsn(Statement *addr);
+  Addressable_impl *address_;
 };
 
-struct StoreInsn : public MemoryStmt_impl {
-  static StoreInsn Create(const Expression *address, const Expression *value) {
-    return StoreInsn{address, value};
+// Store value(s) from an applied expression to a location
+class StoreInsn : public MemoryStmt_impl {
+public:
+  static StoreInsn Create(Statement *addr, Statement *value) {
+    return StoreInsn{addr, value};
+  }
+  static StoreInsn Create(Statement *addr, BasicBlock *value) {
+    return StoreInsn{addr, value};
   }
 
 private:
-  explicit StoreInsn(const Expression *address, const Expression *value)
-    : address_{address}, value_{value} {}
-  const Expression *address_;
-  const Expression *value_;
+  explicit StoreInsn(Statement *addr, Statement *val);
+  explicit StoreInsn(Statement *addr, BasicBlock *val);
+
+  Addressable_impl *address_;
+  std::variant<ApplyExprStmt *, Addressable_impl *, BasicBlock *> value_;
 };
 
-/// NULLIFY make pointer object disassociated
-struct DisassociateStmt : public ActionStmt_impl {
-  static DisassociateStmt Create(const parser::NullifyStmt *n) {
-    return DisassociateStmt{n};
+// NULLIFY - make pointer object disassociated
+class DisassociateInsn : public ActionStmt_impl {
+public:
+  static DisassociateInsn Create(const parser::NullifyStmt *n) {
+    return DisassociateInsn{n};
   }
 
 private:
-  DisassociateStmt(const parser::NullifyStmt *n) : disassociate_{n} {}
+  DisassociateInsn(const parser::NullifyStmt *n) : disassociate_{n} {}
   const parser::NullifyStmt *disassociate_;
 };
 
-/// expressions that must be evaluated in various statements
-struct ExprStmt
-  : public ActionStmt_impl,
-    public SumTypeCopyMixin<std::variant<const parser::AssociateStmt *,
-        const parser::ChangeTeamStmt *, const parser::NonLabelDoStmt *,
-        const parser::ForallConstructStmt *, const Expression *>> {
-  template<typename T> static ExprStmt Create(const T *e) {
-    return ExprStmt{e};
-  }
-
-private:
-  template<typename T> explicit ExprStmt(const T *e) : SumTypeCopyMixin{e} {}
-  // Evaluation evaluation_;
-};
-
-/// base class for all call-like IR statements
-struct CallStmt_impl : public ActionStmt_impl {
+// base class for all call-like IR statements
+class CallStmt_impl : public ActionStmt_impl {
+public:
   const Value *Callee() const { return callee_; }
   unsigned NumArgs() const { return arguments_.size(); }
 
@@ -387,8 +453,11 @@ protected:
   CallArguments arguments_;
 };
 
-/// CALL statements and function references
-struct CallStmt : public CallStmt_impl {
+// CALL statements and function references
+// A CallStmt has pass-by-value semantics. Pass-by-reference must be done
+// explicitly by passing addresses of objects or temporaries.
+class CallStmt : public CallStmt_impl {
+public:
   static CallStmt Create(const FunctionType *type, const Value *callee,
       CallArguments &&arguments) {
     return CallStmt{type, callee, std::move(arguments)};
@@ -400,8 +469,9 @@ private:
     : CallStmt_impl{functionType, callee, std::move(arguments)} {}
 };
 
-/// Miscellaneous statements that turn into runtime calls
-struct RuntimeStmt : public CallStmt_impl {
+// Miscellaneous statements that turn into runtime calls
+class RuntimeStmt : public CallStmt_impl {
+public:
   static RuntimeStmt Create(
       RuntimeCallType call, RuntimeCallArguments &&argument) {
     return RuntimeStmt{call, std::move(argument)};
@@ -414,9 +484,10 @@ private:
   RuntimeCallType call_;
 };
 
-/// The 13 Fortran I/O statements. Will be lowered to whatever becomes of the
-/// I/O runtime.
-struct IORuntimeStmt : public CallStmt_impl {
+// The 13 Fortran I/O statements. Will be lowered to whatever becomes of the
+// I/O runtime.
+class IORuntimeStmt : public CallStmt_impl {
+public:
   static IORuntimeStmt Create(
       InputOutputCallType call, IOCallArguments &&arguments) {
     return IORuntimeStmt{call, std::move(arguments)};
@@ -429,7 +500,8 @@ private:
   InputOutputCallType call_;
 };
 
-struct ScopeStmt_impl : public ActionStmt_impl {
+class ScopeStmt_impl : public ActionStmt_impl {
+public:
   Scope *GetScope() const { return scope; }
 
 protected:
@@ -437,24 +509,27 @@ protected:
   Scope *scope;
 };
 
-/// From the CFG document
-struct ScopeEnterStmt : public ScopeStmt_impl {
+// From the CFG document
+class ScopeEnterStmt : public ScopeStmt_impl {
+public:
   static ScopeEnterStmt Create(Scope *scope) { return ScopeEnterStmt{scope}; }
 
 private:
   ScopeEnterStmt(Scope *scope) : ScopeStmt_impl{scope} {}
 };
 
-/// From the CFG document
-struct ScopeExitStmt : public ScopeStmt_impl {
+// From the CFG document
+class ScopeExitStmt : public ScopeStmt_impl {
+public:
   static ScopeExitStmt Create(Scope *scope) { return ScopeExitStmt{scope}; }
 
 private:
   ScopeExitStmt(Scope *scope) : ScopeStmt_impl{scope} {}
 };
 
-/// From the CFG document to support SSA
-struct PHIStmt : public ActionStmt_impl {
+// From the CFG document to support SSA
+class PHIStmt : public ActionStmt_impl {
+public:
   static PHIStmt Create(unsigned numReservedValues) {
     return PHIStmt{numReservedValues};
   }
@@ -464,6 +539,51 @@ private:
 
   std::vector<PHIPair> inputs_;
 };
+
+// Sum type over all statement classes
+class Statement : public SumTypeMixin<std::variant<ReturnStmt,  //
+                      BranchStmt,  //
+                      SwitchStmt,  //
+                      SwitchCaseStmt,  //
+                      SwitchTypeStmt,  //
+                      SwitchRankStmt,  //
+                      IndirectBranchStmt,  //
+                      UnreachableStmt,  //
+                      IncrementStmt,  //
+                      DoConditionStmt,  //
+                      ApplyExprStmt,  //
+                      LocateExprStmt,  //
+                      AllocateInsn,  //
+                      DeallocateInsn,  //
+                      AllocateLocalInsn,  //
+                      LoadInsn,  //
+                      StoreInsn,  //
+                      DisassociateInsn,  //
+                      CallStmt,  //
+                      RuntimeStmt,  //
+                      IORuntimeStmt,  //
+                      ScopeEnterStmt,  //
+                      ScopeExitStmt,  //
+                      PHIStmt  //
+                      >>,
+                  public ChildMixin<Statement, BasicBlock>,
+                  public llvm::ilist_node<Statement> {
+public:
+  template<typename A>
+  Statement(BasicBlock *p, A &&t) : SumTypeMixin{t}, ChildMixin{p} {
+    parent->insertBefore(this);
+  }
+  std::string dump() const;
+};
+
+inline std::list<BasicBlock *> succ_list(BasicBlock &block) {
+  if (auto *terminator{block.terminator()}) {
+    return reinterpret_cast<const TerminatorStmt_impl *>(&terminator->u)
+        ->succ_blocks();
+  }
+  // CHECK(false && "block does not have terminator");
+  return {};
+}
 }
 
-#endif
+#endif  // FORTRAN_FIR_STATEMENTS_H_

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "program.h"
-#include "stmt.h"
+#include "statements.h"
 
 namespace Fortran::FIR {
 
@@ -34,22 +34,25 @@ void BasicBlock::insertBefore(Statement *stmt, Statement *before) {
 
 void BasicBlock::addPred(BasicBlock *bb) {
   for (auto *p : preds_) {
-    if (p == bb) return;
+    if (p == bb) {
+      return;
+    }
   }
   preds_.push_back(bb);
 }
 
-const Statement *BasicBlock::getTerminator() const {
+const Statement *BasicBlock::terminator() const {
   if (statementList_.empty()) {
     return nullptr;
   }
   const auto &lastStmt{statementList_.back()};
   return std::visit(
-      [&lastStmt](auto stmt) {
-        if constexpr (std::is_base_of_v<TerminatorStmt_impl, decltype(stmt)>) {
+      [&lastStmt](auto stmt) -> const Statement * {
+        if constexpr (std::is_base_of_v<TerminatorStmt_impl,
+                          std::decay_t<decltype(stmt)>>) {
           return &lastStmt;
         }
-        return static_cast<const Statement *>(nullptr);
+        return nullptr;
       },
       lastStmt.u);
 }
