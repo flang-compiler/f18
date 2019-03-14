@@ -3092,7 +3092,8 @@ TYPE_PARSER(construct<UseStmt>("USE" >> optionalBeforeColons(moduleNature),
                 name, ", ONLY :" >> optionalList(Parser<Only>{})) ||
     construct<UseStmt>("USE" >> optionalBeforeColons(moduleNature), name,
         defaulted("," >>
-            nonemptyList("expected renamings"_err_en_US, Parser<Rename>{}))))
+            nonemptyList("expected renamings"_err_en_US, Parser<Rename>{})) /
+            lookAhead(endOfStmt)))
 
 // R1411 rename ->
 //         local-name => use-name |
@@ -3396,16 +3397,16 @@ TYPE_CONTEXT_PARSER("statement function definition"_en_US,
         name, parenthesized(optionalList(name)), "=" >> scalar(expr)))
 
 // Directives, extensions, and deprecated statements
-// !DIR$ IVDEP
 // !DIR$ IGNORE_TKR [ [(tkr...)] name ]...
+// !DIR$ name...
 constexpr auto beginDirective{skipStuffBeforeStatement >> "!"_ch};
 constexpr auto endDirective{space >> endOfLine};
-constexpr auto ivdep{construct<CompilerDirective::IVDEP>("DIR$ IVDEP"_tok)};
 constexpr auto ignore_tkr{
     "DIR$ IGNORE_TKR" >> optionalList(construct<CompilerDirective::IgnoreTKR>(
                              defaulted(parenthesized(some("tkr"_ch))), name))};
-TYPE_PARSER(beginDirective >> sourced(construct<CompilerDirective>(ivdep) ||
-                                  construct<CompilerDirective>(ignore_tkr)) /
+TYPE_PARSER(
+    beginDirective >> sourced(construct<CompilerDirective>(ignore_tkr) ||
+                          construct<CompilerDirective>("DIR$" >> many(name))) /
         endDirective)
 
 TYPE_PARSER(extension<LanguageFeature::CrayPointer>(
