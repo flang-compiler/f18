@@ -70,11 +70,18 @@ void CleanUpAtExit() {
   }
 }
 
+#if _POSIX_C_SOURCE >= 199309L && _POSIX_TIMERS > 0 && _POSIX_CPUTIME && \
+    defined CLOCK_PROCESS_CPUTIME_ID
+static constexpr bool canTime{true};
 double CPUseconds() {
   struct timespec tspec;
   clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tspec);
   return tspec.tv_nsec * 1.0e-9 + tspec.tv_sec;
 }
+#else
+static constexpr bool canTime{false};
+double CPUseconds() { return 0; }
+#endif
 
 struct DriverOptions {
   DriverOptions() {}
@@ -187,8 +194,12 @@ std::string CompileFortran(
   parsing.Parse(&std::cout);
   auto stop{CPUseconds()};
   if (driver.timeParse) {
-    std::cout << "parse time for " << path << ": " << (stop - start)
-              << " CPU seconds\n";
+    if (canTime) {
+      std::cout << "parse time for " << path << ": " << (stop - start)
+                << " CPU seconds\n";
+    } else {
+      std::cout << "no timing information due to lack of clock_gettime()\n";
+    }
   }
 
   parsing.ClearLog();
