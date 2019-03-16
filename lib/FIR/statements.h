@@ -16,7 +16,10 @@
 #define FORTRAN_FIR_STATEMENTS_H_
 
 #include "basicblock.h"
+#include "common.h"
+#include "mixin.h"
 #include <initializer_list>
+#include <ostream>
 
 namespace Fortran::FIR {
 
@@ -51,6 +54,23 @@ CLASS_TRAIT(StatementTrait)
 CLASS_TRAIT(TerminatorTrait)
 CLASS_TRAIT(ActionTrait)
 
+class Evaluation : public SumTypeCopyMixin<std::variant<Expression *,
+                       Variable *, PathVariable *, const semantics::Symbol *>> {
+public:
+  SUM_TYPE_COPY_MIXIN(Evaluation)
+  Evaluation(PathVariable *pv) : SumTypeCopyMixin(pv) {
+    if (const auto *designator{
+            std::get_if<common::Indirection<parser::Designator>>(&pv->u)}) {
+      if (const auto *obj{
+              std::get_if<parser::ObjectName>(&designator->value().u)}) {
+        u = obj->symbol;
+      }
+    }
+  }
+  template<typename A> Evaluation(A *a) : SumTypeCopyMixin{a} {}
+  std::string dump() const;
+};
+
 class Stmt_impl {
 public:
   using StatementTrait = std::true_type;
@@ -59,35 +79,39 @@ public:
 // Every basic block must end in a terminator
 class TerminatorStmt_impl : public Stmt_impl {
 public:
-  virtual std::list<BasicBlock *> succ_blocks() const = 0;
-  virtual ~TerminatorStmt_impl() = default;
+  virtual std::list<BasicBlock *> succ_blocks() const { return {}; }
+  virtual ~TerminatorStmt_impl() {}
   using TerminatorTrait = std::true_type;
 };
 
 // Transfer control out of the current procedure
 class ReturnStmt : public TerminatorStmt_impl {
 public:
-  static ReturnStmt Create(Statement *stmt) { return ReturnStmt{stmt}; }
-  std::list<BasicBlock *> succ_blocks() const override { return {}; }
-  Statement *returnValue() const;
+  static ReturnStmt Create() { return ReturnStmt{}; }
+  static ReturnStmt Create(Expression *e) { return ReturnStmt{*e}; }
+  static ReturnStmt Create(Expression &&e) { return ReturnStmt{std::move(e)}; }
+
+  bool IsVoid() const { return !returnValue_.has_value(); }
 
 private:
-  ApplyExprStmt *returnValue_;
-  explicit ReturnStmt(Statement *exp);
+  std::optional<Expression> returnValue_;
+  explicit ReturnStmt() : returnValue_{std::nullopt} {}
+  explicit ReturnStmt(const Expression &e) : returnValue_{e} {}
+  explicit ReturnStmt(Expression &&e) : returnValue_{e} {}
 };
 
 // Encodes two-way conditional branch and one-way absolute branch
 class BranchStmt : public TerminatorStmt_impl {
 public:
   static BranchStmt Create(
-      Value condition, BasicBlock *trueBlock, BasicBlock *falseBlock) {
+      Statement *condition, BasicBlock *trueBlock, BasicBlock *falseBlock) {
     return BranchStmt{condition, trueBlock, falseBlock};
   }
   static BranchStmt Create(BasicBlock *succ) {
-    return BranchStmt{std::nullopt, succ, nullptr};
+    return BranchStmt{nullptr, succ, nullptr};
   }
-  bool hasCondition() const { return condition_.has_value(); }
-  Value getCond() const { return condition_.value(); }
+  bool hasCondition() const { return condition_ != nullptr; }
+  Statement *getCond() const { return condition_; }
   std::list<BasicBlock *> succ_blocks() const override {
     if (hasCondition()) {
       return {succs_[TrueIndex], succs_[FalseIndex]};
@@ -98,33 +122,32 @@ public:
   BasicBlock *getFalseSucc() const { return succs_[FalseIndex]; }
 
 private:
-  explicit BranchStmt(const std::optional<Value> &condition,
-      BasicBlock *trueBlock, BasicBlock *falseBlock);
+  explicit BranchStmt(
+      Statement *condition, BasicBlock *trueBlock, BasicBlock *falseBlock);
   static constexpr int TrueIndex{0};
   static constexpr int FalseIndex{1};
-  std::optional<Value> condition_;
+  Statement *condition_;
   BasicBlock *succs_[2];
 };
 
 // Switch on an expression into a set of constant values
 class SwitchStmt : public TerminatorStmt_impl {
 public:
-  using ValueType = Value;
+  using ValueType = Expression *;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchStmt Create(const Value &switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
+  static SwitchStmt Create(const Evaluation &switchEval,
+      BasicBlock *defaultBlock, const ValueSuccPairListType &args) {
     return SwitchStmt{switchEval, defaultBlock, args};
   }
   BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
   std::list<BasicBlock *> succ_blocks() const override;
-  Value getCond() const { return condition_; }
+  const Evaluation &getCond() const { return condition_; }
 
 private:
-  explicit SwitchStmt(const Value &condition, BasicBlock *defaultBlock,
+  explicit SwitchStmt(const Evaluation &condition, BasicBlock *defaultBlock,
       const ValueSuccPairListType &args);
-
-  Value condition_;
+  Evaluation condition_;
   ValueSuccPairListType valueSuccPairs_;
 };
 
@@ -133,17 +156,17 @@ class SwitchCaseStmt : public TerminatorStmt_impl {
 public:
   struct Default {};
   struct Exactly {  // selector == v
-    ApplyExprStmt *v;
+    Expression *v;
   };
   struct InclusiveAbove {  // v <= selector
-    ApplyExprStmt *v;
+    Expression *v;
   };
   struct InclusiveBelow {  // selector <= v
-    ApplyExprStmt *v;
+    Expression *v;
   };
   struct InclusiveRange {  // lower <= selector <= upper
-    ApplyExprStmt *lower;
-    ApplyExprStmt *upper;
+    Expression *lower;
+    Expression *upper;
   };
   using RangeAlternative =
       std::variant<Exactly, InclusiveAbove, InclusiveBelow, InclusiveRange>;
@@ -151,19 +174,18 @@ public:
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
 
-  static SwitchCaseStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
+  static SwitchCaseStmt Create(const Evaluation &switchEval,
+      BasicBlock *defaultBlock, const ValueSuccPairListType &args) {
     return SwitchCaseStmt{switchEval, defaultBlock, args};
   }
   BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
   std::list<BasicBlock *> succ_blocks() const override;
-  Value getCond() const { return condition_; }
+  const Evaluation &getCond() const { return condition_; }
 
 private:
-  explicit SwitchCaseStmt(Value condition, BasicBlock *defaultBlock,
+  explicit SwitchCaseStmt(const Evaluation &condition, BasicBlock *defaultBlock,
       const ValueSuccPairListType &args);
-
-  Value condition_;
+  Evaluation condition_;
   ValueSuccPairListType valueSuccPairs_;
 };
 
@@ -180,18 +202,18 @@ public:
   using ValueType = std::variant<Default, TypeSpec, DerivedTypeSpec>;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchTypeStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
+  static SwitchTypeStmt Create(const Evaluation &switchEval,
+      BasicBlock *defaultBlock, const ValueSuccPairListType &args) {
     return SwitchTypeStmt{switchEval, defaultBlock, args};
   }
   BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
   std::list<BasicBlock *> succ_blocks() const override;
-  Value getCond() const { return condition_; }
+  const Evaluation &getCond() const { return condition_; }
 
 private:
-  explicit SwitchTypeStmt(Value condition, BasicBlock *defaultBlock,
+  explicit SwitchTypeStmt(const Evaluation &condition, BasicBlock *defaultBlock,
       const ValueSuccPairListType &args);
-  Value condition_;
+  Evaluation condition_;
   ValueSuccPairListType valueSuccPairs_;
 };
 
@@ -206,19 +228,18 @@ public:
   using ValueType = std::variant<Exactly, AssumedSize, Default>;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchRankStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
+  static SwitchRankStmt Create(const Evaluation &switchEval,
+      BasicBlock *defaultBlock, const ValueSuccPairListType &args) {
     return SwitchRankStmt{switchEval, defaultBlock, args};
   }
   BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
   std::list<BasicBlock *> succ_blocks() const override;
-  Value getCond() const { return condition_; }
+  const Evaluation &getCond() const { return condition_; }
 
 private:
-  explicit SwitchRankStmt(Value condition, BasicBlock *defaultBlock,
+  explicit SwitchRankStmt(const Evaluation &condition, BasicBlock *defaultBlock,
       const ValueSuccPairListType &args);
-
-  Value condition_;
+  Evaluation condition_;
   ValueSuccPairListType valueSuccPairs_;
 };
 
@@ -231,9 +252,6 @@ public:
   }
 
   Variable *variable() const { return variable_; }
-  std::list<BasicBlock *> succ_blocks() const override {
-    return {potentialTargets_.begin(), potentialTargets_.end()};
-  }
 
 private:
   explicit IndirectBranchStmt(
@@ -247,7 +265,6 @@ private:
 class UnreachableStmt : public TerminatorStmt_impl {
 public:
   static UnreachableStmt Create() { return UnreachableStmt{}; }
-  std::list<BasicBlock *> succ_blocks() const override { return {}; }
 
 private:
   explicit UnreachableStmt() = default;
@@ -266,29 +283,30 @@ protected:
 
 class IncrementStmt : public ActionStmt_impl {
 public:
-  static IncrementStmt Create(Value v1, Value v2) {
+  static IncrementStmt Create(Statement *v1, Statement *v2) {
     return IncrementStmt(v1, v2);
   }
-  Value leftValue() const { return value_[0]; }
-  Value rightValue() const { return value_[1]; }
+  Statement *leftValue() const { return value_[0]; }
+  Statement *rightValue() const { return value_[1]; }
 
 private:
-  explicit IncrementStmt(Value v1, Value v2);
-  Value value_[2];
+  explicit IncrementStmt(Statement *v1, Statement *v2);
+  Statement *value_[2];
 };
 
 class DoConditionStmt : public ActionStmt_impl {
 public:
-  static DoConditionStmt Create(Value dir, Value left, Value right) {
+  static DoConditionStmt Create(
+      Statement *dir, Statement *left, Statement *right) {
     return DoConditionStmt(dir, left, right);
   }
-  Value direction() const { return value_[0]; }
-  Value leftValue() const { return value_[1]; }
-  Value rightValue() const { return value_[2]; }
+  Statement *direction() const { return value_[0]; }
+  Statement *leftValue() const { return value_[1]; }
+  Statement *rightValue() const { return value_[2]; }
 
 private:
-  explicit DoConditionStmt(Value dir, Value left, Value right);
-  Value value_[3];
+  explicit DoConditionStmt(Statement *dir, Statement *left, Statement *right);
+  Statement *value_[3];
 };
 
 // Compute the value of an expression
@@ -393,60 +411,59 @@ private:
 // Load value(s) from a location
 class LoadInsn : public MemoryStmt_impl {
 public:
-  static LoadInsn Create(Value addr) { return LoadInsn{addr}; }
   static LoadInsn Create(Statement *addr) { return LoadInsn{addr}; }
 
 private:
-  explicit LoadInsn(Value addr) : address_{addr} {}
   explicit LoadInsn(Statement *addr);
-  std::variant<Addressable_impl *, Value> address_;
+  Addressable_impl *address_;
 };
 
 // Store value(s) from an applied expression to a location
 class StoreInsn : public MemoryStmt_impl {
 public:
-  template<typename T> static StoreInsn Create(T *addr, T *value) {
+  static StoreInsn Create(Statement *addr, Statement *value) {
     return StoreInsn{addr, value};
   }
-  template<typename T> static StoreInsn Create(T *addr, BasicBlock *value) {
+  static StoreInsn Create(Statement *addr, BasicBlock *value) {
     return StoreInsn{addr, value};
   }
 
 private:
-  explicit StoreInsn(Value addr, Value val);
-  explicit StoreInsn(Value addr, BasicBlock *val);
   explicit StoreInsn(Statement *addr, Statement *val);
   explicit StoreInsn(Statement *addr, BasicBlock *val);
 
   Addressable_impl *address_;
-  std::variant<Value, ApplyExprStmt *, Addressable_impl *, BasicBlock *> value_;
+  std::variant<ApplyExprStmt *, Addressable_impl *, BasicBlock *> value_;
 };
 
 // NULLIFY - make pointer object disassociated
 class DisassociateInsn : public ActionStmt_impl {
 public:
-  static DisassociateInsn Create(Statement *s) { return DisassociateInsn{s}; }
+  static DisassociateInsn Create(const parser::NullifyStmt *n) {
+    return DisassociateInsn{n};
+  }
 
-  Statement *disassociate() { return disassociate_; }
+  // FIXME - remove parse tree reference
+  const parser::NullifyStmt *disassociate() { return disassociate_; }
 
 private:
-  DisassociateInsn(Statement *s) : disassociate_{s} {}
-  Statement *disassociate_;
+  DisassociateInsn(const parser::NullifyStmt *n) : disassociate_{n} {}
+  const parser::NullifyStmt *disassociate_;
 };
 
 // base class for all call-like IR statements
 class CallStmt_impl : public ActionStmt_impl {
 public:
-  Value Callee() const { return callee_; }
+  const Value *Callee() const { return callee_; }
   unsigned NumArgs() const { return arguments_.size(); }
 
 protected:
-  CallStmt_impl(
-      const FunctionType *functionType, Value callee, CallArguments &&arguments)
+  CallStmt_impl(const FunctionType *functionType, const Value *callee,
+      CallArguments &&arguments)
     : functionType_{functionType}, callee_{callee}, arguments_{arguments} {}
 
   const FunctionType *functionType_;
-  Value callee_;
+  const Value *callee_;
   CallArguments arguments_;
 };
 
@@ -455,14 +472,14 @@ protected:
 // explicitly by passing addresses of objects or temporaries.
 class CallStmt : public CallStmt_impl {
 public:
-  static CallStmt Create(
-      const FunctionType *type, Value callee, CallArguments &&arguments) {
+  static CallStmt Create(const FunctionType *type, const Value *callee,
+      CallArguments &&arguments) {
     return CallStmt{type, callee, std::move(arguments)};
   }
 
 private:
-  explicit CallStmt(
-      const FunctionType *functionType, Value callee, CallArguments &&arguments)
+  explicit CallStmt(const FunctionType *functionType, const Value *callee,
+      CallArguments &&arguments)
     : CallStmt_impl{functionType, callee, std::move(arguments)} {}
 };
 
@@ -478,9 +495,7 @@ public:
 
 private:
   explicit RuntimeStmt(RuntimeCallType call, RuntimeCallArguments &&arguments)
-    : CallStmt_impl{nullptr, Procedure::CreateIntrinsicProcedure(call),
-          std::move(arguments)},
-      call_{call} {}
+    : CallStmt_impl{nullptr, nullptr, std::move(arguments)}, call_{call} {}
 
   RuntimeCallType call_;
 };
@@ -498,9 +513,7 @@ public:
 
 private:
   explicit IORuntimeStmt(InputOutputCallType call, IOCallArguments &&arguments)
-    : CallStmt_impl{nullptr, Procedure::CreateIntrinsicProcedure(call),
-          std::move(arguments)},
-      call_{call} {}
+    : CallStmt_impl{nullptr, nullptr, std::move(arguments)}, call_{call} {}
 
   InputOutputCallType call_;
 };
@@ -546,7 +559,7 @@ private:
 };
 
 // Sum type over all statement classes
-class Statement : public SumTypeMixin<ReturnStmt,  //
+class Statement : public SumTypeMixin<std::variant<ReturnStmt,  //
                       BranchStmt,  //
                       SwitchStmt,  //
                       SwitchCaseStmt,  //
@@ -570,8 +583,7 @@ class Statement : public SumTypeMixin<ReturnStmt,  //
                       ScopeEnterStmt,  //
                       ScopeExitStmt,  //
                       PHIStmt  //
-                      >,
-                  public Value_impl,
+                      >>,
                   public ChildMixin<Statement, BasicBlock>,
                   public llvm::ilist_node<Statement> {
 public:
@@ -580,14 +592,6 @@ public:
     parent->insertBefore(this);
   }
   std::string dump() const;
-
-  static std::size_t offsetof_impl() {
-    return reinterpret_cast<std::size_t>(&static_cast<Statement *>(nullptr)->u);
-  }
-  static Statement *From(Stmt_impl *stmt) {
-    return reinterpret_cast<Statement *>(
-        reinterpret_cast<char *>(stmt) - Statement::offsetof_impl());
-  }
 };
 
 inline std::list<BasicBlock *> succ_list(BasicBlock &block) {
@@ -598,16 +602,6 @@ inline std::list<BasicBlock *> succ_list(BasicBlock &block) {
   // CHECK(false && "block does not have terminator");
   return {};
 }
-
-inline Statement *ReturnStmt::returnValue() const {
-  return Statement::From(returnValue_);
-}
-
-inline ApplyExprStmt *GetApplyExpr(Statement *stmt) {
-  return std::get_if<ApplyExprStmt>(&stmt->u);
-}
-
-Addressable_impl *GetAddressable(Statement *stmt);
 }
 
 #endif  // FORTRAN_FIR_STATEMENTS_H_

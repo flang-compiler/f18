@@ -28,8 +28,12 @@
 
 namespace Fortran::FIR {
 
+inline constexpr bool has_size(std::size_t size) { return size > 0; }
+
 // implementation of a (moveable) sum type (variant)
-template<typename... Ts> struct SumTypeMixin {
+template<typename T, typename E = void> struct SumTypeMixin {};
+template<typename T>  // T must be std::variant<...>
+struct SumTypeMixin<T, std::enable_if_t<has_size(std::variant_size_v<T>)>> {
   template<typename A> SumTypeMixin(A &&x) : u{std::move(x)} {}
   using SumTypeTrait = std::true_type;
   SumTypeMixin(SumTypeMixin &&) = default;
@@ -37,11 +41,13 @@ template<typename... Ts> struct SumTypeMixin {
   SumTypeMixin(const SumTypeMixin &) = delete;
   SumTypeMixin &operator=(const SumTypeMixin &) = delete;
   SumTypeMixin() = delete;
-  std::variant<Ts...> u;
+  T u;
 };
 
 // implementation of a copyable sum type
-template<typename... Ts> struct SumTypeCopyMixin {
+template<typename T, typename E = void> struct SumTypeCopyMixin {};
+template<typename T>  // T must be std::variant<...>
+struct SumTypeCopyMixin<T, std::enable_if_t<has_size(std::variant_size_v<T>)>> {
   template<typename A> SumTypeCopyMixin(A &&x) : u{std::move(x)} {}
   template<typename A> SumTypeCopyMixin(const A &x) : u{x} {}
   using CopyableSumTypeTrait = std::true_type;
@@ -50,7 +56,7 @@ template<typename... Ts> struct SumTypeCopyMixin {
   SumTypeCopyMixin(const SumTypeCopyMixin &) = default;
   SumTypeCopyMixin &operator=(const SumTypeCopyMixin &) = default;
   SumTypeCopyMixin() = delete;
-  std::variant<Ts...> u;
+  T u;
 };
 #define SUM_TYPE_COPY_MIXIN(DT) \
   DT(const DT &derived) : SumTypeCopyMixin(derived.u) {} \
@@ -60,7 +66,9 @@ template<typename... Ts> struct SumTypeCopyMixin {
   }
 
 // implementation of a (moveable) product type (tuple)
-template<typename... Ts> struct ProductTypeMixin {
+template<typename T, typename E = void> struct ProductTypeMixin {};
+template<typename T>  // T must be std::tuple<...>
+struct ProductTypeMixin<T, std::enable_if_t<has_size(std::tuple_size_v<T>)>> {
   template<typename A> ProductTypeMixin(A &&x) : t{std::move(x)} {}
   using ProductTypeTrait = std::true_type;
   ProductTypeMixin(ProductTypeMixin &&) = default;
@@ -68,20 +76,23 @@ template<typename... Ts> struct ProductTypeMixin {
   ProductTypeMixin(const ProductTypeMixin &) = delete;
   ProductTypeMixin &operator=(const ProductTypeMixin &) = delete;
   ProductTypeMixin() = delete;
-  std::tuple<Ts...> t;
+  T t;
 };
 
 // implementation of a (moveable) maybe type
-template<typename T>
-struct MaybeMixin {
-  MaybeMixin(T &&x) : o{std::move(x)} {}
+template<typename T, typename E = void> struct MaybeMixin {};
+template<typename T>  // T must be std::optional<...>
+struct MaybeMixin<T,
+    std::enable_if_t<
+        std::is_same_v<std::optional<typename T::value_type>, T>>> {
+  template<typename A> MaybeMixin(A &&x) : o{std::move(x)} {}
   using MaybeTrait = std::true_type;
   MaybeMixin(MaybeMixin &&) = default;
   MaybeMixin &operator=(MaybeMixin &&) = default;
   MaybeMixin(const MaybeMixin &) = delete;
   MaybeMixin &operator=(const MaybeMixin &) = delete;
   MaybeMixin() = delete;
-  std::optional<T> o;
+  T o;
 };
 
 // implementation of a child type (composable hierarchy)
@@ -110,12 +121,6 @@ C Zip(C out, A first, A last, B other) {
 template<typename A, typename B> B &Unzip(B &out, A first, A last) {
   std::transform(first, last, std::back_inserter(out.first),
       [](auto &&a) -> decltype(a.first) { return a.first; });
-  std::transform(first, last, std::back_inserter(out.second),
-      [](auto &&a) -> decltype(a.second) { return a.second; });
-  return out;
-}
-
-template<typename A, typename B> B &UnzipSnd(B &out, A first, A last) {
   std::transform(first, last, std::back_inserter(out.second),
       [](auto &&a) -> decltype(a.second) { return a.second; });
   return out;

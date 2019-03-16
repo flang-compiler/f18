@@ -15,6 +15,7 @@
 #ifndef FORTRAN_FIR_BASICBLOCK_H_
 #define FORTRAN_FIR_BASICBLOCK_H_
 
+#include "mixin.h"
 #include "region.h"
 #include <iostream>
 
@@ -24,8 +25,7 @@ class Region;
 class Statement;
 
 class BasicBlock final : public llvm::ilist_node<BasicBlock>,
-                         public ChildMixin<BasicBlock, Region>,
-                         public Value_impl {
+                         public ChildMixin<BasicBlock, Region> {
 public:
   using StatementListType = llvm::iplist<Statement>;
   using iterator = StatementListType::iterator;

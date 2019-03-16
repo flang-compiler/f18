@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "basicblock.h"
+#include "program.h"
 #include "statements.h"
 
 namespace Fortran::FIR {
