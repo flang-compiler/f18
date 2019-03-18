@@ -22,6 +22,7 @@ add_library(FortranSemantics
   check-if-construct.cc
   check-if-stmt.cc
   check-nullify.cc
+  check-stop.cc
   expression.cc
   mod-file.cc
   resolve-labels.cc
