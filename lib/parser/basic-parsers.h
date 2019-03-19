@@ -1343,7 +1343,12 @@ public:
     const char *start{state.GetLocation()};
     auto result{parser_.Parse(state)};
     if (result.has_value()) {
-      result->source = CharBlock{start, state.GetLocation()};
+      const char *end{state.GetLocation()};
+      for (; start < end && start[0] == ' '; ++start) {
+      }
+      for (; start < end && end[-1] == ' '; --end) {
+      }
+      result->source = CharBlock{start, end};
     }
     return result;
   }
