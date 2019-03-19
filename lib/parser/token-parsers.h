@@ -113,7 +113,8 @@ constexpr struct SpaceCheck {
 // spaces may appear in the source; they can be made mandatory for
 // some free form keyword sequences.  Missing mandatory spaces in free
 // form elicit a warning; they are not necessary for recognition.
-// Spaces before and after the token are also skipped.
+// Spaces before the token are also skipped. Spaces after the token
+// are skipped unless noTrailingSpace is set.
 //
 // Token strings appear in the grammar as C++ user-defined literals
 // like "BIND ( C )"_tok and "SYNC ALL"_sptok.  The _tok suffix is implied
@@ -123,8 +124,10 @@ class TokenStringMatch {
 public:
   using resultType = Success;
   constexpr TokenStringMatch(const TokenStringMatch &) = default;
-  constexpr TokenStringMatch(const char *str, std::size_t n, bool mandatory)
-    : str_{str}, bytes_{n}, mandatoryFreeFormSpace_{mandatory} {}
+  constexpr TokenStringMatch(const char *str, std::size_t n, bool mandatory,
+      bool noTrainingSpace = false)
+    : str_{str}, bytes_{n}, mandatoryFreeFormSpace_{mandatory},
+      noTrailingSpace_{noTrainingSpace} {}
   constexpr TokenStringMatch(const char *str, bool mandatory)
     : str_{str}, mandatoryFreeFormSpace_{mandatory} {}
   std::optional<Success> Parse(ParseState &state) const {
@@ -165,8 +168,10 @@ public:
     state.set_anyTokenMatched();
     if (IsLegalInIdentifier(p[-1])) {
       return spaceCheck.Parse(state);
-    } else {
+    } else if (!noTrailingSpace_) {
       return space.Parse(state);
+    } else {
+      return Success{};
     }
   }
 
@@ -174,6 +179,7 @@ private:
   const char *const str_;
   const std::size_t bytes_{std::string::npos};
   const bool mandatoryFreeFormSpace_;
+  const bool noTrailingSpace_{false};
 };
 
 constexpr TokenStringMatch operator""_tok(const char str[], std::size_t n) {
@@ -182,6 +188,10 @@ constexpr TokenStringMatch operator""_tok(const char str[], std::size_t n) {
 
 constexpr TokenStringMatch operator""_sptok(const char str[], std::size_t n) {
   return TokenStringMatch{str, n, true};
+}
+
+constexpr TokenStringMatch operator""_nosptok(const char str[], std::size_t n) {
+  return TokenStringMatch{str, n, false, true};
 }
 
 template<class PA, std::enable_if_t<std::is_class<PA>::value, int> = 0>
@@ -201,7 +211,7 @@ template<class PA>
 inline constexpr SequenceParser<TokenStringMatch,
     InvertedSequenceParser<PA, TokenStringMatch>>
 parenthesized(const PA &p) {
-  return "(" >> p / ")";
+  return "(" >> p / ")"_nosptok;
 }
 
 template<class PA>

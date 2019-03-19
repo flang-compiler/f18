@@ -3190,15 +3190,15 @@ TYPE_PARSER(construct<ProcedureStmt>("MODULE PROCEDURE"_sptok >>
 TYPE_PARSER(sourced(first(construct<GenericSpec>("OPERATOR" >>
                               parenthesized(Parser<DefinedOperator>{})),
     construct<GenericSpec>(
-        construct<GenericSpec::Assignment>("ASSIGNMENT ( = )"_tok)),
+        construct<GenericSpec::Assignment>("ASSIGNMENT ( = )"_nosptok)),
     construct<GenericSpec>(
-        construct<GenericSpec::ReadFormatted>("READ ( FORMATTED )"_tok)),
+        construct<GenericSpec::ReadFormatted>("READ ( FORMATTED )"_nosptok)),
+    construct<GenericSpec>(construct<GenericSpec::ReadUnformatted>(
+        "READ ( UNFORMATTED )"_nosptok)),
     construct<GenericSpec>(
-        construct<GenericSpec::ReadUnformatted>("READ ( UNFORMATTED )"_tok)),
-    construct<GenericSpec>(
-        construct<GenericSpec::WriteFormatted>("WRITE ( FORMATTED )"_tok)),
-    construct<GenericSpec>(
-        construct<GenericSpec::WriteUnformatted>("WRITE ( UNFORMATTED )"_tok)),
+        construct<GenericSpec::WriteFormatted>("WRITE ( FORMATTED )"_nosptok)),
+    construct<GenericSpec>(construct<GenericSpec::WriteUnformatted>(
+        "WRITE ( UNFORMATTED )"_nosptok)),
     construct<GenericSpec>(name))))
 
 // R1510 generic-stmt ->
