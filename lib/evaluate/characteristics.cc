@@ -61,9 +61,7 @@ bool DummyProcedure::operator==(const DummyProcedure &that) const {
 
 std::ostream &DummyProcedure::Dump(std::ostream &o) const {
   attrs.Dump(o, EnumToString);
-  if (explicitProcedure.has_value()) {
-    explicitProcedure.value().Dump(o);
-  }
+  explicitProcedure.value().Dump(o);
   return o;
 }
 
@@ -98,8 +96,6 @@ std::ostream &Procedure::Dump(std::ostream &o) const {
   }
   return o << (sep == '(' ? "()" : ")");
 }
+DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyProcedure)
 }
-
-// Define OwningPointer special member functions
-DEFINE_OWNING_SPECIAL_FUNCTIONS(
-    OwningPointer, evaluate::characteristics::Procedure)
+DEFINE_DELETER(Fortran::evaluate::characteristics::Procedure)

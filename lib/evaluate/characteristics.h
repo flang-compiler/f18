@@ -53,8 +53,8 @@ struct DummyDataObject {
 // 15.3.2.3
 struct DummyProcedure {
   ENUM_CLASS(Attr, Pointer, Optional)
-  DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyProcedure)
-  common::OwningPointer<Procedure> explicitProcedure;
+  DECLARE_CONSTRUCTORS_AND_ASSIGNMENTS(DummyProcedure)
+  common::CopyableIndirection<Procedure> explicitProcedure;
   common::EnumSet<Attr, 32> attrs;
   bool operator==(const DummyProcedure &) const;
   std::ostream &Dump(std::ostream &) const;

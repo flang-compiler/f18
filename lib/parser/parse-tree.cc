@@ -18,6 +18,13 @@
 #include "../common/indirection.h"
 #include <algorithm>
 
+// So "delete Expr;" calls an external destructor for its typedExpr.
+namespace Fortran::evaluate {
+struct GenericExprWrapper {
+  ~GenericExprWrapper();
+};
+}
+
 namespace Fortran::parser {
 
 // R867
@@ -171,3 +178,5 @@ std::ostream &operator<<(std::ostream &os, const CharBlock &x) {
   return os << x.ToString();
 }
 }
+
+template class std::unique_ptr<Fortran::evaluate::GenericExprWrapper>;
