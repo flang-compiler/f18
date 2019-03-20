@@ -33,6 +33,7 @@
 #include "../common/indirection.h"
 #include <cinttypes>
 #include <list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -66,13 +67,8 @@ class DerivedTypeSpec;
 
 // Expressions in the parse tree have owning pointers that can be set to
 // type-checked generic expression representations by semantic analysis.
-// OwningPointer<> is used for leak safety without having to include
-// the bulk of lib/evaluate/*.h headers into the parser proper.
 namespace Fortran::evaluate {
 struct GenericExprWrapper;  // forward definition, wraps Expr<SomeType>
-}
-namespace Fortran::common {
-extern template class OwningPointer<evaluate::GenericExprWrapper>;
 }
 
 // Most non-template classes in this file use these default definitions
@@ -1695,8 +1691,10 @@ struct Expr {
   explicit Expr(Designator &&);
   explicit Expr(FunctionReference &&);
 
-  // Filled in after successful semantic analysis of the expression.
-  mutable common::OwningPointer<evaluate::GenericExprWrapper> typedExpr;
+  // Filled in with expression after successful semantic analysis.
+  mutable std::unique_ptr<evaluate::GenericExprWrapper,
+      common::Deleter<evaluate::GenericExprWrapper>>
+      typedExpr;
 
   CharBlock source;
 
