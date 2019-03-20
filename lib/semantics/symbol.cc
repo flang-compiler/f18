@@ -56,7 +56,10 @@ std::ostream &operator<<(std::ostream &os, const SubprogramDetails &x) {
     x.bindName_->AsFortran(os << " bindName:");
   }
   if (x.result_) {
-    os << " result:" << x.result_.value()->name();
+    os << " result:" << x.result_->name();
+    if (!x.result_->attrs().empty()) {
+      os << ", " << x.result_->attrs();
+    }
   }
   if (x.dummyArgs_.empty()) {
     char sep{'('};
