@@ -424,7 +424,7 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
   }
   const char *start{at_};
   if (*at_ == '\'' || *at_ == '"') {
-    QuotedCharacterLiteral(tokens);
+    QuotedCharacterLiteral(tokens, start);
     preventHollerith_ = false;
   } else if (IsDecimalDigit(*at_)) {
     int n{0}, digits{0};
@@ -456,6 +456,9 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
       // Handles FORMAT(3I9HHOLLERITH) by skipping over the first I so that
       // we don't misrecognize I9HOLLERITH as an identifier in the next case.
       EmitCharAndAdvance(tokens, *at_);
+    } else if (at_[0] == '_' && (at_[1] == '\'' || at_[1] == '"')) {
+      EmitCharAndAdvance(tokens, *at_);
+      QuotedCharacterLiteral(tokens, start);
     }
     preventHollerith_ = false;
   } else if (*at_ == '.') {
@@ -469,13 +472,15 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
     }
     preventHollerith_ = false;
   } else if (IsLegalInIdentifier(*at_)) {
-    // Subtle: Don't misrecognize labeled DO statement label as Hollerith
-    // when the loop control variable starts with 'H'.
-    preventHollerith_ = true;
     while (IsLegalInIdentifier(EmitCharAndAdvance(tokens, *at_))) {
     }
     if (*at_ == '\'' || *at_ == '"') {
-      QuotedCharacterLiteral(tokens);
+      QuotedCharacterLiteral(tokens, start);
+      preventHollerith_ = false;
+    } else {
+      // Subtle: Don't misrecognize labeled DO statement label as Hollerith
+      // when the loop control variable starts with 'H'.
+      preventHollerith_ = true;
     }
   } else if (*at_ == '*') {
     if (EmitCharAndAdvance(tokens, '*') == '*') {
@@ -530,8 +535,10 @@ bool Prescanner::ExponentAndKind(TokenSequence &tokens) {
   return true;
 }
 
-void Prescanner::QuotedCharacterLiteral(TokenSequence &tokens) {
-  const char *start{at_}, quote{*start}, *end{at_ + 1};
+void Prescanner::QuotedCharacterLiteral(
+    TokenSequence &tokens, const char *start) {
+  char quote{*at_};
+  const char *end{at_ + 1};
   inCharLiteral_ = true;
   const auto emit{[&](char ch) { EmitChar(tokens, ch); }};
   const auto insert{[&](char ch) { EmitInsertedChar(tokens, ch); }};
