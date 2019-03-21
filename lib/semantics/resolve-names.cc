@@ -3274,7 +3274,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   const SourceName &symbolName{info.symbolName()};
   bool isPrivate{accessSpec ? accessSpec->v == parser::AccessSpec::Kind::Private
                             : derivedTypeInfo_.privateBindings};
-  const SymbolList *inheritedProcs{nullptr};  // specific procs from parent type
   auto *genericSymbol{FindInScope(currScope(), symbolName)};
   if (genericSymbol) {
     if (!genericSymbol->has<GenericBindingDetails>()) {
@@ -3284,8 +3283,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
                  FindInTypeOrParents(currScope(), symbolName)}) {
     // look in parent types:
     if (inheritedSymbol->has<GenericBindingDetails>()) {
-      inheritedProcs =
-          &inheritedSymbol->get<GenericBindingDetails>().specificProcs();
       CheckAccessibility(symbolName, isPrivate, *inheritedSymbol);
     }
   }
@@ -3301,9 +3298,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
     }
   }
   auto &details{genericSymbol->get<GenericBindingDetails>()};
-  if (inheritedProcs) {
-    details.add_specificProcs(*inheritedProcs);
-  }
   details.add_specificProcs(specificProcs);
   info.Resolve(genericSymbol);
   return false;
