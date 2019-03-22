@@ -450,8 +450,8 @@ public:
 private:
   bool ExpressionHasTypeCategory(const evaluate::GenericExprWrapper &expr,
       const common::TypeCategory &type) {
-    // TODO - implement
-    return false;
+    auto dynamicType{expr.v.GetType()};
+    return dynamicType.has_value() && dynamicType->category == type;
   }
   bool InnermostEnclosingScope(const semantics::Symbol &symbol) const {
     // TODO - implement
