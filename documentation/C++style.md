@@ -6,12 +6,13 @@ Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 * Use *clang-format* on all C++ source and header files before
   every merge to master.  All code layout should be determined
   by means of clang-format.
-* Where [LLVM's C++ style guide](https://llvm.org/docs/CodingStandards.html#style-issues)
-is clear on usage, follow it.
-* Otherwise, where a clear precedent exists in the project, follow it.
-* Otherwise, where a good public C++ style guide is relevant and clear,
-  follow it.  [Google's](https://google.github.io/styleguide/cppguide.html)
-  is pretty good and comes with lots of justifications for its rules.
+* Where a clear precedent for resolving a question of style has already
+  been established in the project, please be consistent with it.
+* Where a clear precedent for resolving a question of style has not
+  already been set, consider other style guides.  Being compatible with
+  [LLVM's C++ style guide](https://llvm.org/docs/CodingStandards.html#style-issues)
+  is good, and [Google's](https://google.github.io/styleguide/cppguide.html)
+  is worth a look and comes with lots of justifications for its rules.
 * Reasonable exceptions to these guidelines can be made.
 ## In particular:
 ### Files
