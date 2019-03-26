@@ -16,7 +16,7 @@
 #define FORTRAN_SEMANTICS_TYPE_H_
 
 #include "attr.h"
-#include "../common/fortran.h"
+#include "../common/Fortran.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include "../evaluate/expression.h"
@@ -101,7 +101,9 @@ public:
   bool isDeferred() const { return category_ == Category::Deferred; }
   const MaybeIntExpr &GetExplicit() const { return expr_; }
   void SetExplicit(SomeIntExpr &&);
-  bool operator==(const ParamValue &) const;
+  bool operator==(const ParamValue &that) const {
+    return category_ == that.category_ && expr_ == that.expr_;
+  }
 
 private:
   enum class Category { Explicit, Deferred, Assumed };
@@ -240,7 +242,9 @@ public:
   }
   void FoldParameterExpressions(evaluate::FoldingContext &);
   void Instantiate(Scope &, SemanticsContext &);
-  bool operator==(const DerivedTypeSpec &) const;  // for std::find()
+  bool operator==(const DerivedTypeSpec &that) const {
+    return &typeSymbol_ == &that.typeSymbol_ && parameters_ == that.parameters_;
+  }
 
 private:
   const Symbol &typeSymbol_;
@@ -315,9 +319,10 @@ private:
 std::ostream &operator<<(std::ostream &, const DeclTypeSpec &);
 
 // This represents a proc-interface in the declaration of a procedure or
-// procedure component. It comprises a symbol (representing the specific
-// interface), a decl-type-spec (representing the function return type),
-// or neither.
+// procedure component. It comprises a symbol that represents the specific
+// interface or a decl-type-spec that represents the function return type.
+// Approved specific intrinsic functions are represented by symbols with
+// MiscDetails.
 class ProcInterface {
 public:
   const Symbol *symbol() const { return symbol_; }

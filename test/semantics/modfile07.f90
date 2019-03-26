@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -15,25 +15,45 @@
 ! Check modfile generation for generic interfaces
 module m
   interface foo
-    subroutine s1(x)
-      real x
-    end subroutine
-    subroutine s2(x)
-      complex x
-    end subroutine
+    real function s1(x,y)
+      real x,y
+    end function
+    complex function s2(x,y)
+      complex x,y
+    end function
   end interface
+  generic :: operator ( + ) => s1, s2
   interface bar
     procedure :: s1
     procedure :: s2
     procedure :: s3
     procedure :: s4
   end interface
+  interface operator( .bar.)
+    procedure :: s1
+    procedure :: s2
+    procedure :: s3
+    procedure :: s4
+  end interface
 contains
-  subroutine s3(x)
-    logical x
-  end
-  subroutine s4(x)
-    integer x
+  logical function s3(x,y)
+    logical x,y
+  end function
+  integer function s4(x,y)
+    integer x,y
+  end function
+end
+
+module m2
+  interface foo
+    procedure foo
+  end interface
+  type :: foo
+    real :: x
+  end type
+contains
+  complex function foo()
+    foo = 1.0
   end
 end
 
@@ -41,21 +61,43 @@ end
 !module m
 ! generic::foo=>s1,s2
 ! interface
-!  subroutine s1(x)
+!  function s1(x,y)
+!   real(4)::s1
 !   real(4)::x
+!   real(4)::y
 !  end
 ! end interface
 ! interface
-!  subroutine s2(x)
+!  function s2(x,y)
+!   complex(4)::s2
 !   complex(4)::x
+!   complex(4)::y
 !  end
 ! end interface
+! generic::operator(+)=>s1,s2
 ! generic::bar=>s1,s2,s3,s4
+! generic::operator(.bar.)=>s1,s2,s3,s4
 !contains
-! subroutine s3(x)
+! function s3(x,y)
+!  logical(4)::s3
 !  logical(4)::x
+!  logical(4)::y
 ! end
-! subroutine s4(x)
+! function s4(x,y)
+!  integer(4)::s4
 !  integer(4)::x
+!  integer(4)::y
+! end
+!end
+
+!Expect: m2.mod
+!module m2
+! generic::foo=>foo
+! type::foo
+!  real(4)::x
+! end type
+!contains
+! function foo()
+!  complex(4)::foo
 ! end
 !end

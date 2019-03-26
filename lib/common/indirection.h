@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,16 @@
 #ifndef FORTRAN_COMMON_INDIRECTION_H_
 #define FORTRAN_COMMON_INDIRECTION_H_
 
-// Defines a smart pointer class template that's rather like std::unique_ptr<>
-// but further restricted, like a C++ reference, to be non-null when constructed
-// or assigned.  Users need not check whether these pointers are null.
-// Supports copy construction, too.
-// Intended to be as invisible as a reference, wherever possible.
+// Define a smart pointer class template that is rather like
+// non-nullable std::unique_ptr<>.  Indirection<> is, like a C++ reference
+// type, restricted to be non-null when constructed or assigned.
+// Indirection<> optionally supports copy construction and copy assignment.
+//
+// To use Indirection<> with forward-referenced types, add
+//    extern template class Fortran::common::Indirection<FORWARD_TYPE>;
+// outside any namespace in a header before use, and
+//    template class Fortran::common::Indirection<FORWARD_TYPE>;
+// in one C++ source file later where a definition of the type is visible.
 
 #include "../common/idioms.h"
 #include <memory>
@@ -53,12 +58,14 @@ public:
     that.p_ = tmp;
     return *this;
   }
-  A &operator*() { return *p_; }
-  const A &operator*() const { return *p_; }
-  A *operator->() { return p_; }
-  const A *operator->() const { return p_; }
 
+  A &value() { return *p_; }
+  const A &value() const { return *p_; }
+
+  bool operator==(const A &that) const { return *p_ == that; }
   bool operator==(const Indirection &that) const { return *p_ == *that.p_; }
+  bool operator!=(const A &that) const { return *p_ != that; }
+  bool operator!=(const Indirection &that) const { return *p_ != *that.p_; }
 
   template<typename... ARGS> static Indirection Make(ARGS &&... args) {
     return {new A(std::forward<ARGS>(args)...)};
@@ -72,6 +79,7 @@ private:
 template<typename A> class Indirection<A, true> {
 public:
   using element_type = A;
+
   Indirection() = delete;
   Indirection(A *&&p) : p_{p} {
     CHECK(p_ && "assigning null pointer to Indirection");
@@ -103,12 +111,14 @@ public:
     that.p_ = tmp;
     return *this;
   }
-  A &operator*() { return *p_; }
-  const A &operator*() const { return *p_; }
-  A *operator->() { return p_; }
-  const A *operator->() const { return p_; }
 
+  A &value() { return *p_; }
+  const A &value() const { return *p_; }
+
+  bool operator==(const A &that) const { return *p_ == that; }
   bool operator==(const Indirection &that) const { return *p_ == *that.p_; }
+  bool operator!=(const A &that) const { return *p_ != that; }
+  bool operator!=(const Indirection &that) const { return *p_ != *that.p_; }
 
   template<typename... ARGS> static Indirection Make(ARGS &&... args) {
     return {new A(std::forward<ARGS>(args)...)};
@@ -118,48 +128,22 @@ private:
   A *p_{nullptr};
 };
 
-// A variant of Indirection suitable for use with forward-referenced types.
-// These are nullable pointers, not references.  Allocation is not available,
-// and a single externalized destructor must be defined.
-template<typename A> class OwningPointer {
+template<typename A> using CopyableIndirection = Indirection<A, true>;
+
+// For use with std::unique_ptr<> when declaring owning pointers to
+// forward-referenced types, here's a minimal custom deleter that avoids
+// some of the drama with std::default_delete<>.  Invoke DEFINE_DELETER()
+// later in exactly one C++ source file where a complete definition of the
+// type is visible.  Be advised, std::unique_ptr<> does not have copy
+// semantics; if you need ownership, copy semantics, and nullability,
+// std::optional<CopyableIndirection<>> works.
+template<typename A> class Deleter {
 public:
-  using element_type = A;
-
-  OwningPointer() {}
-  OwningPointer(OwningPointer &&that) : p_{that.release()} {}
-  explicit OwningPointer(std::unique_ptr<A> &&that) : p_{that.release()} {}
-  explicit OwningPointer(A *&&p) : p_{p} { p = nullptr; }
-  ~OwningPointer();
-  OwningPointer &operator=(OwningPointer &&that) {
-    reset(that.release());
-    return *this;
-  }
-
-  A &operator*() { return *p_; }
-  const A &operator*() const { return *p_; }
-  A *operator->() { return p_; }
-  const A *operator->() const { return p_; }
-
-  A *get() const { return p_; }
-
-  A *release() {
-    A *result{p_};
-    p_ = nullptr;
-    return result;
-  }
-
-  void reset(A *p) {
-    this->~OwningPointer();
-    p_ = p;
-  }
-
-  bool operator==(const OwningPointer &that) const {
-    return (p_ == nullptr && that.p_ == nullptr) ||
-        (p_ != nullptr && that.p_ != nullptr && *p_ == *that.p_);
-  }
-
-private:
-  A *p_{nullptr};
+  void operator()(A *) const;
 };
 }
+#define DEFINE_DELETER(A) \
+  template<> void Fortran::common::Deleter<A>::operator()(A *p) const { \
+    delete p; \
+  }
 #endif  // FORTRAN_COMMON_INDIRECTION_H_

@@ -42,14 +42,14 @@ static void PutEntity(std::ostream &, const Symbol &);
 static void PutObjectEntity(std::ostream &, const Symbol &);
 static void PutProcEntity(std::ostream &, const Symbol &);
 static void PutPassName(std::ostream &, const std::optional<SourceName> &);
-static void PutBindName(std::ostream &, const MaybeExpr &);
 static void PutTypeParam(std::ostream &, const Symbol &);
 static void PutEntity(std::ostream &, const Symbol &, std::function<void()>);
 static void PutInit(std::ostream &, const MaybeExpr &);
 static void PutInit(std::ostream &, const MaybeIntExpr &);
 static void PutBound(std::ostream &, const Bound &);
-static std::ostream &PutAttrs(
-    std::ostream &, Attrs, std::string before = ","s, std::string after = ""s);
+static std::ostream &PutAttrs(std::ostream &, Attrs,
+    const MaybeExpr & = std::nullopt, std::string before = ","s,
+    std::string after = ""s);
 static std::ostream &PutLower(std::ostream &, const Symbol &);
 static std::ostream &PutLower(std::ostream &, const DeclTypeSpec &);
 static std::ostream &PutLower(std::ostream &, const std::string &);
@@ -59,7 +59,10 @@ static bool FileContentsMatch(
 static std::string GetHeader(const std::string &);
 static std::size_t GetFileSize(const std::string &);
 
-void ModFileWriter::WriteAll() { WriteAll(context_.globalScope()); }
+bool ModFileWriter::WriteAll() {
+  WriteAll(context_.globalScope());
+  return !context_.AnyFatalError();
+}
 
 void ModFileWriter::WriteAll(const Scope &scope) {
   for (const auto &child : scope.children()) {
@@ -125,7 +128,7 @@ std::string ModFileWriter::GetAsString(const Symbol &symbol) {
 void ModFileWriter::PutSymbols(const Scope &scope) {
   std::stringstream typeBindings;  // stuff after CONTAINS in derived type
   for (const auto *symbol : CollectSymbols(scope)) {
-    PutSymbol(typeBindings, *symbol);
+    PutSymbol(typeBindings, symbol);
   }
   if (auto str{typeBindings.str()}; !str.empty()) {
     decls_ << "contains\n" << str;
@@ -135,38 +138,45 @@ void ModFileWriter::PutSymbols(const Scope &scope) {
 // Emit a symbol to decls_, except for bindings in a derived type (type-bound
 // procedures, type-bound generics, final procedures) which go to typeBindings.
 void ModFileWriter::PutSymbol(
-    std::stringstream &typeBindings, const Symbol &symbol) {
+    std::stringstream &typeBindings, const Symbol *symbol) {
+  if (symbol == nullptr) {
+    return;
+  }
   std::visit(
       common::visitors{
           [&](const ModuleDetails &) { /* should be current module */ },
-          [&](const DerivedTypeDetails &) { PutDerivedType(symbol); },
-          [&](const SubprogramDetails &) { PutSubprogram(symbol); },
-          [&](const GenericDetails &) { PutGeneric(symbol); },
-          [&](const UseDetails &) { PutUse(symbol); },
+          [&](const DerivedTypeDetails &) { PutDerivedType(*symbol); },
+          [&](const SubprogramDetails &) { PutSubprogram(*symbol); },
+          [&](const GenericDetails &x) {
+            PutGeneric(*symbol);
+            PutSymbol(typeBindings, x.specific());
+            PutSymbol(typeBindings, x.derivedType());
+          },
+          [&](const UseDetails &) { PutUse(*symbol); },
           [](const UseErrorDetails &) {},
           [&](const ProcBindingDetails &x) {
-            bool deferred{symbol.attrs().test(Attr::DEFERRED)};
+            bool deferred{symbol->attrs().test(Attr::DEFERRED)};
             typeBindings << "procedure";
             if (deferred) {
               PutLower(typeBindings << '(', x.symbol()) << ')';
             }
             PutPassName(typeBindings, x.passName());
-            PutAttrs(typeBindings, symbol.attrs(), ","s, ""s);
-            PutLower(typeBindings << "::", symbol);
-            if (!deferred && x.symbol().name() != symbol.name()) {
+            PutAttrs(typeBindings, symbol->attrs());
+            PutLower(typeBindings << "::", *symbol);
+            if (!deferred && x.symbol().name() != symbol->name()) {
               PutLower(typeBindings << "=>", x.symbol());
             }
             typeBindings << '\n';
           },
           [&](const GenericBindingDetails &x) {
             for (const auto *proc : x.specificProcs()) {
-              PutLower(typeBindings << "generic::", symbol);
+              PutLower(typeBindings << "generic::", *symbol);
               PutLower(typeBindings << "=>", *proc) << '\n';
             }
           },
           [&](const NamelistDetails &x) {
-            PutLower(decls_ << "namelist/", symbol);
-            char sep = '/';
+            PutLower(decls_ << "namelist/", *symbol);
+            char sep{'/'};
             for (const auto *object : x.objects()) {
               PutLower(decls_ << sep, *object);
               sep = ',';
@@ -174,27 +184,31 @@ void ModFileWriter::PutSymbol(
             decls_ << '\n';
           },
           [&](const CommonBlockDetails &x) {
-            PutLower(decls_ << "common/", symbol);
+            PutLower(decls_ << "common/", *symbol);
             char sep = '/';
             for (const auto *object : x.objects()) {
               PutLower(decls_ << sep, *object);
               sep = ',';
             }
             decls_ << '\n';
+            if (symbol->attrs().test(Attr::BIND_C)) {
+              PutAttrs(decls_, symbol->attrs(), x.bindName(), ""s);
+              PutLower(decls_ << "::/", *symbol) << "/\n";
+            }
           },
           [&](const FinalProcDetails &) {
-            PutLower(typeBindings << "final::", symbol) << '\n';
+            PutLower(typeBindings << "final::", *symbol) << '\n';
           },
           [](const HostAssocDetails &) {},
           [](const MiscDetails &) {},
-          [&](const auto &) { PutEntity(decls_, symbol); },
+          [&](const auto &) { PutEntity(decls_, *symbol); },
       },
-      symbol.details());
+      symbol->details());
 }
 
 void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
   auto &details{typeSymbol.get<DerivedTypeDetails>()};
-  PutAttrs(decls_ << "type", typeSymbol.attrs(), ","s, ""s);
+  PutAttrs(decls_ << "type", typeSymbol.attrs());
   if (const DerivedTypeSpec * extends{typeSymbol.GetParentTypeSpec()}) {
     PutLower(decls_ << ",extends(", extends->typeSymbol()) << ')';
   }
@@ -231,7 +245,7 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   if (isInterface) {
     os << "interface\n";
   }
-  PutAttrs(os, attrs, ""s, " "s);
+  PutAttrs(os, attrs, std::nullopt, ""s, " "s);
   os << (details.isFunction() ? "function " : "subroutine ");
   PutLower(os, symbol) << '(';
   int n = 0;
@@ -240,8 +254,7 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
     PutLower(os, *dummy);
   }
   os << ')';
-  PutBindName(os, details.bindName());
-  PutAttrs(os, bindAttrs, " "s, ""s);
+  PutAttrs(os, bindAttrs, details.bindName(), " "s, ""s);
   if (details.isFunction()) {
     const Symbol &result{details.result()};
     if (result.name() != symbol.name()) {
@@ -264,8 +277,13 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
 void ModFileWriter::PutGeneric(const Symbol &symbol) {
   auto &details{symbol.get<GenericDetails>()};
   decls_ << "generic";
-  PutAttrs(decls_, symbol.attrs());
-  PutLower(decls_ << "::", symbol) << "=>";
+  PutAttrs(decls_, symbol.attrs()) << "::";
+  if (details.kind() == GenericKind::DefinedOp) {
+    PutLower(decls_ << "operator(", symbol) << ')';
+  } else {
+    PutLower(decls_, symbol);
+  }
+  decls_ << "=>";
   int n = 0;
   for (auto *specific : details.specificProcs()) {
     if (n++ > 0) decls_ << ',';
@@ -309,6 +327,12 @@ std::vector<const Symbol *> CollectSymbols(const Scope &scope) {
       if (symbols.insert(symbol).second) {
         sorted.push_back(symbol);
       }
+    }
+  }
+  for (const auto &pair : scope.commonBlocks()) {
+    auto *symbol{pair.second};
+    if (symbols.insert(symbol).second) {
+      sorted.push_back(symbol);
     }
   }
   std::sort(sorted.begin(), sorted.end(), [](const Symbol *x, const Symbol *y) {
@@ -374,7 +398,6 @@ void PutObjectEntity(std::ostream &os, const Symbol &symbol) {
     auto *type{symbol.GetType()};
     CHECK(type);
     PutLower(os, *type);
-    PutBindName(os, details.bindName());
   });
   PutShape(os, details.shape());
   PutInit(os, details.init());
@@ -392,19 +415,12 @@ void PutProcEntity(std::ostream &os, const Symbol &symbol) {
     }
     os << ')';
     PutPassName(os, details.passName());
-    PutBindName(os, details.bindName());
   });
 }
 
 void PutPassName(std::ostream &os, const std::optional<SourceName> &passName) {
   if (passName) {
     PutLower(os << ",pass(", passName->ToString()) << ')';
-  }
-}
-
-void PutBindName(std::ostream &os, const MaybeExpr &bindName) {
-  if (bindName) {
-    bindName->AsFortran(os << ",bind(c, name=") << ')';
   }
 }
 
@@ -446,16 +462,29 @@ void PutBound(std::ostream &os, const Bound &x) {
 void PutEntity(
     std::ostream &os, const Symbol &symbol, std::function<void()> writeType) {
   writeType();
-  PutAttrs(os, symbol.attrs());
+  MaybeExpr bindName;
+  std::visit(
+      common::visitors{
+          [&](const SubprogramDetails &x) { bindName = x.bindName(); },
+          [&](const ObjectEntityDetails &x) { bindName = x.bindName(); },
+          [&](const ProcEntityDetails &x) { bindName = x.bindName(); },
+          [&](const auto &) {},
+      },
+      symbol.details());
+  PutAttrs(os, symbol.attrs(), bindName);
   PutLower(os << "::", symbol);
 }
 
 // Put out each attribute to os, surrounded by `before` and `after` and
 // mapped to lower case.
-std::ostream &PutAttrs(
-    std::ostream &os, Attrs attrs, std::string before, std::string after) {
+std::ostream &PutAttrs(std::ostream &os, Attrs attrs, const MaybeExpr &bindName,
+    std::string before, std::string after) {
   attrs.set(Attr::PUBLIC, false);  // no need to write PUBLIC
   attrs.set(Attr::EXTERNAL, false);  // no need to write EXTERNAL
+  if (bindName) {
+    bindName->AsFortran(os << before << "bind(c, name=") << ')' << after;
+    attrs.set(Attr::BIND_C, false);
+  }
   for (std::size_t i{0}; i < Attr_enumSize; ++i) {
     Attr attr{static_cast<Attr>(i)};
     if (attrs.test(attr)) {
@@ -661,7 +690,8 @@ static const SourceName *GetSubmoduleParent(const parser::Program &program) {
   CHECK(program.v.size() == 1);
   auto &unit{program.v.front()};
   auto &submod{std::get<common::Indirection<parser::Submodule>>(unit.u)};
-  auto &stmt{std::get<parser::Statement<parser::SubmoduleStmt>>(submod->t)};
+  auto &stmt{
+      std::get<parser::Statement<parser::SubmoduleStmt>>(submod.value().t)};
   auto &parentId{std::get<parser::ParentIdentifier>(stmt.statement.t)};
   if (auto &parent{std::get<std::optional<parser::Name>>(parentId.t)}) {
     return &parent->source;

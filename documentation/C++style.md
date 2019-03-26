@@ -1,12 +1,13 @@
 <!--
-Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 -->
 
 ## In brief:
 * Use *clang-format* on all C++ source and header files before
   every merge to master.  All code layout should be determined
   by means of clang-format.
-* Where LLVM's C++ style guide is clear on usage, follow it.
+* Where [LLVM's C++ style guide](https://llvm.org/docs/CodingStandards.html#style-issues)
+is clear on usage, follow it.
 * Otherwise, where a clear precedent exists in the project, follow it.
 * Otherwise, where a good public C++ style guide is relevant and clear,
   follow it.  [Google's](https://google.github.io/styleguide/cppguide.html)
@@ -36,9 +37,10 @@ headers, also alphabetically; then C and system headers.
 1. Don't use `#include <iostream>`.  If you need it for temporary debugging,
 remove the inclusion before committing.
 ### Naming
-1. C++ names that correspond to STL names should look like those STL names
-(e.g., `clear()` and `size()` member functions in a class that implements
-a container).
+1. C++ names that correspond to well-known interfaces from the STL and LLVM
+can and should look like their models when the reader can safely assume that
+they mean the same thing -- e.g., `clear()` and `size()` member functions
+in a class that implements an STL-ish container.
 1. Non-public data members should be named with leading miniscule (lower-case)
 letters, internal camelCase capitalization, and a trailing underscore,
 e.g. `DoubleEntryBookkeepingSystem myLedger_;`.  POD structures with
@@ -144,7 +146,7 @@ last (_pace_ the standard C library conventions for `memcpy()` & al.).
 We have an `ENUM_CLASS` macro that helps capture the names of constants.
 1. Use `constexpr` and `const` generously.
 1. When a `switch()` statement's labels do not cover all possible case values
-explicitly, it should contains either a `default:;` at its end or a
+explicitly, it should contain either a `default:;` at its end or a
 `default:` label that obviously crashes; we have a `CRASH_NO_CASE` macro
 for such situations.
 1. When using `std::optional` values, avoid unprotected access to their content.
@@ -190,18 +192,17 @@ will be defined to return a reference.)
 wherever appropriate.
 * `std::unique_ptr<>`: A nullable pointer with ownership, null by default,
 not copyable, reassignable.
+F18 has a helpful `Deleter<>` class template that makes `unique_ptr<>`
+easier to use with forward-referenced data types.
 * `std::shared_ptr<>`: A nullable pointer with shared ownership via reference
 counting, null by default, shallowly copyable, reassignable, and slow.
-* `OwningPointer<>`: A nullable pointer with ownership, better suited
-for use with forward-defined types than `std::unique_ptr<>` is.
-Null by default, not copyable, reassignable.
-Does not have means for allocating data, and inconveniently requires
-the definition of an external destructor.
 * `Indirection<>`: A non-nullable pointer with ownership and
 optional deep copy semantics; reassignable.
 Often better than a reference (due to ownership) or `std::unique_ptr<>`
 (due to non-nullability and copyability).
 Can be wrapped in `std::optional<>` when nullability is required.
+Usable with forward-referenced data types with some use of `extern template`
+in headers and explicit template instantiation in source files.
 * `CountedReference<>`: A nullable pointer with shared ownership via
 reference counting, null by default, shallowly copyable, reassignable.
 Safe to use *only* when the data are private to just one
@@ -215,10 +216,9 @@ A feature matrix:
 | -------              | -------- | ------------ | ------ | ------------ | --------          | ------------------ |
 | `*p`                 | yes      | no           | no     | yes          | shallowly         | yes                |
 | `&r`                 | no       | n/a          | no     | no           | shallowly         | yes                |
-| `unique_ptr<>`       | yes      | yes          | yes    | yes          | no                | no                 |
+| `unique_ptr<>`       | yes      | yes          | yes    | yes          | no                | yes, with work     |
 | `shared_ptr<>`       | yes      | yes          | yes    | yes          | shallowly         | no                 |
-| `OwningPointer<>`    | yes      | yes          | yes    | yes          | no                | yes                |
-| `Indirection<>`      | no       | n/a          | yes    | yes          | optionally deeply | no                 |
+| `Indirection<>`      | no       | n/a          | yes    | yes          | optionally deeply | yes, with work     |
 | `CountedReference<>` | yes      | yes          | yes    | yes          | shallowly         | no                 |
 
 ### Overall design preferences

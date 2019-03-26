@@ -16,6 +16,8 @@
 #define FORTRAN_EVALUATE_INTRINSICS_H_
 
 #include "call.h"
+#include "characteristics.h"
+#include "type.h"
 #include "../common/default-kinds.h"
 #include "../parser/char-block.h"
 #include "../parser/message.h"
@@ -36,20 +38,37 @@ struct SpecificCall {
   ActualArguments arguments;
 };
 
+struct UnrestrictedSpecificIntrinsicFunctionInterface
+  : public characteristics::Procedure {
+  std::string genericName;
+  // N.B. If there are multiple arguments, they all have the same type.
+  // All argument and result types are intrinsic types with default kinds.
+};
+
 class IntrinsicProcTable {
 private:
-  struct Implementation;
+  class Implementation;
 
 public:
   ~IntrinsicProcTable();
   static IntrinsicProcTable Configure(
       const common::IntrinsicTypeDefaultKinds &);
 
+  // Check whether a name should be allowed to appear on an INTRINSIC
+  // statement.
+  bool IsIntrinsic(const std::string &) const;
+
   // Probe the intrinsics for a match against a specific call.
   // On success, the actual arguments are transferred to the result
   // in dummy argument order.
   std::optional<SpecificCall> Probe(const CallCharacteristics &,
       ActualArguments &, parser::ContextualMessages *messages = nullptr) const;
+
+  // Probe the intrinsics with the name of a potential unrestricted specific
+  // intrinsic.
+  std::optional<UnrestrictedSpecificIntrinsicFunctionInterface>
+  IsUnrestrictedSpecificIntrinsicFunction(const std::string &) const;
+
   std::ostream &Dump(std::ostream &) const;
 
 private:

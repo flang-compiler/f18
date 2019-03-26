@@ -28,11 +28,12 @@
 #include "format-specification.h"
 #include "message.h"
 #include "provenance.h"
-#include "../common/fortran.h"
+#include "../common/Fortran.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include <cinttypes>
 #include <list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -66,13 +67,8 @@ class DerivedTypeSpec;
 
 // Expressions in the parse tree have owning pointers that can be set to
 // type-checked generic expression representations by semantic analysis.
-// OwningPointer<> is used for leak safety without having to include
-// the bulk of lib/evaluate/*.h headers into the parser proper.
 namespace Fortran::evaluate {
 struct GenericExprWrapper;  // forward definition, wraps Expr<SomeType>
-}
-namespace Fortran::common {
-extern template class OwningPointer<evaluate::GenericExprWrapper>;
 }
 
 // Most non-template classes in this file use these default definitions
@@ -538,8 +534,6 @@ WRAPPER_CLASS(Program, std::list<ProgramUnit>);
 
 // R603 name -> letter [alphanumeric-character]...
 struct Name {
-  Name() {}
-  COPY_AND_ASSIGN_BOILERPLATE(Name);
   std::string ToString() const { return source.ToString(); }
   CharBlock source;
   mutable semantics::Symbol *symbol{nullptr};  // filled in during semantics
@@ -555,7 +549,7 @@ WRAPPER_CLASS(NamedConstant, Name);
 // R1023 defined-binary-op -> . letter [letter]... .
 // R1414 local-defined-operator -> defined-unary-op | defined-binary-op
 // R1415 use-defined-operator -> defined-unary-op | defined-binary-op
-// The Name here is stored without the dots; e.g., FOO, not .FOO.
+// The Name here is stored with the dots; e.g., .FOO.
 WRAPPER_CLASS(DefinedOpName, Name);
 
 // R608 intrinsic-operator ->
@@ -954,7 +948,7 @@ EMPTY_CLASS(Contiguous);
 struct ComponentAttrSpec {
   UNION_CLASS_BOILERPLATE(ComponentAttrSpec);
   std::variant<AccessSpec, Allocatable, CoarraySpec, Contiguous,
-      ComponentArraySpec, Pointer>
+      ComponentArraySpec, Pointer, ErrorRecovery>
       u;
 };
 
@@ -1485,7 +1479,7 @@ WRAPPER_CLASS(ProtectedStmt, std::list<Name>);
 // R858 proc-pointer-name -> name
 struct SavedEntity {
   TUPLE_CLASS_BOILERPLATE(SavedEntity);
-  ENUM_CLASS(Kind, Object, ProcPointer, Common)
+  ENUM_CLASS(Kind, Entity, Common)
   std::tuple<Kind, Name> t;
 };
 
@@ -1697,8 +1691,10 @@ struct Expr {
   explicit Expr(Designator &&);
   explicit Expr(FunctionReference &&);
 
-  // Filled in after successful semantic analysis of the expression.
-  mutable common::OwningPointer<evaluate::GenericExprWrapper> typedExpr;
+  // Filled in with expression after successful semantic analysis.
+  mutable std::unique_ptr<evaluate::GenericExprWrapper,
+      common::Deleter<evaluate::GenericExprWrapper>>
+      typedExpr;
 
   CharBlock source;
 
@@ -1812,6 +1808,7 @@ struct ArrayElement {
   BOILERPLATE(ArrayElement);
   ArrayElement(DataRef &&dr, std::list<SectionSubscript> &&ss)
     : base{std::move(dr)}, subscripts(std::move(ss)) {}
+  Substring ConvertToSubstring();
   DataRef base;
   std::list<SectionSubscript> subscripts;
 };
@@ -2392,10 +2389,10 @@ struct ComputedGotoStmt {
 };
 
 // R1162 stop-code -> scalar-default-char-expr | scalar-int-expr
-struct StopCode {
-  UNION_CLASS_BOILERPLATE(StopCode);
-  std::variant<ScalarDefaultCharExpr, ScalarIntExpr> u;
-};
+// We can't distinguish character expressions from integer
+// expressions during parsing, so we just parse an expr and
+// check its type later.
+WRAPPER_CLASS(StopCode, Scalar<Expr>);
 
 // R1160 stop-stmt -> STOP [stop-code] [, QUIET = scalar-logical-expr]
 // R1161 error-stop-stmt ->
@@ -2882,6 +2879,7 @@ struct GenericSpec {
   EMPTY_CLASS(ReadUnformatted);
   EMPTY_CLASS(WriteFormatted);
   EMPTY_CLASS(WriteUnformatted);
+  CharBlock source;
   std::variant<Name, DefinedOperator, Assignment, ReadFormatted,
       ReadUnformatted, WriteFormatted, WriteUnformatted>
       u;
@@ -3094,6 +3092,8 @@ struct Call {
 struct FunctionReference {
   WRAPPER_CLASS_BOILERPLATE(FunctionReference, Call);
   Designator ConvertToArrayElementRef();
+  StructureConstructor ConvertToStructureConstructor(
+      const semantics::DerivedTypeSpec &);
 };
 
 // R1521 call-stmt -> CALL procedure-designator [( [actual-arg-spec-list] )]
@@ -3153,17 +3153,16 @@ struct StmtFunctionStmt {
 };
 
 // Compiler directives
-// !DIR$ IVDEP
 // !DIR$ IGNORE_TKR [ [(tkr...)] name ]...
+// !DIR$ name...
 struct CompilerDirective {
   UNION_CLASS_BOILERPLATE(CompilerDirective);
   struct IgnoreTKR {
     TUPLE_CLASS_BOILERPLATE(IgnoreTKR);
     std::tuple<std::list<const char *>, Name> t;
   };
-  EMPTY_CLASS(IVDEP);
   CharBlock source;
-  std::variant<std::list<IgnoreTKR>, IVDEP> u;
+  std::variant<std::list<IgnoreTKR>, std::list<Name>> u;
 };
 
 // Legacy extensions

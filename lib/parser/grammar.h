@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -688,17 +688,10 @@ TYPE_CONTEXT_PARSER(
 // R725 logical-literal-constant ->
 //        .TRUE. [_ kind-param] | .FALSE. [_ kind-param]
 // Also accept .T. and .F. as extensions.
-TYPE_PARSER(
+TYPE_PARSER(construct<LogicalLiteralConstant>(
+                logicalTRUE, maybe(underscore >> kindParam)) ||
     construct<LogicalLiteralConstant>(
-        (".TRUE."_tok ||
-            extension<LanguageFeature::LogicalAbbreviations>(".T."_tok)) >>
-            pure(true),
-        maybe(underscore >> kindParam)) ||
-    construct<LogicalLiteralConstant>(
-        (".FALSE."_tok ||
-            extension<LanguageFeature::LogicalAbbreviations>(".F."_tok)) >>
-            pure(false),
-        maybe(underscore >> kindParam)))
+        logicalFALSE, maybe(underscore >> kindParam)))
 
 // R726 derived-type-def ->
 //        derived-type-stmt [type-param-def-stmt]...
@@ -745,9 +738,9 @@ TYPE_PARSER(construct<SequenceStmt>("SEQUENCE"_tok))
 // R732 type-param-def-stmt ->
 //        integer-type-spec , type-param-attr-spec :: type-param-decl-list
 // R734 type-param-attr-spec -> KIND | LEN
-TYPE_PARSER(construct<TypeParamDefStmt>(integerTypeSpec / ",",
-    "KIND" >> pure(common::TypeParamAttr::Kind) ||
-        "LEN" >> pure(common::TypeParamAttr::Len),
+constexpr auto kindOrLen{"KIND" >> pure(common::TypeParamAttr::Kind) ||
+    "LEN" >> pure(common::TypeParamAttr::Len)};
+TYPE_PARSER(construct<TypeParamDefStmt>(integerTypeSpec / ",", kindOrLen,
     "::" >> nonemptyList("expected type parameter declarations"_err_en_US,
                 Parser<TypeParamDecl>{})))
 
@@ -784,7 +777,11 @@ TYPE_PARSER(construct<ComponentAttrSpec>(accessSpec) ||
     construct<ComponentAttrSpec>("CODIMENSION" >> coarraySpec) ||
     construct<ComponentAttrSpec>(contiguous) ||
     construct<ComponentAttrSpec>("DIMENSION" >> Parser<ComponentArraySpec>{}) ||
-    construct<ComponentAttrSpec>(pointer))
+    construct<ComponentAttrSpec>(pointer) ||
+    construct<ComponentAttrSpec>(recovery(
+        fail<ErrorRecovery>(
+            "type parameter definitions must appear before component declarations"_err_en_US),
+        kindOrLen >> construct<ErrorRecovery>())))
 
 // R739 component-decl ->
 //        component-name [( component-array-spec )]
@@ -1297,8 +1294,7 @@ TYPE_PARSER(construct<SaveStmt>(
 
 // R857 saved-entity -> object-name | proc-pointer-name | / common-block-name /
 // R858 proc-pointer-name -> name
-// TODO: Distinguish Kind::ProcPointer and Kind::Object
-TYPE_PARSER(construct<SavedEntity>(pure(SavedEntity::Kind::Object), name) ||
+TYPE_PARSER(construct<SavedEntity>(pure(SavedEntity::Kind::Entity), name) ||
     construct<SavedEntity>("/" >> pure(SavedEntity::Kind::Common), name / "/"))
 
 // R859 target-stmt -> TARGET [::] target-decl-list
@@ -1622,13 +1618,13 @@ constexpr auto primary{instrumented("primary"_en_US,
 
 // R1002 level-1-expr -> [defined-unary-op] primary
 // TODO: Reasonable extension: permit multiple defined-unary-ops
-constexpr auto level1Expr{sourced(first(
-    construct<Expr>(construct<Expr::DefinedUnary>(definedOpName, primary)),
-    primary,
-    extension<LanguageFeature::SignedPrimary>(
-        construct<Expr>(construct<Expr::UnaryPlus>("+" >> primary))),
-    extension<LanguageFeature::SignedPrimary>(
-        construct<Expr>(construct<Expr::Negate>("-" >> primary)))))};
+constexpr auto level1Expr{sourced(
+    first(primary,  // must come before define op to resolve .TRUE._8 ambiguity
+        construct<Expr>(construct<Expr::DefinedUnary>(definedOpName, primary)),
+        extension<LanguageFeature::SignedPrimary>(
+            construct<Expr>(construct<Expr::UnaryPlus>("+" >> primary))),
+        extension<LanguageFeature::SignedPrimary>(
+            construct<Expr>(construct<Expr::Negate>("-" >> primary)))))};
 
 // R1004 mult-operand -> level-1-expr [power-op mult-operand]
 // R1007 power-op -> **
@@ -2328,8 +2324,9 @@ TYPE_CONTEXT_PARSER("STOP statement"_en_US,
         maybe(Parser<StopCode>{}), maybe(", QUIET =" >> scalarLogicalExpr)))
 
 // R1162 stop-code -> scalar-default-char-expr | scalar-int-expr
-TYPE_PARSER(construct<StopCode>(scalarDefaultCharExpr) ||
-    construct<StopCode>(scalarIntExpr))
+// The two alternatives for stop-code can't be distinguished at
+// parse time.
+TYPE_PARSER(construct<StopCode>(scalar(expr)))
 
 // R1164 sync-all-stmt -> SYNC ALL [( [sync-stat-list] )]
 TYPE_CONTEXT_PARSER("SYNC ALL statement"_en_US,
@@ -3089,7 +3086,8 @@ TYPE_PARSER(construct<UseStmt>("USE" >> optionalBeforeColons(moduleNature),
                 name, ", ONLY :" >> optionalList(Parser<Only>{})) ||
     construct<UseStmt>("USE" >> optionalBeforeColons(moduleNature), name,
         defaulted("," >>
-            nonemptyList("expected renamings"_err_en_US, Parser<Rename>{}))))
+            nonemptyList("expected renamings"_err_en_US, Parser<Rename>{})) /
+            lookAhead(endOfStmt)))
 
 // R1411 rename ->
 //         local-name => use-name |
@@ -3190,8 +3188,8 @@ TYPE_PARSER(construct<ProcedureStmt>("MODULE PROCEDURE"_sptok >>
 // R1509 defined-io-generic-spec ->
 //         READ ( FORMATTED ) | READ ( UNFORMATTED ) |
 //         WRITE ( FORMATTED ) | WRITE ( UNFORMATTED )
-TYPE_PARSER(first(construct<GenericSpec>(
-                      "OPERATOR" >> parenthesized(Parser<DefinedOperator>{})),
+TYPE_PARSER(sourced(first(construct<GenericSpec>("OPERATOR" >>
+                              parenthesized(Parser<DefinedOperator>{})),
     construct<GenericSpec>(
         construct<GenericSpec::Assignment>("ASSIGNMENT ( = )"_tok)),
     construct<GenericSpec>(
@@ -3202,7 +3200,7 @@ TYPE_PARSER(first(construct<GenericSpec>(
         construct<GenericSpec::WriteFormatted>("WRITE ( FORMATTED )"_tok)),
     construct<GenericSpec>(
         construct<GenericSpec::WriteUnformatted>("WRITE ( UNFORMATTED )"_tok)),
-    construct<GenericSpec>(name)))
+    construct<GenericSpec>(name))))
 
 // R1510 generic-stmt ->
 //         GENERIC [, access-spec] :: generic-spec => specific-procedure-list
@@ -3223,8 +3221,9 @@ TYPE_PARSER("PROCEDURE" >>
 
 // R1513 proc-interface -> interface-name | declaration-type-spec
 // R1516 interface-name -> name
-TYPE_PARSER(construct<ProcInterface>(declarationTypeSpec) ||
-    construct<ProcInterface>(name))
+// N.B. Simple names of intrinsic types (e.g., "REAL") are ambiguous here.
+TYPE_PARSER(construct<ProcInterface>(name / lookAhead(")"_tok)) ||
+    construct<ProcInterface>(declarationTypeSpec))
 
 // R1514 proc-attr-spec ->
 //         access-spec | proc-language-binding-spec | INTENT ( intent-spec ) |
@@ -3392,16 +3391,16 @@ TYPE_CONTEXT_PARSER("statement function definition"_en_US,
         name, parenthesized(optionalList(name)), "=" >> scalar(expr)))
 
 // Directives, extensions, and deprecated statements
-// !DIR$ IVDEP
 // !DIR$ IGNORE_TKR [ [(tkr...)] name ]...
+// !DIR$ name...
 constexpr auto beginDirective{skipStuffBeforeStatement >> "!"_ch};
 constexpr auto endDirective{space >> endOfLine};
-constexpr auto ivdep{construct<CompilerDirective::IVDEP>("DIR$ IVDEP"_tok)};
 constexpr auto ignore_tkr{
     "DIR$ IGNORE_TKR" >> optionalList(construct<CompilerDirective::IgnoreTKR>(
                              defaulted(parenthesized(some("tkr"_ch))), name))};
-TYPE_PARSER(beginDirective >> sourced(construct<CompilerDirective>(ivdep) ||
-                                  construct<CompilerDirective>(ignore_tkr)) /
+TYPE_PARSER(
+    beginDirective >> sourced(construct<CompilerDirective>(ignore_tkr) ||
+                          construct<CompilerDirective>("DIR$" >> many(name))) /
         endDirective)
 
 TYPE_PARSER(extension<LanguageFeature::CrayPointer>(

@@ -19,6 +19,7 @@
 #include "../evaluate/common.h"
 #include "../evaluate/intrinsics.h"
 #include "../parser/message.h"
+#include "../parser/features.h"
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -36,11 +37,15 @@ namespace Fortran::semantics {
 
 class SemanticsContext {
 public:
-  SemanticsContext(const common::IntrinsicTypeDefaultKinds &);
+  SemanticsContext(const common::IntrinsicTypeDefaultKinds &,
+      const parser::LanguageFeatureControl &);
 
   const common::IntrinsicTypeDefaultKinds &defaultKinds() const {
     return defaultKinds_;
   }
+  bool IsEnabled(parser::LanguageFeature) const;
+  bool ShouldWarn(parser::LanguageFeature) const;
+  const parser::CharBlock *location() const { return location_; }
   const std::vector<std::string> &searchDirectories() const {
     return searchDirectories_;
   }
@@ -52,6 +57,10 @@ public:
   parser::Messages &messages() { return messages_; }
   evaluate::FoldingContext &foldingContext() { return foldingContext_; }
 
+  SemanticsContext &set_location(const parser::CharBlock *location) {
+    location_ = location;
+    return *this;
+  }
   SemanticsContext &set_searchDirectories(const std::vector<std::string> &x) {
     searchDirectories_ = x;
     return *this;
@@ -77,8 +86,12 @@ public:
     return messages_.Say(std::forward<A>(args)...);
   }
 
+  const Scope &FindScope(const parser::CharBlock &) const;
+
 private:
   const common::IntrinsicTypeDefaultKinds &defaultKinds_;
+  const parser::LanguageFeatureControl &languageFeatures_;
+  const parser::CharBlock *location_{nullptr};
   std::vector<std::string> searchDirectories_;
   std::string moduleDirectory_{"."s};
   bool warnOnNonstandardUsage_{false};
@@ -99,7 +112,9 @@ public:
 
   SemanticsContext &context() const { return context_; }
   bool Perform();
-  const Scope &FindScope(const parser::CharBlock &) const;
+  const Scope &FindScope(const parser::CharBlock &where) const {
+    return context_.FindScope(where);
+  }
   bool AnyFatalError() const { return context_.AnyFatalError(); }
   void EmitMessages(std::ostream &) const;
   void DumpSymbols(std::ostream &);
@@ -109,6 +124,12 @@ private:
   parser::Program &program_;
   const parser::CookedSource &cooked_;
 };
-}
 
+// Base class for semantics checkers.
+struct BaseChecker {
+  template<typename N> void Enter(const N &) {}
+  template<typename N> void Leave(const N &) {}
+};
+
+}
 #endif

@@ -37,14 +37,12 @@ public:
   void Post(parser::Name &);
   void Post(parser::SpecificationPart &);
   bool Pre(parser::ExecutionPart &);
-  void Post(parser::Variable &x) { ConvertFunctionRef(x); }
-  void Post(parser::Expr &x) { ConvertFunctionRef(x); }
 
   // Name resolution yet implemented:
-  bool Pre(parser::CommonStmt &) { return false; }
   bool Pre(parser::EquivalenceStmt &) { return false; }
   bool Pre(parser::Keyword &) { return false; }
   bool Pre(parser::EntryStmt &) { return false; }
+  bool Pre(parser::CompilerDirective &) { return false; }
 
   // Don't bother resolving names in end statements.
   bool Pre(parser::EndBlockDataStmt &) { return false; }
@@ -62,24 +60,6 @@ private:
   bool errorOnUnresolvedName_{true};
   parser::Messages &messages_;
   std::list<stmtFuncType> stmtFuncsToConvert_;
-
-  // For T = Variable or Expr, if x has a function reference that really
-  // should be an array element reference (i.e. the name occurs in an
-  // entity declaration, convert it.
-  template<typename T> void ConvertFunctionRef(T &x) {
-    auto *funcRef{
-        std::get_if<common::Indirection<parser::FunctionReference>>(&x.u)};
-    if (!funcRef) {
-      return;
-    }
-    parser::Name *name{std::get_if<parser::Name>(
-        &std::get<parser::ProcedureDesignator>((*funcRef)->v.t).u)};
-    if (!name || !name->symbol ||
-        !name->symbol->GetUltimate().has<ObjectEntityDetails>()) {
-      return;
-    }
-    x.u = common::Indirection{(*funcRef)->ConvertToArrayElementRef()};
-  }
 };
 
 // Check that name has been resolved to a symbol
@@ -95,7 +75,7 @@ void RewriteMutator::Post(parser::SpecificationPart &x) {
   auto &list{std::get<std::list<parser::DeclarationConstruct>>(x.t)};
   for (auto it{list.begin()}; it != list.end();) {
     if (auto stmt{std::get_if<stmtFuncType>(&it->u)}) {
-      Symbol *symbol{std::get<parser::Name>(stmt->statement->t).symbol};
+      Symbol *symbol{std::get<parser::Name>(stmt->statement.value().t).symbol};
       if (symbol && symbol->has<ObjectEntityDetails>()) {
         // not a stmt func: remove it here and add to ones to convert
         stmtFuncsToConvert_.push_back(std::move(*stmt));
@@ -111,7 +91,7 @@ void RewriteMutator::Post(parser::SpecificationPart &x) {
 bool RewriteMutator::Pre(parser::ExecutionPart &x) {
   auto origFirst{x.v.begin()};  // insert each elem before origFirst
   for (stmtFuncType &sf : stmtFuncsToConvert_) {
-    auto &&stmt = sf.statement->ConvertToAssignment();
+    auto &&stmt = sf.statement.value().ConvertToAssignment();
     stmt.source = sf.source;
     x.v.insert(origFirst,
         parser::ExecutionPartConstruct{parser::ExecutableConstruct{stmt}});
@@ -120,8 +100,10 @@ bool RewriteMutator::Pre(parser::ExecutionPart &x) {
   return true;
 }
 
-void RewriteParseTree(SemanticsContext &context, parser::Program &program) {
+bool RewriteParseTree(SemanticsContext &context, parser::Program &program) {
   RewriteMutator mutator{context.messages()};
   parser::Walk(program, mutator);
+  return !context.AnyFatalError();
 }
+
 }

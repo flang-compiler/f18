@@ -14,6 +14,8 @@
 
 cmake_minimum_required(VERSION 3.9.0)
 
+option(LINK_WITH_FIR "Link driver with FIR and LLVM" ON)
+
 # Pass -DGCC=... to cmake to use a specific gcc installation.
 if( GCC )
   set(CMAKE_CXX_COMPILER "${GCC}/bin/g++")
@@ -22,7 +24,7 @@ if( GCC )
   set(CMAKE_INSTALL_RPATH "${GCC}/lib64")
 endif()
 if(BUILD_WITH_CLANG)
-  set(CMAKE_CXX_COMPILER "${BUILD_WITH_CLANG}/bin/clang")
+  set(CMAKE_CXX_COMPILER "${BUILD_WITH_CLANG}/bin/clang++")
   set(CMAKE_CC_COMPILER "${BUILD_WITH_CLANG}/bin/clang")
   if(GCC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${GCC}")
@@ -48,11 +50,8 @@ endif()
 
 message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 
-find_package(Clang REQUIRED CONFIG)
-include_directories(${CLANG_INSTALL_PREFIX/include})
-message(STATUS "Found Clang in ${CLANG_INSTALL_PREFIX}")
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+find_package(LLVM REQUIRED CONFIG)
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
 
 # Get names for the LLVM libraries
 #
@@ -73,20 +72,29 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
-llvm_map_components_to_libnames(LLVM_COMMON_LIBS support target option)
+if(LINK_WITH_FIR)
+  message(STATUS "Linking driver with FIR and LLVM")
+  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support)
+  message(STATUS "LLVM libraries: ${LLVM_COMMON_LIBS}")
+endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
-     if(GCC)
-       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${GCC}")
-     endif()
+      if(BUILD_WITH_CLANG_LIBRARIES)
+         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdinc++ -I${BUILD_WITH_CLANG_LIBRARIES}/include/c++/v1")
+         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -Wl,-rpath,${BUILD_WITH_CLANG_LIBRARIES}/lib -L${BUILD_WITH_CLANG_LIBRARIES}/lib")
+      else()
+         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
+      endif()
+      if(GCC)
+         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${GCC}")
+      endif()
    endif()
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic")
-   set(CMAKE_CXX_FLAGS_RELEASE    "-O2 -DDEBUG")
+   set(CMAKE_CXX_FLAGS_RELEASE    "-O2")
    set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
-   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUG")
+   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUGF18")
 
    # Building shared libraries is death on performance with GCC by default
    # due to the need to preserve the right to override external entry points

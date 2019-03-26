@@ -366,6 +366,9 @@ void Preprocessor::Directive(const TokenSequence &dir, Prescanner *prescanner) {
     return;
   }
   j = dir.SkipBlanks(j + 1);
+  while (tokens > 0 && dir.TokenAt(tokens - 1).IsBlank()) {
+    --tokens;
+  }
   if (j == tokens) {
     return;
   }
@@ -459,17 +462,20 @@ void Preprocessor::Directive(const TokenSequence &dir, Prescanner *prescanner) {
       }
     }
   } else if (dirName == "ifdef" || dirName == "ifndef") {
+    bool doThen{false};
     if (nameToken.empty()) {
       prescanner->Say(
           dir.GetIntervalProvenanceRange(dirOffset, tokens - dirOffset),
           "#%s: missing name"_err_en_US, dirName.data());
-      return;
+    } else {
+      j = dir.SkipBlanks(j + 1);
+      if (j != tokens) {
+        prescanner->Say(dir.GetIntervalProvenanceRange(j, tokens - j),
+            "#%s: excess tokens at end of directive"_en_US, dirName.data());
+      }
+      doThen = IsNameDefined(nameToken) == (dirName == "ifdef");
     }
-    j = dir.SkipBlanks(j + 1);
-    if (j != tokens) {
-      prescanner->Say(dir.GetIntervalProvenanceRange(j, tokens - j),
-          "#%s: excess tokens at end of directive"_err_en_US, dirName.data());
-    } else if (IsNameDefined(nameToken) == (dirName == "ifdef")) {
+    if (doThen) {
       ifStack_.push(CanDeadElseAppear::Yes);
     } else {
       SkipDisabledConditionalCode(dirName, IsElseActive::Yes, prescanner,
@@ -522,11 +528,12 @@ void Preprocessor::Directive(const TokenSequence &dir, Prescanner *prescanner) {
   } else if (dirName == "error") {
     prescanner->Say(
         dir.GetIntervalProvenanceRange(dirOffset, tokens - dirOffset),
-        "#error: %s"_err_en_US, dir.ToString().data());
-  } else if (dirName == "warning") {
+        "%s"_err_en_US, dir.ToString().data());
+  } else if (dirName == "warning" || dirName == "comment" ||
+      dirName == "note") {
     prescanner->Say(
         dir.GetIntervalProvenanceRange(dirOffset, tokens - dirOffset),
-        "#warning: %s"_en_US, dir.ToString().data());
+        "%s"_en_US, dir.ToString().data());
   } else if (dirName == "include") {
     if (j == tokens) {
       prescanner->Say(
@@ -536,12 +543,23 @@ void Preprocessor::Directive(const TokenSequence &dir, Prescanner *prescanner) {
     }
     std::string include;
     if (dir.TokenAt(j).ToString() == "<") {
-      if (dir.TokenAt(tokens - 1).ToString() != ">") {
+      std::size_t k{j + 1};
+      if (k >= tokens) {
         prescanner->Say(dir.GetIntervalProvenanceRange(j, tokens - j),
-            "#include: expected '>' at end of directive"_err_en_US);
+            "#include: file name missing"_err_en_US);
         return;
       }
-      TokenSequence braced{dir, j + 1, tokens - j - 2};
+      while (k < tokens && dir.TokenAt(k) != ">") {
+        ++k;
+      }
+      if (k >= tokens) {
+        prescanner->Say(dir.GetIntervalProvenanceRange(j, tokens - j),
+            "#include: expected '>' at end of included file"_en_US);
+      } else if (k + 1 < tokens) {
+        prescanner->Say(dir.GetIntervalProvenanceRange(k + 1, tokens - k - 1),
+            "#include: extra stuff ignored after '>'"_en_US);
+      }
+      TokenSequence braced{dir, j + 1, k - j - 1};
       include = ReplaceMacros(braced, *prescanner).ToString();
     } else if (j + 1 == tokens &&
         (include = dir.TokenAt(j).ToString()).substr(0, 1) == "\"" &&
@@ -809,133 +827,139 @@ static std::int64_t ExpressionValue(const TokenSequence &token,
     default: CRASH_NO_CASE;
     }
   }
-  if (*atToken >= tokens) {
-    return left;
-  }
 
-  // Parse and evaluate a binary operator and its second operand, if present.
-  int advance{1};
-  t = token.TokenAt(*atToken).ToString();
-  if (t == "." && *atToken + 2 < tokens &&
-      token.TokenAt(*atToken + 2).ToString() == ".") {
-    t += ToLowerCaseLetters(token.TokenAt(*atToken + 1).ToString()) + '.';
-    advance = 3;
-  }
-  auto it{opNameMap.find(t)};
-  if (it == opNameMap.end()) {
-    return left;
-  }
-  op = it->second;
-  if (op < POWER || precedence[op] < minimumPrecedence) {
-    return left;
-  }
-  opAt = *atToken;
-  *atToken += advance;
-  std::int64_t right{
-      ExpressionValue(token, operandPrecedence[op], atToken, error)};
-  if (error->has_value()) {
-    return 0;
-  }
-  switch (op) {
-  case POWER:
-    if (left == 0 && right < 0) {
-      *error = Message{
-          token.GetTokenProvenanceRange(opAt), "0 ** negative power"_err_en_US};
+  // Parse and evaluate binary operators and their second operands, if present.
+  while (*atToken < tokens) {
+    int advance{1};
+    t = token.TokenAt(*atToken).ToString();
+    if (t == "." && *atToken + 2 < tokens &&
+        token.TokenAt(*atToken + 2).ToString() == ".") {
+      t += ToLowerCaseLetters(token.TokenAt(*atToken + 1).ToString()) + '.';
+      advance = 3;
+    }
+    auto it{opNameMap.find(t)};
+    if (it == opNameMap.end()) {
+      break;
+    }
+    op = it->second;
+    if (op < POWER || precedence[op] < minimumPrecedence) {
+      break;
+    }
+    opAt = *atToken;
+    *atToken += advance;
+
+    std::int64_t right{
+        ExpressionValue(token, operandPrecedence[op], atToken, error)};
+    if (error->has_value()) {
       return 0;
     }
-    if (left == 0 || left == 1 || right == 1) {
-      return left;
-    }
-    if (right <= 0) {
-      return !right;
-    }
-    {
-      std::int64_t power{1};
-      for (; right > 0; --right) {
-        if ((power * left) / left != power) {
+
+    switch (op) {
+    case POWER:
+      if (left == 0) {
+        if (right < 0) {
           *error = Message{token.GetTokenProvenanceRange(opAt),
-              "overflow in exponentation"_err_en_US};
-          return 0;
+              "0 ** negative power"_err_en_US};
         }
-        power *= left;
+      } else if (left != 1 && right != 1) {
+        if (right <= 0) {
+          left = !right;
+        } else {
+          std::int64_t power{1};
+          for (; right > 0; --right) {
+            if ((power * left) / left != power) {
+              *error = Message{token.GetTokenProvenanceRange(opAt),
+                  "overflow in exponentation"_err_en_US};
+              left = 1;
+            }
+            power *= left;
+          }
+          left = power;
+        }
       }
-      return power;
+      break;
+    case TIMES:
+      if (left != 0 && right != 0 && ((left * right) / left) != right) {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "overflow in multiplication"_err_en_US};
+      }
+      left = left * right;
+      break;
+    case DIVIDE:
+      if (right == 0) {
+        *error = Message{
+            token.GetTokenProvenanceRange(opAt), "division by zero"_err_en_US};
+        left = 0;
+      } else {
+        left = left / right;
+      }
+      break;
+    case MODULUS:
+      if (right == 0) {
+        *error = Message{
+            token.GetTokenProvenanceRange(opAt), "modulus by zero"_err_en_US};
+        left = 0;
+      } else {
+        left = left % right;
+      }
+      break;
+    case ADD:
+      if ((left < 0) == (right < 0) && (left < 0) != (left + right < 0)) {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "overflow in addition"_err_en_US};
+      }
+      left = left + right;
+      break;
+    case SUBTRACT:
+      if ((left < 0) != (right < 0) && (left < 0) == (left - right < 0)) {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "overflow in subtraction"_err_en_US};
+      }
+      left = left - right;
+      break;
+    case LEFTSHIFT:
+      if (right < 0 || right > 64) {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "bad left shift count"_err_en_US};
+      }
+      left = right >= 64 ? 0 : left << right;
+      break;
+    case RIGHTSHIFT:
+      if (right < 0 || right > 64) {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "bad right shift count"_err_en_US};
+      }
+      left = right >= 64 ? 0 : left >> right;
+      break;
+    case BITAND:
+    case AND: left = left & right; break;
+    case BITXOR: left = left ^ right; break;
+    case BITOR:
+    case OR: left = left | right; break;
+    case LT: left = -(left < right); break;
+    case LE: left = -(left <= right); break;
+    case EQ: left = -(left == right); break;
+    case NE: left = -(left != right); break;
+    case GE: left = -(left >= right); break;
+    case GT: left = -(left > right); break;
+    case EQV: left = -(!left == !right); break;
+    case NEQV: left = -(!left != !right); break;
+    case SELECT:
+      if (*atToken >= tokens || token.TokenAt(*atToken).ToString() != ":") {
+        *error = Message{token.GetTokenProvenanceRange(opAt),
+            "':' required in selection expression"_err_en_US};
+        return 0;
+      } else {
+        ++*atToken;
+        std::int64_t third{
+            ExpressionValue(token, operandPrecedence[op], atToken, error)};
+        left = left != 0 ? right : third;
+      }
+    case COMMA: left = right; break;
+    default: CRASH_NO_CASE;
     }
-  case TIMES:
-    if (left == 0 || right == 0) {
-      return 0;
-    }
-    if ((left * right) / left != right) {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "overflow in multiplication"_err_en_US};
-    }
-    return left * right;
-  case DIVIDE:
-    if (right == 0) {
-      *error = Message{
-          token.GetTokenProvenanceRange(opAt), "division by zero"_err_en_US};
-      return 0;
-    }
-    return left / right;
-  case MODULUS:
-    if (right == 0) {
-      *error = Message{
-          token.GetTokenProvenanceRange(opAt), "modulus by zero"_err_en_US};
-      return 0;
-    }
-    return left % right;
-  case ADD:
-    if ((left < 0) == (right < 0) && (left < 0) != (left + right < 0)) {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "overflow in addition"_err_en_US};
-    }
-    return left + right;
-  case SUBTRACT:
-    if ((left < 0) != (right < 0) && (left < 0) == (left - right < 0)) {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "overflow in subtraction"_err_en_US};
-    }
-    return left - right;
-  case LEFTSHIFT:
-    if (right < 0 || right > 64) {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "bad left shift count"_err_en_US};
-    }
-    return right >= 64 ? 0 : left << right;
-  case RIGHTSHIFT:
-    if (right < 0 || right > 64) {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "bad right shift count"_err_en_US};
-    }
-    return right >= 64 ? 0 : left >> right;
-  case BITAND:
-  case AND: return left & right;
-  case BITXOR: return left ^ right;
-  case BITOR:
-  case OR: return left | right;
-  case LT: return -(left < right);
-  case LE: return -(left <= right);
-  case EQ: return -(left == right);
-  case NE: return -(left != right);
-  case GE: return -(left >= right);
-  case GT: return -(left > right);
-  case EQV: return -(!left == !right);
-  case NEQV: return -(!left != !right);
-  case SELECT:
-    if (*atToken >= tokens || token.TokenAt(*atToken).ToString() != ":") {
-      *error = Message{token.GetTokenProvenanceRange(opAt),
-          "':' required in selection expression"_err_en_US};
-      return left;
-    } else {
-      ++*atToken;
-      std::int64_t third{
-          ExpressionValue(token, operandPrecedence[op], atToken, error)};
-      return left != 0 ? right : third;
-    }
-  case COMMA: return right;
-  default: CRASH_NO_CASE;
   }
-  return 0;  // silence compiler warning
+  return left;
 }
 
 bool Preprocessor::IsIfPredicateTrue(const TokenSequence &expr,

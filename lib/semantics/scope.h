@@ -17,7 +17,7 @@
 
 #include "attr.h"
 #include "symbol.h"
-#include "../common/fortran.h"
+#include "../common/Fortran.h"
 #include "../common/idioms.h"
 #include "../parser/message.h"
 #include <list>
@@ -119,6 +119,11 @@ public:
     return symbols_.emplace(name, &symbol);
   }
 
+  mapType &commonBlocks() { return commonBlocks_; }
+  const mapType &commonBlocks() const { return commonBlocks_; }
+  Symbol &MakeCommonBlock(const SourceName &);
+  Symbol *FindCommonBlock(const SourceName &);
+
   /// Make a Symbol but don't add it to the scope.
   template<typename D>
   Symbol &MakeSymbol(const SourceName &name, Attrs attrs, D &&details) {
@@ -139,8 +144,6 @@ public:
       ParamValue &&length, KindExpr &&kind = KindExpr{0});
   const DeclTypeSpec &MakeDerivedType(
       DeclTypeSpec::Category, DerivedTypeSpec &&);
-  const DeclTypeSpec &MakeDerivedType(
-      DeclTypeSpec::Category, DerivedTypeSpec &&, SemanticsContext &);
   DeclTypeSpec &MakeDerivedType(const Symbol &);
   DeclTypeSpec &MakeDerivedType(DerivedTypeSpec &&, DeclTypeSpec::Category);
   const DeclTypeSpec &MakeTypeStarType();
@@ -172,8 +175,8 @@ public:
   const Scope *FindScope(const parser::CharBlock &) const;
 
   // Attempts to find a match for a derived type instance
-  const DeclTypeSpec *FindInstantiatedDerivedType(
-      const DerivedTypeSpec &, DeclTypeSpec::Category) const;
+  const DeclTypeSpec *FindInstantiatedDerivedType(const DerivedTypeSpec &,
+      DeclTypeSpec::Category = DeclTypeSpec::TypeDerived) const;
 
   // Returns a matching derived type instance if one exists, otherwise
   // creates one
@@ -193,6 +196,7 @@ private:
   Symbol *const symbol_;  // if not null, symbol_->scope() == this
   std::list<Scope> children_;
   mapType symbols_;
+  mapType commonBlocks_;
   std::map<SourceName, Scope *> submodules_;
   std::list<DeclTypeSpec> declTypeSpecs_;
   std::string chars_;

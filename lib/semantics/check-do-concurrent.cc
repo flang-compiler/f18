@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,10 @@
 #include "check-do-concurrent.h"
 #include "attr.h"
 #include "scope.h"
+#include "semantics.h"
 #include "symbol.h"
 #include "type.h"
+#include "../evaluate/traversal.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree-visitor.h"
 
@@ -38,6 +40,7 @@ class DoConcurrentEnforcement {
 public:
   DoConcurrentEnforcement(parser::Messages &messages) : messages_{messages} {}
   std::set<parser::Label> labels() { return labels_; }
+  std::set<parser::CharBlock> names() { return names_; }
   template<typename T> bool Pre(const T &) { return true; }
   template<typename T> void Post(const T &) {}
   template<typename T> bool Pre(const parser::Statement<T> &statement) {
@@ -45,6 +48,47 @@ public:
     if (statement.label.has_value()) {
       labels_.insert(*statement.label);
     }
+    return true;
+  }
+  // C1167
+  bool Pre(const parser::WhereConstructStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::ForallConstructStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::ChangeTeamStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::CriticalStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::LabelDoStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::NonLabelDoStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::IfThenStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::SelectCaseStmt &s) {
+    addName(std::get<std::optional<parser::Name>>(s.t));
+    return true;
+  }
+  bool Pre(const parser::SelectRankStmt &s) {
+    addName(std::get<0>(s.t));
+    return true;
+  }
+  bool Pre(const parser::SelectTypeStmt &s) {
+    addName(std::get<0>(s.t));
     return true;
   }
   // C1136
@@ -158,7 +202,13 @@ private:
     }
     return false;
   }
+  void addName(const std::optional<parser::Name> &nm) {
+    if (nm.has_value()) {
+      names_.insert(nm.value().source);
+    }
+  }
 
+  std::set<parser::CharBlock> names_;
   std::set<parser::Label> labels_;
   parser::CharBlock currentStatementSourcePosition_;
   parser::Messages &messages_;
@@ -166,17 +216,24 @@ private:
 
 class DoConcurrentLabelEnforce {
 public:
-  DoConcurrentLabelEnforce(
-      parser::Messages &messages, std::set<parser::Label> &&labels)
-    : messages_{messages}, labels_{labels} {}
+  DoConcurrentLabelEnforce(parser::Messages &messages,
+      std::set<parser::Label> &&labels, std::set<parser::CharBlock> &&names,
+      parser::CharBlock doConcurrentSourcePosition)
+    : messages_{messages}, labels_{labels}, names_{names},
+      doConcurrentSourcePosition_{doConcurrentSourcePosition} {}
   template<typename T> bool Pre(const T &) { return true; }
   template<typename T> bool Pre(const parser::Statement<T> &statement) {
     currentStatementSourcePosition_ = statement.source;
     return true;
   }
+  bool Pre(const parser::DoConstruct &) {
+    ++do_depth_;
+    return true;
+  }
   template<typename T> void Post(const T &) {}
 
   // C1138: branch from within a DO CONCURRENT shall not target outside loop
+  void Post(const parser::ExitStmt &exitStmt) { checkName(exitStmt.v); }
   void Post(const parser::GotoStmt &gotoStmt) { checkLabelUse(gotoStmt.v); }
   void Post(const parser::ComputedGotoStmt &computedGotoStmt) {
     for (auto &i : std::get<std::list<parser::Label>>(computedGotoStmt.t)) {
@@ -202,6 +259,23 @@ public:
   void Post(const parser::ErrLabel &errLabel) { checkLabelUse(errLabel.v); }
   void Post(const parser::EndLabel &endLabel) { checkLabelUse(endLabel.v); }
   void Post(const parser::EorLabel &eorLabel) { checkLabelUse(eorLabel.v); }
+  void Post(const parser::DoConstruct &) { --do_depth_; }
+  void checkName(const std::optional<parser::Name> &nm) {
+    if (!nm.has_value()) {
+      if (do_depth_ == 0) {
+        messages_.Say(currentStatementSourcePosition_,
+            "exit from DO CONCURRENT construct (%s)"_err_en_US,
+            doConcurrentSourcePosition_.ToString().data());
+      }
+      // nesting of named constructs is assumed to have been previously checked
+      // by the name/label resolution pass
+    } else if (names_.find(nm.value().source) == names_.end()) {
+      messages_.Say(currentStatementSourcePosition_,
+          "exit from DO CONCURRENT construct (%s) to construct with name '%s'"_err_en_US,
+          doConcurrentSourcePosition_.ToString().data(),
+          nm.value().source.ToString().data());
+    }
+  }
   void checkLabelUse(const parser::Label &labelUsed) {
     if (labels_.find(labelUsed) == labels_.end()) {
       messages_.Say(currentStatementSourcePosition_,
@@ -212,7 +286,10 @@ public:
 private:
   parser::Messages &messages_;
   std::set<parser::Label> labels_;
+  std::set<parser::CharBlock> names_;
+  int do_depth_{0};
   parser::CharBlock currentStatementSourcePosition_{nullptr};
+  parser::CharBlock doConcurrentSourcePosition_{nullptr};
 };
 
 using CS = std::vector<const Symbol *>;
@@ -299,19 +376,33 @@ static CS GatherLocalVariableNames(
   }
   return names;
 }
+
 static CS GatherReferencesFromExpression(const parser::Expr &expression) {
-  GatherSymbols gatherSymbols;
-  parser::Walk(expression, gatherSymbols);
-  return gatherSymbols.symbols;
+  // Use the new expression traversal framework if possible, for testing.
+  if (expression.typedExpr) {
+    struct CollectSymbols : public virtual evaluate::VisitorBase<CS> {
+      explicit CollectSymbols(int) {}
+      void Handle(const Symbol *symbol) { result().push_back(symbol); }
+    };
+    return evaluate::Visitor<CS, CollectSymbols>{0}.Traverse(
+        *expression.typedExpr);
+  } else {
+    GatherSymbols gatherSymbols;
+    parser::Walk(expression, gatherSymbols);
+    return gatherSymbols.symbols;
+  }
 }
 
 // Find a canonical DO CONCURRENT and enforce semantics checks on its body
-class FindDoConcurrentLoops {
+class DoConcurrentContext {
 public:
-  FindDoConcurrentLoops(parser::Messages &messages) : messages_{messages} {}
-  template<typename T> constexpr bool Pre(const T &) { return true; }
-  template<typename T> constexpr void Post(const T &) {}
-  void Post(const parser::DoConstruct &doConstruct) {
+  DoConcurrentContext(SemanticsContext &context)
+    : messages_{context.messages()} {}
+
+  bool operator==(const DoConcurrentContext &x) const { return this == &x; }
+  bool operator!=(const DoConcurrentContext &x) const { return this != &x; }
+
+  void Check(const parser::DoConstruct &doConstruct) {
     auto &doStmt{
         std::get<parser::Statement<parser::NonLabelDoStmt>>(doConstruct.t)};
     auto &optionalLoopControl{
@@ -323,8 +414,9 @@ public:
         DoConcurrentEnforcement doConcurrentEnforcement{messages_};
         parser::Walk(
             std::get<parser::Block>(doConstruct.t), doConcurrentEnforcement);
-        DoConcurrentLabelEnforce doConcurrentLabelEnforce{
-            messages_, doConcurrentEnforcement.labels()};
+        DoConcurrentLabelEnforce doConcurrentLabelEnforce{messages_,
+            doConcurrentEnforcement.labels(), doConcurrentEnforcement.names(),
+            currentStatementSourcePosition_};
         parser::Walk(
             std::get<parser::Block>(doConstruct.t), doConcurrentLabelEnforce);
         EnforceConcurrentLoopControl(*concurrent);
@@ -345,10 +437,11 @@ public:
         auto &logicalExpr{
             std::get<parser::ScalarLogicalExpr>(optionalLoopControl->u)
                 .thing.thing};
-        if (!ExpressionHasTypeCategory(
-                *logicalExpr->typedExpr, common::TypeCategory::Logical)) {
+        CHECK(logicalExpr.value().typedExpr);
+        if (!ExpressionHasTypeCategory(*logicalExpr.value().typedExpr,
+                common::TypeCategory::Logical)) {
           messages_.Say(currentStatementSourcePosition_,
-              "DO WHERE must have LOGICAL expression"_err_en_US);
+              "DO WHILE must have LOGICAL expression"_err_en_US);
         }
       }
     }
@@ -357,8 +450,8 @@ public:
 private:
   bool ExpressionHasTypeCategory(const evaluate::GenericExprWrapper &expr,
       const common::TypeCategory &type) {
-    // TODO - implement
-    return false;
+    auto dynamicType{expr.v.GetType()};
+    return dynamicType.has_value() && dynamicType->category == type;
   }
   bool InnermostEnclosingScope(const semantics::Symbol &symbol) const {
     // TODO - implement
@@ -392,7 +485,7 @@ private:
   }
   void CheckMaskIsPure(const parser::ScalarLogicalExpr &mask) const {
     // C1121 - procedures in mask must be pure
-    CS references{GatherReferencesFromExpression(*mask.thing.thing)};
+    CS references{GatherReferencesFromExpression(mask.thing.thing.value())};
     for (auto *r : references) {
       if (isProcedure(r->flags()) && !isPure(r->attrs())) {
         messages_.Say(currentStatementSourcePosition_,
@@ -415,7 +508,8 @@ private:
   }
   void HasNoReferences(
       const CS &indexNames, const parser::ScalarIntExpr &expression) const {
-    CS references{GatherReferencesFromExpression(*expression.thing.thing)};
+    CS references{
+        GatherReferencesFromExpression(expression.thing.thing.value())};
     CheckNoCollisions(references, indexNames,
         "concurrent-control expression references index-name"_err_en_US);
   }
@@ -435,7 +529,7 @@ private:
   void CheckMaskDoesNotReferenceLocal(
       const parser::ScalarLogicalExpr &mask, const CS &symbols) const {
     // C1129
-    CheckNoCollisions(GatherReferencesFromExpression(*mask.thing.thing),
+    CheckNoCollisions(GatherReferencesFromExpression(mask.thing.thing.value()),
         symbols,
         "concurrent-header mask-expr references name"
         " in locality-spec"_err_en_US);
@@ -478,8 +572,8 @@ private:
         // C1123
         HasNoReferences(indexNames, std::get<1>(c.t));
         HasNoReferences(indexNames, std::get<2>(c.t));
-        auto &expression{std::get<std::optional<parser::ScalarIntExpr>>(c.t)};
-        if (expression) {
+        if (auto &expression{
+                std::get<std::optional<parser::ScalarIntExpr>>(c.t)}) {
           HasNoReferences(indexNames, *expression);
         }
       }
@@ -509,10 +603,21 @@ private:
   parser::CharBlock currentStatementSourcePosition_;
 };
 
+}  // namespace Fortran::semantics
+
+namespace Fortran::semantics {
+
+DoConcurrentChecker::DoConcurrentChecker(SemanticsContext &context)
+  : context_{new DoConcurrentContext{context}} {}
+
+DoConcurrentChecker::~DoConcurrentChecker() = default;
+
 // DO loops must be canonicalized prior to calling
-void CheckDoConcurrentConstraints(
-    parser::Messages &messages, const parser::Program &program) {
-  FindDoConcurrentLoops findDoConcurrentLoops{messages};
-  Walk(program, findDoConcurrentLoops);
+void DoConcurrentChecker::Leave(const parser::DoConstruct &x) {
+  context_.value().Check(x);
 }
-}
+
+}  // namespace Fortran::semantics
+
+template class Fortran::common::Indirection<
+    Fortran::semantics::DoConcurrentContext>;

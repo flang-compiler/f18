@@ -26,7 +26,7 @@
 #include "constant.h"
 #include "type.h"
 #include "variable.h"
-#include "../lib/common/fortran.h"
+#include "../lib/common/Fortran.h"
 #include "../lib/common/idioms.h"
 #include "../lib/common/template.h"
 #include "../lib/parser/char-block.h"
@@ -98,12 +98,6 @@ public:
   static Derived Rewrite(FoldingContext &, Derived &&);
 };
 
-// BOZ literal "typeless" constants must be wide enough to hold a numeric
-// value of any supported kind of INTEGER or REAL.  They must also be
-// distinguishable from other integer constants, since they are permitted
-// to be used in only a few situations.
-using BOZLiteralConstant = typename LargestReal::Scalar::Word;
-
 // Operations always have specific Fortran result types (i.e., with known
 // intrinsic type category and kind parameter value).  The classes that
 // represent the operations all inherit from this Operation<> base class
@@ -130,9 +124,9 @@ public:
   // Unary operations wrap a single Expr with a CopyableIndirection.
   // Binary operations wrap a tuple of CopyableIndirections to Exprs.
 private:
-  using Container =
-      std::conditional_t<operands == 1, CopyableIndirection<Expr<Operand<0>>>,
-          std::tuple<CopyableIndirection<Expr<OPERANDS>>...>>;
+  using Container = std::conditional_t<operands == 1,
+      common::CopyableIndirection<Expr<Operand<0>>>,
+      std::tuple<common::CopyableIndirection<Expr<OPERANDS>>...>>;
 
 public:
   CLASS_BOILERPLATE(Operation)
@@ -151,17 +145,17 @@ public:
   template<int J> Expr<Operand<J>> &operand() {
     if constexpr (operands == 1) {
       static_assert(J == 0);
-      return *operand_;
+      return operand_.value();
     } else {
-      return *std::get<J>(operand_);
+      return std::get<J>(operand_).value();
     }
   }
   template<int J> const Expr<Operand<J>> &operand() const {
     if constexpr (operands == 1) {
       static_assert(J == 0);
-      return *operand_;
+      return operand_.value();
     } else {
-      return *std::get<J>(operand_);
+      return std::get<J>(operand_).value();
     }
   }
 
@@ -212,7 +206,7 @@ private:
 
 // Conversions to specific types from expressions of known category and
 // dynamic kind.
-template<typename TO, TypeCategory FROMCAT>
+template<typename TO, TypeCategory FROMCAT = TO::category>
 struct Convert : public Operation<Convert<TO, FROMCAT>, TO, SomeKind<FROMCAT>> {
   // Fortran doesn't have conversions between kinds of CHARACTER apart from
   // assignments, and in those the data must be convertible to/from 7-bit ASCII.
@@ -221,6 +215,8 @@ struct Convert : public Operation<Convert<TO, FROMCAT>, TO, SomeKind<FROMCAT>> {
                      TO::category == TypeCategory::Real) &&
                     (FROMCAT == TypeCategory::Integer ||
                         FROMCAT == TypeCategory::Real)) ||
+      (TO::category == TypeCategory::Character &&
+          FROMCAT == TypeCategory::Character) ||
       (TO::category == TypeCategory::Logical &&
           FROMCAT == TypeCategory::Logical));
   using Result = TO;
@@ -274,6 +270,22 @@ struct Not : public Operation<Not<KIND>, Type<TypeCategory::Logical, KIND>,
   using Base = Operation<Not, Result, Operand>;
   using Base::Base;
   static std::ostream &Prefix(std::ostream &o) { return o << "(.NOT."; }
+};
+
+// Character lengths are determined by context in Fortran and do not
+// have explicit syntax for changing them.  Expressions represent
+// changes of length (e.g., for assignments and structure constructors)
+// with this operation.
+template<int KIND>
+struct SetLength
+  : public Operation<SetLength<KIND>, Type<TypeCategory::Character, KIND>,
+        Type<TypeCategory::Character, KIND>, SubscriptInteger> {
+  using Result = Type<TypeCategory::Character, KIND>;
+  using CharacterOperand = Result;
+  using LengthOperand = SubscriptInteger;
+  using Base = Operation<SetLength, Result, CharacterOperand, LengthOperand>;
+  using Base::Base;
+  static std::ostream &Prefix(std::ostream &o) { return o << "%SET_LENGTH("; }
 };
 
 // Binary operations
@@ -401,18 +413,38 @@ struct ImpliedDoIndex {
   parser::CharBlock name;  // nested implied DOs must use distinct names
 };
 
-template<typename RESULT> struct ImpliedDo {
+template<typename RESULT> class ImpliedDo {
+public:
   using Result = RESULT;
+  using Index = ResultType<ImpliedDoIndex>;
+  ImpliedDo(parser::CharBlock name, Expr<Index> &&lower, Expr<Index> &&upper,
+      Expr<Index> &&stride, ArrayConstructorValues<Result> &&values)
+    : name_{name}, lower_{std::move(lower)}, upper_{std::move(upper)},
+      stride_{std::move(stride)}, values_{std::move(values)} {}
+  DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(ImpliedDo)
   bool operator==(const ImpliedDo &) const;
-  parser::CharBlock name;
-  CopyableIndirection<Expr<ResultType<ImpliedDoIndex>>> lower, upper, stride;
-  CopyableIndirection<ArrayConstructorValues<RESULT>> values;
+  parser::CharBlock name() const { return name_; }
+  Expr<Index> &lower() { return lower_.value(); }
+  const Expr<Index> &lower() const { return lower_.value(); }
+  Expr<Index> &upper() { return upper_.value(); }
+  const Expr<Index> &upper() const { return upper_.value(); }
+  Expr<Index> &stride() { return stride_.value(); }
+  const Expr<Index> &stride() const { return stride_.value(); }
+  ArrayConstructorValues<Result> &values() { return values_.value(); }
+  const ArrayConstructorValues<Result> &values() const {
+    return values_.value();
+  }
+
+private:
+  parser::CharBlock name_;
+  common::CopyableIndirection<Expr<Index>> lower_, upper_, stride_;
+  common::CopyableIndirection<ArrayConstructorValues<Result>> values_;
 };
 
 template<typename RESULT> struct ArrayConstructorValue {
   using Result = RESULT;
   EVALUATE_UNION_CLASS_BOILERPLATE(ArrayConstructorValue)
-  std::variant<CopyableIndirection<Expr<Result>>, ImpliedDo<Result>> u;
+  std::variant<common::CopyableIndirection<Expr<Result>>, ImpliedDo<Result>> u;
 };
 
 template<typename RESULT> class ArrayConstructorValues {
@@ -454,10 +486,10 @@ public:
   bool operator==(const ArrayConstructor &) const;
   static constexpr DynamicType GetType() { return Result::GetType(); }
   std::ostream &AsFortran(std::ostream &) const;
-  const Expr<SubscriptInteger> &LEN() const { return *length_; }
+  const Expr<SubscriptInteger> &LEN() const { return length_.value(); }
 
 private:
-  CopyableIndirection<Expr<SubscriptInteger>> length_;
+  common::CopyableIndirection<Expr<SubscriptInteger>> length_;
 };
 
 template<>
@@ -473,9 +505,7 @@ public:
   const semantics::DerivedTypeSpec &derivedTypeSpec() const {
     return *derivedTypeSpec_;
   }
-  DynamicType GetType() const {
-    return DynamicType{TypeCategory::Derived, 0, derivedTypeSpec_};
-  }
+  DynamicType GetType() const { return DynamicType{derivedTypeSpec()}; }
   std::ostream &AsFortran(std::ostream &) const;
 
 private:
@@ -574,7 +604,8 @@ public:
   Expr<SubscriptInteger> LEN() const;
 
   std::variant<Constant<Result>, ArrayConstructor<Result>, Designator<Result>,
-      FunctionRef<Result>, Parentheses<Result>, Concat<KIND>, Extremum<Result>>
+      FunctionRef<Result>, Parentheses<Result>, Convert<Result>, Concat<KIND>,
+      Extremum<Result>, SetLength<KIND>>
       u;
 };
 
@@ -643,8 +674,8 @@ public:
   explicit Expr(bool x) : u{Constant<Result>{x}} {}
 
 private:
-  using Operations = std::tuple<Convert<Result, TypeCategory::Logical>,
-      Parentheses<Result>, Not<KIND>, LogicalOperation<KIND>>;
+  using Operations = std::tuple<Convert<Result>, Parentheses<Result>, Not<KIND>,
+      LogicalOperation<KIND>>;
   using Relations = std::conditional_t<KIND == LogicalResult::kind,
       std::tuple<Relational<SomeType>>, std::tuple<>>;
   using Others = std::tuple<Constant<Result>, ArrayConstructor<Result>,
@@ -716,12 +747,29 @@ class Expr<SomeKind<CAT>> : public ExpressionBase<SomeKind<CAT>> {
 public:
   using Result = SomeKind<CAT>;
   EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
-  int GetKind() const {
-    return std::visit(
-        [](const auto &x) { return std::decay_t<decltype(x)>::Result::kind; },
-        u);
-  }
+  int GetKind() const;
   common::MapTemplate<Expr, CategoryTypes<CAT>> u;
+};
+
+template<> class Expr<SomeCharacter> : public ExpressionBase<SomeCharacter> {
+public:
+  using Result = SomeCharacter;
+  EVALUATE_UNION_CLASS_BOILERPLATE(Expr)
+  int GetKind() const;
+  Expr<SubscriptInteger> LEN() const;
+  common::MapTemplate<Expr, CategoryTypes<TypeCategory::Character>> u;
+};
+
+// BOZ literal "typeless" constants must be wide enough to hold a numeric
+// value of any supported kind of INTEGER or REAL.  They must also be
+// distinguishable from other integer constants, since they are permitted
+// to be used in only a few situations.
+using BOZLiteralConstant = typename LargestReal::Scalar::Word;
+
+// Null pointers without MOLD= arguments are typed by context.
+struct NullPointer {
+  constexpr bool operator==(const NullPointer &) const { return true; }
+  constexpr int Rank() const { return 0; }
 };
 
 // A completely generic expression, polymorphic across all of the intrinsic type
@@ -756,7 +804,7 @@ public:
   }
 
 private:
-  using Others = std::variant<BOZLiteralConstant>;
+  using Others = std::variant<BOZLiteralConstant, NullPointer>;
   using Categories = common::MapTemplate<Expr, SomeCategory>;
 
 public:
@@ -764,10 +812,10 @@ public:
 };
 
 // This wrapper class is used, by means of a forward reference with
-// OwningPointer, to implement owning pointers to analyzed expressions
-// from parse tree nodes.
+// an owning pointer, to cache analyzed expressions in parse tree nodes.
 struct GenericExprWrapper {
   GenericExprWrapper(Expr<SomeType> &&x) : v{std::move(x)} {}
+  ~GenericExprWrapper();
   bool operator==(const GenericExprWrapper &) const;
   Expr<SomeType> v;
 };

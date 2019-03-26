@@ -128,8 +128,8 @@ private:
   std::vector<std::int64_t> shape_;
 };
 
-using StructureConstructorValues =
-    std::map<const semantics::Symbol *, CopyableIndirection<Expr<SomeType>>>;
+using StructureConstructorValues = std::map<const semantics::Symbol *,
+    common::CopyableIndirection<Expr<SomeType>>>;
 
 template<>
 class Constant<SomeDerived>
@@ -149,9 +149,7 @@ public:
     return *derivedTypeSpec_;
   }
 
-  DynamicType GetType() const {
-    return DynamicType{TypeCategory::Derived, 0, derivedTypeSpec_};
-  }
+  DynamicType GetType() const { return DynamicType{derivedTypeSpec()}; }
 
 private:
   const semantics::DerivedTypeSpec *derivedTypeSpec_;

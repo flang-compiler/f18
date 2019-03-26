@@ -20,6 +20,7 @@
 #include "int-power.h"
 #include "intrinsics-library-templates.h"
 #include "tools.h"
+#include "traversal.h"
 #include "type.h"
 #include "../common/indirection.h"
 #include "../common/template.h"
@@ -31,7 +32,6 @@
 #include <complex>
 #include <cstdio>
 #include <optional>
-#include <set>
 #include <type_traits>
 #include <variant>
 
@@ -85,7 +85,7 @@ Subscript FoldOperation(FoldingContext &context, Subscript &&subscript) {
   return std::visit(
       common::visitors{
           [&](IndirectSubscriptIntegerExpr &&expr) {
-            *expr = Fold(context, std::move(*expr));
+            expr.value() = Fold(context, std::move(expr.value()));
             return Subscript(std::move(expr));
           },
           [&](Triplet &&triplet) {
@@ -818,8 +818,8 @@ public:
   }
 
 private:
-  bool FoldArray(const CopyableIndirection<Expr<T>> &expr) {
-    Expr<T> folded{Fold(context_, common::Clone(*expr))};
+  bool FoldArray(const common::CopyableIndirection<Expr<T>> &expr) {
+    Expr<T> folded{Fold(context_, common::Clone(expr.value()))};
     if (auto *c{UnwrapExpr<Constant<T>>(folded)}) {
       // Copy elements in Fortran array element order
       std::vector<std::int64_t> shape{c->shape()};
@@ -845,20 +845,20 @@ private:
   }
   bool FoldArray(const ImpliedDo<T> &iDo) {
     Expr<SubscriptInteger> lower{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.lower})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.lower()})};
     Expr<SubscriptInteger> upper{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.upper})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.upper()})};
     Expr<SubscriptInteger> stride{
-        Fold(context_, Expr<SubscriptInteger>{*iDo.stride})};
+        Fold(context_, Expr<SubscriptInteger>{iDo.stride()})};
     std::optional<std::int64_t> start{ToInt64(lower)}, end{ToInt64(upper)},
         step{ToInt64(stride)};
     if (start.has_value() && end.has_value() && step.has_value()) {
       bool result{true};
-      for (std::int64_t &j{context_.StartImpliedDo(iDo.name, *start)};
+      for (std::int64_t &j{context_.StartImpliedDo(iDo.name(), *start)};
            j <= *end; j += *step) {
-        result &= FoldArray(*iDo.values);
+        result &= FoldArray(iDo.values());
       }
-      context_.EndImpliedDo(iDo.name);
+      context_.EndImpliedDo(iDo.name());
       return result;
     } else {
       return false;
@@ -891,7 +891,7 @@ Expr<SomeDerived> FoldOperation(
     FoldingContext &context, StructureConstructor &&structure) {
   StructureConstructor result{structure.derivedTypeSpec()};
   for (auto &&[symbol, value] : std::move(structure.values())) {
-    result.Add(*symbol, Fold(context, std::move(*value)));
+    result.Add(*symbol, Fold(context, std::move(value.value())));
   }
   return Expr<SomeDerived>{Constant<SomeDerived>{result}};
 }
@@ -926,7 +926,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
       if (value->isExplicit()) {
         return Fold(context,
             Expr<IntKIND>{Convert<IntKIND, TypeCategory::Integer>(
-                value->GetExplicit().value())});
+                Expr<SomeInteger>{value->GetExplicit().value()})});
       }
     }
   }
@@ -934,6 +934,23 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
 }
 
 // Unary operations
+
+template<typename TO, typename FROM> std::optional<TO> ConvertString(FROM &&s) {
+  if constexpr (std::is_same_v<TO, FROM>) {
+    return std::make_optional<TO>(std::move(s));
+  } else {
+    // Fortran character conversion is well defined between distinct kinds
+    // only when the actual characters are valid 7-bit ASCII.
+    TO str;
+    for (auto iter{s.cbegin()}; iter != s.cend(); ++iter) {
+      if (static_cast<std::uint64_t>(*iter) > 127) {
+        return std::nullopt;
+      }
+      str.push_back(*iter);
+    }
+    return std::make_optional<TO>(std::move(str));
+  }
+}
 
 template<typename TO, TypeCategory FROMCAT>
 Expr<TO> FoldOperation(
@@ -952,7 +969,7 @@ Expr<TO> FoldOperation(
                     "INTEGER(%d) to INTEGER(%d) conversion overflowed"_en_US,
                     Operand::kind, TO::kind);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             } else if constexpr (Operand::category == TypeCategory::Real) {
               auto converted{value->template ToInteger<Scalar<TO>>()};
               if (converted.flags.test(RealFlag::InvalidArgument)) {
@@ -964,7 +981,7 @@ Expr<TO> FoldOperation(
                     "REAL(%d) to INTEGER(%d) conversion overflowed"_en_US,
                     Operand::kind, TO::kind);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             }
           } else if constexpr (TO::category == TypeCategory::Real) {
             if constexpr (Operand::category == TypeCategory::Integer) {
@@ -975,7 +992,7 @@ Expr<TO> FoldOperation(
                     TO::kind);
                 RealFlagWarnings(context, converted.flags, buffer);
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
             } else if constexpr (Operand::category == TypeCategory::Real) {
               auto converted{Scalar<TO>::Convert(*value)};
               if (!converted.flags.empty()) {
@@ -986,11 +1003,16 @@ Expr<TO> FoldOperation(
               if (context.flushSubnormalsToZero()) {
                 converted.value = converted.value.FlushSubnormalToZero();
               }
-              return Expr<TO>{Constant<TO>{std::move(converted.value)}};
+              return ScalarConstantToExpr(std::move(converted.value));
+            }
+          } else if constexpr (TO::category == TypeCategory::Character &&
+              Operand::category == TypeCategory::Character) {
+            if (auto converted{ConvertString<Scalar<TO>>(std::move(*value))}) {
+              return ScalarConstantToExpr(std::move(*converted));
             }
           } else if constexpr (TO::category == TypeCategory::Logical &&
               Operand::category == TypeCategory::Logical) {
-            return Expr<TO>{Constant<TO>{value->IsTrue()}};
+            return Expr<TO>{value->IsTrue()};
           }
         }
         return Expr<TO>{std::move(convert)};
@@ -1053,7 +1075,7 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
   auto &operand{x.left()};
   operand = Fold(context, std::move(operand));
   if (auto value{GetScalarConstantValue<Ty>(operand)}) {
-    return Expr<Ty>{Constant<Ty>{value->IsTrue()}};
+    return Expr<Ty>{Constant<Ty>{!value->IsTrue()}};
   }
   return Expr<Ty>{x};
 }
@@ -1249,6 +1271,24 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(
   return Expr<Result>{std::move(x)};
 }
 
+template<int KIND>
+Expr<Type<TypeCategory::Character, KIND>> FoldOperation(
+    FoldingContext &context, SetLength<KIND> &&x) {
+  using Result = Type<TypeCategory::Character, KIND>;
+  if (auto folded{FoldOperands(context, x.left(), x.right())}) {
+    auto oldLength{static_cast<std::int64_t>(folded->first.size())};
+    auto newLength{folded->second.ToInt64()};
+    if (newLength < oldLength) {
+      folded->first.erase(newLength);
+    } else {
+      folded->first.append(newLength - oldLength, ' ');
+    }
+    CHECK(static_cast<std::int64_t>(folded->first.size()) == newLength);
+    return Expr<Result>{Constant<Result>{std::move(folded->first)}};
+  }
+  return Expr<Result>{std::move(x)};
+}
+
 template<typename T>
 Expr<LogicalResult> FoldOperation(
     FoldingContext &context, Relational<T> &&relation) {
@@ -1306,11 +1346,14 @@ Expr<T> ExpressionBase<T>::Rewrite(FoldingContext &context, Expr<T> &&expr) {
           return FoldOperation(context, std::move(x));
         } else if constexpr (std::is_same_v<T, SomeDerived>) {
           return FoldOperation(context, std::move(x));
-        } else if constexpr (std::is_same_v<BOZLiteralConstant,
-                                 std::decay_t<decltype(x)>>) {
-          return std::move(expr);
         } else {
-          return Expr<T>{Fold(context, std::move(x))};
+          using Ty = std::decay_t<decltype(x)>;
+          if constexpr (std::is_same_v<Ty, BOZLiteralConstant> ||
+              std::is_same_v<Ty, NullPointer>) {
+            return std::move(expr);
+          } else {
+            return Expr<T>{Fold(context, std::move(x))};
+          }
         }
       },
       std::move(expr.u));
@@ -1324,220 +1367,39 @@ FOR_EACH_TYPE_AND_KIND(template class ExpressionBase)
 // able to fold it (yet) into a known constant value; specifically,
 // the expression may reference derived type kind parameters whose values
 // are not yet known.
-//
-// The implementation uses mutually recursive helper function overloadings and
-// templates.
 
-struct ConstExprContext {
-  std::set<parser::CharBlock> constantNames;
+class IsConstantExprVisitor : public virtual VisitorBase<bool> {
+public:
+  explicit IsConstantExprVisitor(int) { result() = true; }
+
+  template<int KIND> void Handle(const TypeParamInquiry<KIND> &inq) {
+    Check(inq.parameter().template get<semantics::TypeParamDetails>().attr() ==
+        common::TypeParamAttr::Kind);
+  }
+  void Handle(const semantics::Symbol &symbol) {
+    Check(symbol.attrs().test(semantics::Attr::PARAMETER));
+  }
+  void Handle(const CoarrayRef &) { Return(false); }
+  void Pre(const semantics::ParamValue &param) { Check(param.isExplicit()); }
+  template<typename T> void Pre(const FunctionRef<T> &call) {
+    if (const auto *intrinsic{std::get_if<SpecificIntrinsic>(&call.proc().u)}) {
+      Check(intrinsic->name == "kind");
+      // TODO: Obviously many other intrinsics can be allowed
+    } else {
+      Return(false);
+    }
+  }
+
+private:
+  void Check(bool ok) {
+    if (!ok) {
+      Return(false);
+    }
+  }
 };
 
-// Base cases
-bool IsConstExpr(ConstExprContext &, const BOZLiteralConstant &) {
-  return true;
-}
-template<typename A> bool IsConstExpr(ConstExprContext &, const Constant<A> &) {
-  return true;
-}
-bool IsConstExpr(ConstExprContext &, const StaticDataObject::Pointer) {
-  return true;
-}
-template<int KIND>
-bool IsConstExpr(ConstExprContext &, const TypeParamInquiry<KIND> &inquiry) {
-  return inquiry.parameter()
-             .template get<semantics::TypeParamDetails>()
-             .attr() == common::TypeParamAttr::Kind;
-}
-bool IsConstExpr(ConstExprContext &, const Symbol *symbol) {
-  return symbol->attrs().test(semantics::Attr::PARAMETER);
-}
-bool IsConstExpr(ConstExprContext &, const CoarrayRef &) { return false; }
-bool IsConstExpr(ConstExprContext &, const ImpliedDoIndex &) {
-  return true;  // only tested when bounds are constant
-}
-
-// Prototypes for mutual recursion
-template<typename D, typename R, typename O1>
-bool IsConstExpr(ConstExprContext &, const Operation<D, R, O1> &);
-template<typename D, typename R, typename O1, typename O2>
-bool IsConstExpr(ConstExprContext &, const Operation<D, R, O1, O2> &);
-template<typename V> bool IsConstExpr(ConstExprContext &, const ImpliedDo<V> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const ArrayConstructorValue<A> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const ArrayConstructorValues<A> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const ArrayConstructor<A> &);
-bool IsConstExpr(ConstExprContext &, const semantics::DerivedTypeSpec &);
-bool IsConstExpr(ConstExprContext &, const StructureConstructor &);
-bool IsConstExpr(ConstExprContext &, const BaseObject &);
-bool IsConstExpr(ConstExprContext &, const Component &);
-bool IsConstExpr(ConstExprContext &, const Triplet &);
-bool IsConstExpr(ConstExprContext &, const Subscript &);
-bool IsConstExpr(ConstExprContext &, const ArrayRef &);
-bool IsConstExpr(ConstExprContext &, const DataRef &);
-bool IsConstExpr(ConstExprContext &, const Substring &);
-bool IsConstExpr(ConstExprContext &, const ComplexPart &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const Designator<A> &);
-bool IsConstExpr(ConstExprContext &, const ActualArgument &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const FunctionRef<A> &);
-template<typename A> bool IsConstExpr(ConstExprContext &, const Expr<A> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const CopyableIndirection<A> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const std::optional<A> &);
-template<typename A>
-bool IsConstExpr(ConstExprContext &, const std::vector<A> &);
-template<typename... As>
-bool IsConstExpr(ConstExprContext &, const std::variant<As...> &);
-bool IsConstExpr(ConstExprContext &, const Relational<SomeType> &);
-
-template<typename D, typename R, typename O1>
-bool IsConstExpr(
-    ConstExprContext &context, const Operation<D, R, O1> &operation) {
-  return IsConstExpr(context, operation.left());
-}
-template<typename D, typename R, typename O1, typename O2>
-bool IsConstExpr(
-    ConstExprContext &context, const Operation<D, R, O1, O2> &operation) {
-  return IsConstExpr(context, operation.left()) &&
-      IsConstExpr(context, operation.right());
-}
-template<typename V>
-bool IsConstExpr(ConstExprContext &context, const ImpliedDo<V> &impliedDo) {
-  if (!IsConstExpr(context, impliedDo.lower) ||
-      !IsConstExpr(context, impliedDo.upper) ||
-      !IsConstExpr(context, impliedDo.stride)) {
-    return false;
-  }
-  ConstExprContext newContext{context};
-  newContext.constantNames.insert(impliedDo.name);
-  return IsConstExpr(newContext, impliedDo.values);
-}
-template<typename A>
-bool IsConstExpr(
-    ConstExprContext &context, const ArrayConstructorValue<A> &value) {
-  return IsConstExpr(context, value.u);
-}
-template<typename A>
-bool IsConstExpr(
-    ConstExprContext &context, const ArrayConstructorValues<A> &values) {
-  return IsConstExpr(context, values.values());
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const ArrayConstructor<A> &array) {
-  const typename ArrayConstructor<A>::Base &base{array};
-  return IsConstExpr(context, base);
-}
-bool IsConstExpr(
-    ConstExprContext &context, const semantics::DerivedTypeSpec &spec) {
-  for (const auto &nameValue : spec.parameters()) {
-    const auto &value{nameValue.second};
-    if (!value.isExplicit() || !value.GetExplicit().has_value() ||
-        !IsConstExpr(context, *value.GetExplicit())) {
-      return false;
-    }
-  }
-  return true;
-}
-bool IsConstExpr(
-    ConstExprContext &context, const StructureConstructor &structure) {
-  if (!IsConstExpr(context, structure.derivedTypeSpec())) {
-    return false;
-  }
-  for (const auto &symbolExpr : structure.values()) {
-    if (!IsConstExpr(context, symbolExpr.second)) {
-      return false;
-    }
-  }
-  return true;
-}
-bool IsConstExpr(ConstExprContext &context, const BaseObject &base) {
-  return IsConstExpr(context, base.u);
-}
-bool IsConstExpr(ConstExprContext &context, const Component &component) {
-  return IsConstExpr(context, component.base());
-}
-bool IsConstExpr(ConstExprContext &context, const Triplet &triplet) {
-  return IsConstExpr(context, triplet.lower()) &&
-      IsConstExpr(context, triplet.upper()) &&
-      IsConstExpr(context, triplet.stride());
-}
-bool IsConstExpr(ConstExprContext &context, const Subscript &subscript) {
-  return IsConstExpr(context, subscript.u);
-}
-bool IsConstExpr(ConstExprContext &context, const ArrayRef &arrayRef) {
-  return IsConstExpr(context, arrayRef.base()) &&
-      IsConstExpr(context, arrayRef.subscript());
-}
-bool IsConstExpr(ConstExprContext &context, const DataRef &dataRef) {
-  return IsConstExpr(context, dataRef.u);
-}
-bool IsConstExpr(ConstExprContext &context, const Substring &substring) {
-  if (const auto *dataRef{substring.GetParentIf<DataRef>()}) {
-    if (!IsConstExpr(context, *dataRef)) {
-      return false;
-    }
-  }
-  return IsConstExpr(context, substring.lower()) &&
-      IsConstExpr(context, substring.upper());
-}
-bool IsConstExpr(ConstExprContext &context, const ComplexPart &complexPart) {
-  return IsConstExpr(context, complexPart.complex());
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const Designator<A> &designator) {
-  return IsConstExpr(context, designator.u);
-}
-bool IsConstExpr(ConstExprContext &context, const ActualArgument &arg) {
-  return IsConstExpr(context, *arg.value);
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const FunctionRef<A> &funcRef) {
-  if (const auto *intrinsic{
-          std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
-    if (intrinsic->name == "kind") {
-      return true;
-    }
-    // TODO: This is a placeholder with obvious false positives
-    return IsConstExpr(context, funcRef.arguments());
-  }
-  return false;
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const Expr<A> &expr) {
-  return IsConstExpr(context, expr.u);
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const CopyableIndirection<A> &x) {
-  return IsConstExpr(context, *x);
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const std::optional<A> &maybe) {
-  return !maybe.has_value() || IsConstExpr(context, *maybe);
-}
-template<typename A>
-bool IsConstExpr(ConstExprContext &context, const std::vector<A> &v) {
-  for (const auto &x : v) {
-    if (!IsConstExpr(context, x)) {
-      return false;
-    }
-  }
-  return true;
-}
-template<typename... As>
-bool IsConstExpr(ConstExprContext &context, const std::variant<As...> &u) {
-  return std::visit([&](const auto &x) { return IsConstExpr(context, x); }, u);
-}
-bool IsConstExpr(ConstExprContext &context, const Relational<SomeType> &rel) {
-  return IsConstExpr(context, rel.u);
-}
-
 bool IsConstantExpr(const Expr<SomeType> &expr) {
-  ConstExprContext context;
-  return IsConstExpr(context, expr);
+  return Visitor<bool, IsConstantExprVisitor>{0}.Traverse(expr);
 }
 
 std::optional<std::int64_t> ToInt64(const Expr<SomeInteger> &expr) {
