@@ -58,6 +58,21 @@ Symbol *Scope::FindSymbol(const SourceName &name) const {
     return nullptr;
   }
 }
+Symbol &Scope::MakeCommonBlock(const SourceName &name) {
+  const auto it{commonBlocks_.find(name)};
+  if (it != commonBlocks_.end()) {
+    return *it->second;
+  } else {
+    Symbol &symbol{MakeSymbol(name, Attrs{}, CommonBlockDetails{})};
+    commonBlocks_.emplace(name, &symbol);
+    return symbol;
+  }
+}
+Symbol *Scope::FindCommonBlock(const SourceName &name) {
+  const auto it{commonBlocks_.find(name)};
+  return it != commonBlocks_.end() ? it->second : nullptr;
+}
+
 Scope *Scope::FindSubmodule(const SourceName &name) const {
   auto it{submodules_.find(name)};
   if (it == submodules_.end()) {
@@ -105,14 +120,6 @@ const DeclTypeSpec &Scope::MakeDerivedType(
   return MakeDerivedType(std::move(spec), category);
 }
 
-const DeclTypeSpec &Scope::MakeDerivedType(DeclTypeSpec::Category category,
-    DerivedTypeSpec &&instance, SemanticsContext &semanticsContext) {
-  DeclTypeSpec &type{declTypeSpecs_.emplace_back(
-      category, DerivedTypeSpec{std::move(instance)})};
-  type.derivedTypeSpec().Instantiate(*this, semanticsContext);
-  return type;
-}
-
 DeclTypeSpec &Scope::MakeDerivedType(const Symbol &typeSymbol) {
   CHECK(typeSymbol.has<DerivedTypeDetails>());
   CHECK(typeSymbol.scope() != nullptr);
@@ -130,10 +137,10 @@ Scope::ImportKind Scope::GetImportKind() const {
   if (importKind_) {
     return *importKind_;
   }
-  if (symbol_) {
+  if (symbol_ && !symbol_->attrs().test(Attr::MODULE)) {
     if (auto *details{symbol_->detailsIf<SubprogramDetails>()}) {
       if (details->isInterface()) {
-        return ImportKind::None;  // default for interface body
+        return ImportKind::None;  // default for non-mod-proc interface body
       }
     }
   }
@@ -204,6 +211,10 @@ std::ostream &operator<<(std::ostream &os, const Scope &scope) {
     const auto *symbol{pair.second};
     os << "  " << *symbol << '\n';
   }
+  for (const auto &pair : scope.commonBlocks_) {
+    const auto *symbol{pair.second};
+    os << "  " << *symbol << '\n';
+  }
   return os;
 }
 
@@ -231,7 +242,10 @@ const DeclTypeSpec *Scope::FindInstantiatedDerivedType(
   if (typeIter != declTypeSpecs_.end()) {
     return &*typeIter;
   }
-  return nullptr;
+  if (&parent_ == this) {
+    return nullptr;
+  }
+  return parent_.FindInstantiatedDerivedType(spec, category);
 }
 
 const DeclTypeSpec &Scope::FindOrInstantiateDerivedType(DerivedTypeSpec &&spec,

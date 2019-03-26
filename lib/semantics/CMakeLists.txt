@@ -21,10 +21,12 @@ add_library(FortranSemantics
   mod-file.cc
   resolve-labels.cc
   resolve-names.cc
+  resolve-names-utils.cc
   rewrite-parse-tree.cc
   scope.cc
   semantics.cc
   symbol.cc
+  tools.cc
   type.cc
   unparse-with-symbols.cc
 )
@@ -32,5 +34,4 @@ add_library(FortranSemantics
 target_link_libraries(FortranSemantics
   FortranCommon
   FortranEvaluate
-  clangBasic
 )

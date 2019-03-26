@@ -215,6 +215,26 @@ void Symbol::SetType(const DeclTypeSpec &type) {
       details_);
 }
 
+bool Symbol::IsDummy() const {
+  return std::visit(
+      common::visitors{[](const EntityDetails &x) { return x.isDummy(); },
+          [](const ObjectEntityDetails &x) { return x.isDummy(); },
+          [](const ProcEntityDetails &x) { return x.isDummy(); },
+          [](const HostAssocDetails &x) { return x.symbol().IsDummy(); },
+          [](const auto &) { return false; }},
+      details_);
+}
+
+bool Symbol::IsFuncResult() const {
+  return std::visit(
+      common::visitors{[](const EntityDetails &x) { return x.isFuncResult(); },
+          [](const ObjectEntityDetails &x) { return x.isFuncResult(); },
+          [](const ProcEntityDetails &x) { return x.isFuncResult(); },
+          [](const HostAssocDetails &x) { return x.symbol().IsFuncResult(); },
+          [](const auto &) { return false; }},
+      details_);
+}
+
 bool Symbol::IsObjectArray() const {
   const auto *details{std::get_if<ObjectEntityDetails>(&details_)};
   return details && details->IsArray();
@@ -245,6 +265,12 @@ ObjectEntityDetails::ObjectEntityDetails(EntityDetails &&d)
   : EntityDetails(d) {}
 
 std::ostream &operator<<(std::ostream &os, const EntityDetails &x) {
+  if (x.isDummy()) {
+    os << " dummy";
+  }
+  if (x.isFuncResult()) {
+    os << " funcResult";
+  }
   if (x.type()) {
     os << " type: " << *x.type();
   }
@@ -368,6 +394,7 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
           },
           [](const HostAssocDetails &) {},
           [&](const GenericDetails &x) {
+            os << ' ' << EnumToString(x.kind());
             for (const auto *proc : x.specificProcs()) {
               os << ' ' << proc->name();
             }
@@ -387,13 +414,13 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
             }
           },
           [&](const NamelistDetails &x) {
-            os << ": ";
+            os << ':';
             for (const auto *object : x.objects()) {
               os << ' ' << object->name();
             }
           },
           [&](const CommonBlockDetails &x) {
-            os << ": ";
+            os << ':';
             for (const auto *object : x.objects()) {
               os << ' ' << object->name();
             }
@@ -565,6 +592,7 @@ Symbol &Symbol::Instantiate(
           },
           [&](const ProcBindingDetails &that) { symbol.details_ = that; },
           [&](const GenericBindingDetails &that) { symbol.details_ = that; },
+          [&](const ProcEntityDetails &that) { symbol.details_ = that; },
           [&](const TypeParamDetails &that) {
             // LEN type parameter, or error recovery on a KIND type parameter
             // with no corresponding actual argument or default

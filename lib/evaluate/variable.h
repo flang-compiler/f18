@@ -55,6 +55,13 @@ struct BaseObject {
   Expr<SubscriptInteger> LEN() const;
   bool operator==(const BaseObject &) const;
   std::ostream &AsFortran(std::ostream &) const;
+  const Symbol *symbol() const {
+    if (const auto *result{std::get_if<const Symbol *>(&u)}) {
+      return *result;
+    } else {
+      return nullptr;
+    }
+  }
   std::variant<const Symbol *, StaticDataObject::Pointer> u;
 };
 
@@ -70,11 +77,11 @@ public:
   CLASS_BOILERPLATE(Component)
   Component(const DataRef &b, const Symbol &c) : base_{b}, symbol_{&c} {}
   Component(DataRef &&b, const Symbol &c) : base_{std::move(b)}, symbol_{&c} {}
-  Component(CopyableIndirection<DataRef> &&b, const Symbol &c)
+  Component(common::CopyableIndirection<DataRef> &&b, const Symbol &c)
     : base_{std::move(b)}, symbol_{&c} {}
 
-  const DataRef &base() const { return *base_; }
-  DataRef &base() { return *base_; }
+  const DataRef &base() const { return base_.value(); }
+  DataRef &base() { return base_.value(); }
   int Rank() const;
   const Symbol &GetFirstSymbol() const;
   const Symbol &GetLastSymbol() const { return *symbol_; }
@@ -83,7 +90,7 @@ public:
   std::ostream &AsFortran(std::ostream &) const;
 
 private:
-  CopyableIndirection<DataRef> base_;
+  common::CopyableIndirection<DataRef> base_;
   const Symbol *symbol_;
 };
 
@@ -231,7 +238,7 @@ public:
 private:
   std::vector<const Symbol *> base_;
   std::vector<Expr<SubscriptInteger>> subscript_, cosubscript_;
-  std::optional<CopyableIndirection<Expr<SomeInteger>>> stat_, team_;
+  std::optional<common::CopyableIndirection<Expr<SomeInteger>>> stat_, team_;
   bool teamIsTeamNumber_{false};  // false: TEAM=, true: TEAM_NUMBER=
 };
 
@@ -349,8 +356,8 @@ public:
 
 FOR_EACH_CHARACTER_KIND(extern template class Designator)
 
-template<typename A> struct Variable {
-  using Result = A;
+template<typename T> struct Variable {
+  using Result = T;
   static_assert(IsSpecificIntrinsicType<Result> ||
       std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   EVALUATE_UNION_CLASS_BOILERPLATE(Variable)

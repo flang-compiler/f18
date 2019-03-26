@@ -24,6 +24,7 @@
 #include "scope.h"
 #include "symbol.h"
 #include "../common/default-kinds.h"
+#include "../parser/parse-tree-visitor.h"
 #include <ostream>
 
 namespace Fortran::semantics {
@@ -31,12 +32,51 @@ namespace Fortran::semantics {
 static void DoDumpSymbols(std::ostream &, const Scope &, int indent = 0);
 static void PutIndent(std::ostream &, int indent);
 
-SemanticsContext::SemanticsContext(
-    const common::IntrinsicTypeDefaultKinds &defaultKinds)
-  : defaultKinds_{defaultKinds},
+// A parse tree visitor that calls Enter/Leave functions from each checker
+// class C supplied as template parameters. Enter is called before the node's
+// children are visited, Leave is called after. No two checkers may have the
+// same Enter or Leave function. Each checker must be constructible from
+// SemanticsContext and have BaseChecker as a virtual base class.
+template<typename... C> class SemanticsVisitor : public virtual C... {
+public:
+  using C::Enter...;
+  using C::Leave...;
+  using BaseChecker::Enter;
+  using BaseChecker::Leave;
+  SemanticsVisitor(SemanticsContext &context)
+    : C{context}..., context_{context} {}
+  template<typename N> bool Pre(const N &node) {
+    Enter(node);
+    return true;
+  }
+  template<typename N> void Post(const N &node) { Leave(node); }
+  bool Walk(const parser::Program &program) {
+    parser::Walk(program, *this);
+    return !context_.AnyFatalError();
+  }
+
+private:
+  SemanticsContext &context_;
+};
+
+using StatementSemanticsPass1 = SemanticsVisitor<ExprChecker>;
+using StatementSemanticsPass2 =
+    SemanticsVisitor<AssignmentChecker, DoConcurrentChecker>;
+
+SemanticsContext::SemanticsContext(const common::IntrinsicTypeDefaultKinds
+        &defaultKinds, const parser::LanguageFeatureControl &languageFeatures)
+  : defaultKinds_{defaultKinds}, languageFeatures_{languageFeatures},
     intrinsics_{evaluate::IntrinsicProcTable::Configure(defaultKinds)},
     foldingContext_{evaluate::FoldingContext{
         parser::ContextualMessages{parser::CharBlock{}, &messages_}}} {}
+
+bool SemanticsContext::IsEnabled(parser::LanguageFeature feature) const {
+  return languageFeatures_.IsEnabled(feature);
+}
+
+bool SemanticsContext::ShouldWarn(parser::LanguageFeature feature) const {
+  return languageFeatures_.ShouldWarn(feature);
+}
 
 const DeclTypeSpec &SemanticsContext::MakeNumericType(
     TypeCategory category, int kind) {
@@ -57,37 +97,23 @@ bool SemanticsContext::AnyFatalError() const {
       (warningsAreErrors_ || messages_.AnyFatalError());
 }
 
-bool Semantics::Perform() {
-  ValidateLabels(context_.messages(), program_);
-  if (AnyFatalError()) {
-    return false;
-  }
-  parser::CanonicalizeDo(program_);
-  ResolveNames(context_, program_);
-  if (AnyFatalError()) {
-    return false;
-  }
-  RewriteParseTree(context_, program_);
-  if (AnyFatalError()) {
-    return false;
-  }
-  CheckDoConcurrentConstraints(context_.messages(), program_);
-  AnalyzeExpressions(program_, context_);
-  AnalyzeAssignments(program_, context_);
-  if (AnyFatalError()) {
-    return false;
-  }
-  ModFileWriter writer{context_};
-  writer.WriteAll();
-  return !AnyFatalError();
-}
-
-const Scope &Semantics::FindScope(const parser::CharBlock &source) const {
-  if (const auto *scope{context_.globalScope().FindScope(source)}) {
+const Scope &SemanticsContext::FindScope(
+    const parser::CharBlock &source) const {
+  if (const auto *scope{globalScope_.FindScope(source)}) {
     return *scope;
   } else {
     common::die("invalid source location");
   }
+}
+
+bool Semantics::Perform() {
+  return ValidateLabels(context_.messages(), program_) &&
+      parser::CanonicalizeDo(program_) &&  // force line break
+      ResolveNames(context_, program_) &&
+      RewriteParseTree(context_, program_) &&
+      StatementSemanticsPass1{context_}.Walk(program_) &&
+      StatementSemanticsPass2{context_}.Walk(program_) &&
+      ModFileWriter{context_}.WriteAll();
 }
 
 void Semantics::EmitMessages(std::ostream &os) const {
@@ -117,6 +143,11 @@ void DoDumpSymbols(std::ostream &os, const Scope &scope, int indent) {
       }
     }
   }
+  for (const auto &pair : scope.commonBlocks()) {
+    const auto &symbol{*pair.second};
+    PutIndent(os, indent);
+    os << symbol << '\n';
+  }
   for (const auto &child : scope.children()) {
     DoDumpSymbols(os, child, indent);
   }
@@ -128,4 +159,5 @@ static void PutIndent(std::ostream &os, int indent) {
     os << "  ";
   }
 }
+
 }

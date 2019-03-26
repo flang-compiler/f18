@@ -16,8 +16,8 @@
 #define FORTRAN_SEMANTICS_SYMBOL_H_
 
 #include "type.h"
+#include "../common/Fortran.h"
 #include "../common/enum-set.h"
-#include "../common/fortran.h"
 #include <functional>
 #include <list>
 #include <optional>
@@ -110,11 +110,14 @@ public:
   void set_type(const DeclTypeSpec &);
   void ReplaceType(const DeclTypeSpec &);
   bool isDummy() const { return isDummy_; }
+  bool isFuncResult() const { return isFuncResult_; }
+  void set_funcResult(bool x) { isFuncResult_ = x; }
   MaybeExpr bindName() const { return bindName_; }
   void set_bindName(MaybeExpr &&expr) { bindName_ = std::move(expr); }
 
 private:
   bool isDummy_;
+  bool isFuncResult_{false};
   const DeclTypeSpec *type_{nullptr};
   MaybeExpr bindName_;
   friend std::ostream &operator<<(std::ostream &, const EntityDetails &);
@@ -249,9 +252,18 @@ private:
   std::optional<SourceName> passName_;  // name in PASS attribute
 };
 
+ENUM_CLASS(GenericKind, // Kinds of generic-spec
+    Name, DefinedOp,  // these have a Name associated with them
+    Assignment,  // user-defined assignment
+    OpPower, OpMultiply, OpDivide, OpAdd, OpSubtract, OpConcat, OpLT, OpLE,
+    OpEQ, OpNE, OpGE, OpGT, OpNOT, OpAND, OpOR, OpXOR, OpEQV, OpNEQV,
+    ReadFormatted, ReadUnformatted, WriteFormatted, WriteUnformatted)
+
 class GenericBindingDetails {
 public:
   GenericBindingDetails() {}
+  GenericKind kind() const { return kind_; }
+  void set_kind(GenericKind kind) { kind_ = kind; }
   const SymbolList &specificProcs() const { return specificProcs_; }
   void add_specificProc(const Symbol &proc) { specificProcs_.push_back(&proc); }
   void add_specificProcs(const SymbolList &procs) {
@@ -259,6 +271,7 @@ public:
   }
 
 private:
+  GenericKind kind_{GenericKind::Name};
   SymbolList specificProcs_;
 };
 
@@ -276,11 +289,15 @@ private:
 
 class CommonBlockDetails {
 public:
-  SymbolList objects() const { return objects_; }
+  std::list<Symbol *> &objects() { return objects_; }
+  const std::list<Symbol *> &objects() const { return objects_; }
   void add_object(Symbol &object) { objects_.push_back(&object); }
+  MaybeExpr bindName() const { return bindName_; }
+  void set_bindName(MaybeExpr &&expr) { bindName_ = std::move(expr); }
 
 private:
-  SymbolList objects_;
+  std::list<Symbol *> objects_;
+  MaybeExpr bindName_;
 };
 
 class FinalProcDetails {};
@@ -288,8 +305,8 @@ class FinalProcDetails {};
 class MiscDetails {
 public:
   ENUM_CLASS(Kind, None, ConstructName, ScopeName, PassName, ComplexPartRe,
-      ComplexPartIm, KindParamInquiry, LenParamInquiry,
-      SelectTypeAssociateName);
+      ComplexPartIm, KindParamInquiry, LenParamInquiry, SelectTypeAssociateName,
+      SpecificIntrinsic);
   MiscDetails(Kind kind) : kind_{kind} {}
   Kind kind() const { return kind_; }
 
@@ -359,11 +376,14 @@ public:
   GenericDetails(const SymbolList &specificProcs);
   GenericDetails(Symbol *specific) : specific_{specific} {}
 
-  const SymbolList specificProcs() const { return specificProcs_; }
+  GenericKind kind() const { return kind_; }
+  void set_kind(GenericKind kind) { kind_ = kind; }
 
+  const SymbolList specificProcs() const { return specificProcs_; }
   void add_specificProc(const Symbol &proc) { specificProcs_.push_back(&proc); }
 
   Symbol *specific() { return specific_; }
+  const Symbol *specific() const { return specific_; }
   void set_specific(Symbol &specific);
 
   // Derived type with same name as generic, if any.
@@ -376,6 +396,7 @@ public:
   const Symbol *CheckSpecific() const;
 
 private:
+  GenericKind kind_{GenericKind::Name};
   // all of the specific procedures for this generic
   SymbolList specificProcs_;
   // a specific procedure with the same name as this generic, if any
@@ -460,7 +481,6 @@ public:
     return const_cast<DeclTypeSpec *>(
         const_cast<const Symbol *>(this)->GetType());
   }
-
   const DeclTypeSpec *GetType() const {
     return std::visit(
         common::visitors{
@@ -477,6 +497,8 @@ public:
 
   void SetType(const DeclTypeSpec &);
 
+  bool IsDummy() const;
+  bool IsFuncResult() const;
   bool IsObjectArray() const;
   bool IsSubprogram() const;
   bool IsSeparateModuleProc() const;
@@ -488,6 +510,9 @@ public:
             [](const ProcEntityDetails &x) { return x.HasExplicitInterface(); },
             [](const UseDetails &x) {
               return x.symbol().HasExplicitInterface();
+            },
+            [](const MiscDetails &x) {
+              return x.kind() == MiscDetails::Kind::SpecificIntrinsic;
             },
             [](const auto &) { return false; },
         },

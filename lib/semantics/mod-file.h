@@ -37,7 +37,7 @@ class SemanticsContext;
 class ModFileWriter {
 public:
   ModFileWriter(SemanticsContext &context) : context_{context} {}
-  void WriteAll();
+  bool WriteAll();
 
 private:
   SemanticsContext &context_;
@@ -51,7 +51,7 @@ private:
   void Write(const Symbol &);
   std::string GetAsString(const Symbol &);
   void PutSymbols(const Scope &);
-  void PutSymbol(std::stringstream &, const Symbol &);
+  void PutSymbol(std::stringstream &, const Symbol *);
   void PutDerivedType(const Symbol &);
   void PutSubprogram(const Symbol &);
   void PutGeneric(const Symbol &);

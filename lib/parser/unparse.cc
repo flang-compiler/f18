@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 #include "characters.h"
 #include "parse-tree-visitor.h"
 #include "parse-tree.h"
-#include "../common/fortran.h"
+#include "../common/Fortran.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
 #include <algorithm>
@@ -836,7 +836,7 @@ public:
     Walk(std::get<2>(x.t));  // right
   }
   void Unparse(const DefinedOpName &x) {  // R1003, R1023, R1414, & R1415
-    Put('.'), Walk(x.v), Put('.');
+    Walk(x.v);
   }
   void Unparse(const AssignmentStmt &x) {  // R1032
     Walk(x.t, " = ");
@@ -1622,6 +1622,25 @@ public:
     Put(')'), Walk(", ", std::get<std::list<ProcAttrSpec>>(x.t), ", ");
     Put(" :: "), Walk(std::get<std::list<ProcDecl>>(x.t), ", ");
   }
+  void Unparse(const ProcInterface &x) {  // R1513
+    std::visit(
+        common::visitors{
+            [&](const DeclarationTypeSpec &d) {
+              std::visit(
+                  common::visitors{
+                      [&](const IntrinsicTypeSpec &t) {
+                        // Emit TYPE(REAL) to ensure no conflict with a symbol
+                        // REAL
+                        Word("TYPE("), Walk(t), Word(")");
+                      },
+                      [&](const auto &t) { Walk(t); },
+                  },
+                  d.u);
+            },
+            [&](const Name &n) { Walk(n); },
+        },
+        x.u);
+  }
   void Unparse(const ProcDecl &x) {  // R1515
     Walk(std::get<Name>(x.t));
     Walk(" => ", std::get<std::optional<ProcPointerInit>>(x.t));
@@ -1727,10 +1746,10 @@ public:
     std::visit(
         common::visitors{
             [&](const std::list<CompilerDirective::IgnoreTKR> &tkr) {
-              Word("!DIR$ IGNORE_TKR");
+              Word("!DIR$ IGNORE_TKR");  // emitted even if tkr list is empty
               Walk(" ", tkr, ", ");
             },
-            [&](const CompilerDirective::IVDEP &) { Word("!DIR$ IVDEP\n"); },
+            [&](const std::list<Name> &names) { Walk("!DIR$ ", names, " "); },
         },
         x.u);
     Put('\n');
