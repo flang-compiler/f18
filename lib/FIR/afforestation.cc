@@ -14,6 +14,7 @@
 
 #include "afforestation.h"
 #include "builder.h"
+#include "flattened.h"
 #include "mixin.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
@@ -21,497 +22,13 @@
 #include "../semantics/expression.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace Fortran::FIR {
 namespace {
-Expression *ExprRef(const parser::Expr &a) { return a.typedExpr.get(); }
+Expression *ExprRef(const parser::Expr &a) { return &a.typedExpr.get()->v; }
 Expression *ExprRef(const common::Indirection<parser::Expr> &a) {
-  return a.value().typedExpr.get();
+  return &a.value().typedExpr.get()->v;
 }
-
-struct LinearOp;
-
-using LinearLabelRef = unsigned;
-constexpr LinearLabelRef unspecifiedLabel{~0u};
-
-llvm::raw_ostream *debugChannel;
-llvm::raw_ostream &DebugChannel() {
-  return debugChannel ? *debugChannel : llvm::errs();
-}
-void SetDebugChannel(llvm::raw_ostream *output) { debugChannel = output; }
-
-struct LinearLabelBuilder {
-  LinearLabelBuilder() : referenced(32), counter{0u} {}
-  LinearLabelRef getNext() {
-    LinearLabelRef next{counter++};
-    auto cap{referenced.capacity()};
-    if (cap < counter) {
-      referenced.reserve(2 * cap);
-    }
-    referenced[next] = false;
-    return next;
-  }
-  void setReferenced(LinearLabelRef label) { referenced[label] = true; }
-  bool isReferenced(LinearLabelRef label) const { return referenced[label]; }
-  std::vector<bool> referenced;
-  unsigned counter;
-};
-
-struct LinearLabel {
-  explicit LinearLabel(LinearLabelBuilder &builder)
-    : builder_{builder}, label_{builder.getNext()} {}
-  LinearLabel(const LinearLabel &that)
-    : builder_{that.builder_}, label_{that.label_} {}
-  LinearLabel &operator=(const LinearLabel &that) {
-    CHECK(&builder_ == &that.builder_);
-    label_ = that.label_;
-    return *this;
-  }
-  void setReferenced() const { builder_.setReferenced(label_); }
-  bool isReferenced() const { return builder_.isReferenced(label_); }
-  LinearLabelRef get() const { return label_; }
-  operator LinearLabelRef() const { return get(); }
-
-private:
-  LinearLabelBuilder &builder_;
-  LinearLabelRef label_;
-};
-
-struct LinearGoto {
-  struct LinearArtificial {};
-  LinearGoto(LinearLabelRef dest) : u{LinearArtificial{}}, target{dest} {}
-  template<typename T>
-  LinearGoto(const T &stmt, LinearLabelRef dest) : u{&stmt}, target{dest} {}
-  std::variant<const parser::CycleStmt *, const parser::ExitStmt *,
-      const parser::GotoStmt *, LinearArtificial>
-      u;
-  LinearLabelRef target;
-};
-
-struct LinearReturn
-  : public SumTypeCopyMixin<const parser::FailImageStmt *,
-        const parser::ReturnStmt *, const parser::StopStmt *> {
-  SUM_TYPE_COPY_MIXIN(LinearReturn)
-  template<typename T> LinearReturn(const T &stmt) : SumTypeCopyMixin{&stmt} {}
-};
-
-struct LinearConditionalGoto {
-  template<typename T>
-  LinearConditionalGoto(const T &cond, LinearLabelRef tb, LinearLabelRef fb)
-    : u{&cond}, trueLabel{tb}, falseLabel{fb} {}
-  std::variant<const parser::Statement<parser::IfThenStmt> *,
-      const parser::Statement<parser::ElseIfStmt> *, const parser::IfStmt *,
-      const parser::Statement<parser::NonLabelDoStmt> *>
-      u;
-  LinearLabelRef trueLabel;
-  LinearLabelRef falseLabel;
-};
-
-struct LinearIndirectGoto {
-  LinearIndirectGoto(
-      const semantics::Symbol *symbol, std::vector<LinearLabelRef> &&labelRefs)
-    : symbol{symbol}, labelRefs{labelRefs} {}
-  const semantics::Symbol *symbol;
-  std::vector<LinearLabelRef> labelRefs;
-};
-
-struct LinearSwitchingIO {
-  template<typename T>
-  LinearSwitchingIO(const T &io, LinearLabelRef next,
-      std::optional<LinearLabelRef> errLab,
-      std::optional<LinearLabelRef> eorLab = std::nullopt,
-      std::optional<LinearLabelRef> endLab = std::nullopt)
-    : u{&io}, next{next}, errLabel{errLab}, eorLabel{eorLab}, endLabel{endLab} {
-  }
-  std::variant<const parser::ReadStmt *, const parser::WriteStmt *,
-      const parser::WaitStmt *, const parser::OpenStmt *,
-      const parser::CloseStmt *, const parser::BackspaceStmt *,
-      const parser::EndfileStmt *, const parser::RewindStmt *,
-      const parser::FlushStmt *, const parser::InquireStmt *>
-      u;
-  LinearLabelRef next;
-  std::optional<LinearLabelRef> errLabel;
-  std::optional<LinearLabelRef> eorLabel;
-  std::optional<LinearLabelRef> endLabel;
-};
-
-struct LinearSwitch {
-  template<typename T>
-  LinearSwitch(const T &sw, const std::vector<LinearLabelRef> &refs)
-    : u{&sw}, refs{refs} {}
-  std::variant<const parser::CallStmt *, const parser::ComputedGotoStmt *,
-      const parser::ArithmeticIfStmt *, const parser::CaseConstruct *,
-      const parser::SelectRankConstruct *, const parser::SelectTypeConstruct *>
-      u;
-  const std::vector<LinearLabelRef> refs;
-};
-
-struct LinearAction {
-  LinearAction(const parser::Statement<parser::ActionStmt> &stmt) : v{&stmt} {}
-  parser::CharBlock getSource() const { return v->source; }
-
-  const parser::Statement<parser::ActionStmt> *v;
-};
-
-#define WRAP(T) const parser::T *
-#define CONSTRUCT_TYPES \
-  WRAP(AssociateConstruct), WRAP(BlockConstruct), WRAP(CaseConstruct), \
-      WRAP(ChangeTeamConstruct), WRAP(CriticalConstruct), WRAP(DoConstruct), \
-      WRAP(IfConstruct), WRAP(SelectRankConstruct), WRAP(SelectTypeConstruct), \
-      WRAP(WhereConstruct), WRAP(ForallConstruct), WRAP(CompilerDirective), \
-      WRAP(OpenMPConstruct), WRAP(OpenMPEndLoopDirective)
-
-struct LinearBeginConstruct : public SumTypeCopyMixin<CONSTRUCT_TYPES> {
-  SUM_TYPE_COPY_MIXIN(LinearBeginConstruct)
-  template<typename T>
-  LinearBeginConstruct(const T &c) : SumTypeCopyMixin{&c} {}
-};
-struct LinearEndConstruct : public SumTypeCopyMixin<CONSTRUCT_TYPES> {
-  SUM_TYPE_COPY_MIXIN(LinearEndConstruct)
-  template<typename T> LinearEndConstruct(const T &c) : SumTypeCopyMixin{&c} {}
-};
-
-struct LinearDoIncrement {
-  LinearDoIncrement(const parser::DoConstruct &stmt) : v{&stmt} {}
-  const parser::DoConstruct *v;
-};
-struct LinearDoCompare {
-  LinearDoCompare(const parser::DoConstruct &stmt) : v{&stmt} {}
-  const parser::DoConstruct *v;
-};
-
-template<typename CONSTRUCT>
-const char *GetConstructName(const CONSTRUCT &construct) {
-  return std::visit(
-      common::visitors{
-          [](const parser::AssociateConstruct *) { return "ASSOCIATE"; },
-          [](const parser::BlockConstruct *) { return "BLOCK"; },
-          [](const parser::CaseConstruct *) { return "SELECT CASE"; },
-          [](const parser::ChangeTeamConstruct *) { return "CHANGE TEAM"; },
-          [](const parser::CriticalConstruct *) { return "CRITICAL"; },
-          [](const parser::DoConstruct *) { return "DO"; },
-          [](const parser::IfConstruct *) { return "IF"; },
-          [](const parser::SelectRankConstruct *) { return "SELECT RANK"; },
-          [](const parser::SelectTypeConstruct *) { return "SELECT TYPE"; },
-          [](const parser::WhereConstruct *) { return "WHERE"; },
-          [](const parser::ForallConstruct *) { return "FORALL"; },
-          [](const parser::CompilerDirective *) { return "<directive>"; },
-          [](const parser::OpenMPConstruct *) { return "<open-mp>"; },
-          [](const parser::OpenMPEndLoopDirective *) {
-            return "<open-mp-end-loop>";
-          }},
-      construct.u);
-}
-
-struct AnalysisData {
-  std::map<parser::Label, LinearLabel> labelMap;
-  std::vector<std::tuple<const parser::Name *, LinearLabelRef, LinearLabelRef>>
-      nameStack;
-  LinearLabelBuilder labelBuilder;
-  std::map<const semantics::Symbol *, std::set<parser::Label>> assignMap;
-};
-
-void AddAssign(AnalysisData &ad, const semantics::Symbol *symbol,
-    const parser::Label &label) {
-  ad.assignMap[symbol].insert(label);
-}
-std::vector<LinearLabelRef> GetAssign(
-    AnalysisData &ad, const semantics::Symbol *symbol) {
-  std::vector<LinearLabelRef> result;
-  for (auto lab : ad.assignMap[symbol]) {
-    result.emplace_back(lab);
-  }
-  return result;
-}
-LinearLabel BuildNewLabel(AnalysisData &ad) {
-  return LinearLabel{ad.labelBuilder};
-}
-LinearLabel FetchLabel(AnalysisData &ad, const parser::Label &label) {
-  auto iter{ad.labelMap.find(label)};
-  if (iter == ad.labelMap.end()) {
-    LinearLabel ll{ad.labelBuilder};
-    ll.setReferenced();
-    ad.labelMap.insert({label, ll});
-    return ll;
-  }
-  return iter->second;
-}
-std::tuple<const parser::Name *, LinearLabelRef, LinearLabelRef> FindStack(
-    const std::vector<std::tuple<const parser::Name *, LinearLabelRef,
-        LinearLabelRef>> &stack,
-    const parser::Name *key) {
-  for (auto iter{stack.rbegin()}, iend{stack.rend()}; iter != iend; ++iter) {
-    if (std::get<0>(*iter) == key) return *iter;
-  }
-  SEMANTICS_FAILED("construct name not on stack");
-  return {};
-}
-
-template<typename T> parser::Label GetErr(const T &stmt) {
-  if constexpr (std::is_same_v<T, parser::ReadStmt> ||
-      std::is_same_v<T, parser::WriteStmt>) {
-    for (const auto &control : stmt.controls) {
-      if (std::holds_alternative<parser::ErrLabel>(control.u)) {
-        return std::get<parser::ErrLabel>(control.u).v;
-      }
-    }
-  }
-  if constexpr (std::is_same_v<T, parser::WaitStmt> ||
-      std::is_same_v<T, parser::OpenStmt> ||
-      std::is_same_v<T, parser::CloseStmt> ||
-      std::is_same_v<T, parser::BackspaceStmt> ||
-      std::is_same_v<T, parser::EndfileStmt> ||
-      std::is_same_v<T, parser::RewindStmt> ||
-      std::is_same_v<T, parser::FlushStmt>) {
-    for (const auto &spec : stmt.v) {
-      if (std::holds_alternative<parser::ErrLabel>(spec.u)) {
-        return std::get<parser::ErrLabel>(spec.u).v;
-      }
-    }
-  }
-  if constexpr (std::is_same_v<T, parser::InquireStmt>) {
-    for (const auto &spec : std::get<std::list<parser::InquireSpec>>(stmt.u)) {
-      if (std::holds_alternative<parser::ErrLabel>(spec.u)) {
-        return std::get<parser::ErrLabel>(spec.u).v;
-      }
-    }
-  }
-  return 0;
-}
-
-template<typename T> parser::Label GetEor(const T &stmt) {
-  if constexpr (std::is_same_v<T, parser::ReadStmt> ||
-      std::is_same_v<T, parser::WriteStmt>) {
-    for (const auto &control : stmt.controls) {
-      if (std::holds_alternative<parser::EorLabel>(control.u)) {
-        return std::get<parser::EorLabel>(control.u).v;
-      }
-    }
-  }
-  if constexpr (std::is_same_v<T, parser::WaitStmt>) {
-    for (const auto &waitSpec : stmt.v) {
-      if (std::holds_alternative<parser::EorLabel>(waitSpec.u)) {
-        return std::get<parser::EorLabel>(waitSpec.u).v;
-      }
-    }
-  }
-  return 0;
-}
-
-template<typename T> parser::Label GetEnd(const T &stmt) {
-  if constexpr (std::is_same_v<T, parser::ReadStmt> ||
-      std::is_same_v<T, parser::WriteStmt>) {
-    for (const auto &control : stmt.controls) {
-      if (std::holds_alternative<parser::EndLabel>(control.u)) {
-        return std::get<parser::EndLabel>(control.u).v;
-      }
-    }
-  }
-  if constexpr (std::is_same_v<T, parser::WaitStmt>) {
-    for (const auto &waitSpec : stmt.v) {
-      if (std::holds_alternative<parser::EndLabel>(waitSpec.u)) {
-        return std::get<parser::EndLabel>(waitSpec.u).v;
-      }
-    }
-  }
-  return 0;
-}
-
-template<typename T>
-void errLabelSpec(const T &s, std::list<LinearOp> &ops,
-    const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
-  if (auto errLab{GetErr(s)}) {
-    std::optional<LinearLabelRef> errRef{FetchLabel(ad, errLab).get()};
-    LinearLabel next{BuildNewLabel(ad)};
-    ops.emplace_back(LinearSwitchingIO{s, next, errRef});
-    ops.emplace_back(next);
-  } else {
-    ops.emplace_back(LinearAction{ec});
-  }
-}
-
-template<typename T>
-void threeLabelSpec(const T &s, std::list<LinearOp> &ops,
-    const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
-  auto errLab{GetErr(s)};
-  auto eorLab{GetEor(s)};
-  auto endLab{GetEnd(s)};
-  if (errLab || eorLab || endLab) {
-    std::optional<LinearLabelRef> errRef{std::nullopt};
-    if (errLab) errRef = FetchLabel(ad, errLab).get();
-    std::optional<LinearLabelRef> eorRef{std::nullopt};
-    if (eorLab) eorRef = FetchLabel(ad, eorLab).get();
-    std::optional<LinearLabelRef> endRef{std::nullopt};
-    if (endLab) endRef = FetchLabel(ad, endLab).get();
-    LinearLabel next{BuildNewLabel(ad)};
-    ops.emplace_back(LinearSwitchingIO{s, next, errRef, eorRef, endRef});
-    ops.emplace_back(next);
-  } else {
-    ops.emplace_back(LinearAction{ec});
-  }
-}
-
-template<typename T>
-std::vector<LinearLabelRef> toLabelRef(AnalysisData &ad, const T &labels) {
-  std::vector<LinearLabelRef> result;
-  for (auto label : labels) {
-    result.emplace_back(FetchLabel(ad, label).get());
-  }
-  CHECK(result.size() == labels.size());
-  return result;
-}
-
-bool hasAltReturns(const parser::CallStmt &callStmt) {
-  const auto &args{std::get<std::list<parser::ActualArgSpec>>(callStmt.v.t)};
-  for (const auto &arg : args) {
-    const auto &actual{std::get<parser::ActualArg>(arg.t)};
-    if (std::holds_alternative<parser::AltReturnSpec>(actual.u)) {
-      return true;
-    }
-  }
-  return false;
-}
-std::list<parser::Label> getAltReturnLabels(const parser::Call &call) {
-  std::list<parser::Label> result;
-  const auto &args{std::get<std::list<parser::ActualArgSpec>>(call.t)};
-  for (const auto &arg : args) {
-    const auto &actual{std::get<parser::ActualArg>(arg.t)};
-    if (const auto *p{std::get_if<parser::AltReturnSpec>(&actual.u)}) {
-      result.push_back(p->v);
-    }
-  }
-  return result;
-}
-LinearLabelRef NearestEnclosingDoConstruct(AnalysisData &ad) {
-  for (auto iterator{ad.nameStack.rbegin()}, endIterator{ad.nameStack.rend()};
-       iterator != endIterator; ++iterator) {
-    auto labelReference{std::get<2>(*iterator)};
-    if (labelReference != unspecifiedLabel) {
-      return labelReference;
-    }
-  }
-  SEMANTICS_FAILED("CYCLE|EXIT not in loop");
-  return unspecifiedLabel;
-}
-
-struct LinearOp : public SumTypeMixin<LinearLabel, LinearGoto, LinearReturn,
-                      LinearConditionalGoto, LinearSwitchingIO, LinearSwitch,
-                      LinearAction, LinearBeginConstruct, LinearEndConstruct,
-                      LinearIndirectGoto, LinearDoIncrement, LinearDoCompare> {
-  template<typename T> LinearOp(const T &thing) : SumTypeMixin{thing} {}
-  void dump() const;
-
-  static void Build(std::list<LinearOp> &ops,
-      const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
-    std::visit(
-        common::visitors{
-            [&](const auto &s) { ops.emplace_back(LinearAction{ec}); },
-            [&](const common::Indirection<parser::CallStmt> &s) {
-              if (hasAltReturns(s.value())) {
-                auto next{BuildNewLabel(ad)};
-                auto labels{toLabelRef(ad, getAltReturnLabels(s.value().v))};
-                labels.push_back(next);
-                ops.emplace_back(LinearSwitch{s.value(), std::move(labels)});
-                ops.emplace_back(next);
-              } else {
-                ops.emplace_back(LinearAction{ec});
-              }
-            },
-            [&](const common::Indirection<parser::AssignStmt> &s) {
-              AddAssign(ad, std::get<parser::Name>(s.value().t).symbol,
-                  std::get<parser::Label>(s.value().t));
-              ops.emplace_back(LinearAction{ec});
-            },
-            [&](const common::Indirection<parser::CycleStmt> &s) {
-              ops.emplace_back(LinearGoto{s.value(),
-                  s.value().v ? std::get<2>(FindStack(
-                                    ad.nameStack, &s.value().v.value()))
-                              : NearestEnclosingDoConstruct(ad)});
-            },
-            [&](const common::Indirection<parser::ExitStmt> &s) {
-              ops.emplace_back(LinearGoto{s.value(),
-                  s.value().v ? std::get<1>(FindStack(
-                                    ad.nameStack, &s.value().v.value()))
-                              : NearestEnclosingDoConstruct(ad)});
-            },
-            [&](const common::Indirection<parser::GotoStmt> &s) {
-              ops.emplace_back(
-                  LinearGoto{s.value(), FetchLabel(ad, s.value().v).get()});
-            },
-            [&](const parser::FailImageStmt &s) {
-              ops.emplace_back(LinearReturn{s});
-            },
-            [&](const common::Indirection<parser::ReturnStmt> &s) {
-              ops.emplace_back(LinearReturn{s.value()});
-            },
-            [&](const common::Indirection<parser::StopStmt> &s) {
-              ops.emplace_back(LinearAction{ec});
-              ops.emplace_back(LinearReturn{s.value()});
-            },
-            [&](const common::Indirection<const parser::ReadStmt> &s) {
-              threeLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::WriteStmt> &s) {
-              threeLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::WaitStmt> &s) {
-              threeLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::OpenStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::CloseStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::BackspaceStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::EndfileStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::RewindStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::FlushStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<const parser::InquireStmt> &s) {
-              errLabelSpec(s.value(), ops, ec, ad);
-            },
-            [&](const common::Indirection<parser::ComputedGotoStmt> &s) {
-              auto next{BuildNewLabel(ad)};
-              auto labels{toLabelRef(
-                  ad, std::get<std::list<parser::Label>>(s.value().t))};
-              labels.push_back(next);
-              ops.emplace_back(LinearSwitch{s.value(), std::move(labels)});
-              ops.emplace_back(next);
-            },
-            [&](const common::Indirection<parser::ArithmeticIfStmt> &s) {
-              ops.emplace_back(LinearSwitch{s.value(),
-                  toLabelRef(ad,
-                      std::list{std::get<1>(s.value().t),
-                          std::get<2>(s.value().t),
-                          std::get<3>(s.value().t)})});
-            },
-            [&](const common::Indirection<parser::AssignedGotoStmt> &s) {
-              ops.emplace_back(
-                  LinearIndirectGoto{std::get<parser::Name>(s.value().t).symbol,
-                      toLabelRef(ad,
-                          std::get<std::list<parser::Label>>(s.value().t))});
-            },
-            [&](const common::Indirection<parser::IfStmt> &s) {
-              auto then{BuildNewLabel(ad)};
-              auto endif{BuildNewLabel(ad)};
-              ops.emplace_back(LinearConditionalGoto{s.value(), then, endif});
-              ops.emplace_back(then);
-              ops.emplace_back(LinearAction{ec});
-              ops.emplace_back(endif);
-            },
-        },
-        ec.statement.u);
-  }
-};
 
 template<typename STMTTYPE, typename CT>
 const std::optional<parser::Name> &GetSwitchAssociateName(
@@ -526,301 +43,12 @@ void DumpSwitchWithSelector(
   /// auto selector{getSelector(construct)};
   DebugChannel() << name << "(";  // << selector.dump()
 }
-
-void LinearOp::dump() const {
-  std::visit(
-      common::visitors{
-          [](const LinearLabel &t) {
-            DebugChannel() << "label: " << t.get() << '\n';
-          },
-          [](const LinearGoto &t) {
-            DebugChannel() << "goto " << t.target << '\n';
-          },
-          [](const LinearReturn &) { DebugChannel() << "return\n"; },
-          [](const LinearConditionalGoto &t) {
-            DebugChannel() << "cbranch (?) " << t.trueLabel << ' '
-                           << t.falseLabel << '\n';
-          },
-          [](const LinearSwitchingIO &t) {
-            DebugChannel() << "io-op";
-            if (t.errLabel) DebugChannel() << " ERR=" << t.errLabel.value();
-            if (t.eorLabel) DebugChannel() << " EOR=" << t.eorLabel.value();
-            if (t.endLabel) DebugChannel() << " END=" << t.endLabel.value();
-            DebugChannel() << '\n';
-          },
-          [](const LinearSwitch &lswitch) {
-            DebugChannel() << "switch-";
-            std::visit(
-                common::visitors{
-                    [](const parser::CaseConstruct *caseConstruct) {
-                      DumpSwitchWithSelector(caseConstruct, "case");
-                    },
-                    [](const parser::SelectRankConstruct *selectRankConstruct) {
-                      DumpSwitchWithSelector(selectRankConstruct, "rank");
-                    },
-                    [](const parser::SelectTypeConstruct *selectTypeConstruct) {
-                      DumpSwitchWithSelector(selectTypeConstruct, "type");
-                    },
-                    [](const parser::ComputedGotoStmt *computedGotoStmt) {
-                      DebugChannel() << "igoto(?";
-                    },
-                    [](const parser::ArithmeticIfStmt *arithmeticIfStmt) {
-                      DebugChannel() << "<=>(?";
-                    },
-                    [](const parser::CallStmt *callStmt) {
-                      DebugChannel() << "alt-return(?";
-                    },
-                },
-                lswitch.u);
-            DebugChannel() << ") [...]\n";
-          },
-          [](const LinearAction &t) {
-            DebugChannel() << "action: " << t.getSource().ToString() << '\n';
-          },
-          [](const LinearBeginConstruct &construct) {
-            DebugChannel() << "construct-" << GetConstructName(construct)
-                           << " {\n";
-          },
-          [](const LinearDoIncrement &) { DebugChannel() << "do increment\n"; },
-          [](const LinearDoCompare &) { DebugChannel() << "do compare\n"; },
-          [](const LinearEndConstruct &construct) {
-            DebugChannel() << "} construct-" << GetConstructName(construct)
-                           << "\n";
-          },
-          [](const LinearIndirectGoto &) { DebugChannel() << "igoto\n"; },
-      },
-      u);
-}
 }  // end namespace
-
-struct ControlFlowAnalyzer {
-  explicit ControlFlowAnalyzer(std::list<LinearOp> &ops, AnalysisData &ad)
-    : linearOps{ops}, ad{ad} {}
-
-  LinearLabel buildNewLabel() { return BuildNewLabel(ad); }
-  LinearOp findLabel(const parser::Label &lab) {
-    auto iter{ad.labelMap.find(lab)};
-    if (iter == ad.labelMap.end()) {
-      LinearLabel ll{ad.labelBuilder};
-      ad.labelMap.insert({lab, ll});
-      return {ll};
-    }
-    return {iter->second};
-  }
-  template<typename A> constexpr bool Pre(const A &) { return true; }
-  template<typename A> constexpr void Post(const A &) {}
-  template<typename A> bool Pre(const parser::Statement<A> &stmt) {
-    if (stmt.label) {
-      linearOps.emplace_back(findLabel(*stmt.label));
-    }
-    if constexpr (std::is_same_v<A, parser::ActionStmt>) {
-      LinearOp::Build(linearOps, stmt, ad);
-    }
-    return true;
-  }
-
-  // named constructs
-  template<typename T> bool linearConstruct(const T &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel label{buildNewLabel()};
-    const parser::Name *name{getName(construct)};
-    ad.nameStack.emplace_back(name, GetLabelRef(label), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{construct});
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<parser::Block>(construct.t), cfa);
-    ops.emplace_back(label);
-    ops.emplace_back(LinearEndConstruct{construct});
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-  bool Pre(const parser::AssociateConstruct &c) { return linearConstruct(c); }
-  bool Pre(const parser::ChangeTeamConstruct &c) { return linearConstruct(c); }
-  bool Pre(const parser::CriticalConstruct &c) { return linearConstruct(c); }
-  bool Pre(const parser::BlockConstruct &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel label{buildNewLabel()};
-    const auto &optName{
-        std::get<parser::Statement<parser::BlockStmt>>(construct.t)
-            .statement.v};
-    const parser::Name *name{optName ? &*optName : nullptr};
-    ad.nameStack.emplace_back(name, GetLabelRef(label), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{construct});
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<parser::Block>(construct.t), cfa);
-    ops.emplace_back(LinearEndConstruct{construct});
-    ops.emplace_back(label);
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-
-  bool Pre(const parser::DoConstruct &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel backedgeLab{buildNewLabel()};
-    LinearLabel incrementLab{buildNewLabel()};
-    LinearLabel entryLab{buildNewLabel()};
-    LinearLabel exitLab{buildNewLabel()};
-    const parser::Name *name{getName(construct)};
-    LinearLabelRef exitOpRef{GetLabelRef(exitLab)};
-    ad.nameStack.emplace_back(name, exitOpRef, GetLabelRef(incrementLab));
-    ops.emplace_back(LinearBeginConstruct{construct});
-    ops.emplace_back(LinearGoto{GetLabelRef(backedgeLab)});
-    ops.emplace_back(incrementLab);
-    ops.emplace_back(LinearDoIncrement{construct});
-    ops.emplace_back(backedgeLab);
-    ops.emplace_back(LinearDoCompare{construct});
-    ops.emplace_back(LinearConditionalGoto{
-        std::get<parser::Statement<parser::NonLabelDoStmt>>(construct.t),
-        GetLabelRef(entryLab), exitOpRef});
-    ops.push_back(entryLab);
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<parser::Block>(construct.t), cfa);
-    ops.emplace_back(LinearGoto{GetLabelRef(incrementLab)});
-    ops.emplace_back(LinearEndConstruct{construct});
-    ops.emplace_back(exitLab);
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-
-  bool Pre(const parser::IfConstruct &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel thenLab{buildNewLabel()};
-    LinearLabel elseLab{buildNewLabel()};
-    LinearLabel exitLab{buildNewLabel()};
-    const parser::Name *name{getName(construct)};
-    ad.nameStack.emplace_back(name, GetLabelRef(exitLab), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{construct});
-    ops.emplace_back(LinearConditionalGoto{
-        std::get<parser::Statement<parser::IfThenStmt>>(construct.t),
-        GetLabelRef(thenLab), GetLabelRef(elseLab)});
-    ops.emplace_back(thenLab);
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<parser::Block>(construct.t), cfa);
-    LinearLabelRef exitOpRef{GetLabelRef(exitLab)};
-    ops.emplace_back(LinearGoto{exitOpRef});
-    for (const auto &elseIfBlock :
-        std::get<std::list<parser::IfConstruct::ElseIfBlock>>(construct.t)) {
-      ops.emplace_back(elseLab);
-      LinearLabel newThenLab{buildNewLabel()};
-      LinearLabel newElseLab{buildNewLabel()};
-      ops.emplace_back(LinearConditionalGoto{
-          std::get<parser::Statement<parser::ElseIfStmt>>(elseIfBlock.t),
-          GetLabelRef(newThenLab), GetLabelRef(newElseLab)});
-      ops.emplace_back(newThenLab);
-      Walk(std::get<parser::Block>(elseIfBlock.t), cfa);
-      ops.emplace_back(LinearGoto{exitOpRef});
-      elseLab = newElseLab;
-    }
-    ops.emplace_back(elseLab);
-    if (const auto &optElseBlock{
-            std::get<std::optional<parser::IfConstruct::ElseBlock>>(
-                construct.t)}) {
-      Walk(std::get<parser::Block>(optElseBlock->t), cfa);
-    }
-    ops.emplace_back(LinearGoto{exitOpRef});
-    ops.emplace_back(exitLab);
-    ops.emplace_back(LinearEndConstruct{construct});
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-  template<typename A,
-      typename B = std::conditional_t<std::is_same_v<A, parser::CaseConstruct>,
-          parser::CaseConstruct::Case,
-          std::conditional_t<std::is_same_v<A, parser::SelectRankConstruct>,
-              parser::SelectRankConstruct::RankCase,
-              std::conditional_t<std::is_same_v<A, parser::SelectTypeConstruct>,
-                  parser::SelectTypeConstruct::TypeCase, void>>>>
-  bool Multiway(const A &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel exitLab{buildNewLabel()};
-    const parser::Name *name{getName(construct)};
-    ad.nameStack.emplace_back(name, GetLabelRef(exitLab), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{construct});
-    const auto N{std::get<std::list<B>>(construct.t).size()};
-    LinearLabelRef exitOpRef{GetLabelRef(exitLab)};
-    if (N > 0) {
-      typename std::list<B>::size_type i;
-      std::vector<LinearLabel> toLabels;
-      for (i = 0; i != N; ++i) {
-        toLabels.emplace_back(buildNewLabel());
-      }
-      std::vector<LinearLabelRef> targets;
-      for (i = 0; i != N; ++i) {
-        targets.emplace_back(GetLabelRef(toLabels[i]));
-      }
-      ops.emplace_back(LinearSwitch{construct, targets});
-      ControlFlowAnalyzer cfa{ops, ad};
-      i = 0;
-      for (const auto &caseBlock : std::get<std::list<B>>(construct.t)) {
-        ops.emplace_back(toLabels[i++]);
-        Walk(std::get<parser::Block>(caseBlock.t), cfa);
-        ops.emplace_back(LinearGoto{exitOpRef});
-      }
-    }
-    ops.emplace_back(exitLab);
-    ops.emplace_back(LinearEndConstruct{construct});
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-  bool Pre(const parser::CaseConstruct &c) { return Multiway(c); }
-  bool Pre(const parser::SelectRankConstruct &c) { return Multiway(c); }
-  bool Pre(const parser::SelectTypeConstruct &c) { return Multiway(c); }
-  bool Pre(const parser::WhereConstruct &c) {
-    std::list<LinearOp> ops;
-    LinearLabel label{buildNewLabel()};
-    const parser::Name *name{getName(c)};
-    ad.nameStack.emplace_back(name, GetLabelRef(label), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{c});
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<std::list<parser::WhereBodyConstruct>>(c.t), cfa);
-    Walk(
-        std::get<std::list<parser::WhereConstruct::MaskedElsewhere>>(c.t), cfa);
-    Walk(std::get<std::optional<parser::WhereConstruct::Elsewhere>>(c.t), cfa);
-    ops.emplace_back(label);
-    ops.emplace_back(LinearEndConstruct{c});
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-  bool Pre(const parser::ForallConstruct &construct) {
-    std::list<LinearOp> ops;
-    LinearLabel label{buildNewLabel()};
-    const parser::Name *name{getName(construct)};
-    ad.nameStack.emplace_back(name, GetLabelRef(label), unspecifiedLabel);
-    ops.emplace_back(LinearBeginConstruct{construct});
-    ControlFlowAnalyzer cfa{ops, ad};
-    Walk(std::get<std::list<parser::ForallBodyConstruct>>(construct.t), cfa);
-    ops.emplace_back(label);
-    ops.emplace_back(LinearEndConstruct{construct});
-    linearOps.splice(linearOps.end(), ops);
-    ad.nameStack.pop_back();
-    return false;
-  }
-  template<typename A> const parser::Name *getName(const A &a) {
-    const auto &optName{std::get<0>(std::get<0>(a.t).statement.t)};
-    return optName ? &*optName : nullptr;
-  }
-  LinearLabelRef GetLabelRef(const LinearLabel &label) {
-    label.setReferenced();
-    return label;
-  }
-  LinearLabelRef GetLabelRef(const parser::Label &label) {
-    return FetchLabel(ad, label);
-  }
-
-  std::list<LinearOp> &linearOps;
-  AnalysisData &ad;
-};
 
 template<typename T> struct SwitchArgs {
   Value exp;
-  LinearLabelRef defLab;
   std::vector<T> values;
-  std::vector<LinearLabelRef> labels;
+  std::vector<flat::LabelRef> labels;
 };
 using SwitchArguments = SwitchArgs<SwitchStmt::ValueType>;
 using SwitchCaseArguments = SwitchArgs<SwitchCaseStmt::ValueType>;
@@ -831,20 +59,19 @@ template<typename T> bool IsDefault(const typename T::ValueType &valueType) {
   return std::holds_alternative<typename T::Default>(valueType);
 }
 
+// move the default case to be first
 template<typename T>
-void cleanupSwitchPairs(LinearLabelRef &defLab,
-    std::vector<typename T::ValueType> &values,
-    std::vector<LinearLabelRef> &labels) {
+void cleanupSwitchPairs(std::vector<typename T::ValueType> &values,
+    std::vector<flat::LabelRef> &labels) {
   CHECK(values.size() == labels.size());
-  for (std::size_t i{0}, len{values.size()}; i < len; ++i) {
+  for (std::size_t i{1}, len{values.size()}; i < len; ++i) {
     if (IsDefault<T>(values[i])) {
-      defLab = labels[i];
-      for (std::size_t j{i}; j < len - 1; ++j) {
-        values[j] = values[j + 1];
-        labels[j] = labels[j + 1];
-      }
-      values.pop_back();
-      labels.pop_back();
+      auto v{values[0]};
+      values[0] = values[i];
+      values[i] = v;
+      auto w{labels[0]};
+      labels[0] = labels[i];
+      labels[i] = w;
       break;
     }
   }
@@ -932,13 +159,12 @@ static std::vector<SwitchTypeStmt::ValueType> populateSwitchValues(
         std::get<parser::Statement<parser::TypeGuardStmt>>(v.t).statement.t)};
     std::visit(
         common::visitors{
-            [&](const parser::TypeSpec &typeSpec) {
-              result.emplace_back(
-                  SwitchTypeStmt::TypeSpec{typeSpec.declTypeSpec});
+            [&](const parser::TypeSpec &spec) {
+              result.emplace_back(SwitchTypeStmt::TypeSpec{spec.declTypeSpec});
             },
-            [&](const parser::DerivedTypeSpec &derivedTypeSpec) {
+            [&](const parser::DerivedTypeSpec &spec) {
               result.emplace_back(
-                  SwitchTypeStmt::DerivedTypeSpec{nullptr /*FIXME*/});
+                  SwitchTypeStmt::DerivedTypeSpec{nullptr /* FIXME */});
             },
             [&](const parser::Default &) {
               result.emplace_back(SwitchTypeStmt::Default{});
@@ -947,11 +173,6 @@ static std::vector<SwitchTypeStmt::ValueType> populateSwitchValues(
         guard.u);
   }
   return result;
-}
-
-static void buildMultiwayDefaultNext(SwitchArguments &result) {
-  result.defLab = result.labels.back();
-  result.labels.pop_back();
 }
 
 template<typename T>
@@ -988,39 +209,68 @@ const parser::Format *FindReadWriteFormat(
 }
 
 static Expression AlwaysTrueExpression() {
-  using T = evaluate::Type<evaluate::TypeCategory::Logical, 1>;
-  return {evaluate::AsGenericExpr(evaluate::Constant<T>{true})};
+  using A = evaluate::Type<evaluate::TypeCategory::Logical, 1>;
+  return {evaluate::AsGenericExpr(evaluate::Constant<A>{true})};
 }
 
 // create an integer constant as an expression
 static Expression CreateConstant(int64_t value) {
-  using T = evaluate::SubscriptInteger;
-  return {evaluate::AsGenericExpr(evaluate::Constant<T>{value})};
+  using A = evaluate::SubscriptInteger;
+  return {evaluate::AsGenericExpr(evaluate::Constant<A>{value})};
 }
 
 static void CreateSwitchHelper(FIRBuilder *builder, Value condition,
-    BasicBlock *defaultCase, const SwitchStmt::ValueSuccPairListType &rest) {
-  builder->CreateSwitch(condition, defaultCase, rest);
+    const SwitchStmt::ValueSuccPairListType &rest) {
+  builder->CreateSwitch(condition, rest);
 }
 static void CreateSwitchCaseHelper(FIRBuilder *builder, Value condition,
-    BasicBlock *defaultCase,
     const SwitchCaseStmt::ValueSuccPairListType &rest) {
-  builder->CreateSwitchCase(condition, defaultCase, rest);
+  builder->CreateSwitchCase(condition, rest);
 }
 static void CreateSwitchRankHelper(FIRBuilder *builder, Value condition,
-    BasicBlock *defaultCase,
     const SwitchRankStmt::ValueSuccPairListType &rest) {
-  builder->CreateSwitchRank(condition, defaultCase, rest);
+  builder->CreateSwitchRank(condition, rest);
 }
 static void CreateSwitchTypeHelper(FIRBuilder *builder, Value condition,
-    BasicBlock *defaultCase,
     const SwitchTypeStmt::ValueSuccPairListType &rest) {
-  builder->CreateSwitchType(condition, defaultCase, rest);
+  builder->CreateSwitchType(condition, rest);
+}
+
+static Expression getApplyExpr(Statement *s) {
+  return GetApplyExpr(s)->expression();
+}
+static Expression getLocalVariable(Statement *s) {
+  return GetLocal(s)->variable();
+}
+
+// create a new temporary name (as heap garbage)
+static parser::CharBlock NewTemporaryName() {
+  constexpr int SizeMagicValue{32};
+  static int counter;
+  char cache[SizeMagicValue];
+  int bytesWritten{snprintf(cache, SizeMagicValue, ".t%d", counter++)};
+  CHECK(bytesWritten < SizeMagicValue);
+  auto len{strlen(cache)};
+  char *name{new char[len]};  // XXX: add these to a pool?
+  memcpy(name, cache, len);
+  return {name, name + len};
+}
+
+static TypeRep GetDefaultIntegerType(semantics::SemanticsContext &c) {
+  evaluate::ExpressionAnalyzer analyzer{c};
+  return c.MakeNumericType(common::TypeCategory::Integer,
+      analyzer.GetDefaultKind(common::TypeCategory::Integer));
+}
+
+/*static*/ TypeRep GetDefaultLogicalType(semantics::SemanticsContext &c) {
+  evaluate::ExpressionAnalyzer analyzer{c};
+  return c.MakeLogicalType(
+      analyzer.GetDefaultKind(common::TypeCategory::Logical));
 }
 
 class FortranIRLowering {
 public:
-  using LabelMapType = std::map<LinearLabelRef, BasicBlock *>;
+  using LabelMapType = std::map<flat::LabelRef, BasicBlock *>;
   using Closure = std::function<void(const LabelMapType &)>;
 
   FortranIRLowering(semantics::SemanticsContext &sc, bool debugLinearIR)
@@ -1057,26 +307,62 @@ public:
 
   Program *program() { return fir_; }
 
+  // convert a parse tree data reference to an Expression
+  template<typename A> Expression ToExpression(const A &a) {
+    return {std::move(semantics::AnalyzeExpr(semanticsContext_, a).value())};
+  }
+
+  TypeRep GetDefaultIntegerType() {
+    return FIR::GetDefaultIntegerType(semanticsContext_);
+  }
+  // build a simple arithmetic Expression
+  template<template<typename> class OPR>
+  Expression ConsExpr(Expression e1, Expression e2) {
+    evaluate::ExpressionAnalyzer context{semanticsContext_};
+    ConformabilityCheck(context.GetContextualMessages(), e1, e2);
+    return evaluate::NumericOperation<OPR>(context.GetContextualMessages(),
+        std::move(e1), std::move(e2),
+        context.GetDefaultKind(common::TypeCategory::Real))
+        .value();
+  }
+  Expression ConsExpr(
+      common::RelationalOperator op, Expression e1, Expression e2) {
+    evaluate::ExpressionAnalyzer context{semanticsContext_};
+    return evaluate::AsGenericExpr(evaluate::Relate(
+        context.GetContextualMessages(), op, std::move(e1), std::move(e2))
+                                       .value());
+  }
+  parser::Name MakeTemp(Type tempType) {
+    auto name{NewTemporaryName()};
+    auto details{semantics::ObjectEntityDetails{true}};
+    details.set_type(std::move(*tempType));
+    auto *sym{&semanticsContext_.globalScope().MakeSymbol(
+        name, {}, std::move(details))};
+    return {name, sym};
+  }
+  Statement *CreateTemp(TypeRep &&spec) {
+    TypeRep declSpec{std::move(spec)};
+    auto temp{MakeTemp(&declSpec)};
+    auto expr{ToExpression(temp)};
+    auto *localType{temp.symbol->get<semantics::ObjectEntityDetails>().type()};
+    return builder_->CreateLocal(localType, expr);
+  }
+
   template<typename T>
   void ProcessRoutine(const T &here, const std::string &name) {
     CHECK(!fir_->containsProcedure(name));
     auto *subp{fir_->getOrInsertProcedure(name, nullptr, {})};
     builder_ = new FIRBuilder(*CreateBlock(subp->getLastRegion()));
     AnalysisData ad;
-    ControlFlowAnalyzer linearize{linearOperations_, ad};
-    Walk(here, linearize);
+    CreateFlatIR(here, linearOperations_, ad);
     if (debugLinearFIR_) {
-      dumpLinearRepresentation();
+      DebugChannel() << "define @" << name << "(...) {\n";
+      dump(linearOperations_);
+      DebugChannel() << "}\n";
     }
     ConstructFIR(ad);
     DrawRemainingArcs();
     Cleanup();
-  }
-  void dumpLinearRepresentation() const {
-    for (const auto &op : linearOperations_) {
-      op.dump();
-    }
-    DebugChannel() << "--- END ---\n";
   }
 
   template<typename A>
@@ -1108,7 +394,7 @@ public:
     if (remap) {
       return remap;
     }
-    return builder_->CreateAddr(DataRefToExpression(dataRef));
+    return builder_->CreateAddr(ToExpression(dataRef));
   }
   Type CreateAllocationValue(const parser::Allocation *allocation,
       const parser::AllocateStmt *statement) {
@@ -1247,7 +533,7 @@ public:
               return builder_->CreateExpr(ExprRef(e));
             },
             [&](const parser::Variable &v) {
-              return builder_->CreateExpr(VariableToExpression(v));
+              return builder_->CreateExpr(ToExpression(v));
             },
         },
         std::get<parser::Selector>(
@@ -1264,101 +550,85 @@ public:
     return GetSwitchSelector<parser::SelectTypeStmt>(selectTypeConstruct);
   }
   Statement *GetSwitchCaseSelector(const parser::CaseConstruct *construct) {
+    using A = parser::Statement<parser::SelectCaseStmt>;
     const auto &x{std::get<parser::Scalar<parser::Expr>>(
-        std::get<parser::Statement<parser::SelectCaseStmt>>(construct->t)
-            .statement.t)};
+        std::get<A>(construct->t).statement.t)};
     return builder_->CreateExpr(ExprRef(x.thing));
   }
-  SwitchArguments ComposeSwitchArgs(const LinearSwitch &op) {
-    SwitchArguments result{NOTHING, unspecifiedLabel, {}, op.refs};
-    std::visit(
+
+  SwitchArguments ComposeIOSwitchArgs(const flat::SwitchIOOp &IOp) {
+    return {};  // FIXME
+  }
+  SwitchArguments ComposeSwitchArgs(const flat::SwitchOp &op) {
+    return std::visit(
         common::visitors{
             [&](const parser::ComputedGotoStmt *c) {
               const auto &e{std::get<parser::ScalarIntExpr>(c->t)};
-              result.exp = builder_->CreateExpr(ExprRef(e.thing.thing));
-              buildMultiwayDefaultNext(result);
+              auto *exp{builder_->CreateExpr(ExprRef(e.thing.thing))};
+              return SwitchArguments{exp, {}, op.refs};
             },
             [&](const parser::ArithmeticIfStmt *c) {
-              result.exp =
-                  builder_->CreateExpr(ExprRef(std::get<parser::Expr>(c->t)));
+              const auto &e{std::get<parser::Expr>(c->t)};
+              auto *exp{builder_->CreateExpr(ExprRef(e))};
+              return SwitchArguments{exp, {}, op.refs};
             },
             [&](const parser::CallStmt *c) {
-              result.exp = NOTHING;  // fixme - result of call
-              buildMultiwayDefaultNext(result);
+              auto exp{NOTHING};  // fixme - result of call
+              return SwitchArguments{exp, {}, op.refs};
             },
-            [](const auto *) { WRONG_PATH(); },
+            [](const auto *) {
+              WRONG_PATH();
+              return SwitchArguments{};
+            },
         },
         op.u);
-    return result;
   }
+
   SwitchCaseArguments ComposeSwitchCaseArguments(
       const parser::CaseConstruct *caseConstruct,
-      const std::vector<LinearLabelRef> &refs) {
-    auto &cases{
-        std::get<std::list<parser::CaseConstruct::Case>>(caseConstruct->t)};
+      const std::vector<flat::LabelRef> &refs) {
+    using A = std::list<parser::CaseConstruct::Case>;
+    auto &cases{std::get<A>(caseConstruct->t)};
     SwitchCaseArguments result{GetSwitchCaseSelector(caseConstruct),
-        unspecifiedLabel, populateSwitchValues(builder_, cases),
-        std::move(refs)};
-    cleanupSwitchPairs<SwitchCaseStmt>(
-        result.defLab, result.values, result.labels);
+        populateSwitchValues(builder_, cases), std::move(refs)};
+    cleanupSwitchPairs<SwitchCaseStmt>(result.values, result.labels);
     return result;
   }
   SwitchRankArguments ComposeSwitchRankArguments(
-      const parser::SelectRankConstruct *selectRankConstruct,
-      const std::vector<LinearLabelRef> &refs) {
-    auto &ranks{std::get<std::list<parser::SelectRankConstruct::RankCase>>(
-        selectRankConstruct->t)};
-    SwitchRankArguments result{GetSwitchRankSelector(selectRankConstruct),
-        unspecifiedLabel, populateSwitchValues(ranks), std::move(refs)};
-    if (auto &name{GetSwitchAssociateName<parser::SelectRankStmt>(
-            selectRankConstruct)}) {
+      const parser::SelectRankConstruct *crct,
+      const std::vector<flat::LabelRef> &refs) {
+    auto &ranks{
+        std::get<std::list<parser::SelectRankConstruct::RankCase>>(crct->t)};
+    SwitchRankArguments result{GetSwitchRankSelector(crct),
+        populateSwitchValues(ranks), std::move(refs)};
+    if (auto &name{GetSwitchAssociateName<parser::SelectRankStmt>(crct)}) {
       (void)name;  // get rid of warning
       // TODO: handle associate-name -> Add an assignment stmt?
     }
-    cleanupSwitchPairs<SwitchRankStmt>(
-        result.defLab, result.values, result.labels);
+    cleanupSwitchPairs<SwitchRankStmt>(result.values, result.labels);
     return result;
   }
   SwitchTypeArguments ComposeSwitchTypeArguments(
       const parser::SelectTypeConstruct *selectTypeConstruct,
-      const std::vector<LinearLabelRef> &refs) {
+      const std::vector<flat::LabelRef> &refs) {
     auto &types{std::get<std::list<parser::SelectTypeConstruct::TypeCase>>(
         selectTypeConstruct->t)};
     SwitchTypeArguments result{GetSwitchTypeSelector(selectTypeConstruct),
-        unspecifiedLabel, populateSwitchValues(types), std::move(refs)};
+        populateSwitchValues(types), std::move(refs)};
     if (auto &name{GetSwitchAssociateName<parser::SelectTypeStmt>(
             selectTypeConstruct)}) {
       (void)name;  // get rid of warning
       // TODO: handle associate-name -> Add an assignment stmt?
     }
-    cleanupSwitchPairs<SwitchTypeStmt>(
-        result.defLab, result.values, result.labels);
+    cleanupSwitchPairs<SwitchTypeStmt>(result.values, result.labels);
     return result;
-  }
-
-  Expression VariableToExpression(const parser::Variable &var) {
-    evaluate::ExpressionAnalyzer analyzer{semanticsContext_};
-    return {std::move(analyzer.Analyze(var).value())};
-  }
-  Expression DataRefToExpression(const parser::DataRef &dr) {
-    evaluate::ExpressionAnalyzer analyzer{semanticsContext_};
-    return {std::move(analyzer.Analyze(dr).value())};
-  }
-  Expression NameToExpression(const parser::Name &name) {
-    evaluate::ExpressionAnalyzer analyzer{semanticsContext_};
-    return {std::move(analyzer.Analyze(name).value())};
-  }
-  Expression StructureComponentToExpression(
-      const parser::StructureComponent &sc) {
-    evaluate::ExpressionAnalyzer analyzer{semanticsContext_};
-    return {std::move(analyzer.Analyze(sc).value())};
   }
 
   void handleIntrinsicAssignmentStmt(const parser::AssignmentStmt &stmt) {
     // TODO: check if allocation or reallocation should happen, etc.
     auto *value{builder_->CreateExpr(ExprRef(std::get<parser::Expr>(stmt.t)))};
-    auto *addr{builder_->CreateAddr(
-        VariableToExpression(std::get<parser::Variable>(stmt.t)))};
+    auto *addr{
+        builder_->CreateAddr(ToExpression(std::get<parser::Variable>(stmt.t)))};
     builder_->CreateStore(addr, value);
   }
   void handleDefinedAssignmentStmt(const parser::AssignmentStmt &stmt) {
@@ -1395,10 +665,10 @@ public:
                 std::visit(
                     common::visitors{
                         [&](const parser::StatVariable &sv) {
-                          opts.stat = VariableToExpression(sv.v.thing.thing);
+                          opts.stat = ToExpression(sv.v.thing.thing);
                         },
                         [&](const parser::MsgVariable &mv) {
-                          opts.errmsg = VariableToExpression(mv.v.thing.thing);
+                          opts.errmsg = ToExpression(mv.v.thing.thing);
                         },
                     },
                     var.u);
@@ -1500,12 +770,11 @@ public:
                 std::visit(
                     common::visitors{
                         [&](const parser::Name &n) {
-                          auto *s{builder_->CreateAddr(NameToExpression(n))};
+                          auto *s{builder_->CreateAddr(ToExpression(n))};
                           builder_->CreateNullify(s);
                         },
                         [&](const parser::StructureComponent &sc) {
-                          auto *s{builder_->CreateAddr(
-                              StructureComponentToExpression(sc))};
+                          auto *s{builder_->CreateAddr(ToExpression(sc))};
                           builder_->CreateNullify(s);
                         },
                     },
@@ -1582,12 +851,12 @@ public:
             },
             [&](const common::Indirection<parser::AssignStmt> &s) {
               auto *addr{builder_->CreateAddr(
-                  NameToExpression(std::get<parser::Name>(s.value().t)))};
-              auto *block{
-                  blockMap_
-                      .find(FetchLabel(ad, std::get<parser::Label>(s.value().t))
-                                .get())
-                      ->second};
+                  ToExpression(std::get<parser::Name>(s.value().t)))};
+              auto *block{blockMap_
+                              .find(flat::FetchLabel(
+                                  ad, std::get<parser::Label>(s.value().t))
+                                        .get())
+                              ->second};
               builder_->CreateStore(addr, block);
             },
             [](const common::Indirection<parser::AssignedGotoStmt> &) {
@@ -1600,21 +869,21 @@ public:
         },
         stmt.statement.u);
   }
-  void handleLinearAction(const LinearAction &action, AnalysisData &ad) {
+  void handleLinearAction(const flat::ActionOp &action, AnalysisData &ad) {
     handleActionStatement(ad, *action.v);
   }
 
   // DO loop handlers
   struct DoBoundsInfo {
     Statement *doVariable;
-    Statement *lowerBound;
-    Statement *upperBound;
+    Statement *counter;
     Statement *stepExpr;
     Statement *condition;
   };
-  void PushDoContext(const parser::NonLabelDoStmt *doStmt, Statement *doVar,
-      Statement *lowBound, Statement *upBound, Statement *stepExp) {
-    doMap_.emplace(doStmt, DoBoundsInfo{doVar, lowBound, upBound, stepExp});
+  void PushDoContext(const parser::NonLabelDoStmt *doStmt,
+      Statement *doVar = nullptr, Statement *counter = nullptr,
+      Statement *stepExp = nullptr) {
+    doMap_.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExp});
   }
   void PopDoContext(const parser::NonLabelDoStmt *doStmt) {
     doMap_.erase(doStmt);
@@ -1630,20 +899,33 @@ public:
     return nullptr;
   }
 
-  // do_var = do_var + e3
-  void handleLinearDoIncrement(const LinearDoIncrement &inc) {
+  void handleLinearDoIncrement(const flat::DoIncrementOp &inc) {
     auto *info{GetBoundsInfo(inc)};
-    auto *var{builder_->CreateLoad(info->doVariable)};
-    builder_->CreateIncrement(var, info->stepExpr);
+    if (info->doVariable) {
+      if (info->stepExpr) {
+        // evaluate: do_var = do_var + e3; counter--
+        auto *incremented{builder_->CreateExpr(
+            ConsExpr<evaluate::Add>(GetAddressable(info->doVariable)->address(),
+                GetApplyExpr(info->stepExpr)->expression()))};
+        builder_->CreateStore(info->doVariable, incremented);
+        auto *decremented{builder_->CreateExpr(ConsExpr<evaluate::Subtract>(
+            GetAddressable(info->counter)->address(), CreateConstant(1)))};
+        builder_->CreateStore(info->counter, decremented);
+      }
+    }
   }
 
-  // (e3 > 0 && do_var <= e2) || (e3 < 0 && do_var >= e2)
-  void handleLinearDoCompare(const LinearDoCompare &cmp) {
+  // is (counter > 0)?
+  void handleLinearDoCompare(const flat::DoCompareOp &cmp) {
     auto *info{GetBoundsInfo(cmp)};
-    auto *var{builder_->CreateLoad(info->doVariable)};
-    auto *cond{
-        builder_->CreateDoCondition(info->stepExpr, var, info->upperBound)};
-    info->condition = cond;
+    if (info->doVariable) {
+      if (info->stepExpr) {
+        Expression compare{ConsExpr(common::RelationalOperator::GT,
+            getLocalVariable(info->counter), CreateConstant(0))};
+        auto *cond{builder_->CreateExpr(&compare)};
+        info->condition = cond;
+      }
+    }
   }
 
   // InitiateConstruct - many constructs require some initial setup
@@ -1652,14 +934,12 @@ public:
       auto &selector{std::get<parser::Selector>(assoc.t)};
       auto *expr{builder_->CreateExpr(std::visit(
           common::visitors{
-              [&](const parser::Variable &v) {
-                return VariableToExpression(v);
-              },
+              [&](const parser::Variable &v) { return ToExpression(v); },
               [](const parser::Expr &e) { return *ExprRef(e); },
           },
           selector.u))};
-      auto *name{builder_->CreateAddr(
-          NameToExpression(std::get<parser::Name>(assoc.t)))};
+      auto *name{
+          builder_->CreateAddr(ToExpression(std::get<parser::Name>(assoc.t)))};
       builder_->CreateStore(name, expr);
     }
   }
@@ -1689,8 +969,8 @@ public:
       std::visit(
           common::visitors{
               [&](const parser::LoopBounds<parser::ScalarIntExpr> &bounds) {
-                auto *var = builder_->CreateAddr(
-                    NameToExpression(bounds.name.thing.thing));
+                auto *name{builder_->CreateAddr(
+                    ToExpression(bounds.name.thing.thing))};
                 // evaluate e1, e2 [, e3] ...
                 auto *e1{
                     builder_->CreateExpr(ExprRef(bounds.lower.thing.thing))};
@@ -1702,15 +982,36 @@ public:
                 } else {
                   e3 = builder_->CreateExpr(CreateConstant(1));
                 }
-                builder_->CreateStore(var, e1);
-                PushDoContext(stmt, var, e1, e2, e3);
+                // name <- e1
+                builder_->CreateStore(name, e1);
+                auto *tripCounter{CreateTemp(GetDefaultIntegerType())};
+                // See 11.1.7.4.1, para. 1, item (3)
+                // totalTrips ::= iteration count = a
+                //   where a = (e2 - e1 + e3) / e3 if a > 0 and 0 otherwise
+                Expression tripExpr{ConsExpr<evaluate::Divide>(
+                    ConsExpr<evaluate::Add>(
+                        ConsExpr<evaluate::Subtract>(
+                            getApplyExpr(e2), getApplyExpr(e1)),
+                        getApplyExpr(e3)),
+                    getApplyExpr(e3))};
+                auto *totalTrips{builder_->CreateExpr(&tripExpr)};
+                builder_->CreateStore(tripCounter, totalTrips);
+                PushDoContext(stmt, name, tripCounter, e3);
               },
-              [&](const parser::ScalarLogicalExpr &whileExpr) {},
-              [&](const parser::LoopControl::Concurrent &cc) {},
+              [&](const parser::ScalarLogicalExpr &expr) {
+                // See 11.1.7.4.1, para. 2
+                // See BuildLoopLatchExpression()
+                PushDoContext(stmt);
+              },
+              [&](const parser::LoopControl::Concurrent &cc) {
+                // See 11.1.7.4.2
+                // FIXME
+              },
           },
           ctrl->u);
     } else {
-      // loop forever
+      // loop forever (See 11.1.7.4.1, para. 2)
+      PushDoContext(stmt);
     }
   }
 
@@ -1718,16 +1019,10 @@ public:
   void FinishConstruct(const parser::NonLabelDoStmt *stmt) {
     auto &ctrl{std::get<std::optional<parser::LoopControl>>(stmt->t)};
     if (ctrl.has_value()) {
-      std::visit(
-          common::visitors{
-              [&](const parser::LoopBounds<parser::ScalarIntExpr> &) {
-                PopDoContext(stmt);
-              },
-              [&](auto &) {
-                // do nothing
-              },
-          },
-          ctrl->u);
+      using A = parser::LoopBounds<parser::ScalarIntExpr>;
+      if (std::holds_alternative<A>(ctrl->u)) {
+        PopDoContext(stmt);
+      }
     }
   }
 
@@ -1754,31 +1049,70 @@ public:
     return builder_->CreateExpr(AlwaysTrueExpression());
   }
 
+  template<typename SWITCHTYPE, typename F>
+  void AddOrQueueSwitch(Value condition,
+      const std::vector<typename SWITCHTYPE::ValueType> &values,
+      const std::vector<flat::LabelRef> &labels, F function) {
+    auto defer{false};
+    typename SWITCHTYPE::ValueSuccPairListType cases;
+    CHECK(values.size() == labels.size());
+    auto valiter{values.begin()};
+    for (auto lab : labels) {
+      auto labIter{blockMap_.find(lab)};
+      if (labIter == blockMap_.end()) {
+        defer = true;
+        break;
+      } else {
+        cases.emplace_back(*valiter++, labIter->second);
+      }
+    }
+    if (defer) {
+      using namespace std::placeholders;
+      controlFlowEdgesToAdd_.emplace_back(std::bind(
+          [](FIRBuilder *builder, BasicBlock *block, Value expr,
+              const std::vector<typename SWITCHTYPE::ValueType> &values,
+              const std::vector<flat::LabelRef> &labels, F function,
+              const LabelMapType &map) {
+            builder->SetInsertionPoint(block);
+            typename SWITCHTYPE::ValueSuccPairListType cases;
+            auto valiter{values.begin()};
+            for (auto &lab : labels) {
+              cases.emplace_back(*valiter++, map.find(lab)->second);
+            }
+            function(builder, expr, cases);
+          },
+          builder_, builder_->GetInsertionPoint(), condition, values, labels,
+          function, _1));
+    } else {
+      function(builder_, condition, cases);
+    }
+  }
+
   void ConstructFIR(AnalysisData &ad) {
     for (auto iter{linearOperations_.begin()}, iend{linearOperations_.end()};
          iter != iend; ++iter) {
       const auto &op{*iter};
       std::visit(
           common::visitors{
-              [&](const LinearLabel &linearLabel) {
+              [&](const flat::LabelOp &op) {
                 auto *newBlock{CreateBlock(builder_->GetCurrentRegion())};
-                blockMap_.insert({linearLabel.get(), newBlock});
+                blockMap_.insert({op.get(), newBlock});
                 if (builder_->GetInsertionPoint()) {
                   builder_->CreateBranch(newBlock);
                 }
                 builder_->SetInsertionPoint(newBlock);
               },
-              [&](const LinearGoto &linearGoto) {
+              [&](const flat::GotoOp &op) {
                 CheckInsertionPoint();
-                AddOrQueueBranch(linearGoto.target);
+                AddOrQueueBranch(op.target);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearIndirectGoto &linearIGoto) {
+              [&](const flat::IndirectGotoOp &op) {
                 CheckInsertionPoint();
-                AddOrQueueIGoto(ad, linearIGoto.symbol, linearIGoto.labelRefs);
+                AddOrQueueIGoto(ad, op.symbol, op.labelRefs);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearReturn &linearReturn) {
+              [&](const flat::ReturnOp &op) {
                 CheckInsertionPoint();
                 std::visit(
                     common::visitors{
@@ -1804,10 +1138,10 @@ public:
                           builder_->CreateUnreachable();
                         },
                     },
-                    linearReturn.u);
+                    op.u);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearConditionalGoto &linearConditionalGoto) {
+              [&](const flat::ConditionalGotoOp &cop) {
                 CheckInsertionPoint();
                 std::visit(
                     common::visitors{
@@ -1818,8 +1152,7 @@ public:
                           SEMANTICS_CHECK(ExprRef(exp),
                               "IF THEN condition expression missing");
                           auto *cond{builder_->CreateExpr(ExprRef(exp))};
-                          AddOrQueueCGoto(cond, linearConditionalGoto.trueLabel,
-                              linearConditionalGoto.falseLabel);
+                          AddOrQueueCGoto(cond, cop.trueLabel, cop.falseLabel);
                         },
                         [&](const parser::Statement<parser::ElseIfStmt> *s) {
                           const auto &exp{std::get<parser::ScalarLogicalExpr>(
@@ -1828,8 +1161,7 @@ public:
                           SEMANTICS_CHECK(ExprRef(exp),
                               "ELSE IF condition expression missing");
                           auto *cond{builder_->CreateExpr(ExprRef(exp))};
-                          AddOrQueueCGoto(cond, linearConditionalGoto.trueLabel,
-                              linearConditionalGoto.falseLabel);
+                          AddOrQueueCGoto(cond, cop.trueLabel, cop.falseLabel);
                         },
                         [&](const parser::IfStmt *s) {
                           const auto &exp{
@@ -1838,140 +1170,117 @@ public:
                           SEMANTICS_CHECK(
                               ExprRef(exp), "IF condition expression missing");
                           auto *cond{builder_->CreateExpr(ExprRef(exp))};
-                          AddOrQueueCGoto(cond, linearConditionalGoto.trueLabel,
-                              linearConditionalGoto.falseLabel);
+                          AddOrQueueCGoto(cond, cop.trueLabel, cop.falseLabel);
                         },
                         [&](const parser::Statement<parser::NonLabelDoStmt>
                                 *s) {
                           AddOrQueueCGoto(
                               BuildLoopLatchExpression(&s->statement),
-                              linearConditionalGoto.trueLabel,
-                              linearConditionalGoto.falseLabel);
+                              cop.trueLabel, cop.falseLabel);
                         }},
-                    linearConditionalGoto.u);
+                    cop.u);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearSwitchingIO &linearIO) {
+              [&](const flat::SwitchIOOp &IOp) {
                 CheckInsertionPoint();
+                auto args{ComposeIOSwitchArgs(IOp)};
                 AddOrQueueSwitch<SwitchStmt>(
-                    NOTHING, linearIO.next, {}, {}, CreateSwitchHelper);
+                    args.exp, args.values, args.labels, CreateSwitchHelper);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearSwitch &linearSwitch) {
+              [&](const flat::SwitchOp &sop) {
                 CheckInsertionPoint();
                 std::visit(
                     common::visitors{
                         [&](auto) {
-                          auto args{ComposeSwitchArgs(linearSwitch)};
-                          AddOrQueueSwitch<SwitchStmt>(args.exp, args.defLab,
-                              args.values, args.labels, CreateSwitchHelper);
+                          auto args{ComposeSwitchArgs(sop)};
+                          AddOrQueueSwitch<SwitchStmt>(args.exp, args.values,
+                              args.labels, CreateSwitchHelper);
                         },
-                        [&](const parser::CaseConstruct *caseConstruct) {
-                          auto args{ComposeSwitchCaseArguments(
-                              caseConstruct, linearSwitch.refs)};
+                        [&](const parser::CaseConstruct *crct) {
+                          auto args{ComposeSwitchCaseArguments(crct, sop.refs)};
                           AddOrQueueSwitch<SwitchCaseStmt>(args.exp,
-                              args.defLab, args.values, args.labels,
-                              CreateSwitchCaseHelper);
+                              args.values, args.labels, CreateSwitchCaseHelper);
                         },
-                        [&](const parser::SelectRankConstruct
-                                *selectRankConstruct) {
-                          auto args{ComposeSwitchRankArguments(
-                              selectRankConstruct, linearSwitch.refs)};
+                        [&](const parser::SelectRankConstruct *crct) {
+                          auto args{ComposeSwitchRankArguments(crct, sop.refs)};
                           AddOrQueueSwitch<SwitchRankStmt>(args.exp,
-                              args.defLab, args.values, args.labels,
-                              CreateSwitchRankHelper);
+                              args.values, args.labels, CreateSwitchRankHelper);
                         },
-                        [&](const parser::SelectTypeConstruct
-                                *selectTypeConstruct) {
-                          auto args{ComposeSwitchTypeArguments(
-                              selectTypeConstruct, linearSwitch.refs)};
+                        [&](const parser::SelectTypeConstruct *crct) {
+                          auto args{ComposeSwitchTypeArguments(crct, sop.refs)};
                           AddOrQueueSwitch<SwitchTypeStmt>(args.exp,
-                              args.defLab, args.values, args.labels,
-                              CreateSwitchTypeHelper);
+                              args.values, args.labels, CreateSwitchTypeHelper);
                         },
                     },
-                    linearSwitch.u);
+                    sop.u);
                 builder_->ClearInsertionPoint();
               },
-              [&](const LinearAction &action) {
+              [&](const flat::ActionOp &action) {
                 CheckInsertionPoint();
                 handleLinearAction(action, ad);
               },
-              [&](const LinearDoIncrement &inc) {
+              [&](const flat::DoIncrementOp &inc) {
                 CheckInsertionPoint();
                 handleLinearDoIncrement(inc);
               },
-              [&](const LinearDoCompare &cmp) {
+              [&](const flat::DoCompareOp &cmp) {
                 CheckInsertionPoint();
                 handleLinearDoCompare(cmp);
               },
-              [&](const LinearBeginConstruct &linearConstruct) {
+              [&](const flat::BeginOp &con) {
                 std::visit(
                     common::visitors{
-                        [&](const parser::AssociateConstruct *construct) {
-                          const auto &statement{std::get<
-                              parser::Statement<parser::AssociateStmt>>(
-                              construct->t)};
+                        [&](const parser::AssociateConstruct *crct) {
+                          using A = parser::Statement<parser::AssociateStmt>;
+                          const auto &statement{std::get<A>(crct->t)};
                           const auto &position{statement.source};
                           EnterRegion(position);
                           InitiateConstruct(&statement.statement);
                         },
-                        [&](const parser::BlockConstruct *construct) {
-                          EnterRegion(
-                              std::get<parser::Statement<parser::BlockStmt>>(
-                                  construct->t)
-                                  .source);
+                        [&](const parser::BlockConstruct *crct) {
+                          using A = parser::Statement<parser::BlockStmt>;
+                          EnterRegion(std::get<A>(crct->t).source);
                         },
-                        [&](const parser::CaseConstruct *construct) {
-                          InitiateConstruct(
-                              &std::get<
-                                  parser::Statement<parser::SelectCaseStmt>>(
-                                  construct->t)
-                                   .statement);
+                        [&](const parser::CaseConstruct *crct) {
+                          using A = parser::Statement<parser::SelectCaseStmt>;
+                          InitiateConstruct(&std::get<A>(crct->t).statement);
                         },
-                        [&](const parser::ChangeTeamConstruct *construct) {
-                          const auto &statement{std::get<
-                              parser::Statement<parser::ChangeTeamStmt>>(
-                              construct->t)};
+                        [&](const parser::ChangeTeamConstruct *crct) {
+                          using A = parser::Statement<parser::ChangeTeamStmt>;
+                          const auto &statement{std::get<A>(crct->t)};
                           EnterRegion(statement.source);
                           InitiateConstruct(&statement.statement);
                         },
-                        [&](const parser::DoConstruct *construct) {
-                          const auto &statement{std::get<
-                              parser::Statement<parser::NonLabelDoStmt>>(
-                              construct->t)};
+                        [&](const parser::DoConstruct *crct) {
+                          using A = parser::Statement<parser::NonLabelDoStmt>;
+                          const auto &statement{std::get<A>(crct->t)};
                           EnterRegion(statement.source);
                           InitiateConstruct(&statement.statement);
                         },
-                        [&](const parser::IfConstruct *construct) {
-                          InitiateConstruct(
-                              &std::get<parser::Statement<parser::IfThenStmt>>(
-                                  construct->t)
-                                   .statement);
+                        [&](const parser::IfConstruct *crct) {
+                          using A = parser::Statement<parser::IfThenStmt>;
+                          InitiateConstruct(&std::get<A>(crct->t).statement);
                         },
-                        [&](const parser::SelectRankConstruct *construct) {
-                          const auto &statement{std::get<
-                              parser::Statement<parser::SelectRankStmt>>(
-                              construct->t)};
+                        [&](const parser::SelectRankConstruct *crct) {
+                          using A = parser::Statement<parser::SelectRankStmt>;
+                          const auto &statement{std::get<A>(crct->t)};
                           EnterRegion(statement.source);
                         },
-                        [&](const parser::SelectTypeConstruct *construct) {
-                          const auto &statement{std::get<
-                              parser::Statement<parser::SelectTypeStmt>>(
-                              construct->t)};
+                        [&](const parser::SelectTypeConstruct *crct) {
+                          using A = parser::Statement<parser::SelectTypeStmt>;
+                          const auto &statement{std::get<A>(crct->t)};
                           EnterRegion(statement.source);
                         },
-                        [&](const parser::WhereConstruct *construct) {
-                          InitiateConstruct(
-                              &std::get<parser::Statement<
-                                   parser::WhereConstructStmt>>(construct->t)
-                                   .statement);
+                        [&](const parser::WhereConstruct *crct) {
+                          using A =
+                              parser::Statement<parser::WhereConstructStmt>;
+                          InitiateConstruct(&std::get<A>(crct->t).statement);
                         },
-                        [&](const parser::ForallConstruct *construct) {
-                          InitiateConstruct(
-                              &std::get<parser::Statement<
-                                   parser::ForallConstructStmt>>(construct->t)
-                                   .statement);
+                        [&](const parser::ForallConstruct *crct) {
+                          using A =
+                              parser::Statement<parser::ForallConstructStmt>;
+                          InitiateConstruct(&std::get<A>(crct->t).statement);
                         },
                         [](const parser::CriticalConstruct *) { /*fixme*/ },
                         [](const parser::CompilerDirective *) { /*fixme*/ },
@@ -1979,21 +1288,15 @@ public:
                         [](const parser::OpenMPEndLoopDirective
                                 *) { /*fixme*/ },
                     },
-                    linearConstruct.u);
+                    con.u);
                 auto next{iter};
                 const auto &nextOp{*(++next)};
-                std::visit(
-                    common::visitors{
-                        [](const auto &) {},
-                        [&](const LinearLabel &linearLabel) {
-                          blockMap_.insert({linearLabel.get(),
-                              builder_->GetInsertionPoint()});
-                          ++iter;
-                        },
-                    },
-                    nextOp.u);
+                if (auto *op{std::get_if<flat::LabelOp>(&nextOp.u)}) {
+                  blockMap_.insert({op->get(), builder_->GetInsertionPoint()});
+                  ++iter;
+                }
               },
-              [&](const LinearEndConstruct &linearConstruct) {
+              [&](const flat::EndOp &con) {
                 std::visit(
                     common::visitors{
                         [](const auto &) {},
@@ -2015,12 +1318,13 @@ public:
                           ExitRegion();
                         },
                     },
-                    linearConstruct.u);
+                    con.u);
               },
           },
           op.u);
     }
   }
+
   void EnterRegion(const parser::CharBlock &pos) {
     auto *region{builder_->GetCurrentRegion()};
     auto *scope{semanticsContext_.globalScope().FindScope(pos)};
@@ -2030,32 +1334,36 @@ public:
     builder_->CreateBranch(block);
     builder_->SetInsertionPoint(block);
   }
+
   void ExitRegion() {
     builder_->SetCurrentRegion(builder_->GetCurrentRegion()->GetEnclosing());
   }
+
   void CheckInsertionPoint() {
     if (!builder_->GetInsertionPoint()) {
       builder_->SetInsertionPoint(CreateBlock(builder_->GetCurrentRegion()));
     }
   }
-  void AddOrQueueBranch(LinearLabelRef dest) {
+
+  void AddOrQueueBranch(flat::LabelRef dest) {
     auto iter{blockMap_.find(dest)};
     if (iter != blockMap_.end()) {
       builder_->CreateBranch(iter->second);
     } else {
       using namespace std::placeholders;
       controlFlowEdgesToAdd_.emplace_back(std::bind(
-          [](FIRBuilder *builder, BasicBlock *block, LinearLabelRef dest,
+          [](FIRBuilder *builder, BasicBlock *block, flat::LabelRef dest,
               const LabelMapType &map) {
             builder->SetInsertionPoint(block);
-            CHECK(map.find(dest) != map.end());
+            CHECK(map.find(dest) != map.end() && "no destination");
             builder->CreateBranch(map.find(dest)->second);
           },
           builder_, builder_->GetInsertionPoint(), dest, _1));
     }
   }
-  void AddOrQueueCGoto(Statement *condition, LinearLabelRef trueBlock,
-      LinearLabelRef falseBlock) {
+
+  void AddOrQueueCGoto(Statement *condition, flat::LabelRef trueBlock,
+      flat::LabelRef falseBlock) {
     auto trueIter{blockMap_.find(trueBlock)};
     auto falseIter{blockMap_.find(falseBlock)};
     if (trueIter != blockMap_.end() && falseIter != blockMap_.end()) {
@@ -2065,7 +1373,7 @@ public:
       using namespace std::placeholders;
       controlFlowEdgesToAdd_.emplace_back(std::bind(
           [](FIRBuilder *builder, BasicBlock *block, Statement *expr,
-              LinearLabelRef trueDest, LinearLabelRef falseDest,
+              flat::LabelRef trueDest, flat::LabelRef falseDest,
               const LabelMapType &map) {
             builder->SetInsertionPoint(block);
             CHECK(map.find(trueDest) != map.end());
@@ -2078,59 +1386,14 @@ public:
     }
   }
 
-  template<typename SWITCHTYPE, typename F>
-  void AddOrQueueSwitch(Value condition, LinearLabelRef defaultLabel,
-      const std::vector<typename SWITCHTYPE::ValueType> &values,
-      const std::vector<LinearLabelRef> &labels, F function) {
-    auto defer{false};
-    auto defaultIter{blockMap_.find(defaultLabel)};
-    typename SWITCHTYPE::ValueSuccPairListType cases;
-    if (defaultIter == blockMap_.end()) {
-      defer = true;
-    } else {
-      CHECK(values.size() == labels.size());
-      auto valiter{values.begin()};
-      for (auto lab : labels) {
-        auto labIter{blockMap_.find(lab)};
-        if (labIter == blockMap_.end()) {
-          defer = true;
-          break;
-        } else {
-          cases.emplace_back(*valiter++, labIter->second);
-        }
-      }
-    }
-    if (defer) {
-      using namespace std::placeholders;
-      controlFlowEdgesToAdd_.emplace_back(std::bind(
-          [](FIRBuilder *builder, BasicBlock *block, Value expr,
-              LinearLabelRef defaultDest,
-              const std::vector<typename SWITCHTYPE::ValueType> &values,
-              const std::vector<LinearLabelRef> &labels, F function,
-              const LabelMapType &map) {
-            builder->SetInsertionPoint(block);
-            typename SWITCHTYPE::ValueSuccPairListType cases;
-            auto valiter{values.begin()};
-            for (auto &lab : labels) {
-              cases.emplace_back(*valiter++, map.find(lab)->second);
-            }
-            function(builder, expr, map.find(defaultDest)->second, cases);
-          },
-          builder_, builder_->GetInsertionPoint(), condition, defaultLabel,
-          values, labels, function, _1));
-    } else {
-      function(builder_, condition, defaultIter->second, cases);
-    }
-  }
-
   Variable *ConvertToVariable(const semantics::Symbol *symbol) {
     // FIXME: how to convert semantics::Symbol to evaluate::Variable?
     return new Variable(symbol);
   }
 
   void AddOrQueueIGoto(AnalysisData &ad, const semantics::Symbol *symbol,
-      const std::vector<LinearLabelRef> &labels) {
-    auto useLabels{labels.empty() ? GetAssign(ad, symbol) : labels};
+      const std::vector<flat::LabelRef> &labels) {
+    auto useLabels{labels.empty() ? flat::GetAssign(ad, symbol) : labels};
     auto defer{false};
     IndirectBranchStmt::TargetListType blocks;
     for (auto lab : useLabels) {
@@ -2146,7 +1409,7 @@ public:
       using namespace std::placeholders;
       controlFlowEdgesToAdd_.emplace_back(std::bind(
           [](FIRBuilder *builder, BasicBlock *block, Variable *variable,
-              const std::vector<LinearLabelRef> &fixme,
+              const std::vector<flat::LabelRef> &fixme,
               const LabelMapType &map) {
             builder->SetInsertionPoint(block);
             builder->CreateIndirectBr(variable, {});  // FIXME
@@ -2176,7 +1439,7 @@ public:
 
   FIRBuilder *builder_{nullptr};
   Program *fir_;
-  std::list<LinearOp> linearOperations_;
+  std::list<flat::Op> linearOperations_;
   std::list<Closure> controlFlowEdgesToAdd_;
   std::map<const parser::NonLabelDoStmt *, DoBoundsInfo> doMap_;
   LabelMapType blockMap_;
@@ -2189,6 +1452,17 @@ Program *CreateFortranIR(const parser::Program &program,
   FortranIRLowering converter{semanticsContext, debugLinearIR};
   Walk(program, converter);
   return converter.program();
+}
+
+// debug channel
+llvm::raw_ostream *debugChannel;
+
+llvm::raw_ostream &DebugChannel() {
+  return debugChannel ? *debugChannel : llvm::errs();
+}
+
+static void SetDebugChannel(llvm::raw_ostream *output) {
+  debugChannel = output;
 }
 
 void SetDebugChannel(const std::string &filename) {

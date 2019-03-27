@@ -30,7 +30,7 @@ Addressable_impl *GetAddressable(Statement *stmt) {
 
 static std::string dump(const Expression &e) {
   std::stringstream stringStream;
-  e.v.AsFortran(stringStream);
+  e.AsFortran(stringStream);
   return stringStream.str();
 }
 
@@ -52,61 +52,76 @@ static std::list<BasicBlock *> SuccBlocks(
   return result.second;
 }
 
-ReturnStmt::ReturnStmt(Statement *exp) : returnValue_{GetApplyExpr(exp)} {
-  CHECK(returnValue_);
+ReturnStmt::ReturnStmt(Statement *exp) : value_{GetApplyExpr(exp)} {
+  CHECK(value_);
 }
 
-SwitchStmt::SwitchStmt(const Value &cond, BasicBlock *defaultBlock,
-    const ValueSuccPairListType &args)
+SwitchStmt::SwitchStmt(const Value &cond, const ValueSuccPairListType &args)
   : condition_{cond} {
-  valueSuccPairs_.push_back({NOTHING, defaultBlock});
   valueSuccPairs_.insert(valueSuccPairs_.end(), args.begin(), args.end());
 }
 std::list<BasicBlock *> SwitchStmt::succ_blocks() const {
   return SuccBlocks<SwitchStmt>(valueSuccPairs_);
 }
+BasicBlock *SwitchStmt::defaultSucc() const {
+  CHECK(IsNothing(valueSuccPairs_[0].first));
+  return valueSuccPairs_[0].second;
+}
 
-SwitchCaseStmt::SwitchCaseStmt(
-    Value cond, BasicBlock *defaultBlock, const ValueSuccPairListType &args)
+SwitchCaseStmt::SwitchCaseStmt(Value cond, const ValueSuccPairListType &args)
   : condition_{cond} {
-  valueSuccPairs_.push_back({SwitchCaseStmt::Default{}, defaultBlock});
   valueSuccPairs_.insert(valueSuccPairs_.end(), args.begin(), args.end());
 }
 std::list<BasicBlock *> SwitchCaseStmt::succ_blocks() const {
   return SuccBlocks<SwitchCaseStmt>(valueSuccPairs_);
 }
+BasicBlock *SwitchCaseStmt::defaultSucc() const {
+  CHECK(std::holds_alternative<Default>(valueSuccPairs_[0].first));
+  return valueSuccPairs_[0].second;
+}
 
-SwitchTypeStmt::SwitchTypeStmt(
-    Value cond, BasicBlock *defaultBlock, const ValueSuccPairListType &args)
+SwitchTypeStmt::SwitchTypeStmt(Value cond, const ValueSuccPairListType &args)
   : condition_{cond} {
-  valueSuccPairs_.push_back({SwitchTypeStmt::Default{}, defaultBlock});
   valueSuccPairs_.insert(valueSuccPairs_.end(), args.begin(), args.end());
 }
 std::list<BasicBlock *> SwitchTypeStmt::succ_blocks() const {
   return SuccBlocks<SwitchTypeStmt>(valueSuccPairs_);
 }
+BasicBlock *SwitchTypeStmt::defaultSucc() const {
+  CHECK(std::holds_alternative<Default>(valueSuccPairs_[0].first));
+  return valueSuccPairs_[0].second;
+}
 
-SwitchRankStmt ::SwitchRankStmt(
-    Value cond, BasicBlock *defaultBlock, const ValueSuccPairListType &args)
+SwitchRankStmt ::SwitchRankStmt(Value cond, const ValueSuccPairListType &args)
   : condition_{cond} {
-  valueSuccPairs_.push_back({SwitchRankStmt::Default{}, defaultBlock});
   valueSuccPairs_.insert(valueSuccPairs_.end(), args.begin(), args.end());
 }
 std::list<BasicBlock *> SwitchRankStmt::succ_blocks() const {
   return SuccBlocks<SwitchRankStmt>(valueSuccPairs_);
 }
-
-template<typename T> bool PointerNotNull(const T &variant) {
-  return std::visit(
-      common::visitors{
-          [](const Addressable_impl *p) { return p != nullptr; },
-          [](const Value &value) { return !IsNothing(value); },
-      },
-      variant);
+BasicBlock *SwitchRankStmt::defaultSucc() const {
+  CHECK(std::holds_alternative<Default>(valueSuccPairs_[0].first));
+  return valueSuccPairs_[0].second;
 }
 
-LoadInsn::LoadInsn(Statement *addr) : address_{GetAddressable(addr)} {
-  CHECK(PointerNotNull(address_));
+// check LoadInsn constraints
+static void CheckLoadInsn(const Value &v) {
+  std::visit(
+      common::visitors{
+          [](DataObject *) { /* ok */ },
+          [](Statement *s) { CHECK(GetAddressable(s)); },
+          [](auto) { CHECK(!"invalid load input"); },
+      },
+      v.u);
+}
+LoadInsn::LoadInsn(const Value &addr) : address_{addr} {
+  CheckLoadInsn(address_);
+}
+LoadInsn::LoadInsn(Value &&addr) : address_{std::move(addr)} {
+  CheckLoadInsn(address_);
+}
+LoadInsn::LoadInsn(Statement *addr) : address_{addr} {
+  CHECK(GetAddressable(addr));
 }
 
 StoreInsn::StoreInsn(Statement *addr, Statement *val)
@@ -120,77 +135,97 @@ StoreInsn::StoreInsn(Statement *addr, Statement *val)
     value_ = expr;
   }
 }
-
 StoreInsn::StoreInsn(Statement *addr, BasicBlock *val)
   : address_{GetAddressable(addr)}, value_{val} {
   CHECK(address_);
   CHECK(val);
 }
 
-IncrementStmt::IncrementStmt(Value v1, Value v2) : value_{v1, v2} {}
+static std::string dumpStoreValue(const StoreInsn::ValueType &v) {
+  return std::visit(
+      common::visitors{
+          [](const Value &v) { return v.dump(); },
+          [](const ApplyExprStmt *e) { return FIR::dump(e->expression()); },
+          [](const Addressable_impl *e) { return FIR::dump(e->address()); },
+          [](const BasicBlock *bb) { return ToString(bb); },
+      },
+      v);
+}
 
-DoConditionStmt::DoConditionStmt(Value dir, Value v1, Value v2)
-  : value_{dir, v1, v2} {}
-
+// dump is intended for debugging rather than idiomatic FIR output
 std::string Statement::dump() const {
   return std::visit(
       common::visitors{
-          [](const ReturnStmt &) { return "return"s; },
-          [](const BranchStmt &branch) {
-            if (branch.hasCondition()) {
-              std::string cond{"???"};
-#if 0
-              if (auto expr{GetApplyExpr(branch.getCond())}) {
-                cond = FIR::dump(expr->expression());
-              }
-#endif
-              return "branch (" + cond + ") " +
-                  std::to_string(
-                      reinterpret_cast<std::intptr_t>(branch.getTrueSucc())) +
-                  ' ' +
-                  std::to_string(
-                      reinterpret_cast<std::intptr_t>(branch.getFalseSucc()));
+          [](const ReturnStmt &s) { return "return " + ToString(s.value()); },
+          [](const BranchStmt &s) {
+            if (s.hasCondition()) {
+              return "cgoto (" + s.getCond().dump() + ") " +
+                  ToString(s.getTrueSucc()) + ", " + ToString(s.getFalseSucc());
             }
-            return "goto " +
-                std::to_string(
-                    reinterpret_cast<std::intptr_t>(branch.getTrueSucc()));
+            return "goto " + ToString(s.getTrueSucc());
           },
-          [](const SwitchStmt &stmt) {
-            // return "switch(" + stmt.getCond().dump() + ")";
-            return "switch(?)"s;
+          [](const SwitchStmt &s) {
+            return "switch (" + s.getCond().dump() + ")";
           },
-          [](const SwitchCaseStmt &switchCaseStmt) {
-            // return "switch-case(" + switchCaseStmt.getCond().dump() + ")";
-            return "switch-case(?)"s;
+          [](const SwitchCaseStmt &s) {
+            return "switch-case (" + s.getCond().dump() + ")";
           },
-          [](const SwitchTypeStmt &switchTypeStmt) {
-            // return "switch-type(" + switchTypeStmt.getCond().dump() + ")";
-            return "switch-type(?)"s;
+          [](const SwitchTypeStmt &s) {
+            return "switch-type (" + s.getCond().dump() + ")";
           },
-          [](const SwitchRankStmt &switchRankStmt) {
-            // return "switch-rank(" + switchRankStmt.getCond().dump() + ")";
-            return "switch-rank(?)"s;
+          [](const SwitchRankStmt &s) {
+            return "switch-rank (" + s.getCond().dump() + ")";
           },
-          [](const IndirectBranchStmt &) { return "ibranch"s; },
+          [](const IndirectBranchStmt &s) {
+            std::string targets;
+            for (auto *b : s.succ_blocks()) {
+              targets += " " + ToString(b);
+            }
+            return "igoto (" + ToString(s.variable()) + ")" + targets;
+          },
           [](const UnreachableStmt &) { return "unreachable"s; },
-          [](const IncrementStmt &) { return "increment"s; },
-          [](const DoConditionStmt &) { return "compare"s; },
-          [](const ApplyExprStmt &e) { return FIR::dump(e.expression()); },
-          [](const LocateExprStmt &e) {
-            return "&" + FIR::dump(e.expression());
+          [&](const ApplyExprStmt &e) {
+            return '%' + ToString(&u) + ": eval " + FIR::dump(e.expression());
+          },
+          [&](const LocateExprStmt &e) {
+            return '%' + ToString(&u) + ": addr-of " +
+                FIR::dump(e.expression());
           },
           [](const AllocateInsn &) { return "alloc"s; },
-          [](const DeallocateInsn &) { return "dealloc"s; },
-          [](const AllocateLocalInsn &) { return "alloca"s; },
-          [](const LoadInsn &) { return "load"s; },
-          [](const StoreInsn &) { return "store"s; },
+          [](const DeallocateInsn &s) {
+            return "dealloc (" + ToString(s.alloc()) + ")";
+          },
+          [&](const AllocateLocalInsn &insn) {
+            return '%' + ToString(&u) + ": alloca " +
+                FIR::dump(insn.variable());
+          },
+          [&](const LoadInsn &insn) {
+            return '%' + ToString(&u) + ": load " + insn.address().dump();
+          },
+          [](const StoreInsn &insn) {
+            std::string value{dumpStoreValue(insn.value())};
+            return "store " + value + " to " +
+                FIR::dump(insn.address()->address());
+          },
           [](const DisassociateInsn &) { return "NULLIFY"s; },
-          [](const CallStmt &) { return "call"s; },
+          [&](const CallStmt &) { return '%' + ToString(&u) + ": call"s; },
           [](const RuntimeStmt &) { return "runtime-call()"s; },
           [](const IORuntimeStmt &) { return "io-call()"s; },
           [](const ScopeEnterStmt &) { return "scopeenter"s; },
           [](const ScopeExitStmt &) { return "scopeexit"s; },
           [](const PHIStmt &) { return "PHI"s; },
+      },
+      u);
+}
+
+std::string Value::dump() const {
+  return std::visit(
+      common::visitors{
+          [](const Nothing &) { return "<none>"s; },
+          [](const DataObject *obj) { return "obj_" + ToString(obj); },
+          [](const Statement *s) { return "stmt_" + ToString(s); },
+          [](const BasicBlock *bb) { return "block_" + ToString(bb); },
+          [](const Procedure *p) { return "proc_" + ToString(p); },
       },
       u);
 }

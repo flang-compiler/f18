@@ -44,6 +44,12 @@ struct FIRBuilder {
 
   BasicBlock *GetInsertionPoint() const { return cursorBlock_; }
 
+  Statement *CreateAddr(const Expression *e) {
+    return Insert(LocateExprStmt::Create(e));
+  }
+  Statement *CreateAddr(Expression &&e) {
+    return Insert(LocateExprStmt::Create(std::move(e)));
+  }
   Statement *CreateAlloc(Type type) {
     return Insert(AllocateInsn::Create(type));
   }
@@ -70,32 +76,17 @@ struct FIRBuilder {
   ApplyExprStmt *MakeAsExpr(const Expression *e) {
     return GetApplyExpr(CreateExpr(e));
   }
-  Statement *CreateAddr(const Expression *e) {
-    return Insert(LocateExprStmt::Create(e));
-  }
-  Statement *CreateAddr(Expression &&e) {
-    return Insert(LocateExprStmt::Create(std::move(e)));
-  }
-  Statement *CreateLoad(Statement *addr) {
-    return Insert(LoadInsn::Create(addr));
-  }
-  Statement *CreateStore(Statement *addr, Statement *value) {
-    return Insert(StoreInsn::Create(addr, value));
-  }
-  Statement *CreateStore(Statement *addr, BasicBlock *value) {
-    return Insert(StoreInsn::Create(addr, value));
-  }
-  Statement *CreateIncrement(Statement *v1, Statement *v2) {
-    return Insert(IncrementStmt::Create(v1, v2));
-  }
-  Statement *CreateDoCondition(Statement *dir, Statement *v1, Statement *v2) {
-    return Insert(DoConditionStmt::Create(dir, v1, v2));
+  Statement *CreateIndirectBr(Variable *v, const std::vector<BasicBlock *> &p) {
+    return InsertTerminator(IndirectBranchStmt::Create(v, p));
   }
   Statement *CreateIOCall(InputOutputCallType c, IOCallArguments &&a) {
     return Insert(IORuntimeStmt::Create(c, std::move(a)));
   }
-  Statement *CreateIndirectBr(Variable *v, const std::vector<BasicBlock *> &p) {
-    return InsertTerminator(IndirectBranchStmt::Create(v, p));
+  Statement *CreateLoad(Statement *addr) {
+    return Insert(LoadInsn::Create(addr));
+  }
+  Statement *CreateLocal(Type type, const Expression &expr, int alignment = 0) {
+    return Insert(AllocateLocalInsn::Create(type, expr, alignment));
   }
   Statement *CreateNullify(Statement *s) {
     return Insert(DisassociateInsn::Create(s));
@@ -107,23 +98,27 @@ struct FIRBuilder {
       RuntimeCallType call, RuntimeCallArguments &&arguments) {
     return Insert(RuntimeStmt::Create(call, std::move(arguments)));
   }
-  Statement *CreateSwitch(Value condition, BasicBlock *defaultCase,
-      const SwitchStmt::ValueSuccPairListType &rest) {
-    return InsertTerminator(SwitchStmt::Create(condition, defaultCase, rest));
+  Statement *CreateStore(Statement *addr, Statement *value) {
+    return Insert(StoreInsn::Create(addr, value));
   }
-  Statement *CreateSwitchCase(Value condition, BasicBlock *defaultCase,
-      const SwitchCaseStmt::ValueSuccPairListType &rest) {
-    return InsertTerminator(
-        SwitchCaseStmt::Create(condition, defaultCase, rest));
+  Statement *CreateStore(Statement *addr, BasicBlock *value) {
+    return Insert(StoreInsn::Create(addr, value));
   }
-  Statement *CreateSwitchType(Value condition, BasicBlock *defaultCase,
-      const SwitchTypeStmt::ValueSuccPairListType &rest) {
-    return InsertTerminator(
-        SwitchTypeStmt::Create(condition, defaultCase, rest));
+  Statement *CreateSwitch(
+      Value cond, const SwitchStmt::ValueSuccPairListType &pairs) {
+    return InsertTerminator(SwitchStmt::Create(cond, pairs));
+  }
+  Statement *CreateSwitchCase(
+      Value cond, const SwitchCaseStmt::ValueSuccPairListType &pairs) {
+    return InsertTerminator(SwitchCaseStmt::Create(cond, pairs));
+  }
+  Statement *CreateSwitchType(
+      Value cond, const SwitchTypeStmt::ValueSuccPairListType &pairs) {
+    return InsertTerminator(SwitchTypeStmt::Create(cond, pairs));
   }
   Statement *CreateSwitchRank(
-      Value c, BasicBlock *d, const SwitchRankStmt::ValueSuccPairListType &r) {
-    return InsertTerminator(SwitchRankStmt::Create(c, d, r));
+      Value cond, const SwitchRankStmt::ValueSuccPairListType &pairs) {
+    return InsertTerminator(SwitchRankStmt::Create(cond, pairs));
   }
   Statement *CreateUnreachable() {
     return InsertTerminator(UnreachableStmt::Create());
