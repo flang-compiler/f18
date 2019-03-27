@@ -17,6 +17,7 @@
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
+#include "tools.h"
 #include "type.h"
 #include "../evaluate/traversal.h"
 #include "../parser/message.h"
@@ -438,7 +439,7 @@ public:
             std::get<parser::ScalarLogicalExpr>(optionalLoopControl->u)
                 .thing.thing};
         CHECK(logicalExpr.value().typedExpr);
-        if (!ExpressionHasTypeCategory(*logicalExpr.value().typedExpr,
+        if (!ExprHasTypeCategory(*logicalExpr.value().typedExpr,
                 common::TypeCategory::Logical)) {
           messages_.Say(currentStatementSourcePosition_,
               "DO WHILE must have LOGICAL expression"_err_en_US);
@@ -448,11 +449,6 @@ public:
   }
 
 private:
-  bool ExpressionHasTypeCategory(const evaluate::GenericExprWrapper &expr,
-      const common::TypeCategory &type) {
-    auto dynamicType{expr.v.GetType()};
-    return dynamicType.has_value() && dynamicType->category == type;
-  }
   bool InnermostEnclosingScope(const semantics::Symbol &symbol) const {
     // TODO - implement
     return true;
@@ -602,10 +598,6 @@ private:
   parser::Messages &messages_;
   parser::CharBlock currentStatementSourcePosition_;
 };
-
-}  // namespace Fortran::semantics
-
-namespace Fortran::semantics {
 
 DoConcurrentChecker::DoConcurrentChecker(SemanticsContext &context)
   : context_{new DoConcurrentContext{context}} {}

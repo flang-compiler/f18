@@ -87,7 +87,8 @@ bool IsUseAssociated(const Symbol &symbol, const Scope &scope) {
       owner != FindProgramUnitContaining(scope);
 }
 
-bool DoesScopeContain(const Scope *maybeAncestor, const Scope &maybeDescendent) {
+bool DoesScopeContain(
+    const Scope *maybeAncestor, const Scope &maybeDescendent) {
   if (maybeAncestor != nullptr) {
     const Scope *scope{&maybeDescendent};
     while (scope->kind() != Scope::Kind::Global) {
@@ -224,6 +225,26 @@ const Symbol *FindExternallyVisibleObject(
     return block;
   } else {
     return nullptr;
+  }
+}
+
+bool ExprHasTypeCategory(const evaluate::GenericExprWrapper &expr,
+    const common::TypeCategory &type) {
+  auto dynamicType{expr.v.GetType()};
+  return dynamicType.has_value() && dynamicType->category == type;
+}
+
+void CheckScalarLogicalExpr(
+    const parser::Expr &expr, parser::Messages &messages) {
+  // TODO: should be asserting that typedExpr is not null
+  if (expr.typedExpr == nullptr) {
+    return;
+  }
+  if (expr.typedExpr->v.Rank() > 0) {
+    messages.Say(expr.source, "Expected a scalar LOGICAL expression"_err_en_US);
+  } else if (!ExprHasTypeCategory(
+                 *expr.typedExpr, common::TypeCategory::Logical)) {
+    messages.Say(expr.source, "Expected a LOGICAL expression"_err_en_US);
   }
 }
 }
