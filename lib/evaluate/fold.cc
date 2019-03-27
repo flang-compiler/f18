@@ -16,7 +16,9 @@
 #include "common.h"
 #include "constant.h"
 #include "expression.h"
+#include "host.h"
 #include "int-power.h"
+#include "intrinsics-library-templates.h"
 #include "tools.h"
 #include "traversal.h"
 #include "type.h"
@@ -26,6 +28,8 @@
 #include "../parser/message.h"
 #include "../semantics/scope.h"
 #include "../semantics/symbol.h"
+#include <cmath>
+#include <complex>
 #include <cstdio>
 #include <optional>
 #include <type_traits>
@@ -50,7 +54,9 @@ CoarrayRef FoldOperation(FoldingContext &, CoarrayRef &&);
 DataRef FoldOperation(FoldingContext &, DataRef &&);
 Substring FoldOperation(FoldingContext &, Substring &&);
 ComplexPart FoldOperation(FoldingContext &, ComplexPart &&);
-template<typename T> Expr<T> FoldOperation(FoldingContext &, FunctionRef<T> &&);
+template<int KIND>
+Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Integer, KIND>> &&funcRef);
 template<typename T> Expr<T> FoldOperation(FoldingContext &, Designator<T> &&);
 template<int KIND>
 Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
@@ -156,9 +162,551 @@ ComplexPart FoldOperation(FoldingContext &context, ComplexPart &&complexPart) {
       FoldOperation(context, std::move(complex)), complexPart.part()};
 }
 
+// helpers to fold intrinsic function references
+// Define callable types used in a common utility that
+// takes care of array and cast/conversion aspects for elemental intrinsics
+
+template<typename TR, typename... TArgs>
+using ScalarFunc = std::function<Scalar<TR>(const Scalar<TArgs> &...)>;
+template<typename TR, typename... TArgs>
+using ScalarFuncWithContext =
+    std::function<Scalar<TR>(FoldingContext &, const Scalar<TArgs> &...)>;
+
+template<template<typename, typename...> typename WrapperType, typename TR,
+    typename... TA, std::size_t... I>
+static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
+    FunctionRef<TR> &&funcRef, WrapperType<TR, TA...> func,
+    std::index_sequence<I...>) {
+  static_assert(
+      (... && IsSpecificIntrinsicType<TA>));  // TODO derived types for MERGE?
+  static_assert(sizeof...(TA) > 0);
+  std::tuple<const Constant<TA> *...> args{
+      UnwrapExpr<Constant<TA>>(funcRef.arguments()[I].value().value())...};
+  if ((... && (std::get<I>(args) != nullptr))) {
+    // Compute the shape of the result based on shapes of arguments
+    std::vector<std::int64_t> shape;
+    int rank{0};
+    const std::vector<std::int64_t> *shapes[sizeof...(TA)]{
+        &std::get<I>(args)->shape()...};
+    const int ranks[sizeof...(TA)]{std::get<I>(args)->Rank()...};
+    for (unsigned int i{0}; i < sizeof...(TA); ++i) {
+      if (ranks[i] > 0) {
+        if (rank == 0) {
+          rank = ranks[i];
+          shape = *shapes[i];
+        } else {
+          if (shape != *shapes[i]) {
+            // TODO: Rank compatibility was already checked but it seems to be
+            // the first place where the actual shapes are checked to be the
+            // same. Shouldn't this be checked elsewhere so that this is also
+            // checked for non constexpr call to elemental intrinsics function?
+            context.messages().Say(
+                "arguments in elemental intrinsic function are not conformable"_err_en_US);
+            return Expr<TR>{std::move(funcRef)};
+          }
+        }
+      }
+    }
+    CHECK(rank == static_cast<int>(shape.size()));
+
+    // Compute all the scalar values of the results
+    std::size_t size{1};
+    for (std::int64_t dim : shape) {
+      size *= dim;
+    }
+    std::vector<Scalar<TR>> results;
+    std::vector<std::int64_t> index(rank, 1);
+    for (std::size_t n{size}; n-- > 0;) {
+      if constexpr (std::is_same_v<WrapperType<TR, TA...>,
+                        ScalarFuncWithContext<TR, TA...>>) {
+        results.emplace_back(func(context,
+            (ranks[I] ? std::get<I>(args)->At(index)
+                      : **std::get<I>(args))...));
+      } else if constexpr (std::is_same_v<WrapperType<TR, TA...>,
+                               ScalarFunc<TR, TA...>>) {
+        results.emplace_back(func((
+            ranks[I] ? std::get<I>(args)->At(index) : **std::get<I>(args))...));
+      }
+      for (int d{0}; d < rank; ++d) {
+        if (++index[d] <= shape[d]) {
+          break;
+        }
+        index[d] = 1;
+      }
+    }
+    // Build and return constant result
+    if constexpr (TR::category == TypeCategory::Character) {
+      std::int64_t len{
+          static_cast<std::int64_t>(results.size() ? results[0].length() : 0)};
+      return Expr<TR>{Constant<TR>{len, std::move(results), std::move(shape)}};
+    } else {
+      return Expr<TR>{Constant<TR>{std::move(results), std::move(shape)}};
+    }
+  }
+  return Expr<TR>{std::move(funcRef)};
+}
+
+template<typename TR, typename... TA>
+static Expr<TR> FoldElementalIntrinsic(FoldingContext &context,
+    FunctionRef<TR> &&funcRef, ScalarFunc<TR, TA...> func) {
+  return FoldElementalIntrinsicHelper<ScalarFunc, TR, TA...>(
+      context, std::move(funcRef), func, std::index_sequence_for<TA...>{});
+}
+template<typename TR, typename... TA>
+static Expr<TR> FoldElementalIntrinsic(FoldingContext &context,
+    FunctionRef<TR> &&funcRef, ScalarFuncWithContext<TR, TA...> func) {
+  return FoldElementalIntrinsicHelper<ScalarFuncWithContext, TR, TA...>(
+      context, std::move(funcRef), func, std::index_sequence_for<TA...>{});
+}
+
 template<typename T>
-Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&funcRef) {
-  ActualArguments args{std::move(funcRef.arguments())};
+static Expr<T> *UnwrapArgument(std::optional<ActualArgument> &arg) {
+  return UnwrapExpr<Expr<T>>(arg.value().value());
+}
+
+static BOZLiteralConstant *UnwrapBozArgument(
+    std::optional<ActualArgument> &arg) {
+  return std::get_if<BOZLiteralConstant>(&arg.value().value().u);
+}
+
+template<int KIND>
+Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Integer, KIND>> &&funcRef) {
+  using T = Type<TypeCategory::Integer, KIND>;
+  ActualArguments &args{funcRef.arguments()};
+  for (std::optional<ActualArgument> &arg : args) {
+    if (arg.has_value()) {
+      arg.value().value() =
+          FoldOperation(context, std::move(arg.value().value()));
+    }
+  }
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    const std::string name{intrinsic->name};
+    if (name == "abs") {
+      return FoldElementalIntrinsic<T, T>(context, std::move(funcRef),
+          ScalarFunc<T, T>([&context](const Scalar<T> &i) -> Scalar<T> {
+            typename Scalar<T>::ValueWithOverflow j{i.ABS()};
+            if (j.overflow) {
+              context.messages().Say(
+                  "abs(integer(kind=%d)) folding overflowed"_en_US, KIND);
+            }
+            return j.value;
+          }));
+    } else if (name == "dim") {
+      return FoldElementalIntrinsic<T, T, T>(
+          context, std::move(funcRef), &Scalar<T>::DIM);
+    } else if (name == "dshiftl" || name == "dshiftr") {
+      // convert boz
+      for (int i{0}; i <= 1; ++i) {
+        if (auto *x{UnwrapBozArgument(args[i])}) {
+          args[i].value().value() =
+              Fold(context, ConvertToType<T>(std::move(*x)));
+        }
+      }
+      // Third argument can be of any kind. However, it must be smaller or equal
+      // than BIT_SIZE. It can be converted to Int4 to simplify.
+      using Int4 = Type<TypeCategory::Integer, 4>;
+      if (auto *n{UnwrapArgument<SomeInteger>(args[2])}) {
+        if (n->GetType()->kind != 4) {
+          args[2].value().value() =
+              Fold(context, ConvertToType<Int4>(std::move(*n)));
+        }
+      }
+      const auto fptr{
+          name == "dshiftl" ? &Scalar<T>::DSHIFTL : &Scalar<T>::DSHIFTR};
+      return FoldElementalIntrinsic<T, T, T, Int4>(context, std::move(funcRef),
+          ScalarFunc<T, T, T, Int4>(
+              [&fptr](const Scalar<T> &i, const Scalar<T> &j,
+                  const Scalar<Int4> &shift) -> Scalar<T> {
+                return std::invoke(
+                    fptr, i, j, static_cast<int>(shift.ToInt64()));
+              }));
+    } else if (name == "exponent") {
+      if (auto *sx{UnwrapArgument<SomeReal>(args[0])}) {
+        return std::visit(
+            [&funcRef, &context](const auto &x) -> Expr<T> {
+              using TR = typename std::decay_t<decltype(x)>::Result;
+              return FoldElementalIntrinsic<T, TR>(context, std::move(funcRef),
+                  &Scalar<TR>::template EXPONENT<Scalar<T>>);
+            },
+            sx->u);
+      } else {
+        common::die("exponent argument must be real");
+      }
+    } else if (name == "iand" || name == "ior" || name == "ieor") {
+      // convert boz
+      for (int i{0}; i <= 1; ++i) {
+        if (auto *x{UnwrapBozArgument(args[i])}) {
+          args[i].value().value() =
+              Fold(context, ConvertToType<T>(std::move(*x)));
+        }
+      }
+      auto fptr{&Scalar<T>::IAND};
+      if (name == "iand") {  // done in fptr declaration
+      } else if (name == "ior") {
+        fptr = &Scalar<T>::IOR;
+      } else if (name == "ieor") {
+        fptr = &Scalar<T>::IEOR;
+      } else {
+        common::die("missing case to fold intrinsic function %s", name.c_str());
+      }
+      return FoldElementalIntrinsic<T, T, T>(
+          context, std::move(funcRef), ScalarFunc<T, T, T>(fptr));
+    } else if (name == "ibclr" || name == "ibset" || name == "ishft" ||
+        name == "shifta" || name == "shiftr" || name == "shiftl") {
+      // Second argument can be of any kind. However, it must be smaller or
+      // equal than BIT_SIZE. It can be converted to Int4 to simplify.
+      using Int4 = Type<TypeCategory::Integer, 4>;
+      if (auto *n{UnwrapArgument<SomeInteger>(args[1])}) {
+        if (n->GetType()->kind != 4) {
+          args[1].value().value() =
+              Fold(context, ConvertToType<Int4>(std::move(*n)));
+        }
+      }
+      auto fptr{&Scalar<T>::IBCLR};
+      if (name == "ibclr") {  // done in fprt definition
+      } else if (name == "ibset") {
+        fptr = &Scalar<T>::IBSET;
+      } else if (name == "ibshft") {
+        fptr = &Scalar<T>::ISHFT;
+      } else if (name == "shifta") {
+        fptr = &Scalar<T>::SHIFTA;
+      } else if (name == "shiftr") {
+        fptr = &Scalar<T>::SHIFTR;
+      } else if (name == "shiftl") {
+        fptr = &Scalar<T>::SHIFTL;
+      } else {
+        common::die("missing case to fold intrinsic function %s", name.c_str());
+      }
+      return FoldElementalIntrinsic<T, T, Int4>(context, std::move(funcRef),
+          ScalarFunc<T, T, Int4>([&fptr](const Scalar<T> &i,
+                                     const Scalar<Int4> &pos) -> Scalar<T> {
+            return std::invoke(fptr, i, static_cast<int>(pos.ToInt64()));
+          }));
+    } else if (name == "int") {
+      return std::visit(
+          [&](auto &&x) -> Expr<T> {
+            using From = std::decay_t<decltype(x)>;
+            if constexpr (std::is_same_v<From, BOZLiteralConstant> ||
+                std::is_same_v<From, Expr<SomeReal>> ||
+                std::is_same_v<From, Expr<SomeInteger>> ||
+                std::is_same_v<From, Expr<SomeComplex>>) {
+              return Fold(context, ConvertToType<T>(std::move(x)));
+            } else {
+              common::die("int() argument type not valid");
+              return Expr<T>{std::move(funcRef)};  // unreachable
+            }
+          },
+          std::move(args[0].value().value().u));
+    } else if (name == "kind") {
+      if constexpr (common::HasMember<T, IntegerTypes>) {
+        return Expr<T>{args[0].value().GetType()->kind};
+      } else {
+        common::die("kind() result not integral");
+      }
+    } else if (name == "leadz" || name == "trailz" || name == "poppar" ||
+        name == "popcnt") {
+      if (auto *sn{UnwrapArgument<SomeInteger>(args[0])}) {
+        return std::visit(
+            [&funcRef, &context, &name](const auto &n) -> Expr<T> {
+              using TI = typename std::decay_t<decltype(n)>::Result;
+              if (name == "poppar") {
+                return FoldElementalIntrinsic<T, TI>(context,
+                    std::move(funcRef),
+                    ScalarFunc<T, TI>([](const Scalar<TI> &i) -> Scalar<T> {
+                      return Scalar<T>{i.POPPAR() ? 1 : 0};
+                    }));
+              }
+              auto fptr{&Scalar<TI>::LEADZ};
+              if (name == "leadz") {  // done in fprt definition
+              } else if (name == "trailz") {
+                fptr = &Scalar<TI>::TRAILZ;
+              } else if (name == "popcnt") {
+                fptr = &Scalar<TI>::POPCNT;
+              } else {
+                common::die(
+                    "missing case to fold intrinsic function %s", name.c_str());
+              }
+              return FoldElementalIntrinsic<T, TI>(context, std::move(funcRef),
+                  ScalarFunc<T, TI>([&fptr](const Scalar<TI> &i) -> Scalar<T> {
+                    return Scalar<T>{std::invoke(fptr, i)};
+                  }));
+            },
+            sn->u);
+      } else {
+        common::die("leadz argument must be integer");
+      }
+    } else if (name == "len") {
+      if (auto *charExpr{UnwrapArgument<SomeCharacter>(args[0])}) {
+        return std::visit(
+            [&](auto &kx) {
+              if constexpr (std::is_same_v<T, SubscriptInteger>) {
+                return kx.LEN();
+              } else {
+                return Fold(context, ConvertToType<T>(kx.LEN()));
+              }
+            },
+            charExpr->u);
+      } else {
+        common::die("len() argument must be of character type");
+      }
+    } else if (name == "maskl" || name == "maskr") {
+      // Argument can be of any kind but value has to be smaller than bit_size.
+      // It can be safely converted to Int4 to simplify.
+      using Int4 = Type<TypeCategory::Integer, 4>;
+      if (auto *n{UnwrapArgument<SomeInteger>(args[0])}) {
+        if (n->GetType()->kind != 4) {
+          args[0].value().value() =
+              Fold(context, ConvertToType<Int4>(std::move(*n)));
+        }
+      }
+      const auto fptr{name == "maskl" ? &Scalar<T>::MASKL : &Scalar<T>::MASKR};
+      return FoldElementalIntrinsic<T, Int4>(context, std::move(funcRef),
+          ScalarFunc<T, Int4>([&fptr](const Scalar<Int4> &places) -> Scalar<T> {
+            return fptr(static_cast<int>(places.ToInt64()));
+          }));
+    } else if (name == "merge_bits") {
+      // convert boz
+      for (int i{0}; i <= 2; ++i) {
+        if (auto *x{UnwrapBozArgument(args[i])}) {
+          args[i].value().value() =
+              Fold(context, ConvertToType<T>(std::move(*x)));
+        }
+      }
+      return FoldElementalIntrinsic<T, T, T, T>(
+          context, std::move(funcRef), &Scalar<T>::MERGE_BITS);
+    }
+    // TODO:
+    // ceiling, command_argument_count, count, cshift, dot_product, eoshift,
+    // findloc, floor, iachar, iall, iany, iparity, ibits, ichar, image_status,
+    // index, ishftc, lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
+    // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
+    // scan, selected_char_kind, selected_int_kind, selected_real_kind, shape,
+    // sign, size, spread, sum, transfer, transpose, ubound, unpack, verify
+  }
+  return Expr<T>{std::move(funcRef)};
+}
+
+template<int KIND>
+Expr<Type<TypeCategory::Real, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Real, KIND>> &&funcRef) {
+  using T = Type<TypeCategory::Real, KIND>;
+  using ComplexT = Type<TypeCategory::Complex, KIND>;
+  ActualArguments &args{funcRef.arguments()};
+  for (std::optional<ActualArgument> &arg : args) {
+    if (arg.has_value()) {
+      arg.value().value() =
+          FoldOperation(context, std::move(arg.value().value()));
+    }
+  }
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    const std::string name{intrinsic->name};
+    if (name == "acos" || name == "acosh" || name == "asin" ||
+        name == "asinh" || (name == "atan" && args.size() == 1) ||
+        name == "atanh" || name == "bessel_j0" || name == "bessel_j1" ||
+        name == "bessel_y0" || name == "bessel_y1" || name == "cos" ||
+        name == "cosh" || name == "erf" || name == "erfc" ||
+        name == "erfc_scaled" || name == "exp" || name == "gamma" ||
+        name == "log" || name == "log10" || name == "log_gamma" ||
+        name == "sin" || name == "sinh" || name == "sqrt" || name == "tan" ||
+        name == "tanh") {
+      CHECK(args.size() == 1);
+      if (auto callable{context.hostIntrinsicsLibrary()
+                            .GetHostProcedureWrapper<Scalar, T, T>(name)}) {
+        return FoldElementalIntrinsic<T, T>(
+            context, std::move(funcRef), *callable);
+      } else {
+        context.messages().Say(
+            "%s(real(kind=%d)) cannot be folded on host"_en_US, name.c_str(),
+            KIND);
+      }
+    }
+    if (name == "atan" || name == "atan2" || name == "hypot" || name == "mod") {
+      std::string localName{name == "atan2" ? "atan" : name};
+      CHECK(args.size() == 2);
+      if (auto callable{
+              context.hostIntrinsicsLibrary()
+                  .GetHostProcedureWrapper<Scalar, T, T, T>(localName)}) {
+        return FoldElementalIntrinsic<T, T, T>(
+            context, std::move(funcRef), *callable);
+      } else {
+        context.messages().Say(
+            "%s(real(kind=%d), real(kind%d)) cannot be folded on host"_en_US,
+            name.c_str(), KIND, KIND);
+      }
+    } else if (name == "bessel_jn" || name == "bessel_yn") {
+      if (args.size() == 2) {  // elemental
+        // runtime functions use int arg
+        using Int4 = Type<TypeCategory::Integer, 4>;
+        if (auto *n{UnwrapArgument<SomeInteger>(args[0])}) {
+          if (n->GetType()->kind != 4) {
+            args[0].value().value() =
+                Fold(context, ConvertToType<Int4>(std::move(*n)));
+          }
+        }
+        if (auto callable{
+                context.hostIntrinsicsLibrary()
+                    .GetHostProcedureWrapper<Scalar, T, Int4, T>(name)}) {
+          return FoldElementalIntrinsic<T, Int4, T>(
+              context, std::move(funcRef), *callable);
+        } else {
+          context.messages().Say(
+              "%s(integer(kind=4), real(kind=%d)) cannot be folded on host"_en_US,
+              name.c_str(), KIND);
+        }
+      }
+    } else if (name == "abs") {
+      // Argument can be complex or real
+      if (auto *x{UnwrapArgument<SomeReal>(args[0])}) {
+        return FoldElementalIntrinsic<T, T>(
+            context, std::move(funcRef), &Scalar<T>::ABS);
+      } else if (auto *z{UnwrapArgument<SomeComplex>(args[0])}) {
+        if (auto callable{
+                context.hostIntrinsicsLibrary()
+                    .GetHostProcedureWrapper<Scalar, T, ComplexT>("abs")}) {
+          return FoldElementalIntrinsic<T, ComplexT>(
+              context, std::move(funcRef), *callable);
+        } else {
+          context.messages().Say(
+              "abs(complex(kind=%d)) cannot be folded on host"_en_US, KIND);
+        }
+      } else {
+        common::die(" unexpected argument type inside abs");
+      }
+    } else if (name == "aimag") {
+      return FoldElementalIntrinsic<T, ComplexT>(
+          context, std::move(funcRef), &Scalar<ComplexT>::AIMAG);
+    } else if (name == "aint") {
+      // Convert argument to the requested kind before calling aint
+      if (auto *x{UnwrapArgument<SomeReal>(args[0])}) {
+        if (!(x->GetType()->kind == T::kind)) {
+          args[0].value().value() =
+              Fold(context, ConvertToType<T>(std::move(*x)));
+        }
+      }
+      return FoldElementalIntrinsic<T, T>(context, std::move(funcRef),
+          ScalarFunc<T, T>([&name, &context](const Scalar<T> &x) -> Scalar<T> {
+            ValueWithRealFlags<Scalar<T>> y{x.AINT()};
+            if (y.flags.test(RealFlag::Overflow)) {
+              context.messages().Say(
+                  "%s intrinsic folding overflow"_en_US, name.c_str());
+            }
+            return y.value;
+          }));
+    } else if (name == "dprod") {
+      if (auto *x{UnwrapArgument<SomeReal>(args[0])}) {
+        if (auto *y{UnwrapArgument<SomeReal>(args[1])}) {
+          return Fold(context,
+              Expr<T>{Multiply<T>{ConvertToType<T>(std::move(*x)),
+                  ConvertToType<T>(std::move(*y))}});
+        }
+      }
+      common::die("Wrong argument type in dprod()");
+    } else if (name == "epsilon") {
+      return Expr<T>{Constant<T>{Scalar<T>::EPSILON()}};
+    } else if (name == "real") {
+      return std::visit(
+          [&](auto &&x) -> Expr<T> {
+            using From = std::decay_t<decltype(x)>;
+            if constexpr (std::is_same_v<From, BOZLiteralConstant>) {
+              typename T::Scalar::Word::ValueWithOverflow result{
+                  T::Scalar::Word::ConvertUnsigned(x)};
+              if (result.overflow) {  // C1601
+                context.messages().Say(
+                    "Non null truncated bits of boz literal constant in REAL intrinsic"_en_US);
+              }
+              return Expr<T>{Constant<T>{Scalar<T>(std::move(result.value))}};
+            } else if constexpr (std::is_same_v<From, Expr<SomeReal>> ||
+                std::is_same_v<From, Expr<SomeInteger>> ||
+                std::is_same_v<From, Expr<SomeComplex>>) {
+              return Fold(context, ConvertToType<T>(std::move(x)));
+            } else {
+              common::die("real() argument type not valid");
+              return Expr<T>{std::move(funcRef)};  // unreachable
+            }
+          },
+          std::move(args[0].value().value().u));
+    }
+    // TODO: anint, cshift, dim, dot_product, eoshift, fraction, huge, matmul,
+    // max, maxval, merge, min, minval, modulo, nearest, norm2, pack, product,
+    // reduce, reshape, rrspacing, scale, set_exponent, sign, spacing, spread,
+    // sum, tiny, transfer, transpose, unpack, bessel_jn (transformational) and
+    // bessel_yn (transformational)
+  }
+  return Expr<T>{std::move(funcRef)};
+}
+
+template<int KIND>
+Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Complex, KIND>> &&funcRef) {
+  using T = Type<TypeCategory::Complex, KIND>;
+  ActualArguments &args{funcRef.arguments()};
+  for (std::optional<ActualArgument> &arg : args) {
+    if (arg.has_value()) {
+      arg.value().value() =
+          FoldOperation(context, std::move(arg.value().value()));
+    }
+  }
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    const std::string name{intrinsic->name};
+    if (name == "acos" || name == "acosh" || name == "asin" ||
+        name == "asinh" || name == "atan" || name == "atanh" || name == "cos" ||
+        name == "cosh" || name == "exp" || name == "log" || name == "sin" ||
+        name == "sinh" || name == "sqrt" || name == "tan" || name == "tanh") {
+      if (auto callable{context.hostIntrinsicsLibrary()
+                            .GetHostProcedureWrapper<Scalar, T, T>(name)}) {
+        return FoldElementalIntrinsic<T, T>(
+            context, std::move(funcRef), *callable);
+      } else {
+        context.messages().Say(
+            "%s(complex(kind=%d)) cannot be folded on host"_en_US, name.c_str(),
+            KIND);
+      }
+    } else if (name == "conjg") {
+      return FoldElementalIntrinsic<T, T>(
+          context, std::move(funcRef), &Scalar<T>::CONJG);
+    } else if (name == "cmplx") {
+      if (args.size() == 2) {
+        if (auto *x{UnwrapArgument<SomeComplex>(args[0])}) {
+          return Fold(context, ConvertToType<T>(std::move(*x)));
+        } else {
+          common::die("x must be complex in cmplx(x[, kind])");
+        }
+      } else {
+        CHECK(args.size() == 3);
+        using Part = typename T::Part;
+        Expr<SomeType> im{args[1].has_value()
+                ? std::move(args[1].value().value())
+                : AsGenericExpr(Constant<Part>{Scalar<Part>{}})};
+        Expr<SomeType> re{std::move(args[0].value().value())};
+        int reRank{re.Rank()};
+        int imRank{im.Rank()};
+        semantics::Attrs attrs;
+        attrs.set(semantics::Attr::ELEMENTAL);
+        auto reReal{
+            FunctionRef<Part>{ProcedureDesignator{SpecificIntrinsic{
+                                  "real", Part::GetType(), reRank, attrs}},
+                ActualArguments{ActualArgument{std::move(re)}}}};
+        auto imReal{
+            FunctionRef<Part>{ProcedureDesignator{SpecificIntrinsic{
+                                  "real", Part::GetType(), imRank, attrs}},
+                ActualArguments{ActualArgument{std::move(im)}}}};
+        return Fold(context,
+            Expr<T>{ComplexConstructor<T::kind>{
+                Expr<Part>{std::move(reReal)}, Expr<Part>{std::move(imReal)}}});
+      }
+    }
+    // TODO: cshift, dot_product, eoshift, matmul, merge, pack, product,
+    // reduce, reshape, spread, sum, transfer, transpose, unpack
+  }
+  return Expr<T>{std::move(funcRef)};
+}
+
+template<int KIND>
+Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Logical, KIND>> &&funcRef) {
+  using T = Type<TypeCategory::Logical, KIND>;
+  ActualArguments &args{funcRef.arguments()};
   for (std::optional<ActualArgument> &arg : args) {
     if (arg.has_value()) {
       arg.value().value() =
@@ -167,25 +715,45 @@ Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&funcRef) {
   }
   if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
     std::string name{intrinsic->name};
-    if (name == "kind") {
-      if constexpr (common::HasMember<T, IntegerTypes>) {
-        return Expr<T>{args[0].value().GetType()->kind};
-      } else {
-        common::die("kind() result not integral");
-      }
-    } else if (name == "len") {
-      if constexpr (std::is_same_v<T, SubscriptInteger>) {
-        if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0].value())}) {
-          return std::visit([](auto &kx) { return kx.LEN(); }, charExpr->u);
+    if (name == "bge" || name == "bgt" || name == "ble" || name == "blt") {
+      using LargestInt = Type<TypeCategory::Integer, 16>;
+      static_assert(std::is_same_v<Scalar<LargestInt>, BOZLiteralConstant>);
+      // Arguments do not have to be of the same integer type. Convert all
+      // arguments to the biggest integer type before comparing them to
+      // simplify.
+      for (int i{0}; i <= 1; ++i) {
+        if (auto *x{UnwrapArgument<SomeInteger>(args[i])}) {
+          args[i].value().value() =
+              Fold(context, ConvertToType<LargestInt>(std::move(*x)));
+        } else if (auto *x{UnwrapBozArgument(args[i])}) {
+          args[i].value().value() =
+              AsGenericExpr(Constant<LargestInt>{std::move(*x)});
         }
-      } else {
-        common::die("len() result not SubscriptInteger");
       }
-    } else {
-      // TODO: many more intrinsic functions
+      auto fptr{&Scalar<LargestInt>::BGE};
+      if (name == "bge") {  // done in fptr declaration
+      } else if (name == "bgt") {
+        fptr = &Scalar<LargestInt>::BGT;
+      } else if (name == "ble") {
+        fptr = &Scalar<LargestInt>::BLE;
+      } else if (name == "blt") {
+        fptr = &Scalar<LargestInt>::BLT;
+      } else {
+        common::die("missing case to fold intrinsic function %s", name.c_str());
+      }
+      return FoldElementalIntrinsic<T, LargestInt, LargestInt>(context,
+          std::move(funcRef),
+          ScalarFunc<T, LargestInt, LargestInt>(
+              [&fptr](
+                  const Scalar<LargestInt> &i, const Scalar<LargestInt> &j) {
+                return Scalar<T>{std::invoke(fptr, i, j)};
+              }));
     }
+    // TODO: all, any, btest, cshift, dot_product, eoshift, is_iostat_end,
+    // is_iostat_eor, lge, lgt, lle, llt, logical, matmul, merge, out_of_range,
+    // pack, parity, reduce, reshape, spread, transfer, transpose, unpack
   }
-  return Expr<T>{FunctionRef<T>{std::move(funcRef.proc()), std::move(args)}};
+  return Expr<T>{std::move(funcRef)};
 }
 
 template<typename T>
