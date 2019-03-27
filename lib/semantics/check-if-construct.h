@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,30 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_SEMANTICS_CHECK_DO_CONCURRENT_H_
-#define FORTRAN_SEMANTICS_CHECK_DO_CONCURRENT_H_
+#ifndef FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
+#define FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
 
 #include "semantics.h"
-#include "../common/indirection.h"
 
 namespace Fortran::parser {
-struct DoConstruct;
+struct IfConstruct;
 }
-namespace Fortran::semantics {
-class DoConcurrentContext;
-}
-extern template class Fortran::common::Indirection<
-    Fortran::semantics::DoConcurrentContext>;
 
 namespace Fortran::semantics {
-class DoConcurrentChecker : public virtual BaseChecker {
+class IfConstructChecker : public virtual BaseChecker {
 public:
-  explicit DoConcurrentChecker(SemanticsContext &);
-  ~DoConcurrentChecker();
-  void Leave(const parser::DoConstruct &);
+  inline IfConstructChecker(SemanticsContext &context) : context_{context} {}
+  void Leave(const parser::IfConstruct &);
 
 private:
-  common::Indirection<DoConcurrentContext> context_;
+  SemanticsContext &context_;
 };
 }
-#endif  // FORTRAN_SEMANTICS_CHECK_DO_CONCURRENT_H_
+#endif  // FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
