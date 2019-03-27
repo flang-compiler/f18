@@ -21,8 +21,10 @@ add_library(FortranEvaluate
   decimal.cc
   expression.cc
   fold.cc
+  host.cc
   integer.cc
   intrinsics.cc
+  intrinsics-library.cc
   logical.cc
   real.cc
   static-data.cc
@@ -34,4 +36,17 @@ add_library(FortranEvaluate
 target_link_libraries(FortranEvaluate
   FortranCommon
   FortranParser
+  m
 )
+
+if (LIBPGMATH_DIR)
+  # If pgmath library is found, it can be used for constant folding.
+  find_library(LIBPGMATH pgmath PATHS ${LIBPGMATH_DIR})
+  if(LIBPGMATH)
+    add_compile_definitions(LINK_WITH_LIBPGMATH)
+    target_link_libraries(FortranEvaluate ${LIBPGMATH})
+    message(STATUS "Found libpgmath: ${LIBPGMATH}")
+  else()
+    message(STATUS "Libpgmath not found in: ${LIBPGMATH_DIR}")
+  endif()
+endif()
