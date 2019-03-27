@@ -22,6 +22,7 @@
 #include "../evaluate/variable.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/symbol.h"
+#include "llvm/Support/raw_ostream.h"
 
 // Some useful, self-documenting macros for failure modes
 #define STRINGIFY(X) #X
@@ -66,13 +67,14 @@ struct Attribute {
 using FunctionType = evaluate::SomeType;  // TODO: what should this be?
 using AttributeList = std::vector<Attribute>;
 enum struct LinkageTypes { Public, Hidden, External };
-using Expression = evaluate::GenericExprWrapper;
+using Expression = evaluate::Expr<evaluate::SomeType>;
 using Variable = const semantics::Symbol *;
 using PathVariable = const parser::Variable;
 using Scope = const semantics::Scope;
 using PHIPair = std::pair<Value, BasicBlock *>;
 using CallArguments = std::vector<Expression>;
-using Type = const semantics::DeclTypeSpec *;  // FIXME
+using TypeRep = semantics::DeclTypeSpec;  // FIXME
+using Type = const TypeRep *;
 
 enum InputOutputCallType {
   InputOutputCallBackspace = 11,
@@ -108,6 +110,9 @@ enum RuntimeCallType {
 };
 
 using RuntimeCallArguments = CallArguments;
+
+llvm::raw_ostream &DebugChannel();
+void SetDebugChannel(const std::string &filename);
 }
 
 #endif  // FORTRAN_FIR_COMMON_H_

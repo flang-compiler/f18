@@ -28,8 +28,6 @@ class SwitchTypeStmt;
 class SwitchRankStmt;
 class IndirectBranchStmt;
 class UnreachableStmt;
-class IncrementStmt;
-class DoConditionStmt;
 class ApplyExprStmt;
 class LocateExprStmt;
 class AllocateInsn;
@@ -57,7 +55,7 @@ public:
 };
 
 // Every basic block must end in a terminator
-class TerminatorStmt_impl : public Stmt_impl {
+class TerminatorStmt_impl : virtual public Stmt_impl {
 public:
   virtual std::list<BasicBlock *> succ_blocks() const = 0;
   virtual ~TerminatorStmt_impl() = default;
@@ -68,11 +66,13 @@ public:
 class ReturnStmt : public TerminatorStmt_impl {
 public:
   static ReturnStmt Create(Statement *stmt) { return ReturnStmt{stmt}; }
+  static ReturnStmt Create() { return ReturnStmt{nullptr}; }
   std::list<BasicBlock *> succ_blocks() const override { return {}; }
-  Statement *returnValue() const;
+  bool has_value() const { return value_; }
+  Statement *value() const;
 
 private:
-  ApplyExprStmt *returnValue_;
+  ApplyExprStmt *value_;
   explicit ReturnStmt(Statement *exp);
 };
 
@@ -112,17 +112,17 @@ public:
   using ValueType = Value;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchStmt Create(const Value &switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
-    return SwitchStmt{switchEval, defaultBlock, args};
+  static SwitchStmt Create(
+      const Value &switchEval, const ValueSuccPairListType &args) {
+    return SwitchStmt{switchEval, args};
   }
-  BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
+  BasicBlock *defaultSucc() const;
   std::list<BasicBlock *> succ_blocks() const override;
   Value getCond() const { return condition_; }
 
 private:
-  explicit SwitchStmt(const Value &condition, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args);
+  explicit SwitchStmt(
+      const Value &condition, const ValueSuccPairListType &args);
 
   Value condition_;
   ValueSuccPairListType valueSuccPairs_;
@@ -151,17 +151,16 @@ public:
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
 
-  static SwitchCaseStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
-    return SwitchCaseStmt{switchEval, defaultBlock, args};
+  static SwitchCaseStmt Create(
+      Value switchEval, const ValueSuccPairListType &args) {
+    return SwitchCaseStmt{switchEval, args};
   }
-  BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
+  BasicBlock *defaultSucc() const;
   std::list<BasicBlock *> succ_blocks() const override;
   Value getCond() const { return condition_; }
 
 private:
-  explicit SwitchCaseStmt(Value condition, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args);
+  explicit SwitchCaseStmt(Value condition, const ValueSuccPairListType &args);
 
   Value condition_;
   ValueSuccPairListType valueSuccPairs_;
@@ -180,17 +179,16 @@ public:
   using ValueType = std::variant<Default, TypeSpec, DerivedTypeSpec>;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchTypeStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
-    return SwitchTypeStmt{switchEval, defaultBlock, args};
+  static SwitchTypeStmt Create(
+      Value switchEval, const ValueSuccPairListType &args) {
+    return SwitchTypeStmt{switchEval, args};
   }
-  BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
+  BasicBlock *defaultSucc() const;
   std::list<BasicBlock *> succ_blocks() const override;
   Value getCond() const { return condition_; }
 
 private:
-  explicit SwitchTypeStmt(Value condition, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args);
+  explicit SwitchTypeStmt(Value condition, const ValueSuccPairListType &args);
   Value condition_;
   ValueSuccPairListType valueSuccPairs_;
 };
@@ -206,17 +204,16 @@ public:
   using ValueType = std::variant<Exactly, AssumedSize, Default>;
   using ValueSuccPairType = std::pair<ValueType, BasicBlock *>;
   using ValueSuccPairListType = std::vector<ValueSuccPairType>;
-  static SwitchRankStmt Create(Value switchEval, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args) {
-    return SwitchRankStmt{switchEval, defaultBlock, args};
+  static SwitchRankStmt Create(
+      Value switchEval, const ValueSuccPairListType &args) {
+    return SwitchRankStmt{switchEval, args};
   }
-  BasicBlock *defaultSucc() const { return valueSuccPairs_[0].second; }
+  BasicBlock *defaultSucc() const;
   std::list<BasicBlock *> succ_blocks() const override;
   Value getCond() const { return condition_; }
 
 private:
-  explicit SwitchRankStmt(Value condition, BasicBlock *defaultBlock,
-      const ValueSuccPairListType &args);
+  explicit SwitchRankStmt(Value condition, const ValueSuccPairListType &args);
 
   Value condition_;
   ValueSuccPairListType valueSuccPairs_;
@@ -253,7 +250,7 @@ private:
   explicit UnreachableStmt() = default;
 };
 
-class ActionStmt_impl : public Stmt_impl {
+class ActionStmt_impl : virtual public Stmt_impl {
 public:
   using ActionTrait = std::true_type;
 
@@ -264,40 +261,13 @@ protected:
   std::optional<evaluate::DynamicType> type;
 };
 
-class IncrementStmt : public ActionStmt_impl {
-public:
-  static IncrementStmt Create(Value v1, Value v2) {
-    return IncrementStmt(v1, v2);
-  }
-  Value leftValue() const { return value_[0]; }
-  Value rightValue() const { return value_[1]; }
-
-private:
-  explicit IncrementStmt(Value v1, Value v2);
-  Value value_[2];
-};
-
-class DoConditionStmt : public ActionStmt_impl {
-public:
-  static DoConditionStmt Create(Value dir, Value left, Value right) {
-    return DoConditionStmt(dir, left, right);
-  }
-  Value direction() const { return value_[0]; }
-  Value leftValue() const { return value_[1]; }
-  Value rightValue() const { return value_[2]; }
-
-private:
-  explicit DoConditionStmt(Value dir, Value left, Value right);
-  Value value_[3];
-};
-
 // Compute the value of an expression
 class ApplyExprStmt : public ActionStmt_impl {
 public:
   static ApplyExprStmt Create(const Expression *e) { return ApplyExprStmt{*e}; }
   static ApplyExprStmt Create(Expression &&e) { return ApplyExprStmt{e}; }
 
-  const Expression &expression() const { return expression_; }
+  Expression expression() const { return expression_; }
 
 private:
   explicit ApplyExprStmt(const Expression &e) : expression_{e} {}
@@ -307,6 +277,9 @@ private:
 
 // Base class of all addressable statements
 class Addressable_impl : public ActionStmt_impl {
+public:
+  Expression address() const { return addrExpr_.value(); }
+
 protected:
   Addressable_impl() : addrExpr_{std::nullopt} {}
   explicit Addressable_impl(const Expression &ae) : addrExpr_{ae} {}
@@ -321,7 +294,7 @@ public:
   }
   static LocateExprStmt Create(Expression &&e) { return LocateExprStmt(e); }
 
-  const Expression &expression() const { return *addrExpr_; }
+  const Expression &expression() const { return addrExpr_.value(); }
 
 private:
   explicit LocateExprStmt(const Expression &e) : Addressable_impl{e} {}
@@ -358,7 +331,7 @@ public:
     return DeallocateInsn{alloc};
   }
 
-  AllocateInsn *alloc() { return alloc_; }
+  Statement *alloc() const;
 
 private:
   explicit DeallocateInsn(AllocateInsn *alloc) : alloc_{alloc} {}
@@ -370,21 +343,17 @@ private:
 class AllocateLocalInsn : public Addressable_impl, public MemoryStmt_impl {
 public:
   static AllocateLocalInsn Create(
-      Type type, int alignment = 0, const Expression *expr = nullptr) {
-    if (expr != nullptr) {
-      return AllocateLocalInsn{type, alignment, *expr};
-    }
-    return AllocateLocalInsn{type, alignment};
+      Type type, const Expression &expr, int alignment = 0) {
+    return AllocateLocalInsn{type, alignment, expr};
   }
 
   Type type() const { return type_; }
   int alignment() const { return alignment_; }
+  Expression variable() const { return addrExpr_.value(); }
 
 private:
   explicit AllocateLocalInsn(Type type, int alignment, const Expression &expr)
     : Addressable_impl{expr}, type_{type}, alignment_{alignment} {}
-  explicit AllocateLocalInsn(Type type, int alignment)
-    : type_{type}, alignment_{alignment} {}
 
   Type type_;
   int alignment_;
@@ -393,24 +362,33 @@ private:
 // Load value(s) from a location
 class LoadInsn : public MemoryStmt_impl {
 public:
-  static LoadInsn Create(Value addr) { return LoadInsn{addr}; }
+  static LoadInsn Create(const Value &addr) { return LoadInsn{addr}; }
+  static LoadInsn Create(Value &&addr) { return LoadInsn{addr}; }
   static LoadInsn Create(Statement *addr) { return LoadInsn{addr}; }
 
+  Value address() const { return address_; }
+
 private:
-  explicit LoadInsn(Value addr) : address_{addr} {}
+  explicit LoadInsn(const Value &addr);
+  explicit LoadInsn(Value &&addr);
   explicit LoadInsn(Statement *addr);
-  std::variant<Addressable_impl *, Value> address_;
+  Value address_;
 };
 
 // Store value(s) from an applied expression to a location
 class StoreInsn : public MemoryStmt_impl {
 public:
+  using ValueType =
+      std::variant<Value, ApplyExprStmt *, Addressable_impl *, BasicBlock *>;
   template<typename T> static StoreInsn Create(T *addr, T *value) {
     return StoreInsn{addr, value};
   }
   template<typename T> static StoreInsn Create(T *addr, BasicBlock *value) {
     return StoreInsn{addr, value};
   }
+
+  Addressable_impl *address() const { return address_; }
+  ValueType value() const { return value_; }
 
 private:
   explicit StoreInsn(Value addr, Value val);
@@ -419,7 +397,7 @@ private:
   explicit StoreInsn(Statement *addr, BasicBlock *val);
 
   Addressable_impl *address_;
-  std::variant<Value, ApplyExprStmt *, Addressable_impl *, BasicBlock *> value_;
+  ValueType value_;
 };
 
 // NULLIFY - make pointer object disassociated
@@ -554,8 +532,6 @@ class Statement : public SumTypeMixin<ReturnStmt,  //
                       SwitchRankStmt,  //
                       IndirectBranchStmt,  //
                       UnreachableStmt,  //
-                      IncrementStmt,  //
-                      DoConditionStmt,  //
                       ApplyExprStmt,  //
                       LocateExprStmt,  //
                       AllocateInsn,  //
@@ -581,12 +557,17 @@ public:
   }
   std::string dump() const;
 
-  static std::size_t offsetof_impl() {
-    return reinterpret_cast<std::size_t>(&static_cast<Statement *>(nullptr)->u);
-  }
+  // g++/clang++ will optimize this to a simple register copy
+  // Every Stmt_impl is wrapped in and the first data member of a Statement;
+  // therefore, a pointer to one or the other is bitwise identical.
+  // This checks that this assumption is, in fact, true.
   static Statement *From(Stmt_impl *stmt) {
-    return reinterpret_cast<Statement *>(
-        reinterpret_cast<char *>(stmt) - Statement::offsetof_impl());
+    static Statement s{nullptr, UnreachableStmt::Create()};
+    auto *result{reinterpret_cast<Statement *>(reinterpret_cast<char *>(stmt) -
+        (reinterpret_cast<char *>(&s.u) - reinterpret_cast<char *>(&s)))};
+    CHECK(result == reinterpret_cast<Statement *>(stmt) &&
+        "expecting pointers to be equal");
+    return result;
   }
 };
 
@@ -599,15 +580,26 @@ inline std::list<BasicBlock *> succ_list(BasicBlock &block) {
   return {};
 }
 
-inline Statement *ReturnStmt::returnValue() const {
-  return Statement::From(returnValue_);
+inline Statement *ReturnStmt::value() const { return Statement::From(value_); }
+inline Statement *DeallocateInsn::alloc() const {
+  return Statement::From(alloc_);
 }
 
 inline ApplyExprStmt *GetApplyExpr(Statement *stmt) {
   return std::get_if<ApplyExprStmt>(&stmt->u);
 }
 
+inline AllocateLocalInsn *GetLocal(Statement *stmt) {
+  return std::get_if<AllocateLocalInsn>(&stmt->u);
+}
+
 Addressable_impl *GetAddressable(Statement *stmt);
+
+template<typename A> std::string ToString(const A *a) {
+  std::stringstream ss;
+  ss << std::hex << reinterpret_cast<std::intptr_t>(a);
+  return ss.str();
+}
 }
 
 #endif  // FORTRAN_FIR_STATEMENTS_H_
