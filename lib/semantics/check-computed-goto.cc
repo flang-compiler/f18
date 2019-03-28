@@ -12,27 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "check-if-stmt.h"
+#include "check-computed-goto.h"
 #include "tools.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree.h"
 
 namespace Fortran::semantics {
 
-template<class T> void suppress_unused_variable_warning(const T &) {}
-
-void IfStmtChecker::Leave(const parser::IfStmt &ifStmt) {
-  // R1139 Check for a scalar logical expression
-  auto &expr{std::get<parser::ScalarLogicalExpr>(ifStmt.t).thing.thing.value()};
-  CheckScalarLogicalExpr(expr, context_.messages());
-  // C1143 Check that the action stmt is not an if stmt
-  auto &actionStmt{std::get<parser::ActionStmt>(ifStmt.t)};
-  if (auto *actionIfStmt{
-          std::get_if<common::Indirection<parser::IfStmt>>(&actionStmt.u)}) {
-    // TODO: get the source position from the action stmt
-    suppress_unused_variable_warning(actionIfStmt);
-    context_.messages().Say(
-        expr.source, "IF statement is not allowed in IF statement"_err_en_US);
+void ComputedGotoStmtChecker::Leave(
+    const parser::ComputedGotoStmt &computedGotoStmt) {
+  // C1169 Labels have already been checked
+  // R1158 Check for scalar-int-expr
+  auto &expr{
+      std::get<parser::ScalarIntExpr>(computedGotoStmt.t).thing.thing.value()};
+  if (expr.typedExpr->v.Rank() > 0) {
+    context_.messages().Say(expr.source,
+        "Computed GOTO expression must be a scalar expression"_err_en_US);
+  } else if (!ExprHasTypeCategory(
+                 *expr.typedExpr, common::TypeCategory::Integer)) {
+    context_.messages().Say(expr.source,
+        "Computed GOTO expression must be an integer expression"_err_en_US);
   }
 }
 
