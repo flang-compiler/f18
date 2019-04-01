@@ -52,14 +52,14 @@ set(MODULES
 # Create module files directly from the top-level module source directory
 foreach(filename ${MODULES})
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.mod
-    COMMAND f18 -fparse-only -fdebug-semantics ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+    COMMAND f18 -fparse-only -fdebug-semantics ${PROJECT_SOURCE_DIR}/tools/flang/module/${filename}.f90
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include"
-    DEPENDS f18 ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+    DEPENDS f18 ${PROJECT_SOURCE_DIR}/tools/flang/module/${filename}.f90
   )
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.f18.mod
-    COMMAND f18 -fparse-only -fdebug-semantics -module-suffix .f18.mod ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+    COMMAND f18 -fparse-only -fdebug-semantics -module-suffix .f18.mod ${PROJECT_SOURCE_DIR}/tools/flang/module/${filename}.f90
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include"
-    DEPENDS f18 ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+    DEPENDS f18 ${PROJECT_SOURCE_DIR}/tools/flang/module/${filename}.f90
   )
   list(APPEND MODULE_FILES "${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.mod")
   list(APPEND MODULE_FILES "${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.f18.mod")

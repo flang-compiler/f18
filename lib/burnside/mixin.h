@@ -20,8 +20,6 @@
 // better to think of these as "included in" a class, rather than as an
 // "inherited from" base class.
 
-/// [Coding style](https://llvm.org/docs/CodingStandards.html)
-
 #include "llvm/ADT/ilist.h"
 #include <optional>
 #include <tuple>

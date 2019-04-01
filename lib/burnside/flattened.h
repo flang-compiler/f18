@@ -15,9 +15,9 @@
 #ifndef FORTRAN_BURNSIDE_FLATTENED_H_
 #define FORTRAN_BURNSIDE_FLATTENED_H_
 
+#include "common.h"
 #include "mixin.h"
 #include "../parser/parse-tree.h"
-#include "llvm/ADT/BitVector.h"
 #include <cstdint>
 #include <list>
 #include <map>
@@ -30,14 +30,12 @@ struct AnalysisData;
 
 namespace flat {
 
-/// This is a flattened, linearized representation of the parse
-/// tree. It captures the executable specification of the input
-/// program. The flattened IR can be used to construct FIR.
-///
-/// [Coding style](https://llvm.org/docs/CodingStandards.html)
+// This is a flattened, linearized representation of the parse tree. It captures
+// the executable specification of the input program. The flattened IR can be
+// used to construct the Fortran IR.
 
 using LabelRef = unsigned;
-constexpr LabelRef UnspecifiedLabel{UINT_MAX};
+constexpr LabelRef unspecifiedLabel{UINT_MAX};
 
 using Location = parser::CharBlock;
 struct LabelBuilder;
@@ -49,12 +47,12 @@ struct LabelOp {
   LabelOp &operator=(const LabelOp &that);
   void setReferenced() const;
   bool isReferenced() const;
-  LabelRef get() const { return label; }
+  LabelRef get() const { return label_; }
   operator LabelRef() const { return get(); }
 
 private:
-  LabelBuilder &builder;
-  LabelRef label;
+  LabelBuilder &builder_;
+  LabelRef label_;
 };
 
 struct ArtificialJump {};
@@ -100,10 +98,10 @@ struct ConditionalGotoOp
 struct IndirectGotoOp {
   explicit IndirectGotoOp(
       const semantics::Symbol *symbol, std::vector<LabelRef> &&labelRefs)
-      : labelRefs{labelRefs}, symbol{symbol} {}
+    : symbol{symbol}, labelRefs{labelRefs} {}
 
-  std::vector<LabelRef> labelRefs;
   const semantics::Symbol *symbol;
+  std::vector<LabelRef> labelRefs;
 };
 
 // intrinsic IO operations can return with an implied multi-way branch
@@ -120,6 +118,7 @@ struct SwitchIOOp
       std::optional<LabelRef> endLab = std::nullopt)
     : SumTypeCopyMixin{&io}, next{next}, source{source}, errLabel{errLab},
       eorLabel{eorLab}, endLabel{endLab} {}
+
   LabelRef next;
   Location source;
   std::optional<LabelRef> errLabel;
@@ -201,7 +200,7 @@ struct LabelBuilder {
   LabelRef getNext();
   void setReferenced(LabelRef label);
   bool isReferenced(LabelRef label) const;
-  llvm::BitVector referenced;
+  std::vector<bool> referenced;
   unsigned counter;
 };
 
@@ -212,11 +211,10 @@ std::vector<LabelRef> GetAssign(
 
 }  // namespace flat
 
-// Collection of data maintained internally by the flattening algorithm
 struct AnalysisData {
   std::map<parser::Label, flat::LabelOp> labelMap;
   std::vector<std::tuple<const parser::Name *, flat::LabelRef, flat::LabelRef>>
-      constructContextStack;
+      nameStack;
   flat::LabelBuilder labelBuilder;
   std::map<const semantics::Symbol *, std::set<parser::Label>> assignMap;
 };

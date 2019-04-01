@@ -1,4 +1,4 @@
-# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,26 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -L/home/eschweitz/clang-mlir/lib -fno-rtti")
 
-add_library(FortranBurnside
-  bridge.cc
-  builder.cc
-  canonicalize.cc
-  fe-helper.cc
-  flattened.cc
-  runtime.cc
+add_executable(fml
+  fml.cc
 )
 
-target_link_libraries(FortranBurnside
-  FIR
+set(LIBS
   MLIRAffineOps
   MLIRLLVMIR
+  MLIRLoopOps
   MLIRStandardOps
 )
 
-install (TARGETS FortranBurnside
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
+whole_archive_link(fml ${LIBS})
+target_link_libraries(fml
+  FortranCommon
+  FortranParser
+  FortranEvaluate
+  FortranSemantics
+  FortranBurnside
+  ${LIBS}
 )
+
+install(TARGETS fml DESTINATION bin)
