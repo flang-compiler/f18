@@ -394,7 +394,6 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
               return Fold(context, ConvertToType<T>(std::move(x)));
             }
             common::die("int() argument type not valid");
-            return Expr<T>{std::move(funcRef)};  // unreachable
           },
           std::move(args[0].value().value().u));
     } else if (name == "kind") {
@@ -476,7 +475,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
           context, std::move(funcRef), &Scalar<T>::MERGE_BITS);
     }
     // TODO:
-    // ceiling, command_argument_count, count, cshift, dot_product, eoshift,
+    // ceiling, count, cshift, dot_product, eoshift,
     // findloc, floor, iachar, iall, iany, iparity, ibits, ichar, image_status,
     // index, ishftc, lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
     // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
@@ -621,7 +620,6 @@ Expr<Type<TypeCategory::Real, KIND>> FoldOperation(FoldingContext &context,
               return Fold(context, ConvertToType<T>(std::move(x)));
             }
             common::die("real() argument type not valid");
-            return Expr<T>{std::move(funcRef)};  // unreachable
           },
           std::move(args[0].value().value().u));
     }
