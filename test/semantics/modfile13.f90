@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -38,9 +38,9 @@ end
 !contains
 !  subroutine s(n,a,b,c,d)
 !    integer(4)::n
-!    character((n+1_4),1)::a
-!    character((n+2_4),2)::b
-!    character((n+3_4),1)::c
+!    character(n+1_4,1)::a
+!    character(n+2_4,2)::b
+!    character(n+3_4,1)::c
 !    character(*,1)::d
 !  end
 !end

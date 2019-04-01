@@ -23,6 +23,7 @@
 
 #include "call.h"
 #include "common.h"
+#include "formatting.h"
 #include "static-data.h"
 #include "type.h"
 #include "../common/idioms.h"
@@ -129,7 +130,7 @@ private:
 };
 
 EXPAND_FOR_EACH_INTEGER_KIND(
-    TEMPLATE_INSTANTIATION, extern template class TypeParamInquiry)
+    TEMPLATE_INSTANTIATION, extern template class TypeParamInquiry, )
 
 // R921 subscript-triplet
 class Triplet {
@@ -354,7 +355,7 @@ public:
   Variant u;
 };
 
-FOR_EACH_CHARACTER_KIND(extern template class Designator)
+FOR_EACH_CHARACTER_KIND(extern template class Designator, )
 
 template<typename T> struct Variable {
   using Result = T;
@@ -373,5 +374,10 @@ template<typename T> struct Variable {
   }
   std::variant<Designator<Result>, FunctionRef<Result>> u;
 };
+
+#define INSTANTIATE_VARIABLE_TEMPLATES \
+  EXPAND_FOR_EACH_INTEGER_KIND(  \
+    TEMPLATE_INSTANTIATION, template class TypeParamInquiry, ) \
+  FOR_EACH_SPECIFIC_TYPE(template class Designator, )
 }
 #endif  // FORTRAN_EVALUATE_VARIABLE_H_
