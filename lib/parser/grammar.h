@@ -561,7 +561,7 @@ TYPE_PARSER(construct<IntegerTypeSpec>("INTEGER" >> maybe(kindSelector)))
 TYPE_PARSER(construct<KindSelector>(
                 parenthesized(maybe("KIND ="_tok) >> scalarIntConstantExpr)) ||
     extension<LanguageFeature::StarKind>(construct<KindSelector>(
-        construct<KindSelector::StarSize>("*" >> digitString / spaceCheck))))
+        construct<KindSelector::StarSize>("*" >> digitString64 / spaceCheck))))
 
 // R707 signed-int-literal-constant -> [sign] int-literal-constant
 TYPE_PARSER(sourced(construct<SignedIntLiteralConstant>(
@@ -574,7 +574,7 @@ TYPE_PARSER(construct<IntLiteralConstant>(
     space >> digitString, maybe(underscore >> kindParam) / !underscore))
 
 // R709 kind-param -> digit-string | scalar-int-constant-name
-TYPE_PARSER(construct<KindParam>(digitString) ||
+TYPE_PARSER(construct<KindParam>(digitString64) ||
     construct<KindParam>(scalar(integer(constant(name)))))
 
 // R712 sign -> + | -
@@ -602,13 +602,12 @@ constexpr auto exponentPart{
 TYPE_CONTEXT_PARSER("REAL literal constant"_en_US,
     space >>
         construct<RealLiteralConstant>(
-            sourced(
-                (skipDigitString >> "."_ch >>
-                        !(some(letter) >>
-                            "."_ch /* don't misinterpret 1.AND. */) >>
-                        maybe(skipDigitString) >> maybe(exponentPart) >> ok ||
-                    "."_ch >> skipDigitString >> maybe(exponentPart) >> ok ||
-                    skipDigitString >> exponentPart >> ok) >>
+            sourced((digitString >> "."_ch >>
+                            !(some(letter) >>
+                                "."_ch /* don't misinterpret 1.AND. */) >>
+                            maybe(digitString) >> maybe(exponentPart) >> ok ||
+                        "."_ch >> digitString >> maybe(exponentPart) >> ok ||
+                        digitString >> exponentPart >> ok) >>
                 construct<RealLiteralConstant::Real>()),
             maybe(underscore >> kindParam)))
 
@@ -655,7 +654,7 @@ TYPE_PARSER(construct<LengthSelector>(
 
 // R723 char-length -> ( type-param-value ) | digit-string
 TYPE_PARSER(construct<CharLength>(parenthesized(typeParamValue)) ||
-    construct<CharLength>(space >> digitString / spaceCheck))
+    construct<CharLength>(space >> digitString64 / spaceCheck))
 
 // R724 char-literal-constant ->
 //        [kind-param _] ' [rep-char]... ' |
@@ -2435,6 +2434,8 @@ constexpr auto fileNameExpr{scalarDefaultCharExpr};
 //         POSITION = scalar-default-char-expr | RECL = scalar-int-expr |
 //         ROUND = scalar-default-char-expr | SIGN = scalar-default-char-expr |
 //         STATUS = scalar-default-char-expr
+//         @ | CONVERT = scalar-default-char-variable
+//         @ | DISPOSE = scalar-default-char-variable
 constexpr auto statusExpr{construct<StatusExpr>(scalarDefaultCharExpr)};
 constexpr auto errLabel{construct<ErrLabel>(label)};
 
@@ -2735,6 +2736,8 @@ TYPE_CONTEXT_PARSER("FLUSH statement"_en_US,
 //         STREAM = scalar-default-char-variable |
 //         STATUS = scalar-default-char-variable |
 //         WRITE = scalar-default-char-variable
+//         @ | CONVERT = scalar-default-char-variable
+//           | DISPOSE = scalar-default-char-variable
 TYPE_PARSER(first(construct<InquireSpec>(maybe("UNIT ="_tok) >> fileUnitNumber),
     construct<InquireSpec>("FILE =" >> fileNameExpr),
     construct<InquireSpec>(
@@ -2850,7 +2853,15 @@ TYPE_PARSER(first(construct<InquireSpec>(maybe("UNIT ="_tok) >> fileUnitNumber),
                                scalarDefaultCharVariable)),
     construct<InquireSpec>("WRITE =" >>
         construct<InquireSpec::CharVar>(pure(InquireSpec::CharVar::Kind::Write),
-            scalarDefaultCharVariable))))
+            scalarDefaultCharVariable)),
+    extension<LanguageFeature::Convert>(construct<InquireSpec>(
+        "CONVERT =" >> construct<InquireSpec::CharVar>(
+                           pure(InquireSpec::CharVar::Kind::Convert),
+                           scalarDefaultCharVariable))),
+    extension<LanguageFeature::Dispose>(construct<InquireSpec>(
+        "DISPOSE =" >> construct<InquireSpec::CharVar>(
+                           pure(InquireSpec::CharVar::Kind::Dispose),
+                           scalarDefaultCharVariable)))))
 
 // R1230 inquire-stmt ->
 //         INQUIRE ( inquire-spec-list ) |
@@ -2976,7 +2987,8 @@ constexpr PositiveDigitStringIgnoreSpaces count;
 
 // R1313 control-edit-desc ->
 //         position-edit-desc | [r] / | : | sign-edit-desc | k P |
-//         blank-interp-edit-desc | round-edit-desc | decimal-edit-desc
+//         blank-interp-edit-desc | round-edit-desc | decimal-edit-desc |
+//         @ \ | $
 // R1315 position-edit-desc -> T n | TL n | TR n | n X
 // R1316 n -> digit-string
 // R1317 sign-edit-desc -> SS | SP | S
@@ -3023,7 +3035,12 @@ TYPE_PARSER(construct<format::ControlEditDesc>(
     "D" >> ("C" >> construct<format::ControlEditDesc>(
                        pure(format::ControlEditDesc::Kind::DC)) ||
                "P" >> construct<format::ControlEditDesc>(
-                          pure(format::ControlEditDesc::Kind::DP))))
+                          pure(format::ControlEditDesc::Kind::DP))) ||
+    extension<LanguageFeature::AdditionalFormats>(
+        "$" >> construct<format::ControlEditDesc>(
+                   pure(format::ControlEditDesc::Kind::Dollar)) ||
+        "\\" >> construct<format::ControlEditDesc>(
+                    pure(format::ControlEditDesc::Kind::Backslash))))
 
 // R1401 main-program ->
 //         [program-stmt] [specification-part] [execution-part]
@@ -3403,9 +3420,10 @@ TYPE_PARSER(
                           construct<CompilerDirective>("DIR$" >> many(name))) /
         endDirective)
 
-TYPE_PARSER(extension<LanguageFeature::CrayPointer>(
-    construct<BasedPointerStmt>("POINTER (" >> objectName / ",", objectName,
-        maybe(Parser<ArraySpec>{}) / ")")))
+TYPE_PARSER(extension<LanguageFeature::CrayPointer>(construct<BasedPointerStmt>(
+    "POINTER" >> nonemptyList("expected POINTER associations"_err_en_US,
+                     construct<BasedPointer>("(" >> objectName / ",",
+                         objectName, maybe(Parser<ArraySpec>{}) / ")")))))
 
 TYPE_PARSER(construct<StructureStmt>("STRUCTURE /" >> name / "/", pure(true),
                 optionalList(entityDecl)) ||

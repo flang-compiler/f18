@@ -96,6 +96,7 @@ public:
   NODE(parser, AttrSpec)
   NODE(parser, BOZLiteralConstant)
   NODE(parser, BackspaceStmt)
+  NODE(parser, BasedPointer)
   NODE(parser, BasedPointerStmt)
   NODE(parser, BindAttr)
   NODE(parser::BindAttr, Deferred)
@@ -335,7 +336,6 @@ public:
   NODE(parser, InterfaceStmt)
   NODE(parser, InternalSubprogram)
   NODE(parser, InternalSubprogramPart)
-  NODE(parser, IntLiteralConstant)
   NODE(parser, Intrinsic)
   NODE(parser, IntrinsicStmt)
   NODE(parser, IntrinsicTypeSpec)
@@ -635,7 +635,6 @@ public:
   NODE(parser, SequenceStmt)
   NODE(parser, Sign)
   NODE(parser, SignedComplexLiteralConstant)
-  NODE(parser, SignedIntLiteralConstant)
   NODE(parser, SignedRealLiteralConstant)
   NODE(parser, SpecificationConstruct)
   NODE(parser, SpecificationExpr)
@@ -767,6 +766,24 @@ public:
   }
 
   void Post(const std::uint64_t &x) { --indent_; }
+
+  bool Pre(const parser::IntLiteralConstant &x) {
+    IndentEmptyLine();
+    out_ << "int = '" << std::get<parser::CharBlock>(x.t).ToString() << '\'';
+    ++indent_;
+    EndLine();
+    return true;
+  }
+  void Post(const parser::IntLiteralConstant &) { --indent_; }
+
+  bool Pre(const parser::SignedIntLiteralConstant &x) {
+    IndentEmptyLine();
+    out_ << "int = '" << std::get<parser::CharBlock>(x.t).ToString() << '\'';
+    ++indent_;
+    EndLine();
+    return true;
+  }
+  void Post(const parser::SignedIntLiteralConstant &) { --indent_; }
 
   // A few types we want to ignore
 

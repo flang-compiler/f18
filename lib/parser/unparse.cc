@@ -146,11 +146,11 @@ public:
         x.u);
   }
   void Unparse(const SignedIntLiteralConstant &x) {  // R707
-    Walk(std::get<std::int64_t>(x.t));
+    Put(std::get<CharBlock>(x.t).ToString());
     Walk("_", std::get<std::optional<KindParam>>(x.t));
   }
   void Unparse(const IntLiteralConstant &x) {  // R708
-    Walk(std::get<std::uint64_t>(x.t));
+    Put(std::get<CharBlock>(x.t).ToString());
     Walk("_", std::get<std::optional<KindParam>>(x.t));
   }
   void Unparse(const Sign &x) {  // R712
@@ -1502,6 +1502,8 @@ public:
       FMT(DC);
       FMT(DP);
 #undef FMT
+    case format::ControlEditDesc::Kind::Dollar: Put('$'); break;
+    case format::ControlEditDesc::Kind::Backslash: Put('\\'); break;
     default: CRASH_NO_CASE;
     }
   }
@@ -2390,11 +2392,11 @@ public:
     Put("\n");
     EndOpenMP();
   }
-  void Unparse(const BasedPointerStmt &x) {
-    Word("POINTER ("), Walk(std::get<0>(x.t)), Put(", ");
-    Walk(std::get<1>(x.t));
+  void Unparse(const BasedPointer &x) {
+    Put('('), Walk(std::get<0>(x.t)), Put(","), Walk(std::get<1>(x.t));
     Walk("(", std::get<std::optional<ArraySpec>>(x.t), ")"), Put(')');
   }
+  void Unparse(const BasedPointerStmt &x) { Walk("POINTER ", x.v, ","); }
   void Post(const StructureField &x) {
     if (const auto *def{std::get_if<Statement<DataComponentDefStmt>>(&x.u)}) {
       for (const auto &decl :

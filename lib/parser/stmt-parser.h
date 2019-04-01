@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ namespace Fortran::parser {
 // end-of-statement markers.
 
 // R611 label -> digit [digit]...
-constexpr auto label{space >> digitString / spaceCheck};
+constexpr auto label{space >> digitString64 / spaceCheck};
 
 template<typename PA> inline constexpr auto unterminatedStatement(const PA &p) {
   return skipStuffBeforeStatement >>

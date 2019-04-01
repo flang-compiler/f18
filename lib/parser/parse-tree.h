@@ -735,13 +735,13 @@ struct KindParam {
 struct SignedIntLiteralConstant {
   TUPLE_CLASS_BOILERPLATE(SignedIntLiteralConstant);
   CharBlock source;
-  std::tuple<std::int64_t, std::optional<KindParam>> t;
+  std::tuple<CharBlock, std::optional<KindParam>> t;
 };
 
 // R708 int-literal-constant -> digit-string [_ kind-param]
 struct IntLiteralConstant {
   TUPLE_CLASS_BOILERPLATE(IntLiteralConstant);
-  std::tuple<std::uint64_t, std::optional<KindParam>> t;
+  std::tuple<CharBlock, std::optional<KindParam>> t;
 };
 
 // R712 sign -> + | -
@@ -2508,6 +2508,8 @@ using FileNameExpr = ScalarDefaultCharExpr;
 //         POSITION = scalar-default-char-expr | RECL = scalar-int-expr |
 //         ROUND = scalar-default-char-expr | SIGN = scalar-default-char-expr |
 //         STATUS = scalar-default-char-expr
+//         @ | CONVERT = scalar-default-char-variable
+//           | DISPOSE = scalar-default-char-variable
 WRAPPER_CLASS(StatusExpr, ScalarDefaultCharExpr);
 WRAPPER_CLASS(ErrLabel, Label);
 
@@ -2721,12 +2723,15 @@ WRAPPER_CLASS(FlushStmt, std::list<PositionOrFlushSpec>);
 //         STATUS = scalar-default-char-variable |
 //         UNFORMATTED = scalar-default-char-variable |
 //         WRITE = scalar-default-char-variable
+//         @ | CONVERT = scalar-default-char-variable
+//           | DISPOSE = scalar-default-char-variable
 struct InquireSpec {
   UNION_CLASS_BOILERPLATE(InquireSpec);
   struct CharVar {
     ENUM_CLASS(Kind, Access, Action, Asynchronous, Blank, Decimal, Delim,
         Direct, Encoding, Form, Formatted, Iomsg, Name, Pad, Position, Read,
-        Readwrite, Round, Sequential, Sign, Stream, Status, Unformatted, Write)
+        Readwrite, Round, Sequential, Sign, Stream, Status, Unformatted, Write,
+        /* extensions: */ Convert, Dispose)
     TUPLE_CLASS_BOILERPLATE(CharVar);
     std::tuple<Kind, ScalarDefaultCharVariable> t;
   };
@@ -3166,10 +3171,11 @@ struct CompilerDirective {
 };
 
 // Legacy extensions
-struct BasedPointerStmt {
-  TUPLE_CLASS_BOILERPLATE(BasedPointerStmt);
+struct BasedPointer {
+  TUPLE_CLASS_BOILERPLATE(BasedPointer);
   std::tuple<ObjectName, ObjectName, std::optional<ArraySpec>> t;
 };
+WRAPPER_CLASS(BasedPointerStmt, std::list<BasedPointer>);
 
 struct Union;
 struct StructureDef;
