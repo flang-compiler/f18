@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -219,16 +219,18 @@ public:
     return result;
   }
 
-  static constexpr ValueWithOverflow ReadUnsigned(
-      const char *&pp, std::uint64_t base = 10) {
+  static constexpr ValueWithOverflow Read(
+      const char *&pp, std::uint64_t base = 10, bool isSigned = false) {
     Integer result;
     bool overflow{false};
     const char *p{pp};
     while (*p == ' ' || *p == '\t') {
       ++p;
     }
-    if (*p == '+') {
-      ++p;
+    bool negate{*p == '-'};
+    if (negate || *p == '+') {
+      while (*++p == ' ' || *p == '\t') {
+      }
     }
     Integer radix{base};
     // This code makes assumptions about local contiguity in regions of the
@@ -256,6 +258,12 @@ public:
       result = next.value;
     }
     pp = p;
+    if (negate) {
+      result = result.Negate().value;
+      overflow |= isSigned && !result.IsNegative() && !result.IsZero();
+    } else {
+      overflow |= isSigned && result.IsNegative();
+    }
     return {result, overflow};
   }
 

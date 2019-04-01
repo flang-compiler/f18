@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ ENUM_CLASS(LanguageFeature, BackslashEscapes, OldDebugLines,
     Convert, Dispose, IOListLeadingComma, AbbreviatedEditDescriptor,
     ProgramParentheses, PercentRefAndVal, OmitFunctionDummies, CrayPointer,
     Hollerith, ArithmeticIF, Assign, AssignedGOTO, Pause, OpenMP,
-    CruftAfterAmpersand, ClassicCComments)
+    CruftAfterAmpersand, ClassicCComments, AdditionalFormats)
 
 using LanguageFeatures =
     common::EnumSet<LanguageFeature, LanguageFeature_enumSize>;

@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -48,25 +48,25 @@ template<int BITS, typename INT = Integer<BITS>> void exhaustiveTesting() {
     char buffer[64];
     std::snprintf(buffer, sizeof buffer, "   %llu", ullx);
     const char *p{buffer};
-    auto readcheck{INT::ReadUnsigned(p)};
+    auto readcheck{INT::Read(p)};
     TEST(!readcheck.overflow)("%s, x=0x%llx", desc, x);
     MATCH(x, readcheck.value.ToUInt64())("%s, x=0x%llx", desc, x);
     TEST(!*p)("%s, x=0x%llx", desc, x);
     std::snprintf(buffer, sizeof buffer, "%llx", ullx);
     p = buffer;
-    readcheck = INT::ReadUnsigned(p, 16);
+    readcheck = INT::Read(p, 16);
     TEST(!readcheck.overflow)("%s, x=0x%llx", desc, x);
     MATCH(x, readcheck.value.ToUInt64())("%s, x=0x%llx", desc, x);
     TEST(!*p)("%s, x=0x%llx", desc, x);
     std::string udec{a.UnsignedDecimal()};
     p = udec.data();
-    readcheck = INT::ReadUnsigned(p);
+    readcheck = INT::Read(p);
     TEST(!readcheck.overflow)("%s, x=0x%llx", desc, x);
     MATCH(x, readcheck.value.ToUInt64())("%s, x=0x%llx", desc, x);
     TEST(!*p)("%s, x=0x%llx", desc, x);
     std::string hex{a.Hexadecimal()};
     p = hex.data();
-    readcheck = INT::ReadUnsigned(p, 16);
+    readcheck = INT::Read(p, 16);
     TEST(!readcheck.overflow)("%s, x=0x%llx", desc, x);
     MATCH(x, readcheck.value.ToUInt64())("%s, x=0x%llx", desc, x);
     TEST(!*p)("%s, x=0x%llx", desc, x);
