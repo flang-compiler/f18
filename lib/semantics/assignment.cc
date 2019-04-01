@@ -192,7 +192,11 @@ void AssignmentContext::Analyze(const parser::ForallStmt &stmt) {
   AssignmentContext nested{*this, forall};
   nested.Analyze(
       std::get<common::Indirection<parser::ConcurrentHeader>>(stmt.t));
-  nested.Analyze(std::get<parser::ForallAssignmentStmt>(stmt.t));
+  const auto &assign{
+      std::get<parser::UnlabeledStatement<parser::ForallAssignmentStmt>>(
+          stmt.t)};
+  auto restorer{nested.messages_.SetLocation(assign.source)};
+  nested.Analyze(assign.statement);
 }
 
 // N.B. Construct name matching is checked during label resolution;
