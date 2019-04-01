@@ -165,3 +165,4 @@ cd ~/f18/build
 cmake -DLLVM_DIR=$LLVM ~/f18/src
 make
 ```
+test
