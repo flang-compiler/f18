@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 #ifndef FORTRAN_EVALUATE_COMPLEX_H_
 #define FORTRAN_EVALUATE_COMPLEX_H_
 
+#include "formatting.h"
 #include "real.h"
 #include <string>
 
