@@ -172,7 +172,8 @@ public:
   const parser::CharBlock &sourceRange() const { return sourceRange_; }
   void AddSourceRange(const parser::CharBlock &);
   // Find the smallest scope under this one that contains source
-  const Scope *FindScope(const parser::CharBlock &) const;
+  const Scope *FindScope(parser::CharBlock) const;
+  Scope *FindScope(parser::CharBlock);
 
   // Attempts to find a match for a derived type instance
   const DeclTypeSpec *FindInstantiatedDerivedType(const DerivedTypeSpec &,
@@ -180,8 +181,8 @@ public:
 
   // Returns a matching derived type instance if one exists, otherwise
   // creates one
-  const DeclTypeSpec &FindOrInstantiateDerivedType(
-      DerivedTypeSpec &&, DeclTypeSpec::Category, SemanticsContext &);
+  const DeclTypeSpec &FindOrInstantiateDerivedType(DerivedTypeSpec &&,
+      SemanticsContext &, DeclTypeSpec::Category = DeclTypeSpec::TypeDerived);
 
   // Clones a DerivedType scope into a new derived type instance's scope.
   void InstantiateDerivedType(Scope &, SemanticsContext &) const;
