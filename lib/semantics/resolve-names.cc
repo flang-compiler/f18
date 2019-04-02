@@ -986,7 +986,6 @@ public:
   void Post(const parser::PointerObject &);
   void Post(const parser::AllocateObject &);
   bool Pre(const parser::PointerAssignmentStmt &);
-  void Post(const parser::PointerAssignmentStmt &);
   void Post(const parser::Designator &);
   template<typename T> void Post(const parser::LoopBounds<T> &);
   void Post(const parser::ProcComponentRef &);
@@ -3278,7 +3277,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   const SourceName &symbolName{info.symbolName()};
   bool isPrivate{accessSpec ? accessSpec->v == parser::AccessSpec::Kind::Private
                             : derivedTypeInfo_.privateBindings};
-  const SymbolList *inheritedProcs{nullptr};  // specific procs from parent type
   auto *genericSymbol{FindInScope(currScope(), symbolName)};
   if (genericSymbol) {
     if (!genericSymbol->has<GenericBindingDetails>()) {
@@ -3288,8 +3286,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
                  FindInTypeOrParents(currScope(), symbolName)}) {
     // look in parent types:
     if (inheritedSymbol->has<GenericBindingDetails>()) {
-      inheritedProcs =
-          &inheritedSymbol->get<GenericBindingDetails>().specificProcs();
       CheckAccessibility(symbolName, isPrivate, *inheritedSymbol);
     }
   }
@@ -3305,9 +3301,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
     }
   }
   auto &details{genericSymbol->get<GenericBindingDetails>()};
-  if (inheritedProcs) {
-    details.add_specificProcs(*inheritedProcs);
-  }
   details.add_specificProcs(specificProcs);
   info.Resolve(genericSymbol);
   return false;
@@ -3421,11 +3414,12 @@ void DeclarationVisitor::Post(const parser::CommonBlockObject &x) {
   const auto &name{std::get<parser::Name>(x.t)};
   auto &symbol{DeclareObjectEntity(name, Attrs{})};
   ClearArraySpec();
-  if (!symbol.has<ObjectEntityDetails>()) {
+  auto *details{symbol.detailsIf<ObjectEntityDetails>()};
+  if (!details) {
     return;  // error was reported
   }
   commonBlockInfo_.curr->get<CommonBlockDetails>().add_object(symbol);
-  if (!IsExplicit(symbol.get<ObjectEntityDetails>().shape())) {
+  if (!IsExplicit(details->shape())) {
     Say(name,
         "The shape of common block object '%s' must be explicit"_err_en_US);
     return;
@@ -3437,6 +3431,7 @@ void DeclarationVisitor::Post(const parser::CommonBlockObject &x) {
         "Previous occurrence of '%s' in a COMMON block"_en_US);
     return;
   }
+  details->set_commonBlock(*commonBlockInfo_.curr);
 }
 
 bool DeclarationVisitor::Pre(const parser::SaveStmt &x) {
@@ -4615,8 +4610,10 @@ void ResolveNamesVisitor::Post(const parser::AllocateObject &x) {
       x.u);
 }
 bool ResolveNamesVisitor::Pre(const parser::PointerAssignmentStmt &x) {
-  // Resolve unrestricted specific intrinsic procedures as in "p => cos".
+  const auto &dataRef{std::get<parser::DataRef>(x.t)};
   const auto &expr{std::get<parser::Expr>(x.t)};
+  ResolveDataRef(dataRef);;
+  // Resolve unrestricted specific intrinsic procedures as in "p => cos".
   if (const auto *designator{
           std::get_if<common::Indirection<parser::Designator>>(&expr.u)}) {
     if (const parser::Name *
@@ -4633,9 +4630,6 @@ bool ResolveNamesVisitor::Pre(const parser::PointerAssignmentStmt &x) {
     }
   }
   return true;
-}
-void ResolveNamesVisitor::Post(const parser::PointerAssignmentStmt &x) {
-  ResolveDataRef(std::get<parser::DataRef>(x.t));
 }
 void ResolveNamesVisitor::Post(const parser::Designator &x) {
   std::visit(
