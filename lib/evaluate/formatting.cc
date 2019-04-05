@@ -298,9 +298,8 @@ template<int KIND> const char *LogicalOperation<KIND>::Infix() const {
 }
 
 template<typename T>
-std::ostream &EmitArray(
-    std::ostream &o, const common::CopyableIndirection<Expr<T>> &expr) {
-  return expr.value().AsFortran(o);
+std::ostream &EmitArray(std::ostream &o, const Expr<T> &expr) {
+  return expr.AsFortran(o);
 }
 
 template<typename T>
@@ -510,12 +509,18 @@ std::ostream &ArrayRef::AsFortran(std::ostream &o) const {
 }
 
 std::ostream &CoarrayRef::AsFortran(std::ostream &o) const {
-  for (const Symbol *sym : base_) {
-    EmitVar(o, *sym);
+  bool first{true};
+  for (const Symbol *part : base_) {
+    if (first) {
+      first = false;
+    } else {
+      o << '%';
+    }
+    EmitVar(o, *part);
   }
   char separator{'('};
-  for (const auto &ss : subscript_) {
-    EmitVar(o << separator, ss);
+  for (const auto &sscript : subscript_) {
+    EmitVar(o << separator, sscript);
     separator = ',';
   }
   if (separator == ',') {
@@ -564,6 +569,29 @@ std::ostream &Designator<T>::AsFortran(std::ostream &o) const {
       },
       u);
   return o;
+}
+
+std::ostream &DescriptorInquiry::AsFortran(std::ostream &o) const {
+  switch (field_) {
+  case Field::LowerBound: o << "lbound("; break;
+  case Field::Extent: o << "size("; break;
+  case Field::Stride: o << "%STRIDE("; break;
+  case Field::Rank: o << "rank("; break;
+  }
+  std::visit(
+      common::visitors{
+          [&](const Symbol *sym) {
+            if (sym != nullptr) {
+              EmitVar(o, *sym);
+            }
+          },
+          [&](const Component &comp) { EmitVar(o, comp); },
+      },
+      base_);
+  if (dimension_ >= 0) {
+    o << ",dim=" << (dimension_ + 1);
+  }
+  return o << ')';
 }
 
 INSTANTIATE_CONSTANT_TEMPLATES

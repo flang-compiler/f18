@@ -57,9 +57,7 @@ std::optional<Expr<SubscriptInteger>> Triplet::upper() const {
   return std::nullopt;
 }
 
-const Expr<SubscriptInteger> &Triplet::stride() const {
-  return stride_.value();
-}
+Expr<SubscriptInteger> Triplet::stride() const { return stride_.value(); }
 
 bool Triplet::IsStrideOne() const {
   if (auto stride{ToInt64(stride_.value())}) {
@@ -69,12 +67,15 @@ bool Triplet::IsStrideOne() const {
   }
 }
 
-CoarrayRef::CoarrayRef(std::vector<const Symbol *> &&c,
-    std::vector<Expr<SubscriptInteger>> &&ss,
-    std::vector<Expr<SubscriptInteger>> &&css)
-  : base_(std::move(c)), subscript_(std::move(ss)),
+CoarrayRef::CoarrayRef(std::vector<const Symbol *> &&base,
+    std::vector<Subscript> &&ss, std::vector<Expr<SubscriptInteger>> &&css)
+  : base_{std::move(base)}, subscript_(std::move(ss)),
     cosubscript_(std::move(css)) {
   CHECK(!base_.empty());
+  for (const Symbol *symbol : base_) {
+    CHECK(symbol != nullptr);
+  }
+  CHECK(!cosubscript_.empty());
 }
 
 std::optional<Expr<SomeInteger>> CoarrayRef::stat() const {
@@ -105,6 +106,10 @@ CoarrayRef &CoarrayRef::set_team(Expr<SomeInteger> &&v, bool isTeamNumber) {
   teamIsTeamNumber_ = isTeamNumber;
   return *this;
 }
+
+const Symbol &CoarrayRef::GetFirstSymbol() const { return *base_.front(); }
+
+const Symbol &CoarrayRef::GetLastSymbol() const { return *base_.back(); }
 
 void Substring::SetBounds(std::optional<Expr<SubscriptInteger>> &lower,
     std::optional<Expr<SubscriptInteger>> &upper) {
@@ -213,6 +218,31 @@ std::optional<Expr<SomeCharacter>> Substring::Fold(FoldingContext &context) {
   return std::nullopt;
 }
 
+DescriptorInquiry::DescriptorInquiry(const Symbol &symbol, Field field, int dim)
+  : base_{&symbol}, field_{field}, dimension_{dim} {
+  CHECK(IsDescriptor(symbol));
+  CHECK(dim >= 1 && dim <= symbol.Rank());
+}
+DescriptorInquiry::DescriptorInquiry(
+    Component &&component, Field field, int dim)
+  : base_{std::move(component)}, field_{field}, dimension_{dim} {
+  const Symbol &symbol{std::get<Component>(base_).GetLastSymbol()};
+  CHECK(IsDescriptor(symbol));
+  CHECK(dim >= 1 && dim <= symbol.Rank());
+}
+DescriptorInquiry::DescriptorInquiry(
+    SymbolOrComponent &&x, Field field, int dim)
+  : base_{std::move(x)}, field_{field}, dimension_{dim} {
+  const Symbol *symbol{std::visit(
+      common::visitors{
+          [](const Symbol *s) { return s; },
+          [](Component &c) { return &c.GetLastSymbol(); },
+      },
+      base_)};
+  CHECK(symbol != nullptr && IsDescriptor(*symbol));
+  CHECK(dim >= 1 && dim <= symbol->Rank());
+}
+
 // LEN()
 static Expr<SubscriptInteger> SymbolLEN(const Symbol &sym) {
   return AsExpr(Constant<SubscriptInteger>{0});  // TODO
@@ -243,7 +273,7 @@ Expr<SubscriptInteger> ArrayRef::LEN() const {
 }
 
 Expr<SubscriptInteger> CoarrayRef::LEN() const {
-  return SymbolLEN(*base_.back());
+  return SymbolLEN(GetLastSymbol());
 }
 
 Expr<SubscriptInteger> DataRef::LEN() const {
@@ -334,11 +364,15 @@ int ArrayRef::Rank() const {
 }
 
 int CoarrayRef::Rank() const {
-  int rank{0};
-  for (const auto &expr : subscript_) {
-    rank += expr.Rank();
+  if (!subscript_.empty()) {
+    int rank{0};
+    for (const auto &expr : subscript_) {
+      rank += expr.Rank();
+    }
+    return rank;
+  } else {
+    return base_.back()->Rank();
   }
-  return rank;
 }
 
 int DataRef::Rank() const {
@@ -483,6 +517,21 @@ template<typename T> std::optional<DynamicType> Designator<T>::GetType() const {
   }
 }
 
+SymbolOrComponent CoarrayRef::GetBaseSymbolOrComponent() const {
+  SymbolOrComponent base{base_.front()};
+  int j{0};
+  for (const Symbol *symbol : base_) {
+    if (j == 0) {  // X - already captured the symbol above
+    } else if (j == 1) {  // X%Y
+      base = Component{DataRef{std::get<const Symbol *>(base)}, *symbol};
+    } else {  // X%Y%Z or more
+      base = Component{DataRef{std::move(std::get<Component>(base))}, *symbol};
+    }
+    ++j;
+  }
+  return base;
+}
+
 // Equality testing
 
 bool BaseObject::operator==(const BaseObject &that) const {
@@ -517,6 +566,10 @@ bool ComplexPart::operator==(const ComplexPart &that) const {
 }
 bool ProcedureRef::operator==(const ProcedureRef &that) const {
   return proc_ == that.proc_ && arguments_ == that.arguments_;
+}
+bool DescriptorInquiry::operator==(const DescriptorInquiry &that) const {
+  return field_ == that.field_ && base_ == that.base_ &&
+      dimension_ == that.dimension_;
 }
 
 INSTANTIATE_VARIABLE_TEMPLATES

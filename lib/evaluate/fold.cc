@@ -19,6 +19,7 @@
 #include "host.h"
 #include "int-power.h"
 #include "intrinsics-library-templates.h"
+#include "shape.h"
 #include "tools.h"
 #include "traversal.h"
 #include "type.h"
@@ -55,8 +56,18 @@ DataRef FoldOperation(FoldingContext &, DataRef &&);
 Substring FoldOperation(FoldingContext &, Substring &&);
 ComplexPart FoldOperation(FoldingContext &, ComplexPart &&);
 template<int KIND>
-Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
-    FunctionRef<Type<TypeCategory::Integer, KIND>> &&funcRef);
+Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Integer, KIND>> &&);
+template<int KIND>
+Expr<Type<TypeCategory::Real, KIND>> FoldOperation(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Real, KIND>> &&);
+template<int KIND>
+Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Complex, KIND>> &&);
+// TODO: Character intrinsic function folding
+template<int KIND>
+Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Logical, KIND>> &&);
 template<typename T> Expr<T> FoldOperation(FoldingContext &, Designator<T> &&);
 template<int KIND>
 Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
@@ -113,16 +124,16 @@ ArrayRef FoldOperation(FoldingContext &context, ArrayRef &&arrayRef) {
 }
 
 CoarrayRef FoldOperation(FoldingContext &context, CoarrayRef &&coarrayRef) {
-  auto base{coarrayRef.base()};
-  std::vector<Expr<SubscriptInteger>> subscript, cosubscript;
-  for (Expr<SubscriptInteger> x : coarrayRef.subscript()) {
-    subscript.emplace_back(Fold(context, std::move(x)));
+  std::vector<Subscript> subscript;
+  for (Subscript x : coarrayRef.subscript()) {
+    subscript.emplace_back(FoldOperation(context, std::move(x)));
   }
+  std::vector<Expr<SubscriptInteger>> cosubscript;
   for (Expr<SubscriptInteger> x : coarrayRef.cosubscript()) {
     cosubscript.emplace_back(Fold(context, std::move(x)));
   }
-  CoarrayRef folded{
-      std::move(base), std::move(subscript), std::move(cosubscript)};
+  CoarrayRef folded{std::move(coarrayRef.base()), std::move(subscript),
+      std::move(cosubscript)};
   if (std::optional<Expr<SomeInteger>> stat{coarrayRef.stat()}) {
     folded.set_stat(Fold(context, std::move(*stat)));
   }
@@ -473,14 +484,48 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
       }
       return FoldElementalIntrinsic<T, T, T, T>(
           context, std::move(funcRef), &Scalar<T>::MERGE_BITS);
+    } else if (name == "rank") {
+      // TODO assumed-rank dummy argument
+      return Expr<T>{args[0].value().Rank()};
+    } else if (name == "shape") {
+      if (auto shape{GetShape(args[0].value())}) {
+        if (auto shapeExpr{AsShapeArrayExpr(*shape)}) {
+          return Fold(context, ConvertToType<T>(std::move(*shapeExpr)));
+        }
+      }
+    } else if (name == "size") {
+      if (auto shape{GetShape(args[0].value())}) {
+        if (auto &dimArg{args[1]}) {  // DIM= is present, get one extent
+          if (auto dim{ToInt64(dimArg->value())}) {
+            std::int64_t rank = shape->size();
+            if (*dim >= 1 && *dim <= rank) {
+              if (auto &extent{shape->at(*dim - 1)}) {
+                return Fold(context, ConvertToType<T>(std::move(*extent)));
+              }
+            } else {
+              context.messages().Say(
+                  "size(array,dim=%jd) dimension is out of range for rank-%d array"_en_US,
+                  static_cast<std::intmax_t>(*dim), static_cast<int>(rank));
+            }
+          }
+        } else if (auto extents{
+                       common::AllElementsPresent(std::move(*shape))}) {
+          // DIM= is absent; compute PRODUCT(SHAPE())
+          ExtentExpr product{1};
+          for (auto &&extent : std::move(*extents)) {
+            product = std::move(product) * std::move(extent);
+          }
+          return Expr<T>{ConvertToType<T>(Fold(context, std::move(product)))};
+        }
+      }
     }
     // TODO:
     // ceiling, count, cshift, dot_product, eoshift,
     // findloc, floor, iachar, iall, iany, iparity, ibits, ichar, image_status,
     // index, ishftc, lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
     // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
-    // scan, selected_char_kind, selected_int_kind, selected_real_kind, shape,
-    // sign, size, spread, sum, transfer, transpose, ubound, unpack, verify
+    // scan, selected_char_kind, selected_int_kind, selected_real_kind,
+    // sign, spread, sum, transfer, transpose, ubound, unpack, verify
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -849,10 +894,19 @@ private:
     std::optional<std::int64_t> start{ToInt64(lower)}, end{ToInt64(upper)},
         step{ToInt64(stride)};
     if (start.has_value() && end.has_value() && step.has_value()) {
+      if (*step == 0) {
+        return false;
+      }
       bool result{true};
-      for (std::int64_t &j{context_.StartImpliedDo(iDo.name(), *start)};
-           j <= *end; j += *step) {
-        result &= FoldArray(iDo.values());
+      std::int64_t &j{context_.StartImpliedDo(iDo.name(), *start)};
+      if (*step > 0) {
+        for (; j <= *end; j += *step) {
+          result &= FoldArray(iDo.values());
+        }
+      } else {
+        for (; j >= *end; j += *step) {
+          result &= FoldArray(iDo.values());
+        }
       }
       context_.EndImpliedDo(iDo.name());
       return result;
@@ -955,6 +1009,7 @@ Expr<TO> FoldOperation(
       [&](auto &kindExpr) -> Expr<TO> {
         kindExpr = Fold(context, std::move(kindExpr));
         using Operand = ResultType<decltype(kindExpr)>;
+        // TODO pmk: conversion of array constructors (constant or not)
         char buffer[64];
         if (auto value{GetScalarConstantValue<Operand>(kindExpr)}) {
           if constexpr (TO::category == TypeCategory::Integer) {
@@ -1366,6 +1421,7 @@ FOR_EACH_TYPE_AND_KIND(template class ExpressionBase, )
 
 class IsConstantExprVisitor : public virtual VisitorBase<bool> {
 public:
+  using Result = bool;
   explicit IsConstantExprVisitor(int) { result() = true; }
 
   template<int KIND> void Handle(const TypeParamInquiry<KIND> &inq) {
@@ -1395,7 +1451,7 @@ private:
 };
 
 bool IsConstantExpr(const Expr<SomeType> &expr) {
-  return Visitor<bool, IsConstantExprVisitor>{0}.Traverse(expr);
+  return Visitor<IsConstantExprVisitor>{0}.Traverse(expr);
 }
 
 std::optional<std::int64_t> ToInt64(const Expr<SomeInteger> &expr) {
