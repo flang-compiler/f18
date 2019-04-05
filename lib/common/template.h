@@ -20,6 +20,7 @@
 #include <tuple>
 #include <type_traits>
 #include <variant>
+#include <vector>
 
 // Utility templates for metaprogramming and for composing the
 // std::optional<>, std::tuple<>, and std::variant<> containers.
@@ -157,6 +158,21 @@ struct AreTypesDistinctHelper {
 template<typename... Ts>
 constexpr bool AreTypesDistinct{AreTypesDistinctHelper<Ts...>::value()};
 
+template<typename A, typename... Ts> struct AreSameTypeHelper {
+  using type = A;
+  static constexpr bool value() {
+    if constexpr (sizeof...(Ts) == 0) {
+      return true;
+    } else {
+      using Rest = AreSameTypeHelper<Ts...>;
+      return std::is_same_v<type, typename Rest::type> && Rest::value();
+    }
+  }
+};
+
+template<typename... Ts>
+constexpr bool AreSameType{AreSameTypeHelper<Ts...>::value()};
+
 template<typename> struct TupleToVariantHelper;
 template<typename... Ts> struct TupleToVariantHelper<std::tuple<Ts...>> {
   static_assert(AreTypesDistinct<Ts...> ||
@@ -219,6 +235,24 @@ std::optional<std::tuple<A...>> AllElementsPresent(
       std::move(t), std::index_sequence_for<A...>{});
 }
 
+// std::vector<std::optional<A>> -> std::optional<std::vector<A>>
+// i.e., inverts a vector of optional values into an optional vector that
+// will have a value only when all of the original elements are present.
+template<typename A>
+std::optional<std::vector<A>> AllElementsPresent(
+    std::vector<std::optional<A>> &&v) {
+  for (const auto &maybeA : v) {
+    if (!maybeA.has_value()) {
+      return std::nullopt;
+    }
+  }
+  std::vector<A> result;
+  for (auto &&maybeA : std::move(v)) {
+    result.emplace_back(std::move(*maybeA));
+  }
+  return result;
+}
+
 // (std::optional<>...) -> std::optional<std::tuple<...>>
 // i.e., given some number of optional values, return a optional tuple of
 // those values that is present only of all of the values were so.
@@ -239,6 +273,10 @@ std::optional<R> MapOptional(
     return std::make_optional(std::apply(std::move(f), std::move(*args)));
   }
   return std::nullopt;
+}
+template<typename R, typename... A>
+std::optional<R> MapOptional(R (*f)(A &&...), std::optional<A> &&... x) {
+  return MapOptional(std::function<R(A && ...)>{f}, std::move(x)...);
 }
 
 // Given a VISITOR class of the general form

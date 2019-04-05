@@ -443,7 +443,7 @@ private:
 template<typename RESULT> struct ArrayConstructorValue {
   using Result = RESULT;
   EVALUATE_UNION_CLASS_BOILERPLATE(ArrayConstructorValue)
-  std::variant<common::CopyableIndirection<Expr<Result>>, ImpliedDo<Result>> u;
+  std::variant<Expr<Result>, ImpliedDo<Result>> u;
 };
 
 template<typename RESULT> class ArrayConstructorValues {
@@ -533,12 +533,15 @@ private:
       Power<Result>, Extremum<Result>>;
   using Indices = std::conditional_t<KIND == ImpliedDoIndex::Result::kind,
       std::tuple<ImpliedDoIndex>, std::tuple<>>;
+  using DescriptorInquiries =
+      std::conditional_t<KIND == DescriptorInquiry::Result::kind,
+          std::tuple<DescriptorInquiry>, std::tuple<>>;
   using Others = std::tuple<Constant<Result>, ArrayConstructor<Result>,
       TypeParamInquiry<KIND>, Designator<Result>, FunctionRef<Result>>;
 
 public:
-  common::TupleToVariant<
-      common::CombineTuples<Operations, Conversions, Indices, Others>>
+  common::TupleToVariant<common::CombineTuples<Operations, Conversions, Indices,
+      DescriptorInquiries, Others>>
       u;
 };
 
