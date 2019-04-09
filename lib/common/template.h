@@ -111,9 +111,16 @@ std::optional<A> JoinOptional(std::optional<std::optional<A>> &&x) {
   return std::nullopt;
 }
 
+// Copy a value from one variant type to another.  The types allowed in the
+// source variant must all be allowed in the destination variant type.
+template<typename TOV, typename FROMV> TOV CopyVariant(const FROMV &u) {
+  return std::visit([](const auto &x) -> TOV { return {x}; }, std::move(u));
+}
+
 // Move a value from one variant type to another.  The types allowed in the
 // source variant must all be allowed in the destination variant type.
-template<typename TOV, typename FROMV> TOV MoveVariant(FROMV &&u) {
+template<typename TOV, typename FROMV>
+common::IfNoLvalue<TOV, FROMV> MoveVariant(FROMV &&u) {
   return std::visit(
       [](auto &&x) -> TOV { return {std::move(x)}; }, std::move(u));
 }
@@ -290,7 +297,8 @@ std::optional<R> MapOptional(R (*f)(A &&...), std::optional<A> &&... x) {
 // casts to true.  If no invocation of Test succeeds, SearchTypes will
 // return a default-constructed value VISITOR::Result{}.
 template<std::size_t J, typename VISITOR>
-typename VISITOR::Result SearchTypesHelper(VISITOR &&visitor) {
+common::IfNoLvalue<typename VISITOR::Result, VISITOR> SearchTypesHelper(
+    VISITOR &&visitor) {
   using Tuple = typename VISITOR::Types;
   if constexpr (J < std::tuple_size_v<Tuple>) {
     if (auto result{visitor.template Test<std::tuple_element_t<J, Tuple>>()}) {
@@ -303,7 +311,8 @@ typename VISITOR::Result SearchTypesHelper(VISITOR &&visitor) {
 }
 
 template<typename VISITOR>
-typename VISITOR::Result SearchTypes(VISITOR &&visitor) {
+common::IfNoLvalue<typename VISITOR::Result, VISITOR> SearchTypes(
+    VISITOR &&visitor) {
   return SearchTypesHelper<0, VISITOR>(std::move(visitor));
 }
 }

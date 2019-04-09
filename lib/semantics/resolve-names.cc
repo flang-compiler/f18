@@ -145,7 +145,7 @@ public:
   // It is not in any scope and always has MiscDetails.
   void MakePlaceholder(const parser::Name &, MiscDetails::Kind);
 
-  template<typename T> auto FoldExpr(T &&expr) -> T {
+  template<typename T> common::IfNoLvalue<T, T> FoldExpr(T &&expr) {
     return evaluate::Fold(GetFoldingContext(), std::move(expr));
   }
 
@@ -172,11 +172,13 @@ public:
     }
   }
 
-  template<typename... A> Message &Say(const parser::Name &name, A... args) {
-    return messageHandler_.Say(name.source, std::forward<A>(args)...);
-  }
-  template<typename... A> Message &Say(A... args) {
+  template<typename... A> Message &Say(A &&... args) {
     return messageHandler_.Say(std::forward<A>(args)...);
+  }
+  template<typename... A>
+  Message &Say(
+      const parser::Name &name, MessageFixedText &&text, const A &... args) {
+    return messageHandler_.Say(name.source, std::move(text), args...);
   }
 
 private:
@@ -444,18 +446,20 @@ public:
   Symbol &MakeSymbol(const parser::Name &, Attrs = Attrs{});
 
   template<typename D>
-  Symbol &MakeSymbol(const parser::Name &name, D &&details) {
+  common::IfNoLvalue<Symbol &, D> MakeSymbol(
+      const parser::Name &name, D &&details) {
     return MakeSymbol(name, Attrs{}, std::move(details));
   }
 
   template<typename D>
-  Symbol &MakeSymbol(
+  common::IfNoLvalue<Symbol &, D> MakeSymbol(
       const parser::Name &name, const Attrs &attrs, D &&details) {
     return Resolve(name, MakeSymbol(name.source, attrs, std::move(details)));
   }
 
   template<typename D>
-  Symbol &MakeSymbol(const SourceName &name, const Attrs &attrs, D &&details) {
+  common::IfNoLvalue<Symbol &, D> MakeSymbol(
+      const SourceName &name, const Attrs &attrs, D &&details) {
     // Note: don't use FindSymbol here. If this is a derived type scope,
     // we want to detect whether the name is already declared as a component.
     auto *symbol{FindInScope(currScope(), name)};
@@ -490,7 +494,7 @@ public:
       SayAlreadyDeclared(name, *symbol);
       // replace the old symbol with a new one with correct details
       EraseSymbol(*symbol);
-      return MakeSymbol(name, attrs, details);
+      return MakeSymbol(name, attrs, std::move(details));
     }
   }
 
@@ -2185,14 +2189,14 @@ bool SubprogramVisitor::HandleStmtFunction(const parser::StmtFunctionStmt &x) {
         }
       }
     }
-    details.add_dummyArg(MakeSymbol(dummyName, dummyDetails));
+    details.add_dummyArg(MakeSymbol(dummyName, std::move(dummyDetails)));
   }
   EraseSymbol(name);  // added by PushSubprogramScope
   EntityDetails resultDetails;
   if (resultType) {
     resultDetails.set_type(*resultType);
   }
-  details.set_result(MakeSymbol(name, resultDetails));
+  details.set_result(MakeSymbol(name, std::move(resultDetails)));
   return true;
 }
 
@@ -2317,7 +2321,8 @@ void SubprogramVisitor::Post(const parser::FunctionStmt &stmt) {
   // add function result to function scope
   EntityDetails funcResultDetails;
   funcResultDetails.set_funcResult(true);
-  funcInfo_.resultSymbol = &MakeSymbol(*funcResultName, funcResultDetails);
+  funcInfo_.resultSymbol =
+      &MakeSymbol(*funcResultName, std::move(funcResultDetails));
   details.set_result(*funcInfo_.resultSymbol);
 }
 
@@ -2535,7 +2540,7 @@ void DeclarationVisitor::Post(const parser::CodimensionDecl &x) {
   const auto &name{std::get<parser::Name>(x.t)};
   DeclareObjectEntity(name, Attrs{});
 }
-//TODO: ChangeTeamStmt also uses CodimensionDecl
+// TODO: ChangeTeamStmt also uses CodimensionDecl
 
 void DeclarationVisitor::Post(const parser::EntityDecl &x) {
   // TODO: may be under StructureStmt
@@ -3456,7 +3461,7 @@ void DeclarationVisitor::CheckSaveStmts() {
           "Explicit SAVE of '%s' is redundant due to global SAVE statement"_err_en_US,
           *saveInfo_.saveAll, "Global SAVE statement"_en_US);
     } else if (auto msg{CheckSaveAttr(*symbol)}) {
-      Say(name, *msg);
+      Say(name, std::move(*msg));
     } else {
       SetSaveAttr(*symbol);
     }
@@ -3799,7 +3804,7 @@ Symbol *DeclarationVisitor::MakeTypeSymbol(
         std::holds_alternative<ProcBindingDetails>(details)) {
       attrs.set(Attr::PRIVATE);
     }
-    Symbol &result{MakeSymbol(name, attrs, details)};
+    Symbol &result{MakeSymbol(name, attrs, std::move(details))};
     if (result.has<TypeParamDetails>()) {
       derivedType.symbol()->get<DerivedTypeDetails>().add_paramDecl(result);
     }

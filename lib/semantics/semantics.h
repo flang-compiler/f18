@@ -84,12 +84,14 @@ public:
   bool AnyFatalError() const;
 
   template<typename... A>
-  parser::Message &Say(const parser::CharBlock &at, A &&... args) {
-    return messages_.Say(at, std::forward<A>(args)...);
+  common::IfNoLvalue<parser::Message &, A...> Say(
+      const parser::CharBlock &at, A &&... args) {
+    return messages_.Say(at, std::move(args)...);
   }
-  template<typename... A> parser::Message &Say(A &&... args) {
+  template<typename... A>
+  common::IfNoLvalue<parser::Message &, A...> Say(A &&... args) {
     CHECK(location_);
-    return messages_.Say(*location_, std::forward<A>(args)...);
+    return messages_.Say(*location_, std::move(args)...);
   }
   parser::Message &Say(parser::Message &&msg) {
     return messages_.Say(std::move(msg));
