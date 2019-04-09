@@ -95,14 +95,13 @@ template<typename... LAMBDAS> visitors(LAMBDAS... x)->visitors<LAMBDAS...>;
     template<typename A> std::false_type test(...); \
     template<typename A> \
     constexpr bool has_trait{decltype(test<A>(nullptr))::value}; \
-    template<typename A> \
-    constexpr typename std::enable_if_t<has_trait<A>, bool> trait_value() { \
-      using U = typename A::T; \
-      return U::value; \
-    } \
-    template<typename A> \
-    constexpr typename std::enable_if_t<!has_trait<A>, bool> trait_value() { \
-      return false; \
+    template<typename A> constexpr bool trait_value() { \
+      if constexpr (has_trait<A>) { \
+        using U = typename A::T; \
+        return U::value; \
+      } else { \
+        return false; \
+      } \
     } \
   } \
   template<typename A> constexpr bool T{class_trait_ns_##T::trait_value<A>()};
@@ -136,5 +135,20 @@ template<typename A> struct ListItemCount {
 
 // Given a const reference to a value, return a copy of the value.
 template<typename A> A Clone(const A &x) { return x; }
+
+// C++ does a weird and dangerous thing when deducing template type parameters
+// from function arguments: lvalue references are allowed to match rvalue
+// reference arguments.  Template function declarations like
+//   template<typename A> int foo(A &&);
+// need to be protected against this C++ language feature when functions
+// may modify such arguments.  Use these type functions to invoke SFINAE
+// on a result type via
+//   template<typename A> common::IfNoLvalue<int, A> foo(A &&);
+// or, for constructors,
+//   template<typename A, typename = common::NoLvalue<A>> int foo(A &&);
+// This works with parameter packs too.
+template<typename A, typename... B>
+using IfNoLvalue = std::enable_if_t<(... && !std::is_lvalue_reference_v<B>), A>;
+template<typename... RVREF> using NoLvalue = IfNoLvalue<void, RVREF...>;
 }
 #endif  // FORTRAN_COMMON_IDIOMS_H_

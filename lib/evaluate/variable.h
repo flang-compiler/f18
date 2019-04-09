@@ -183,7 +183,7 @@ public:
   int size() const { return static_cast<int>(subscript_.size()); }
   Subscript &at(int n) { return subscript_.at(n); }
   const Subscript &at(int n) const { return subscript_.at(n); }
-  template<typename A> Subscript &emplace_back(A &&x) {
+  template<typename A> common::IfNoLvalue<Subscript &, A> emplace_back(A &&x) {
     return subscript_.emplace_back(std::move(x));
   }
 
@@ -348,7 +348,7 @@ public:
   static_assert(IsSpecificIntrinsicType<Result> ||
       std::is_same_v<Result, SomeKind<TypeCategory::Derived>>);
   EVALUATE_UNION_CLASS_BOILERPLATE(Designator)
-  Designator(const DataRef &that) : u{common::MoveVariant<Variant>(that.u)} {}
+  Designator(const DataRef &that) : u{common::CopyVariant<Variant>(that.u)} {}
   Designator(DataRef &&that)
     : u{common::MoveVariant<Variant>(std::move(that.u))} {}
 

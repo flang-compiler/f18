@@ -141,8 +141,7 @@ public:
 
   template<typename RANGE, typename A1, typename... As>
   Message(RANGE r, const MessageFixedText &t, A1 a1, As... as)
-    : location_{r}, text_{
-                        MessageFormattedText{t, a1, std::forward<As>(as)...}} {}
+    : location_{r}, text_{MessageFormattedText{t, a1, as...}} {}
 
   bool attachmentIsContext() const { return attachmentIsContext_; }
   Reference attachment() const { return attachment_; }
