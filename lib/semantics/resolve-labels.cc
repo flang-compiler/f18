@@ -893,17 +893,19 @@ void CheckLabelDoConstraints(const SourceStmtList &dos,
           parser::MessageFormattedText{
               "label '%u' is not in scope"_en_US, SayLabel(label)});
     } else if (!doTarget.labeledStmtClassificationSet.test(
-                   TargetStatementEnum::Do) &&
-        !doTarget.labeledStmtClassificationSet.test(
-            TargetStatementEnum::CompatibleDo)) {
-      errorHandler.Say(doTarget.parserCharBlock,
-          parser::MessageFormattedText{
-              "'%u' invalid DO terminal statement"_err_en_US, SayLabel(label)});
-    } else if (!doTarget.labeledStmtClassificationSet.test(
                    TargetStatementEnum::Do)) {
-      errorHandler.Say(doTarget.parserCharBlock,
-          parser::MessageFormattedText{
-              "'%u' invalid DO terminal statement"_en_US, SayLabel(label)});
+      if (!doTarget.labeledStmtClassificationSet.test(
+              TargetStatementEnum::CompatibleDo)) {
+        errorHandler.Say(doTarget.parserCharBlock,
+            parser::MessageFormattedText{
+                "Only an END DO or CONTINUE must be used to terminate a labeled DO loop"_err_en_US,
+                SayLabel(label)});
+      } else {
+        errorHandler.Say(doTarget.parserCharBlock,
+            parser::MessageFormattedText{
+                "Only an END DO or CONTINUE should be used to terminate a labeled DO loop"_en_US,
+                SayLabel(label)});
+      }
     } else {
       loopBodies.emplace_back(SkipLabel(position), doTarget.parserCharBlock);
     }
