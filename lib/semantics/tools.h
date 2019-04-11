@@ -19,6 +19,7 @@
 // canonically for use in semantic checking.
 
 #include "scope.h"
+#include "semantics.h"
 #include "symbol.h"
 #include "type.h"
 #include "../evaluate/variable.h"
@@ -84,6 +85,8 @@ const Symbol *FindExternallyVisibleObject(
 bool ExprHasTypeCategory(
     const evaluate::GenericExprWrapper &expr, const common::TypeCategory &type);
 bool ExprHasTypeKind(const evaluate::GenericExprWrapper &expr, int kind);
+bool ExprTypeKindIsDefault(
+    const evaluate::GenericExprWrapper &expr, const SemanticsContext &context);
 bool ExprIsScalar(const evaluate::GenericExprWrapper &expr);
 void CheckScalarLogicalExpr(
     const parser::Expr &expr, parser::Messages &messages);
