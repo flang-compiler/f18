@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_SEMANTICS_CHECK_IF_STMT_H_
-#define FORTRAN_SEMANTICS_CHECK_IF_STMT_H_
+#ifndef FORTRAN_SEMANTICS_CHECK_DEALLOCATE_H_
+#define FORTRAN_SEMANTICS_CHECK_DEALLOCATE_H_
 
 #include "semantics.h"
 
 namespace Fortran::parser {
-struct IfStmt;
+struct DeallocateStmt;
 }
 
 namespace Fortran::semantics {
-class IfStmtChecker : public virtual BaseChecker {
+class DeallocateChecker : public virtual BaseChecker {
 public:
-  IfStmtChecker(SemanticsContext &context) : context_{context} {}
-  void Leave(const parser::IfStmt &);
+  DeallocateChecker(SemanticsContext &context) : context_{context} {}
+  void Leave(const parser::DeallocateStmt &);
 
 private:
   SemanticsContext &context_;
 };
 }
-#endif  // FORTRAN_SEMANTICS_CHECK_IF_STMT_H_
+#endif  // FORTRAN_SEMANTICS_CHECK_DEALLOCATE_H_
