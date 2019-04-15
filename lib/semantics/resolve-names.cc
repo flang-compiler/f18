@@ -21,8 +21,8 @@
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
-#include "type.h"
 #include "tools.h"
+#include "type.h"
 #include "../common/Fortran.h"
 #include "../common/default-kinds.h"
 #include "../common/indirection.h"
@@ -2526,7 +2526,7 @@ void DeclarationVisitor::CheckScalarIntegerType(const parser::Name &name) {
     }
     if (auto *type{symbol.GetType()}) {
       if (!type->IsNumeric(TypeCategory::Integer)) {
-        Say(name, "Variable '%s' is not integer"_err_en_US);
+        Say(name, "Variable '%s' is not INTEGER"_err_en_US);
         return;
       }
     }
@@ -4606,7 +4606,7 @@ bool ResolveNamesVisitor::Pre(const parser::PointerAssignmentStmt &x) {
   ResolveDataRef(dataRef);
   Walk(bounds);
   // Resolve unrestricted specific intrinsic procedures as in "p => cos".
-  if (const parser::Name *name{GetSimpleName(expr)}) {
+  if (const parser::Name * name{GetSimpleName(expr)}) {
     if (NameIsKnownOrIntrinsic(*name)) {
       return false;
     }

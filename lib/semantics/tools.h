@@ -29,7 +29,7 @@ struct Variable;
 }
 
 namespace Fortran::evaluate {
-class GenericExprWrapper;
+struct GenericExprWrapper;
 }
 
 namespace Fortran::semantics {
@@ -97,14 +97,11 @@ const Symbol *FindExternallyVisibleObject(
 
 bool ExprHasTypeCategory(
     const evaluate::GenericExprWrapper &expr, const common::TypeCategory &type);
-void CheckScalarLogicalExpr(
-    const parser::Expr &expr, parser::Messages &messages);
 
 // If this Expr or Variable represents a simple Name, return it.
 parser::Name *GetSimpleName(parser::Expr &);
 const parser::Name *GetSimpleName(const parser::Expr &);
 parser::Name *GetSimpleName(parser::Variable &);
 const parser::Name *GetSimpleName(const parser::Variable &);
-
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_
