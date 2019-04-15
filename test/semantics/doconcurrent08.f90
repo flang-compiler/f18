@@ -12,25 +12,14 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-! Check that computed goto express must be a scalar integer expression
-! TODO: PGI, for example, accepts a float & converts the value to int.
+! RUN: ${F18} -funparse-with-symbols %s 2>&1 | ${FileCheck} %s
+! CHECK: image control statement not allowed in DO CONCURRENT
+! CHECK: SYNC ALL
 
-REAL R
-COMPLEX Z
-LOGICAL L
-INTEGER, DIMENSION (2) :: B
-
-!ERROR: Must have INTEGER type, but is REAL(4)
-GOTO (100) 1.5
-!ERROR: Must have INTEGER type, but is LOGICAL(4)
-GOTO (100) .TRUE.
-!ERROR: Must have INTEGER type, but is REAL(4)
-GOTO (100) R
-!ERROR: Must have INTEGER type, but is COMPLEX(4)
-GOTO (100) Z
-!ERROR: Must be a scalar value, but is a rank-1 array
-GOTO (100) B
-
-100 CONTINUE
-
-END
+subroutine do_concurrent_test1(i,n)
+  implicit none
+  integer :: i, n
+  do 10 concurrent (i = 1:n)
+     SYNC ALL
+10 continue
+end subroutine do_concurrent_test1

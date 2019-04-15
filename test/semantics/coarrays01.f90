@@ -12,9 +12,9 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-! Test construct entities in CHANGE TEAM statement
+! Test selector and team-value in CHANGE TEAM statement
 
-! Temporary, until we have read iso_fortran_env
+! Temporary, until we have real iso_fortran_env
 module iso_fortran_env
   type :: team_type
   end type
@@ -65,18 +65,4 @@ subroutine s3
   form team(1, t1)
   !ERROR: Team variable 't2' must be of type TEAM_TYPE from module ISO_FORTRAN_ENV
   form team(2, t2)
-end
-
-subroutine s4
-  use iso_fortran_env, only: team_type
-  complex :: z
-  integer :: i, j(10)
-  type(team_type) :: t, t2(2)
-  form team(i, t)
-  !ERROR: Must be a scalar value, but is a rank-1 array
-  form team(1, t2)
-  !ERROR: Must have INTEGER type
-  form team(z, t)
-  !ERROR: Must be a scalar value, but is a rank-1 array
-  form team(j, t)
 end

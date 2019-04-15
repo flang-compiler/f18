@@ -12,25 +12,12 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-! Check that computed goto express must be a scalar integer expression
-! TODO: PGI, for example, accepts a float & converts the value to int.
+! Check calls with alt returns
 
-REAL R
-COMPLEX Z
-LOGICAL L
-INTEGER, DIMENSION (2) :: B
-
-!ERROR: Must have INTEGER type, but is REAL(4)
-GOTO (100) 1.5
-!ERROR: Must have INTEGER type, but is LOGICAL(4)
-GOTO (100) .TRUE.
-!ERROR: Must have INTEGER type, but is REAL(4)
-GOTO (100) R
-!ERROR: Must have INTEGER type, but is COMPLEX(4)
-GOTO (100) Z
-!ERROR: Must be a scalar value, but is a rank-1 array
-GOTO (100) B
-
-100 CONTINUE
-
-END
+       CALL TEST (N, *100, *200 )
+       PRINT *,'Normal return'
+       STOP
+100    PRINT *,'First alternate return'
+       STOP
+200    PRINT *,'Secondnd alternate return'
+       END

@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -13,17 +13,12 @@
 ! limitations under the License.
 
 ! RUN: ${F18} -funparse-with-symbols %s 2>&1 | ${FileCheck} %s
-! CHECK: image control statement not allowed in DO CONCURRENT
-! CHECK: SYNC ALL
-! CHECK: do-variable must have INTEGER type
+! CHECK: Variable 'j' is not INTEGER
 
-subroutine do_concurrent_test1(i,n)
+subroutine do_concurrent_test1(n)
   implicit none
-  integer :: i, n
+  integer :: n
   real :: j
-  do 20 j = 1, 20
-     do 10 concurrent (i = 1:n)
-        SYNC ALL
-10   continue
+  do 20 concurrent (j = 1:n)
 20 enddo
 end subroutine do_concurrent_test1
