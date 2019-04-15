@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
-#define FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
+#ifndef FORTRAN_SEMANTICS_CHECK_RETURN_H_
+#define FORTRAN_SEMANTICS_CHECK_RETURN_H_
 
 #include "semantics.h"
 
 namespace Fortran::parser {
-struct IfConstruct;
+struct ReturnStmt;
 }
 
 namespace Fortran::semantics {
-class IfConstructChecker : public virtual BaseChecker {
+class ReturnStmtChecker : public virtual BaseChecker {
 public:
-  IfConstructChecker(SemanticsContext &context) : context_{context} {}
-  void Leave(const parser::IfConstruct &);
+  ReturnStmtChecker(SemanticsContext &context) : context_{context} {}
+  void Leave(const parser::ReturnStmt &);
 
 private:
   SemanticsContext &context_;
 };
 }
-#endif  // FORTRAN_SEMANTICS_CHECK_IF_CONSTRUCT_H_
+#endif  // FORTRAN_SEMANTICS_CHECK_RETURN_H_
