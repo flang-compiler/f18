@@ -274,10 +274,6 @@ bool ExprTypeKindIsDefault(
       context.defaultKinds().GetDefaultKind(dynamicType->category);
 }
 
-bool ExprIsScalar(const evaluate::GenericExprWrapper &expr) {
-  return !(expr.v.Rank() > 0);
-}
-
 void CheckScalarLogicalExpr(
     const parser::Expr &expr, parser::Messages &messages) {
   // TODO: should be asserting that typedExpr is not null
