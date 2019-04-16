@@ -265,11 +265,6 @@ bool ExprHasTypeCategory(const evaluate::GenericExprWrapper &expr,
   return dynamicType.has_value() && dynamicType->category == type;
 }
 
-bool ExprHasTypeKind(const evaluate::GenericExprWrapper &expr, int kind) {
-  auto dynamicType{expr.v.GetType()};
-  return dynamicType.has_value() && dynamicType->kind == kind;
-}
-
 bool ExprTypeKindIsDefault(
     const evaluate::GenericExprWrapper &expr, const SemanticsContext &context) {
   auto dynamicType{expr.v.GetType()};
