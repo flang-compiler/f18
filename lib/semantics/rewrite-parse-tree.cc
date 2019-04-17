@@ -20,6 +20,7 @@
 #include "../common/indirection.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../parser/parse-tree.h"
+#include "../parser/tools.h"
 #include <list>
 
 namespace Fortran::semantics {
@@ -28,6 +29,8 @@ using namespace parser::literals;
 
 /// Convert mis-identified statement functions to array element assignments.
 /// Convert mis-identified format expressions to namelist group names.
+/// Convert mis-identified character variables in I/O units to integer
+/// unit number expressions.
 class RewriteMutator {
 public:
   RewriteMutator(parser::Messages &messages) : messages_{messages} {}
@@ -39,6 +42,7 @@ public:
   void Post(parser::Name &);
   void Post(parser::SpecificationPart &);
   bool Pre(parser::ExecutionPart &);
+  void Post(parser::IoUnit &);
   void Post(parser::ReadStmt &);
   void Post(parser::WriteStmt &);
 
@@ -105,19 +109,35 @@ bool RewriteMutator::Pre(parser::ExecutionPart &x) {
   return true;
 }
 
+void RewriteMutator::Post(parser::IoUnit &x) {
+  if (auto *var{std::get_if<parser::Variable>(&x.u)}) {
+    const parser::Name &last{parser::GetLastName(*var)};
+    DeclTypeSpec *type{last.symbol ? last.symbol->GetType() : nullptr};
+    if (type == nullptr || type->category() != DeclTypeSpec::Character) {
+      // If the Variable is not known to be character (any kind), transform
+      // the I/O unit in situ to a FileUnitNumber so that automatic expression
+      // constraint checking will be applied.
+      auto expr{std::visit(
+          [](auto &&indirection) {
+            return parser::Expr{std::move(indirection)};
+          },
+          std::move(var->u))};
+      x.u = parser::FileUnitNumber{
+          parser::ScalarIntExpr{parser::IntExpr{std::move(expr)}}};
+    }
+  }
+}
+
 // When a namelist group name appears (without NML=) in a READ or WRITE
 // statement in such a way that it can be misparsed as a format expression,
 // rewrite the I/O statement's parse tree node as if the namelist group
 // name had appeared with NML=.
 template<typename READ_OR_WRITE>
 void FixMisparsedUntaggedNamelistName(READ_OR_WRITE &x) {
-  if (x.iounit.has_value() && x.format.has_value()) {
-    if (auto *charExpr{
-            std::get_if<parser::DefaultCharExpr>(&x.format.value().u)}) {
-      parser::Expr &expr{charExpr->thing.value()};
-      parser::Name *name{GetSimpleName(expr)};
-      if (name != nullptr && name->symbol != nullptr &&
-          name->symbol->has<NamelistDetails>()) {
+  if (x.iounit.has_value() && x.format.has_value() &&
+      std::holds_alternative<parser::DefaultCharExpr>(x.format->u)) {
+    if (const parser::Name * name{parser::Unwrap<parser::Name>(x.format)}) {
+      if (name->symbol != nullptr && name->symbol->has<NamelistDetails>()) {
         x.controls.emplace_front(parser::IoControlSpec{std::move(*name)});
         x.format.reset();
       }
