@@ -39,10 +39,14 @@ class HostFloatingPointEnvironment {
 public:
   void SetUpHostFloatingPointEnvironment(FoldingContext &);
   void CheckAndRestoreFloatingPointEnvironment(FoldingContext &);
+  bool hasSubnormalFlushingHardwareControl() {
+    return hasSubnormalFlushingHardwareControl_;
+  }
 
 private:
   std::fenv_t originalFenv_;
   std::fenv_t currentFenv_;
+  bool hasSubnormalFlushingHardwareControl_{false};
 };
 
 // Type mapping from F18 types to host types

@@ -60,6 +60,7 @@ bool IsPointerDummy(const Symbol &);
 bool IsFunction(const Symbol &);
 bool IsPureFunction(const Symbol &);
 bool IsPureFunction(const Scope &);
+bool IsProcedure(const Symbol &);
 bool IsProcName(const Symbol &symbol);  // proc-name
 bool IsVariableName(const Symbol &symbol);  // variable-name
 bool IsAllocatable(const Symbol &);
@@ -100,11 +101,5 @@ bool ExprHasTypeCategory(
     const evaluate::GenericExprWrapper &expr, const common::TypeCategory &type);
 bool ExprTypeKindIsDefault(
     const evaluate::GenericExprWrapper &expr, const SemanticsContext &context);
-
-// If this Expr or Variable represents a simple Name, return it.
-parser::Name *GetSimpleName(parser::Expr &);
-const parser::Name *GetSimpleName(const parser::Expr &);
-parser::Name *GetSimpleName(parser::Variable &);
-const parser::Name *GetSimpleName(const parser::Variable &);
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_

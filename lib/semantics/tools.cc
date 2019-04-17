@@ -156,15 +156,20 @@ bool IsProcName(const Symbol &symbol) {
 }
 
 bool IsFunction(const Symbol &symbol) {
-  if (const auto *procDetails{symbol.detailsIf<ProcEntityDetails>()}) {
-    return procDetails->interface().type() != nullptr ||
-        (procDetails->interface().symbol() != nullptr &&
-            IsFunction(*procDetails->interface().symbol()));
-  } else if (const auto *subprogram{symbol.detailsIf<SubprogramDetails>()}) {
-    return subprogram->isFunction();
-  } else {
-    return false;
-  }
+  return std::visit(
+      common::visitors{
+          [](const SubprogramDetails &x) { return x.isFunction(); },
+          [&](const SubprogramNameDetails &x) {
+            return symbol.test(Symbol::Flag::Function);
+          },
+          [](const ProcEntityDetails &x) {
+            const auto &ifc{x.interface()};
+            return ifc.type() || (ifc.symbol() && IsFunction(*ifc.symbol()));
+          },
+          [](const UseDetails &x) { return IsFunction(x.symbol()); },
+          [](const auto &) { return false; },
+      },
+      symbol.details());
 }
 
 bool IsPureFunction(const Symbol &symbol) {
@@ -177,6 +182,18 @@ bool IsPureFunction(const Scope &scope) {
   } else {
     return false;
   }
+}
+
+bool IsProcedure(const Symbol &symbol) {
+  return std::visit(
+      common::visitors{
+          [](const SubprogramDetails &) { return true; },
+          [](const SubprogramNameDetails &) { return true; },
+          [](const ProcEntityDetails &x) { return true; },
+          [](const UseDetails &x) { return IsProcedure(x.symbol()); },
+          [](const auto &) { return false; },
+      },
+      symbol.details());
 }
 
 static const Symbol *FindPointerComponent(
@@ -274,31 +291,4 @@ bool ExprTypeKindIsDefault(
       dynamicType->kind ==
       context.defaultKinds().GetDefaultKind(dynamicType->category);
 }
-
-static parser::Name *GetSimpleName(
-    common::Indirection<parser::Designator> *designator) {
-  if (designator) {
-    auto *dataRef{std::get_if<parser::DataRef>(&designator->value().u)};
-    return dataRef ? std::get_if<parser::Name>(&dataRef->u) : nullptr;
-  } else {
-    return nullptr;
-  }
-}
-
-parser::Name *GetSimpleName(parser::Expr &expr) {
-  return GetSimpleName(
-      std::get_if<common::Indirection<parser::Designator>>(&expr.u));
-}
-const parser::Name *GetSimpleName(const parser::Expr &expr) {
-  return GetSimpleName(const_cast<parser::Expr &>(expr));
-}
-
-parser::Name *GetSimpleName(parser::Variable &variable) {
-  return GetSimpleName(
-      std::get_if<common::Indirection<parser::Designator>>(&variable.u));
-}
-const parser::Name *GetSimpleName(const parser::Variable &variable) {
-  return GetSimpleName(const_cast<parser::Variable &>(variable));
-}
-
 }
