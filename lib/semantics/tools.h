@@ -18,19 +18,18 @@
 // Simple predicates and look-up functions that are best defined
 // canonically for use in semantic checking.
 
+#include "expression.h"
 #include "semantics.h"
 #include "../common/Fortran.h"
+#include "../evaluate/expression.h"
 #include "../evaluate/variable.h"
+#include "../parser/parse-tree.h"
 
 namespace Fortran::parser {
 class Messages;
 struct Expr;
 struct Name;
 struct Variable;
-}
-
-namespace Fortran::evaluate {
-struct GenericExprWrapper;
 }
 
 namespace Fortran::semantics {
@@ -97,9 +96,39 @@ const Symbol *FindExternallyVisibleObject(
       expr.u);
 }
 
+using SomeExpr = evaluate::Expr<evaluate::SomeType>;
+
 bool ExprHasTypeCategory(
-    const evaluate::GenericExprWrapper &expr, const common::TypeCategory &type);
+    const SomeExpr &expr, const common::TypeCategory &type);
 bool ExprTypeKindIsDefault(
-    const evaluate::GenericExprWrapper &expr, const SemanticsContext &context);
+    const SomeExpr &expr, const SemanticsContext &context);
+
+struct GetExprHelper {
+  const SomeExpr *Get(const parser::Expr::TypedExpr &x) {
+    return x ? &x->v : nullptr;
+  }
+  const SomeExpr *Get(const parser::Expr &x) { return Get(x.typedExpr); }
+  const SomeExpr *Get(const parser::Variable &x) { return Get(x.typedExpr); }
+  template<typename T> const SomeExpr *Get(const common::Indirection<T> &x) {
+    return Get(x.value());
+  }
+  template<typename T> const SomeExpr *Get(const std::optional<T> &x) {
+    return x.has_value() ? Get(x.value()) : nullptr;
+  }
+  template<typename T> const SomeExpr *Get(const T &x) {
+    if constexpr (ConstraintTrait<T>) {
+      return Get(x.thing);
+    } else if constexpr (WrapperTrait<T>) {
+      return Get(x.v);
+    } else {
+      return nullptr;
+    }
+  }
+};
+
+template<typename T> const SomeExpr *GetExpr(const T &x) {
+  return GetExprHelper{}.Get(x);
+}
+
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_

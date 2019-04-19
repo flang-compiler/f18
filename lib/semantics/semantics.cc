@@ -17,7 +17,6 @@
 #include "canonicalize-do.h"
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
-#include "check-computed-goto.h"
 #include "check-deallocate.h"
 #include "check-do-concurrent.h"
 #include "check-if-stmt.h"
@@ -80,10 +79,15 @@ private:
 };
 
 using StatementSemanticsPass1 = ExprChecker;
-using StatementSemanticsPass2 =
-    SemanticsVisitor<ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
-        ComputedGotoStmtChecker, DeallocateChecker, DoConcurrentChecker,
-        IfStmtChecker, NullifyChecker, ReturnStmtChecker, StopChecker>;
+using StatementSemanticsPass2 = SemanticsVisitor<ArithmeticIfStmtChecker,
+    AssignmentChecker, CoarrayChecker, DeallocateChecker, DoConcurrentChecker,
+    IfStmtChecker, NullifyChecker, ReturnStmtChecker, StopChecker>;
+
+static bool PerformStatementSemantics(
+    SemanticsContext &context, const parser::Program &program) {
+  StatementSemanticsPass1{context}.Walk(program);
+  return StatementSemanticsPass2{context}.Walk(program);
+}
 
 SemanticsContext::SemanticsContext(
     const common::IntrinsicTypeDefaultKinds &defaultKinds,
@@ -137,8 +141,7 @@ bool Semantics::Perform() {
       parser::CanonicalizeDo(program_) &&  // force line break
       ResolveNames(context_, program_) &&
       RewriteParseTree(context_, program_) &&
-      StatementSemanticsPass1{context_}.Walk(program_) &&
-      StatementSemanticsPass2{context_}.Walk(program_) &&
+      PerformStatementSemantics(context_, program_) &&
       ModFileWriter{context_}.WriteAll();
 }
 
