@@ -25,6 +25,7 @@
 #include "check-return.h"
 #include "check-stop.h"
 #include "expression.h"
+#include "io.h"
 #include "mod-file.h"
 #include "resolve-labels.h"
 #include "resolve-names.h"
@@ -82,8 +83,8 @@ private:
 using StatementSemanticsPass1 = ExprChecker;
 using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
     ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
-    DeallocateChecker, DoConcurrentChecker, IfStmtChecker, NullifyChecker,
-    ReturnStmtChecker, StopChecker>;
+    DeallocateChecker, DoConcurrentChecker, IfStmtChecker, IoChecker,
+    NullifyChecker, ReturnStmtChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
