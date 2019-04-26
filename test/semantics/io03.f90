@@ -14,6 +14,7 @@
 
   character(kind=1,len=50) internal_file
   character(kind=2,len=50) internal_file2
+  character(kind=4,len=50) internal_file4
   character(kind=1,len=111) msg
   character(20) advance
   integer*1 stat1
@@ -58,8 +59,11 @@
       decimal='comma', end=9, eor=9, err=9, id=id, iomsg=msg, iostat=stat2, &
       pad='no', round='processor_defined', size=kk) jj
 
-  !ERROR: invalid internal file variable type
+  !ERROR: invalid character kind for an internal file variable
   read(internal_file2, *) jj
+
+  !ERROR: invalid character kind for an internal file variable
+  read(internal_file4, *) jj
 
   !ERROR: duplicate IOSTAT specifier
   read(11, pos=ipos, iostat=stat1, iostat=stat2)

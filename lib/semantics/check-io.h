@@ -16,6 +16,7 @@
 #define FORTRAN_SEMANTICS_IO_H_
 
 #include "semantics.h"
+#include "tools.h"
 #include "../common/enum-set.h"
 #include "../parser/parse-tree.h"
 
@@ -90,6 +91,31 @@ private:
       Dispose,  // nonstandard
   );
 
+  // Presence flag values.
+  ENUM_CLASS(Flag, IoControlList, InternalUnit, NumberUnit, StarUnit, CharFmt,
+      LabelFmt, StarFmt, FmtOrNml, KnownAccess, AccessDirect, AccessStream,
+      AdvanceYes, AsynchronousYes, KnownStatus, StatusNew, StatusReplace,
+      StatusScratch, DataList);
+
+  template<typename R, typename T> std::optional<R> GetConstExpr(const T &x) {
+    using DefaultCharConstantType =
+        evaluate::Constant<evaluate::Type<common::TypeCategory::Character, 1>>;
+    if (const SomeExpr * expr{GetExpr(x)}) {
+      const auto foldExpr{
+          evaluate::Fold(context_.foldingContext(), common::Clone(*expr))};
+      if constexpr (std::is_same_v<R, std::string>) {
+        if (const auto *charConst{
+                evaluate::UnwrapExpr<DefaultCharConstantType>(foldExpr)}) {
+          return {**charConst};
+        }
+      } else {
+        static_assert(std::is_same_v<R, std::int64_t>, "unexpected type");
+        return evaluate::ToInt64(foldExpr);
+      }
+    }
+    return std::nullopt;
+  }
+
   void LeaveReadWrite() const;
 
   void SetSpecifier(SpecifierKind);
@@ -117,28 +143,13 @@ private:
   void Init(IoStmtKind s) {
     stmt_ = s;
     specifierSet_.reset();
-    hasIoControlList_ = false;
-    hasInternalUnit_ = hasNumberUnit_ = hasStarUnit_ = false;
-    hasCharFormat_ = hasLabelFormat_ = hasStarFormat_ = false;
-    hasKnownAccess_ = hasAccessDirect_ = hasAccessStream_ = false;
-    hasAdvanceYes_ = false;
-    hasAsynchronousYes_ = false;
-    hasKnownStatus_ = hasStatusNew_ = hasStatusReplace_ = hasStatusScratch_ =
-        false;
-    hasDataList_ = false;
+    flag_.reset();
   }
 
   SemanticsContext &context_;
   IoStmtKind stmt_ = IoStmtKind::None;
   common::EnumSet<SpecifierKind, SpecifierKind_enumSize> specifierSet_;
-  bool hasIoControlList_;
-  bool hasInternalUnit_, hasNumberUnit_, hasStarUnit_;
-  bool hasCharFormat_, hasLabelFormat_, hasStarFormat_;
-  bool hasKnownAccess_, hasAccessDirect_, hasAccessStream_;
-  bool hasAdvanceYes_;
-  bool hasAsynchronousYes_;
-  bool hasKnownStatus_, hasStatusNew_, hasStatusReplace_, hasStatusScratch_;
-  bool hasDataList_;
+  common::EnumSet<Flag, Flag_enumSize> flag_;
 };
 
 }

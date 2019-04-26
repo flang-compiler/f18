@@ -13,7 +13,6 @@
 ! limitations under the License.
 
   character(kind=1,len=50) internal_file
-  character(kind=2,len=50) internal_file2
   character(kind=1,len=100) msg
   character(20) sign
   integer*1 stat1, id1
