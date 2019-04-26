@@ -52,9 +52,9 @@ void IoChecker::Enter(const parser::ConnectSpec::CharExpr &spec) {
           std::get<parser::ScalarDefaultCharExpr>(spec.t))}) {
     std::string s{parser::ToUpperCaseLetters(*charConst)};
     if (specKind == SpecifierKind::Access) {
-      flag_.set(Flag::KnownAccess);
-      flag_.set(Flag::AccessDirect, s == "DIRECT");
-      flag_.set(Flag::AccessStream, s == "STREAM");
+      flags_.set(Flag::KnownAccess);
+      flags_.set(Flag::AccessDirect, s == "DIRECT");
+      flags_.set(Flag::AccessStream, s == "STREAM");
     }
     CheckStringValue(specKind, *charConst, parser::FindSourceLocation(spec));
   }
@@ -90,19 +90,19 @@ void IoChecker::Enter(const parser::ErrLabel &spec) {
 
 void IoChecker::Enter(const parser::FileUnitNumber &spec) {
   SetSpecifier(SpecifierKind::Unit);
-  flag_.set(Flag::NumberUnit);
+  flags_.set(Flag::NumberUnit);
 }
 
 void IoChecker::Enter(const parser::Format &spec) {
   SetSpecifier(SpecifierKind::Fmt);
-  flag_.set(Flag::FmtOrNml);
+  flags_.set(Flag::FmtOrNml);
   if (std::get_if<parser::Star>(&spec.u)) {
-    flag_.set(Flag::StarFmt);
+    flags_.set(Flag::StarFmt);
   } else if (std::get_if<parser::Label>(&spec.u)) {
     // Format statement format should be validated elsewhere.
-    flag_.set(Flag::LabelFmt);
+    flags_.set(Flag::LabelFmt);
   } else {
-    flag_.set(Flag::CharFmt);
+    flags_.set(Flag::CharFmt);
     // TODO: validate compile-time constant format -- 12.6.2.2
   }
 }
@@ -128,7 +128,7 @@ void IoChecker::Enter(const parser::IdVariable &spec) {
 }
 
 void IoChecker::Enter(const parser::InputItem &spec) {
-  flag_.set(Flag::DataList);
+  flags_.set(Flag::DataList);
   if (const parser::Variable * var{std::get_if<parser::Variable>(&spec.u)}) {
     const parser::Name &name{GetLastName(*var)};
     if (auto *details{name.symbol->detailsIf<ObjectEntityDetails>()}) {
@@ -213,10 +213,10 @@ void IoChecker::Enter(const parser::InquireSpec::LogVar &spec) {
 
 void IoChecker::Enter(const parser::IoControlSpec &spec) {
   // IoControlSpec context Name
-  flag_.set(Flag::IoControlList);
+  flags_.set(Flag::IoControlList);
   if (const parser::Name * name{std::get_if<parser::Name>(&spec.u)}) {
     SetSpecifier(SpecifierKind::Nml);
-    flag_.set(Flag::FmtOrNml);
+    flags_.set(Flag::FmtOrNml);
   }
 }
 
@@ -224,7 +224,7 @@ void IoChecker::Enter(const parser::IoControlSpec::Asynchronous &spec) {
   SetSpecifier(SpecifierKind::Asynchronous);
   if (const std::optional<std::string> charConst{
           GetConstExpr<std::string>(spec)}) {
-    flag_.set(
+    flags_.set(
         Flag::AsynchronousYes, parser::ToUpperCaseLetters(*charConst) == "YES");
     CheckStringValue(SpecifierKind::Asynchronous, *charConst,
         parser::FindSourceLocation(spec));  // C1223
@@ -247,7 +247,7 @@ void IoChecker::Enter(const parser::IoControlSpec::CharExpr &spec) {
   if (const std::optional<std::string> charConst{GetConstExpr<std::string>(
           std::get<parser::ScalarDefaultCharExpr>(spec.t))}) {
     if (specKind == SpecifierKind::Advance) {
-      flag_.set(
+      flags_.set(
           Flag::AdvanceYes, parser::ToUpperCaseLetters(*charConst) == "YES");
     }
     CheckStringValue(specKind, *charConst, parser::FindSourceLocation(spec));
@@ -278,10 +278,10 @@ void IoChecker::Enter(const parser::IoUnit &spec) {
           "invalid character kind for an internal file variable"_err_en_US);
     }
     SetSpecifier(SpecifierKind::Unit);
-    flag_.set(Flag::InternalUnit);
+    flags_.set(Flag::InternalUnit);
   } else if (std::get_if<parser::Star>(&spec.u)) {
     SetSpecifier(SpecifierKind::Unit);
-    flag_.set(Flag::StarUnit);
+    flags_.set(Flag::StarUnit);
   }
 }
 
@@ -290,7 +290,7 @@ void IoChecker::Enter(const parser::MsgVariable &spec) {
 }
 
 void IoChecker::Enter(const parser::OutputItem &spec) {
-  flag_.set(Flag::DataList);
+  flags_.set(Flag::DataList);
   // TODO: C1233 - output item must not be a procedure pointer
 }
 
@@ -301,10 +301,10 @@ void IoChecker::Enter(const parser::StatusExpr &spec) {
     // Status values for Open and Close are different.
     std::string s{parser::ToUpperCaseLetters(*charConst)};
     if (stmt_ == IoStmtKind::Open) {
-      flag_.set(Flag::KnownStatus);
-      flag_.set(Flag::StatusNew, s == "NEW");
-      flag_.set(Flag::StatusReplace, s == "REPLACE");
-      flag_.set(Flag::StatusScratch, s == "SCRATCH");
+      flags_.set(Flag::KnownStatus);
+      flags_.set(Flag::StatusNew, s == "NEW");
+      flags_.set(Flag::StatusReplace, s == "REPLACE");
+      flags_.set(Flag::StatusScratch, s == "SCRATCH");
       // CheckStringValue compares for OPEN Status string values.
       CheckStringValue(
           SpecifierKind::Status, *charConst, parser::FindSourceLocation(spec));
@@ -324,25 +324,25 @@ void IoChecker::Enter(const parser::StatVariable &spec) {
 
 void IoChecker::Leave(const parser::BackspaceStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1240
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1240
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::CloseStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1208
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1208
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::EndfileStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1240
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1240
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::FlushStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1243
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1243
   stmt_ = IoStmtKind::None;
 }
 
@@ -350,7 +350,7 @@ void IoChecker::Leave(const parser::InquireStmt &stmt) {
   if (std::get_if<std::list<parser::InquireSpec>>(&stmt.u)) {
     // Inquire by unit or by file (vs. by output list).
     CheckForRequiredSpecifier(
-        flag_.test(Flag::NumberUnit) || specifierSet_.test(SpecifierKind::File),
+        flags_.test(Flag::NumberUnit) || specifierSet_.test(SpecifierKind::File),
         "UNIT number or FILE");  // C1246
     CheckForProhibitedSpecifier(SpecifierKind::File,
         SpecifierKind::Unit);  // C1246
@@ -366,16 +366,16 @@ void IoChecker::Leave(const parser::OpenStmt &stmt) {
       "UNIT or NEWUNIT");  // C1204, C1205
   CheckForProhibitedSpecifier(
       SpecifierKind::Newunit, SpecifierKind::Unit);  // C1204, C1205
-  CheckForRequiredSpecifier(flag_.test(Flag::StatusNew), "STATUS='NEW'",
+  CheckForRequiredSpecifier(flags_.test(Flag::StatusNew), "STATUS='NEW'",
       SpecifierKind::File);  // 12.5.6.10
-  CheckForRequiredSpecifier(flag_.test(Flag::StatusReplace), "STATUS='REPLACE'",
+  CheckForRequiredSpecifier(flags_.test(Flag::StatusReplace), "STATUS='REPLACE'",
       SpecifierKind::File);  // 12.5.6.10
-  CheckForProhibitedSpecifier(flag_.test(Flag::StatusScratch),
+  CheckForProhibitedSpecifier(flags_.test(Flag::StatusScratch),
       "STATUS='SCRATCH'", SpecifierKind::File);  // 12.5.6.10
-  if (flag_.test(Flag::KnownStatus)) {
+  if (flags_.test(Flag::KnownStatus)) {
     CheckForRequiredSpecifier(SpecifierKind::Newunit,
         specifierSet_.test(SpecifierKind::File) ||
-            flag_.test(Flag::StatusScratch),
+            flags_.test(Flag::StatusScratch),
         "FILE or STATUS='SCRATCH'");  // 12.5.6.12
   } else {
     CheckForRequiredSpecifier(SpecifierKind::Newunit,
@@ -383,17 +383,17 @@ void IoChecker::Leave(const parser::OpenStmt &stmt) {
             specifierSet_.test(SpecifierKind::Status),
         "FILE or STATUS");  // 12.5.6.12
   }
-  if (flag_.test(Flag::KnownAccess)) {
-    CheckForRequiredSpecifier(flag_.test(Flag::AccessDirect), "ACCESS='DIRECT'",
+  if (flags_.test(Flag::KnownAccess)) {
+    CheckForRequiredSpecifier(flags_.test(Flag::AccessDirect), "ACCESS='DIRECT'",
         SpecifierKind::Recl);  // 12.5.6.15
-    CheckForProhibitedSpecifier(flag_.test(Flag::AccessStream),
+    CheckForProhibitedSpecifier(flags_.test(Flag::AccessStream),
         "STATUS='STREAM'", SpecifierKind::Recl);  // 12.5.6.15
   }
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::ReadStmt &stmt) {
-  if (!flag_.test(Flag::IoControlList)) {
+  if (!flags_.test(Flag::IoControlList)) {
     return;
   }
   LeaveReadWrite();
@@ -402,24 +402,24 @@ void IoChecker::Leave(const parser::ReadStmt &stmt) {
   CheckForProhibitedSpecifier(SpecifierKind::Rec, SpecifierKind::End);  // C1220
   CheckForRequiredSpecifier(SpecifierKind::Eor,
       specifierSet_.test(SpecifierKind::Advance) &&
-          !flag_.test(Flag::AdvanceYes),
+          !flags_.test(Flag::AdvanceYes),
       "ADVANCE with value 'NO'");  // C1222 + 12.6.2.1p2
   CheckForRequiredSpecifier(
-      SpecifierKind::Blank, flag_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+      SpecifierKind::Blank, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
   CheckForRequiredSpecifier(
-      SpecifierKind::Pad, flag_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+      SpecifierKind::Pad, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::RewindStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1240
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1240
   stmt_ = IoStmtKind::None;
 }
 
 void IoChecker::Leave(const parser::WaitStmt &stmt) {
   CheckForRequiredSpecifier(
-      flag_.test(Flag::NumberUnit), "UNIT number");  // C1237
+      flags_.test(Flag::NumberUnit), "UNIT number");  // C1237
   stmt_ = IoStmtKind::None;
 }
 
@@ -431,9 +431,9 @@ void IoChecker::Leave(const parser::WriteStmt &stmt) {
   CheckForProhibitedSpecifier(SpecifierKind::Pad);  // C1213
   CheckForProhibitedSpecifier(SpecifierKind::Size);  // C1213
   CheckForRequiredSpecifier(
-      SpecifierKind::Sign, flag_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+      SpecifierKind::Sign, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
   CheckForRequiredSpecifier(SpecifierKind::Delim,
-      flag_.test(Flag::StarFmt) || specifierSet_.test(SpecifierKind::Nml),
+      flags_.test(Flag::StarFmt) || specifierSet_.test(SpecifierKind::Nml),
       "FMT=* or NML");  // C1228
   stmt_ = IoStmtKind::None;
 }
@@ -443,32 +443,32 @@ void IoChecker::LeaveReadWrite() const {
   CheckForProhibitedSpecifier(SpecifierKind::Nml, SpecifierKind::Rec);  // C1216
   CheckForProhibitedSpecifier(SpecifierKind::Nml, SpecifierKind::Fmt);  // C1216
   CheckForProhibitedSpecifier(
-      SpecifierKind::Nml, flag_.test(Flag::DataList), "a data list");  // C1216
-  CheckForProhibitedSpecifier(flag_.test(Flag::InternalUnit),
+      SpecifierKind::Nml, flags_.test(Flag::DataList), "a data list");  // C1216
+  CheckForProhibitedSpecifier(flags_.test(Flag::InternalUnit),
       "UNIT=internal-file", SpecifierKind::Pos);  // C1219
-  CheckForProhibitedSpecifier(flag_.test(Flag::InternalUnit),
+  CheckForProhibitedSpecifier(flags_.test(Flag::InternalUnit),
       "UNIT=internal-file", SpecifierKind::Rec);  // C1219
   CheckForProhibitedSpecifier(
-      flag_.test(Flag::StarUnit), "UNIT=*", SpecifierKind::Pos);  // C1219
+      flags_.test(Flag::StarUnit), "UNIT=*", SpecifierKind::Pos);  // C1219
   CheckForProhibitedSpecifier(
-      flag_.test(Flag::StarUnit), "UNIT=*", SpecifierKind::Rec);  // C1219
+      flags_.test(Flag::StarUnit), "UNIT=*", SpecifierKind::Rec);  // C1219
   CheckForProhibitedSpecifier(
-      SpecifierKind::Rec, flag_.test(Flag::StarFmt), "FMT=*");  // C1220
+      SpecifierKind::Rec, flags_.test(Flag::StarFmt), "FMT=*");  // C1220
   CheckForRequiredSpecifier(SpecifierKind::Advance,
-      flag_.test(Flag::CharFmt) || flag_.test(Flag::LabelFmt),
+      flags_.test(Flag::CharFmt) || flags_.test(Flag::LabelFmt),
       "an explicit format");  // C1221
   CheckForProhibitedSpecifier(SpecifierKind::Advance,
-      flag_.test(Flag::InternalUnit), "UNIT=internal-file");  // C1221
-  CheckForRequiredSpecifier(flag_.test(Flag::AsynchronousYes),
-      "ASYNCHRONOUS='YES'", flag_.test(Flag::NumberUnit),
+      flags_.test(Flag::InternalUnit), "UNIT=internal-file");  // C1221
+  CheckForRequiredSpecifier(flags_.test(Flag::AsynchronousYes),
+      "ASYNCHRONOUS='YES'", flags_.test(Flag::NumberUnit),
       "UNIT=number");  // C1224
   CheckForRequiredSpecifier(SpecifierKind::Id,
-      flag_.test(Flag::AsynchronousYes), "ASYNCHRONOUS='YES'");  // C1225
+      flags_.test(Flag::AsynchronousYes), "ASYNCHRONOUS='YES'");  // C1225
   CheckForProhibitedSpecifier(SpecifierKind::Pos, SpecifierKind::Rec);  // C1226
-  CheckForRequiredSpecifier(SpecifierKind::Decimal, flag_.test(Flag::FmtOrNml),
+  CheckForRequiredSpecifier(SpecifierKind::Decimal, flags_.test(Flag::FmtOrNml),
       "FMT or NML");  // C1227
   CheckForRequiredSpecifier(
-      SpecifierKind::Round, flag_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+      SpecifierKind::Round, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
 }
 
 void IoChecker::SetSpecifier(SpecifierKind specKind) {

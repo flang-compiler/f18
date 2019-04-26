@@ -143,13 +143,13 @@ private:
   void Init(IoStmtKind s) {
     stmt_ = s;
     specifierSet_.reset();
-    flag_.reset();
+    flags_.reset();
   }
 
   SemanticsContext &context_;
   IoStmtKind stmt_ = IoStmtKind::None;
   common::EnumSet<SpecifierKind, SpecifierKind_enumSize> specifierSet_;
-  common::EnumSet<Flag, Flag_enumSize> flag_;
+  common::EnumSet<Flag, Flag_enumSize> flags_;
 };
 
 }
