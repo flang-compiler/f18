@@ -86,7 +86,9 @@ using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
     ReturnStmtChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
-    SemanticsContext &context, const parser::Program &program) {
+    SemanticsContext &context, parser::Program &program) {
+  ResolveNames(context, program);
+  RewriteParseTree(context, program);
   StatementSemanticsPass1{context}.Walk(program);
   return StatementSemanticsPass2{context}.Walk(program);
 }
@@ -125,6 +127,25 @@ bool SemanticsContext::AnyFatalError() const {
   return !messages_.empty() &&
       (warningsAreErrors_ || messages_.AnyFatalError());
 }
+bool SemanticsContext::HasError(const Symbol &symbol) {
+  return CheckError(symbol.test(Symbol::Flag::Error));
+}
+bool SemanticsContext::HasError(const Symbol *symbol) {
+  return CheckError(!symbol || HasError(*symbol));
+}
+bool SemanticsContext::HasError(const parser::Name &name) {
+  return HasError(name.symbol);
+}
+void SemanticsContext::SetError(Symbol &symbol, bool value) {
+  if (value) {
+    CHECK(AnyFatalError());
+    symbol.set(Symbol::Flag::Error);
+  }
+}
+bool SemanticsContext::CheckError(bool error) {
+  CHECK(!error || AnyFatalError());
+  return error;
+}
 
 const Scope &SemanticsContext::FindScope(parser::CharBlock source) const {
   return const_cast<SemanticsContext *>(this)->FindScope(source);
@@ -141,8 +162,6 @@ Scope &SemanticsContext::FindScope(parser::CharBlock source) {
 bool Semantics::Perform() {
   return ValidateLabels(context_.messages(), program_) &&
       parser::CanonicalizeDo(program_) &&  // force line break
-      ResolveNames(context_, program_) &&
-      RewriteParseTree(context_, program_) &&
       PerformStatementSemantics(context_, program_) &&
       ModFileWriter{context_}.WriteAll();
 }

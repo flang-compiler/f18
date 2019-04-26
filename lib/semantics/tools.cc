@@ -189,7 +189,8 @@ bool IsProcedure(const Symbol &symbol) {
       common::visitors{
           [](const SubprogramDetails &) { return true; },
           [](const SubprogramNameDetails &) { return true; },
-          [](const ProcEntityDetails &x) { return true; },
+          [](const ProcEntityDetails &) { return true; },
+          [](const GenericDetails &) { return true; },
           [](const UseDetails &x) { return IsProcedure(x.symbol()); },
           [](const auto &) { return false; },
       },
