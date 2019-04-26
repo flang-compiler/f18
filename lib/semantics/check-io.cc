@@ -215,7 +215,6 @@ void IoChecker::Enter(const parser::IoControlSpec &spec) {
   // IoControlSpec context Name
   flag_.set(Flag::IoControlList);
   if (const parser::Name * name{std::get_if<parser::Name>(&spec.u)}) {
-    CHECK(name->symbol != nullptr && name->symbol->has<NamelistDetails>());
     SetSpecifier(SpecifierKind::Nml);
     flag_.set(Flag::FmtOrNml);
   }
