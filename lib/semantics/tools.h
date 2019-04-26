@@ -25,13 +25,6 @@
 #include "../evaluate/variable.h"
 #include "../parser/parse-tree.h"
 
-namespace Fortran::parser {
-class Messages;
-struct Expr;
-struct Name;
-struct Variable;
-}
-
 namespace Fortran::semantics {
 
 class DeclTypeSpec;
