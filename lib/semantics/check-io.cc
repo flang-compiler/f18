@@ -214,7 +214,7 @@ void IoChecker::Enter(const parser::InquireSpec::LogVar &spec) {
 void IoChecker::Enter(const parser::IoControlSpec &spec) {
   // IoControlSpec context Name
   flags_.set(Flag::IoControlList);
-  if (const parser::Name * name{std::get_if<parser::Name>(&spec.u)}) {
+  if (std::holds_alternative<parser::Name>(spec.u)) {
     SetSpecifier(SpecifierKind::Nml);
     flags_.set(Flag::FmtOrNml);
   }
@@ -349,8 +349,8 @@ void IoChecker::Leave(const parser::FlushStmt &stmt) {
 void IoChecker::Leave(const parser::InquireStmt &stmt) {
   if (std::get_if<std::list<parser::InquireSpec>>(&stmt.u)) {
     // Inquire by unit or by file (vs. by output list).
-    CheckForRequiredSpecifier(
-        flags_.test(Flag::NumberUnit) || specifierSet_.test(SpecifierKind::File),
+    CheckForRequiredSpecifier(flags_.test(Flag::NumberUnit) ||
+            specifierSet_.test(SpecifierKind::File),
         "UNIT number or FILE");  // C1246
     CheckForProhibitedSpecifier(SpecifierKind::File,
         SpecifierKind::Unit);  // C1246
@@ -368,8 +368,8 @@ void IoChecker::Leave(const parser::OpenStmt &stmt) {
       SpecifierKind::Newunit, SpecifierKind::Unit);  // C1204, C1205
   CheckForRequiredSpecifier(flags_.test(Flag::StatusNew), "STATUS='NEW'",
       SpecifierKind::File);  // 12.5.6.10
-  CheckForRequiredSpecifier(flags_.test(Flag::StatusReplace), "STATUS='REPLACE'",
-      SpecifierKind::File);  // 12.5.6.10
+  CheckForRequiredSpecifier(flags_.test(Flag::StatusReplace),
+      "STATUS='REPLACE'", SpecifierKind::File);  // 12.5.6.10
   CheckForProhibitedSpecifier(flags_.test(Flag::StatusScratch),
       "STATUS='SCRATCH'", SpecifierKind::File);  // 12.5.6.10
   if (flags_.test(Flag::KnownStatus)) {
@@ -384,8 +384,8 @@ void IoChecker::Leave(const parser::OpenStmt &stmt) {
         "FILE or STATUS");  // 12.5.6.12
   }
   if (flags_.test(Flag::KnownAccess)) {
-    CheckForRequiredSpecifier(flags_.test(Flag::AccessDirect), "ACCESS='DIRECT'",
-        SpecifierKind::Recl);  // 12.5.6.15
+    CheckForRequiredSpecifier(flags_.test(Flag::AccessDirect),
+        "ACCESS='DIRECT'", SpecifierKind::Recl);  // 12.5.6.15
     CheckForProhibitedSpecifier(flags_.test(Flag::AccessStream),
         "STATUS='STREAM'", SpecifierKind::Recl);  // 12.5.6.15
   }
@@ -404,8 +404,8 @@ void IoChecker::Leave(const parser::ReadStmt &stmt) {
       specifierSet_.test(SpecifierKind::Advance) &&
           !flags_.test(Flag::AdvanceYes),
       "ADVANCE with value 'NO'");  // C1222 + 12.6.2.1p2
-  CheckForRequiredSpecifier(
-      SpecifierKind::Blank, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+  CheckForRequiredSpecifier(SpecifierKind::Blank, flags_.test(Flag::FmtOrNml),
+      "FMT or NML");  // C1227
   CheckForRequiredSpecifier(
       SpecifierKind::Pad, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
   stmt_ = IoStmtKind::None;
@@ -467,8 +467,8 @@ void IoChecker::LeaveReadWrite() const {
   CheckForProhibitedSpecifier(SpecifierKind::Pos, SpecifierKind::Rec);  // C1226
   CheckForRequiredSpecifier(SpecifierKind::Decimal, flags_.test(Flag::FmtOrNml),
       "FMT or NML");  // C1227
-  CheckForRequiredSpecifier(
-      SpecifierKind::Round, flags_.test(Flag::FmtOrNml), "FMT or NML");  // C1227
+  CheckForRequiredSpecifier(SpecifierKind::Round, flags_.test(Flag::FmtOrNml),
+      "FMT or NML");  // C1227
 }
 
 void IoChecker::SetSpecifier(SpecifierKind specKind) {
