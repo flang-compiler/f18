@@ -114,7 +114,7 @@ void IoChecker::Enter(const parser::IdExpr &spec) {
 void IoChecker::Enter(const parser::IdVariable &spec) {
   SetSpecifier(SpecifierKind::Id);
   auto expr{GetExpr(spec)};
-  if (expr == nullptr) {
+  if (expr == nullptr || !expr->GetType()) {
     return;
   }
   int kind{expr->GetType()->kind};
@@ -269,13 +269,12 @@ void IoChecker::Enter(const parser::IoControlSpec::Size &spec) {
 void IoChecker::Enter(const parser::IoUnit &spec) {
   if (const parser::Variable * var{std::get_if<parser::Variable>(&spec.u)}) {
     // TODO: C1201 - internal file variable must not be an array section ...
-    auto expr{GetExpr(*var)};
-    int defaultKind{
-        context_.defaultKinds().GetDefaultKind(TypeCategory::Character)};
-    if (expr && expr->GetType() && expr->GetType()->kind != defaultKind) {
-      // This may be too restrictive; other kinds may be valid.
-      context_.Say(  // C1202
-          "invalid character kind for an internal file variable"_err_en_US);
+    if (auto expr{GetExpr(*var)}) {
+      if (!ExprTypeKindIsDefault(*expr, context_)) {
+        // This may be too restrictive; other kinds may be valid.
+        context_.Say(  // C1202
+            "invalid character kind for an internal file variable"_err_en_US);
+      }
     }
     SetSpecifier(SpecifierKind::Unit);
     flags_.set(Flag::InternalUnit);
