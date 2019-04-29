@@ -22,6 +22,9 @@
 
 namespace Fortran::semantics {
 
+using common::IoSpecKind;
+using common::IoStmtKind;
+
 class IoChecker : public virtual BaseChecker {
 public:
   explicit IoChecker(SemanticsContext &context) : context_{context} {}
@@ -77,20 +80,6 @@ public:
   void Leave(const parser::WriteStmt &);
 
 private:
-  // Nothing to check for Print, but include it anyway.
-  ENUM_CLASS(IoStmtKind, None, Backspace, Close, Endfile, Flush, Inquire, Open,
-      Print, Read, Rewind, Wait, Write);
-
-  // Union of specifiers for all statements.
-  ENUM_CLASS(SpecifierKind, Access, Action, Advance, Asynchronous, Blank,
-      Decimal, Delim, Direct, Encoding, End, Eor, Err, Exist, File, Fmt, Form,
-      Formatted, Id, Iomsg, Iostat, Name, Named, Newunit, Nextrec, Nml, Number,
-      Opened, Pad, Pending, Pos, Position, Read, Readwrite, Rec, Recl, Round,
-      Sequential, Sign, Size, Status, Stream, Unformatted, Unit, Write,
-      Convert,  // nonstandard
-      Dispose,  // nonstandard
-  );
-
   // Presence flag values.
   ENUM_CLASS(Flag, IoControlList, InternalUnit, NumberUnit, StarUnit, CharFmt,
       LabelFmt, StarFmt, FmtOrNml, KnownAccess, AccessDirect, AccessStream,
@@ -118,27 +107,23 @@ private:
 
   void LeaveReadWrite() const;
 
-  void SetSpecifier(SpecifierKind);
+  void SetSpecifier(IoSpecKind);
 
   void CheckStringValue(
-      SpecifierKind, const std::string &, const parser::CharBlock &) const;
+      IoSpecKind, const std::string &, const parser::CharBlock &) const;
 
-  void CheckForRequiredSpecifier(SpecifierKind) const;
+  void CheckForRequiredSpecifier(IoSpecKind) const;
   void CheckForRequiredSpecifier(bool, const std::string &) const;
-  void CheckForRequiredSpecifier(SpecifierKind, SpecifierKind) const;
-  void CheckForRequiredSpecifier(
-      SpecifierKind, bool, const std::string &) const;
-  void CheckForRequiredSpecifier(
-      bool, const std::string &, SpecifierKind) const;
+  void CheckForRequiredSpecifier(IoSpecKind, IoSpecKind) const;
+  void CheckForRequiredSpecifier(IoSpecKind, bool, const std::string &) const;
+  void CheckForRequiredSpecifier(bool, const std::string &, IoSpecKind) const;
   void CheckForRequiredSpecifier(
       bool, const std::string &, bool, const std::string &) const;
 
-  void CheckForProhibitedSpecifier(SpecifierKind) const;
-  void CheckForProhibitedSpecifier(SpecifierKind, SpecifierKind) const;
-  void CheckForProhibitedSpecifier(
-      SpecifierKind, bool, const std::string &) const;
-  void CheckForProhibitedSpecifier(
-      bool, const std::string &, SpecifierKind) const;
+  void CheckForProhibitedSpecifier(IoSpecKind) const;
+  void CheckForProhibitedSpecifier(IoSpecKind, IoSpecKind) const;
+  void CheckForProhibitedSpecifier(IoSpecKind, bool, const std::string &) const;
+  void CheckForProhibitedSpecifier(bool, const std::string &, IoSpecKind) const;
 
   void Init(IoStmtKind s) {
     stmt_ = s;
@@ -148,7 +133,7 @@ private:
 
   SemanticsContext &context_;
   IoStmtKind stmt_ = IoStmtKind::None;
-  common::EnumSet<SpecifierKind, SpecifierKind_enumSize> specifierSet_;
+  common::EnumSet<IoSpecKind, common::IoSpecKind_enumSize> specifierSet_;
   common::EnumSet<Flag, Flag_enumSize> flags_;
 };
 
