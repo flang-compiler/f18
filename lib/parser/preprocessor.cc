@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -319,6 +319,12 @@ std::optional<TokenSequence> Preprocessor::MacroReplacement(
         }
       }
     }
+    if (argStart.size() == 1 && k == argStart[0] &&
+        def.argumentCount() == 0) {
+      // Subtle: () is zero arguments, not one empty argument,
+      // unless one argument was expected.
+      argStart.clear();
+    }
     if (k >= tokens || argStart.size() < def.argumentCount() ||
         (argStart.size() > def.argumentCount() && !def.isVariadic())) {
       result.Put(input, j);
@@ -344,7 +350,7 @@ std::optional<TokenSequence> Preprocessor::MacroReplacement(
     }
     j = k;  // advance to the terminal ')'
   }
-  return {result};
+  return result;
 }
 
 TokenSequence Preprocessor::ReplaceMacros(
