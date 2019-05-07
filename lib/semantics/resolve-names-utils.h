@@ -77,5 +77,4 @@ ArraySpec AnalyzeCoarraySpec(
     SemanticsContext &context, const parser::CoarraySpec &);
 
 }
-
 #endif  // FORTRAN_SEMANTICS_RESOLVE_NAMES_H_
