@@ -76,7 +76,7 @@ private:
 void RewriteMutator::Post(parser::Name &name) {
   if (name.symbol == nullptr && errorOnUnresolvedName_) {
     messages_.Say(name.source, "Internal: no symbol found for '%s'"_err_en_US,
-        name.ToString().c_str());
+        name.source);
   }
 }
 
