@@ -24,7 +24,9 @@ See: [Preprocessing.md](Preprocessing.md).
 
 **Entry point:** `parser::Parsing::Prescan`
 
-**Command:** `f18 -E src.f90` dumps the cooked character stream
+**Commands:** 
+  - `f18 -E src.f90` dumps the cooked character stream
+  - `f18 -fdebug-dump-provenance src.f90` dumps the provenance information
 
 ## Parse
 
@@ -36,9 +38,12 @@ See: [Preprocessing.md](Preprocessing.md).
 
 **Entry point:** `parser::Parsing::Parse`
 
-**Command:**
+**Commands:**
   - `f18 -fdebug-dump-parse-tree -fparse-only src.f90` dumps the parse tree
   - `f18 -funparse src.f90` converts the parse tree to normalized Fortran
+  - `f18 -fdebug-instrumented-parse src.f90` dumps out the parsing log
+  - `f18 -fdebug-measure-parse-tree src.f90` prints out information about the size
+  of the parse tree
 
 ## Validate Labels and Canonicalize Do Statements
 
