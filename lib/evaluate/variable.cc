@@ -50,6 +50,11 @@ std::optional<Expr<SubscriptInteger>> Triplet::lower() const {
   return std::nullopt;
 }
 
+Triplet &Triplet::set_lower(Expr<SubscriptInteger> &&expr) {
+  lower_.emplace(std::move(expr));
+  return *this;
+}
+
 std::optional<Expr<SubscriptInteger>> Triplet::upper() const {
   if (upper_) {
     return {upper_.value().value()};
@@ -57,7 +62,17 @@ std::optional<Expr<SubscriptInteger>> Triplet::upper() const {
   return std::nullopt;
 }
 
+Triplet &Triplet::set_upper(Expr<SubscriptInteger> &&expr) {
+  upper_.emplace(std::move(expr));
+  return *this;
+}
+
 Expr<SubscriptInteger> Triplet::stride() const { return stride_.value(); }
+
+Triplet &Triplet::set_stride(Expr<SubscriptInteger> &&expr) {
+  stride_.value() = std::move(expr);
+  return *this;
+}
 
 bool Triplet::IsStrideOne() const {
   if (auto stride{ToInt64(stride_.value())}) {
@@ -114,10 +129,10 @@ const Symbol &CoarrayRef::GetLastSymbol() const { return *base_.back(); }
 void Substring::SetBounds(std::optional<Expr<SubscriptInteger>> &lower,
     std::optional<Expr<SubscriptInteger>> &upper) {
   if (lower.has_value()) {
-    lower_.emplace(std::move(lower.value()));
+    set_lower(std::move(lower.value()));
   }
   if (upper.has_value()) {
-    upper_.emplace(std::move(upper.value()));
+    set_upper(std::move(upper.value()));
   }
 }
 
@@ -127,6 +142,11 @@ Expr<SubscriptInteger> Substring::lower() const {
   } else {
     return AsExpr(Constant<SubscriptInteger>{1});
   }
+}
+
+Substring &Substring::set_lower(Expr<SubscriptInteger> &&expr) {
+  lower_.emplace(std::move(expr));
+  return *this;
 }
 
 Expr<SubscriptInteger> Substring::upper() const {
@@ -142,6 +162,11 @@ Expr<SubscriptInteger> Substring::upper() const {
         },
         parent_);
   }
+}
+
+Substring &Substring::set_upper(Expr<SubscriptInteger> &&expr) {
+  upper_.emplace(std::move(expr));
+  return *this;
 }
 
 std::optional<Expr<SomeCharacter>> Substring::Fold(FoldingContext &context) {

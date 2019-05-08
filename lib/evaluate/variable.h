@@ -140,9 +140,14 @@ public:
   Triplet(std::optional<Expr<SubscriptInteger>> &&,
       std::optional<Expr<SubscriptInteger>> &&,
       std::optional<Expr<SubscriptInteger>> &&);
+
   std::optional<Expr<SubscriptInteger>> lower() const;
+  Triplet &set_lower(Expr<SubscriptInteger> &&);
   std::optional<Expr<SubscriptInteger>> upper() const;
-  Expr<SubscriptInteger> stride() const;
+  Triplet &set_upper(Expr<SubscriptInteger> &&);
+  Expr<SubscriptInteger> stride() const;  // N.B. result is not optional<>
+  Triplet &set_stride(Expr<SubscriptInteger> &&);
+
   bool operator==(const Triplet &) const;
   bool IsStrideOne() const;
   std::ostream &AsFortran(std::ostream &) const;
@@ -273,6 +278,8 @@ struct DataRef {
 // In the F2018 standard, substrings of array sections are parsed as
 // variants of sections instead.
 class Substring {
+  using Parent = std::variant<DataRef, StaticDataObject::Pointer>;
+
 public:
   CLASS_BOILERPLATE(Substring)
   Substring(DataRef &&parent, std::optional<Expr<SubscriptInteger>> &&lower,
@@ -288,7 +295,12 @@ public:
   }
 
   Expr<SubscriptInteger> lower() const;
+  Substring &set_lower(Expr<SubscriptInteger> &&);
   Expr<SubscriptInteger> upper() const;
+  Substring &set_upper(Expr<SubscriptInteger> &&);
+  const Parent &parent() const { return parent_; }
+  Parent &parent() { return parent_; }
+
   int Rank() const;
   template<typename A> const A *GetParentIf() const {
     return std::get_if<A>(&parent_);

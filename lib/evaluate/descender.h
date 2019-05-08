@@ -25,9 +25,19 @@ template<typename VISITOR> class Descender {
 public:
   explicit Descender(VISITOR &v) : visitor_{v} {}
 
-  // Default cases
-  template<typename X> void Descend(const X &) {}
-  template<typename X> void Descend(X &x) {}
+  // Base cases
+  void Descend(const semantics::Symbol &) {}
+  void Descend(semantics::Symbol &) {}
+  template<typename T> void Descend(const Constant<T> &) {}
+  template<typename T> void Descend(Constant<T> &) {}
+  void Descend(const std::shared_ptr<StaticDataObject> &) {}
+  void Descend(std::shared_ptr<StaticDataObject> &) {}
+  void Descend(const ImpliedDoIndex &) {}
+  void Descend(ImpliedDoIndex &) {}
+  void Descend(const BOZLiteralConstant &) {}
+  void Descend(BOZLiteralConstant &) {}
+  void Descend(const NullPointer &) {}
+  void Descend(NullPointer &) {}
 
   template<typename X> void Descend(const X *p) {
     if (p != nullptr) {
@@ -60,6 +70,19 @@ public:
     Visit(p.value());
   }
 
+  template<typename X, typename DELETER>
+  void Descend(const std::unique_ptr<X, DELETER> &p) {
+    if (p.get() != nullptr) {
+      Visit(*p);
+    }
+  }
+  template<typename X, typename DELETER>
+  void Descend(std::unique_ptr<X, DELETER> &p) {
+    if (p.get() != nullptr) {
+      Visit(*p);
+    }
+  }
+
   template<typename... X> void Descend(const std::variant<X...> &u) {
     std::visit([&](const auto &x) { Visit(x); }, u);
   }
@@ -78,23 +101,33 @@ public:
     }
   }
 
+  void Descend(const GenericExprWrapper &w) { Visit(w.v); }
+  void Descend(GenericExprWrapper &w) { Visit(w.v); }
+
   template<typename T> void Descend(const Expr<T> &expr) { Visit(expr.u); }
   template<typename T> void Descend(Expr<T> &expr) { Visit(expr.u); }
 
-  template<typename D, typename R, typename... O>
-  void Descend(const Operation<D, R, O...> &op) {
+  template<typename D, typename R, typename X>
+  void Descend(const Operation<D, R, X> &op) {
     Visit(op.left());
-    if constexpr (op.operands > 1) {
-      Visit(op.right());
-    }
   }
-  template<typename D, typename R, typename... O>
-  void Descend(Operation<D, R, O...> &op) {
+  template<typename D, typename R, typename X>
+  void Descend(Operation<D, R, X> &op) {
     Visit(op.left());
-    if constexpr (op.operands > 1) {
-      Visit(op.right());
-    }
   }
+  template<typename D, typename R, typename X, typename Y>
+  void Descend(const Operation<D, R, X, Y> &op) {
+    Visit(op.left());
+    Visit(op.right());
+  }
+  template<typename D, typename R, typename X, typename Y>
+  void Descend(Operation<D, R, X, Y> &op) {
+    Visit(op.left());
+    Visit(op.right());
+  }
+
+  void Descend(const Relational<SomeType> &r) { Visit(r.u); }
+  void Descend(Relational<SomeType> &r) { Visit(r.u); }
 
   template<typename R> void Descend(const ImpliedDo<R> &ido) {
     Visit(ido.lower());
@@ -191,15 +224,24 @@ public:
     Visit(inq.parameter());
   }
 
+  void Descend(const DescriptorInquiry &inq) { Visit(inq.base()); }
+  void Descend(DescriptorInquiry &inq) { Visit(inq.base()); }
+
   void Descend(const Triplet &triplet) {
     Visit(triplet.lower());
     Visit(triplet.upper());
     Visit(triplet.stride());
   }
   void Descend(Triplet &triplet) {
-    Visit(triplet.lower());
-    Visit(triplet.upper());
-    Visit(triplet.stride());
+    if (auto x{triplet.lower()}) {
+      Visit(*x);
+      triplet.set_lower(std::move(*x));
+    }
+    if (auto x{triplet.upper()}) {
+      Visit(*x);
+      triplet.set_upper(std::move(*x));
+    }
+    triplet.set_stride(Visit(triplet.stride()));
   }
 
   void Descend(const Subscript &sscript) { Visit(sscript.u); }
@@ -225,8 +267,14 @@ public:
     Visit(caref.base());
     Visit(caref.subscript());
     Visit(caref.cosubscript());
-    Visit(caref.stat());
-    Visit(caref.team());
+    if (auto x{caref.stat()}) {
+      Visit(*x);
+      caref.set_stat(std::move(*x));
+    }
+    if (auto x{caref.team()}) {
+      Visit(*x);
+      caref.set_team(std::move(*x), caref.teamIsTeamNumber());
+    }
   }
 
   void Descend(const DataRef &data) { Visit(data.u); }
@@ -234,6 +282,21 @@ public:
 
   void Descend(const ComplexPart &z) { Visit(z.complex()); }
   void Descend(ComplexPart &z) { Visit(z.complex()); }
+
+  void Descend(const Substring &ss) {
+    Visit(ss.parent());
+    Visit(ss.lower());
+    Visit(ss.upper());
+  }
+  void Descend(Substring &ss) {
+    Visit(ss.parent());
+    auto lx{ss.lower()};
+    Visit(lx);
+    ss.set_lower(std::move(lx));
+    auto ux{ss.upper()};
+    Visit(ux);
+    ss.set_lower(std::move(ux));
+  }
 
   template<typename T> void Descend(const Designator<T> &designator) {
     Visit(designator.u);
@@ -261,6 +324,9 @@ public:
       Visit(*aType);
     }
   }
+
+  void Descend(const SpecificIntrinsic &si) {}
+  void Descend(SpecificIntrinsic &si) {}
 
   void Descend(const ProcedureDesignator &p) { Visit(p.u); }
   void Descend(ProcedureDesignator &p) { Visit(p.u); }
