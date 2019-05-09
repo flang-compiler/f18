@@ -407,11 +407,12 @@ private:
   }
   void CheckMaskIsPure(const parser::ScalarLogicalExpr &mask) const {
     // C1121 - procedures in mask must be pure
+    // TODO - add the name of the impure procedure to the message
     CS references{GatherReferencesFromExpression(mask.thing.thing.value())};
     for (auto *r : references) {
       if (isProcedure(r->flags()) && !isPure(r->attrs())) {
         messages_.Say(currentStatementSourcePosition_,
-            "concurrent-header mask expression cannot reference impure"
+            "concurrent-header mask expression cannot reference an impure"
             " procedure"_err_en_US);
         return;
       }
