@@ -197,6 +197,13 @@ set(IF_TESTS
   if_stmt01.f90
 )
 
+# These tests show situations where we'd like the parser to produce
+# better error messages.  We don't run these tests normally
+# See issue 456
+#set(PARSE_TESTS
+#  parserquirk01.f90
+#)
+
 foreach(test ${ERROR_TESTS})
   add_test(NAME ${test} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_errors.sh ${test})
 endforeach()
@@ -228,3 +235,7 @@ endforeach()
 foreach(test ${IF_TESTS})
   add_test(NAME ${test} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_any.sh ${test})
 endforeach()
+
+#foreach(test ${PARSE_TESTS})
+#  add_test(NAME ${test} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_errors.sh ${test})
+#endforeach()
