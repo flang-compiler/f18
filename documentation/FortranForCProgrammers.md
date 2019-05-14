@@ -261,6 +261,7 @@ Pointers
 --------
 Pointers are objects in Fortran, not data types.
 Pointers can point to data, arrays, and subprograms, but not to other pointers.
+A pointer to an `ALLOCATABLE` points to the `ALLOCATABLE's` data.
 A pointer can only point to data that has the `TARGET` attribute.
 Outside of the pointer assignment statement (`P=>X`) and some intrinsic
 functions and cases with pointer dummy arguments, pointers are implicitly
