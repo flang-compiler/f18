@@ -162,6 +162,66 @@ auto UnwrapExpr(B &x) -> common::Constify<A, B> * {
   }
 }
 
+template<typename A, typename B>
+const A *UnwrapExpr(const std::optional<B> &x) {
+  if (x.has_value()) {
+    return UnwrapExpr<A>(*x);
+  } else {
+    return nullptr;
+  }
+}
+
+template<typename A, typename B> A *UnwrapExpr(std::optional<B> &x) {
+  if (x.has_value()) {
+    return UnwrapExpr<A>(*x);
+  } else {
+    return nullptr;
+  }
+}
+
+// If an expression simply wraps a DataRef, extract and return it.
+template<typename A>
+common::IfNoLvalue<std::optional<DataRef>, A> ExtractDataRef(const A &) {
+  return std::nullopt;  // default base casec
+}
+
+template<typename T>
+std::optional<DataRef> ExtractDataRef(const Designator<T> &d) {
+  return std::visit(
+      [](const auto &x) -> std::optional<DataRef> {
+        if constexpr (common::HasMember<decltype(x), decltype(DataRef::u)>) {
+          return DataRef{x};
+        }
+        return std::nullopt;
+      },
+      d.u);
+}
+
+template<typename T>
+std::optional<DataRef> ExtractDataRef(const Expr<T> &expr) {
+  return std::visit([](const auto &x) { return ExtractDataRef(x); }, expr.u);
+}
+
+template<typename A>
+std::optional<DataRef> ExtractDataRef(const std::optional<A> &x) {
+  if (x.has_value()) {
+    return ExtractDataRef(*x);
+  } else {
+    return std::nullopt;
+  }
+}
+
+// If an expression is simply a whole symbol data designator,
+// extract and return that symbol, else null.
+template<typename A> const Symbol *IsWholeSymbolDataRef(const A &x) {
+  if (auto dataRef{ExtractDataRef(x)}) {
+    if (const Symbol **p{std::get_if<const Symbol *>(&dataRef->u)}) {
+      return *p;
+    }
+  }
+  return nullptr;
+}
+
 // Creation of conversion expressions can be done to either a known
 // specific intrinsic type with ConvertToType<T>(x) or by converting
 // one arbitrary expression to the type of another with ConvertTo(to, from).
@@ -222,14 +282,14 @@ Expr<TO> ConvertToType(Expr<Type<FROMCAT, FROMKIND>> &&x) {
 
 template<typename TO> Expr<TO> ConvertToType(BOZLiteralConstant &&x) {
   static_assert(IsSpecificIntrinsicType<TO>);
-  using Value = typename Constant<TO>::ScalarValue;
   if constexpr (TO::category == TypeCategory::Integer) {
-    return Expr<TO>{Constant<TO>{Value::ConvertUnsigned(std::move(x)).value}};
+    return Expr<TO>{
+        Constant<TO>{Scalar<TO>::ConvertUnsigned(std::move(x)).value}};
   } else {
     static_assert(TO::category == TypeCategory::Real);
-    using Word = typename Value::Word;
+    using Word = typename Scalar<TO>::Word;
     return Expr<TO>{
-        Constant<TO>{Value{Word::ConvertUnsigned(std::move(x)).value}}};
+        Constant<TO>{Scalar<TO>{Word::ConvertUnsigned(std::move(x)).value}}};
   }
 }
 
@@ -240,6 +300,8 @@ std::optional<Expr<SomeType>> ConvertToType(
     const DynamicType &, std::optional<Expr<SomeType>> &&);
 std::optional<Expr<SomeType>> ConvertToType(
     const semantics::Symbol &, Expr<SomeType> &&);
+std::optional<Expr<SomeType>> ConvertToType(
+    const semantics::Symbol &, std::optional<Expr<SomeType>> &&);
 
 // Conversions to the type of another expression
 template<TypeCategory TC, int TK, typename FROM>

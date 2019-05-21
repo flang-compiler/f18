@@ -91,19 +91,20 @@ bool IsDescriptor(const Symbol &symbol) {
 
 namespace Fortran::evaluate {
 
-template<typename A> bool PointeeComparison(const A *x, const A *y) {
+template<typename A> inline bool PointeeComparison(const A *x, const A *y) {
   return x == y || (x != nullptr && y != nullptr && *x == *y);
 }
 
 bool DynamicType::operator==(const DynamicType &that) const {
-  return category == that.category && kind == that.kind &&
-      PointeeComparison(charLength, that.charLength) &&
-      PointeeComparison(derived, that.derived);
+  return category_ == that.category_ && kind_ == that.kind_ &&
+      PointeeComparison(charLength_, that.charLength_) &&
+      PointeeComparison(derived_, that.derived_) &&
+      isPolymorphic_ == that.isPolymorphic_;
 }
 
 bool DynamicType::IsAssumedLengthCharacter() const {
-  return category == TypeCategory::Character && charLength != nullptr &&
-      charLength->isAssumed();
+  return category_ == TypeCategory::Character && charLength_ != nullptr &&
+      charLength_->isAssumed();
 }
 
 static const semantics::DerivedTypeSpec *GetParentTypeSpec(
@@ -140,7 +141,7 @@ static const bool IsAncestorTypeOf(const semantics::DerivedTypeSpec *ancestor,
 
 bool DynamicType::IsTypeCompatibleWith(const DynamicType &that) const {
   return *this == that || IsUnlimitedPolymorphic() ||
-      (isPolymorphic && IsAncestorTypeOf(derived, that.derived));
+      (isPolymorphic_ && IsAncestorTypeOf(derived_, that.derived_));
 }
 
 std::optional<DynamicType> DynamicType::From(
@@ -172,78 +173,40 @@ std::optional<DynamicType> DynamicType::From(const semantics::Symbol &symbol) {
   return From(symbol.GetType());  // Symbol -> DeclTypeSpec -> DynamicType
 }
 
-std::string DynamicType::AsFortran() const {
-  if (derived != nullptr) {
-    CHECK(category == TypeCategory::Derived);
-    if (isPolymorphic) {
-      return "CLASS("s + derived->typeSymbol().name().ToString() + ')';
-    } else {
-      return "TYPE("s + derived->typeSymbol().name().ToString() + ')';
-    }
-  } else if (charLength != nullptr) {
-    std::string result{"CHARACTER(KIND="s + std::to_string(kind) + ",LEN="};
-    if (charLength->isAssumed()) {
-      result += '*';
-    } else if (charLength->isDeferred()) {
-      result += ':';
-    } else if (const auto &length{charLength->GetExplicit()}) {
-      std::stringstream ss;
-      length->AsFortran(ss);
-      result += ss.str();
-    }
-    return result + ')';
-  } else if (isPolymorphic) {
-    return "CLASS(*)";
-  } else if (kind == 0) {
-    return "(typeless intrinsic function argument)";
-  } else {
-    return EnumToString(category) + '(' + std::to_string(kind) + ')';
-  }
-}
-
-std::string DynamicType::AsFortran(std::string &&charLenExpr) const {
-  if (!charLenExpr.empty() && category == TypeCategory::Character) {
-    return "CHARACTER(KIND=" + std::to_string(kind) +
-        ",LEN=" + std::move(charLenExpr) + ')';
-  } else {
-    return AsFortran();
-  }
-}
-
 DynamicType DynamicType::ResultTypeForMultiply(const DynamicType &that) const {
-  switch (category) {
+  switch (category_) {
   case TypeCategory::Integer:
-    switch (that.category) {
+    switch (that.category_) {
     case TypeCategory::Integer:
-      return DynamicType{TypeCategory::Integer, std::max(kind, that.kind)};
+      return DynamicType{TypeCategory::Integer, std::max(kind_, that.kind_)};
     case TypeCategory::Real:
     case TypeCategory::Complex: return that;
     default: CRASH_NO_CASE;
     }
     break;
   case TypeCategory::Real:
-    switch (that.category) {
+    switch (that.category_) {
     case TypeCategory::Integer: return *this;
     case TypeCategory::Real:
-      return DynamicType{TypeCategory::Real, std::max(kind, that.kind)};
+      return DynamicType{TypeCategory::Real, std::max(kind_, that.kind_)};
     case TypeCategory::Complex:
-      return DynamicType{TypeCategory::Complex, std::max(kind, that.kind)};
+      return DynamicType{TypeCategory::Complex, std::max(kind_, that.kind_)};
     default: CRASH_NO_CASE;
     }
     break;
   case TypeCategory::Complex:
-    switch (that.category) {
+    switch (that.category_) {
     case TypeCategory::Integer: return *this;
     case TypeCategory::Real:
     case TypeCategory::Complex:
-      return DynamicType{TypeCategory::Complex, std::max(kind, that.kind)};
+      return DynamicType{TypeCategory::Complex, std::max(kind_, that.kind_)};
     default: CRASH_NO_CASE;
     }
     break;
   case TypeCategory::Logical:
-    switch (that.category) {
+    switch (that.category_) {
     case TypeCategory::Logical:
-      return DynamicType{TypeCategory::Logical, std::max(kind, that.kind)};
+      return DynamicType{TypeCategory::Logical, std::max(kind_, that.kind_)};
     default: CRASH_NO_CASE;
     }
     break;
@@ -254,12 +217,6 @@ DynamicType DynamicType::ResultTypeForMultiply(const DynamicType &that) const {
 
 bool SomeKind<TypeCategory::Derived>::operator==(
     const SomeKind<TypeCategory::Derived> &that) const {
-  return PointeeComparison(spec_, that.spec_);
-}
-
-std::string SomeDerived::AsFortran() const {
-  std::stringstream out;
-  DerivedTypeSpecAsFortran(out << "TYPE(", spec()) << ')';
-  return out.str();
+  return PointeeComparison(derivedTypeSpec_, that.derivedTypeSpec_);
 }
 }
