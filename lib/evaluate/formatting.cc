@@ -16,6 +16,7 @@
 #include "call.h"
 #include "constant.h"
 #include "expression.h"
+#include "fold.h"
 #include "tools.h"
 #include "../parser/characters.h"
 #include "../semantics/symbol.h"
@@ -64,7 +65,7 @@ std::ostream &ConstantBase<RESULT, VALUE>::AsFortran(std::ostream &o) const {
       }
       o << '_' << Result::kind;
     } else {
-      StructureConstructor{AsConstant().derivedTypeSpec(), value}.AsFortran(o);
+      StructureConstructor{result_.derivedTypeSpec(), value}.AsFortran(o);
     }
   }
   if (Rank() > 0) {
@@ -85,7 +86,7 @@ std::ostream &Constant<Type<TypeCategory::Character, KIND>>::AsFortran(
   }
   auto total{static_cast<std::int64_t>(size())};
   for (std::int64_t j{0}; j < total; ++j) {
-    ScalarValue value{values_.substr(j * length_, length_)};
+    Scalar<Result> value{values_.substr(j * length_, length_)};
     if (j > 0) {
       o << ',';
     } else if (Rank() == 0) {
@@ -183,6 +184,8 @@ template<typename T>
 constexpr Precedence ToPrecedence<RealToIntPower<T>>{Precedence::Power};
 template<typename T>
 constexpr Precedence ToPrecedence<Constant<T>>{Precedence::Constant};
+template<int KIND>
+constexpr Precedence ToPrecedence<SetLength<KIND>>{Precedence::Constant};
 template<typename T>
 constexpr Precedence ToPrecedence<Parentheses<T>>{Precedence::Parenthesize};
 template<int KIND>
@@ -218,11 +221,8 @@ static constexpr Precedence GetPrecedence(const Expr<SomeKind<CAT>> &expr) {
 template<typename T> static bool IsNegatedScalarConstant(const Expr<T> &expr) {
   static constexpr TypeCategory cat{T::category};
   if constexpr (cat == TypeCategory::Integer || cat == TypeCategory::Real) {
-    if (expr.Rank() == 0) {
-      if (const auto *p{UnwrapExpr<Constant<T>>(expr)}) {
-        CHECK(p->size() == 1);
-        return (**p).IsNegative();
-      }
+    if (auto n{GetScalarConstantValue<T>(expr)}) {
+      return n->IsNegative();
     }
   }
   return false;
@@ -378,7 +378,7 @@ std::ostream &ExpressionBase<RESULT>::AsFortran(std::ostream &o) const {
 }
 
 std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
-  DerivedTypeSpecAsFortran(o, *derivedTypeSpec_);
+  o << DerivedTypeSpecAsFortran(result_.derivedTypeSpec());
   if (values_.empty()) {
     o << '(';
   } else {
@@ -391,18 +391,70 @@ std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
   return o << ')';
 }
 
-std::ostream &DerivedTypeSpecAsFortran(
-    std::ostream &o, const semantics::DerivedTypeSpec &spec) {
-  o << spec.typeSymbol().name().ToString();
-  if (!spec.parameters().empty()) {
+std::string DynamicType::AsFortran() const {
+  if (derived_ != nullptr) {
+    CHECK(category_ == TypeCategory::Derived);
+    return (isPolymorphic_ ? "CLASS("s : "TYPE("s) +
+        DerivedTypeSpecAsFortran(*derived_) + ')';
+  } else if (charLength_ != nullptr) {
+    std::string result{"CHARACTER(KIND="s + std::to_string(kind_) + ",LEN="};
+    if (charLength_->isAssumed()) {
+      result += '*';
+    } else if (charLength_->isDeferred()) {
+      result += ':';
+    } else if (const auto &length{charLength_->GetExplicit()}) {
+      std::stringstream ss;
+      length->AsFortran(ss);
+      result += ss.str();
+    }
+    return result + ')';
+  } else if (isPolymorphic_) {
+    return "CLASS(*)";
+  } else if (kind_ == 0) {
+    return "(typeless intrinsic function argument)";
+  } else {
+    return EnumToString(category_) + '(' + std::to_string(kind_) + ')';
+  }
+}
+
+std::string DynamicType::AsFortran(std::string &&charLenExpr) const {
+  if (!charLenExpr.empty() && category_ == TypeCategory::Character) {
+    return "CHARACTER(KIND=" + std::to_string(kind_) +
+        ",LEN=" + std::move(charLenExpr) + ')';
+  } else {
+    return AsFortran();
+  }
+}
+
+std::string SomeDerived::AsFortran() const {
+  if (IsUnlimitedPolymorphic()) {
+    return "CLASS(*)";
+  } else {
+    return "TYPE("s + DerivedTypeSpecAsFortran(derivedTypeSpec()) + ')';
+  }
+}
+
+std::string DerivedTypeSpecAsFortran(const semantics::DerivedTypeSpec &spec) {
+  if (spec.HasActualParameters()) {
+    std::stringstream ss;
+    ss << spec.typeSymbol().name().ToString();
     char ch{'('};
     for (const auto &[name, value] : spec.parameters()) {
-      value.GetExplicit()->AsFortran(o << ch << name.ToString() << '=');
+      ss << ch << name.ToString() << '=';
       ch = ',';
+      if (value.isAssumed()) {
+        ss << '*';
+      } else if (value.isDeferred()) {
+        ss << ':';
+      } else {
+        value.GetExplicit()->AsFortran(ss);
+      }
     }
-    o << ')';
+    ss << ')';
+    return ss.str();
+  } else {
+    return spec.typeSymbol().name().ToString();
   }
-  return o;
 }
 
 std::ostream &EmitVar(std::ostream &o, const Symbol &symbol) {
