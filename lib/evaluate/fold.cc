@@ -195,7 +195,7 @@ static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
       (... && IsSpecificIntrinsicType<TA>));  // TODO derived types for MERGE?
   static_assert(sizeof...(TA) > 0);
   std::tuple<const Constant<TA> *...> args{
-      UnwrapExpr<Constant<TA>>(*funcRef.arguments()[I].value().GetExpr())...};
+      GetConstantValue<TA>(*funcRef.arguments()[I].value().GetExpr())...};
   if ((... && (std::get<I>(args) != nullptr))) {
     // Compute the shape of the result based on shapes of arguments
     ConstantSubscripts shape;
@@ -1715,6 +1715,7 @@ Expr<T> FoldOperation(FoldingContext &context, Divide<T> &&x) {
       auto quotAndRem{folded->first.DivideSigned(folded->second)};
       if (quotAndRem.divisionByZero) {
         context.messages().Say("INTEGER(%d) division by zero"_en_US, T::kind);
+        return Expr<T>{std::move(x)};
       }
       if (quotAndRem.overflow) {
         context.messages().Say(
@@ -1964,6 +1965,15 @@ public:
       // TODO: Obviously many other intrinsics can be allowed
     } else {
       Return(false);
+    }
+  }
+
+  // Forbid integer divide by zero in constants.
+  template<int KIND>
+  void Handle(const Divide<Type<TypeCategory::Integer, KIND>> &division) {
+    using T = Type<TypeCategory::Integer, KIND>;
+    if (const auto divisor{GetScalarConstantValue<T>(division.right())}) {
+      Check(!divisor->IsZero());
     }
   }
 
