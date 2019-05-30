@@ -24,7 +24,7 @@
 namespace Fortran::evaluate {
 
 static void ShapeAsFortran(std::ostream &o, const ConstantSubscripts &shape) {
-  if (shape.size() > 1) {
+  if (GetRank(shape) > 1) {
     o << ",shape=";
     char ch{'['};
     for (auto dim : shape) {
@@ -112,7 +112,7 @@ std::ostream &ActualArgument::AsFortran(std::ostream &o) const {
   if (isAlternateReturn) {
     o << '*';
   }
-  if (const auto *expr{GetExpr()}) {
+  if (const auto *expr{UnwrapExpr()}) {
     return expr->AsFortran(o);
   } else {
     return std::get<AssumedType>(u_).AsFortran(o);
@@ -394,8 +394,8 @@ std::ostream &StructureConstructor::AsFortran(std::ostream &o) const {
 std::string DynamicType::AsFortran() const {
   if (derived_ != nullptr) {
     CHECK(category_ == TypeCategory::Derived);
-    return (isPolymorphic_ ? "CLASS("s : "TYPE("s) +
-        DerivedTypeSpecAsFortran(*derived_) + ')';
+    return DerivedTypeSpecAsFortran(*derived_);
+    // TODO pmk: how to indicate polymorphism?  can't use TYPE() vs CLASS()
   } else if (charLength_ != nullptr) {
     std::string result{"CHARACTER(KIND="s + std::to_string(kind_) + ",LEN="};
     if (charLength_->isAssumed()) {
@@ -409,7 +409,7 @@ std::string DynamicType::AsFortran() const {
     }
     return result + ')';
   } else if (isPolymorphic_) {
-    return "CLASS(*)";
+    return "CLASS(*)";  // not valid, just for debugging
   } else if (kind_ == 0) {
     return "(typeless intrinsic function argument)";
   } else {

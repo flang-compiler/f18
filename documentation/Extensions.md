@@ -63,6 +63,9 @@ Extensions, deletions, and legacy features supported by default
 * $ and \ edit descriptors are supported in FORMAT to suppress newline
   output on user prompts.
 * REAL variable and bounds in DO loops
+* Integer literals without explicit kind specifiers that are out of range
+  for the default kind of INTEGER are assumed to have the least larger kind
+  that can hold them, if one exists.
 
 Extensions supported when enabled by options
 --------------------------------------------
@@ -90,3 +93,4 @@ Extensions and legacy features deliberately not supported
 * `Z` prefix on unquoted hexadecimal constants (dangerous)
 * `T` and `F` as abbreviations for `.TRUE.` and `.FALSE.` (dangerous)
 * Use of host FORMAT labels in internal subprograms (PGI-only feature)
+* ALLOCATE(TYPE(derived)::...) as variant of correct ALLOCATE(derived::...) (PGI only)

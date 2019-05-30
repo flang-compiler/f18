@@ -31,7 +31,7 @@
 #include <set>
 
 // #define DUMP_ON_FAILURE 1
-// #define CRASH_ON_FAILURE
+// #define CRASH_ON_FAILURE 1
 #if DUMP_ON_FAILURE
 #include "../parser/dump-parse-tree.h"
 #include <iostream>
@@ -170,6 +170,7 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
   if (subscripts != symbolRank) {
     Say("Reference to rank-%d object '%s' has %d subscripts"_err_en_US,
         symbolRank, symbol.name(), subscripts);
+    return std::nullopt;
   } else if (subscripts == 0) {
     // nothing to check
   } else if (Component * component{std::get_if<Component>(&ref.base())}) {
@@ -183,6 +184,7 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
         Say("Subscripts of component '%s' of rank-%d derived type "
             "array have rank %d but must all be scalar"_err_en_US,
             symbol.name(), baseRank, subscriptRank);
+        return std::nullopt;
       }
     }
   } else if (const auto *details{
@@ -193,6 +195,7 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
         Say("Assumed-size array '%s' must have explicit final "
             "subscript upper bound value"_err_en_US,
             symbol.name());
+        return std::nullopt;
       }
     }
   }
@@ -354,30 +357,51 @@ struct IntTypeVisitor {
   using Result = MaybeExpr;
   using Types = IntegerTypes;
   template<typename T> Result Test() {
-    if (T::kind == kind) {
+    if (T::kind >= kind) {
       const char *p{digits.begin()};
-      auto value{T::Scalar::Read(p, 10, true)};
+      auto value{T::Scalar::Read(p, 10, true /*signed*/)};
       if (!value.overflow) {
+        if (T::kind > kind) {
+          if (!isDefaultKind ||
+              !analyzer.context().IsEnabled(
+                  parser::LanguageFeature::BigIntLiterals)) {
+            return std::nullopt;
+          } else if (analyzer.context().ShouldWarn(
+                         parser::LanguageFeature::BigIntLiterals)) {
+            analyzer.Say(digits,
+                "Integer literal is too large for default INTEGER(KIND=%d); "
+                "assuming INTEGER(KIND=%d)"_en_US,
+                kind, T::kind);
+          }
+        }
         return Expr<SomeType>{
             Expr<SomeInteger>{Expr<T>{Constant<T>{std::move(value.value)}}}};
       }
     }
     return std::nullopt;
   }
+  ExpressionAnalyzer &analyzer;
   parser::CharBlock digits;
   int kind;
+  bool isDefaultKind;
 };
 
 template<typename PARSED>
 MaybeExpr ExpressionAnalyzer::IntLiteralConstant(const PARSED &x) {
-  int kind{AnalyzeKindParam(std::get<std::optional<parser::KindParam>>(x.t),
-      GetDefaultKind(TypeCategory::Integer))};
+  const auto &kindParam{std::get<std::optional<parser::KindParam>>(x.t)};
+  bool isDefaultKind{!kindParam.has_value()};
+  int kind{AnalyzeKindParam(kindParam, GetDefaultKind(TypeCategory::Integer))};
   if (CheckIntrinsicKind(TypeCategory::Integer, kind)) {
     auto digits{std::get<parser::CharBlock>(x.t)};
-    if (MaybeExpr result{common::SearchTypes(IntTypeVisitor{digits, kind})}) {
+    if (MaybeExpr result{common::SearchTypes(
+            IntTypeVisitor{*this, digits, kind, isDefaultKind})}) {
       return result;
+    } else if (isDefaultKind) {
+      Say(digits,
+          "Integer literal is too large for any allowable "
+          "kind of INTEGER"_err_en_US);
     } else {
-      Say(digits, "Integer literal too large for INTEGER(KIND=%d)"_err_en_US,
+      Say(digits, "Integer literal is too large for INTEGER(KIND=%d)"_err_en_US,
           kind);
     }
   }
@@ -612,8 +636,6 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Name &n) {
       // A bare reference to a derived type parameter (within a parameterized
       // derived type definition)
       return AsMaybeExpr(MakeBareTypeParamInquiry(&ultimate));
-    } else if (MaybeExpr result{Designate(DataRef{ultimate})}) {
-      return result;
     } else {
       return Designate(DataRef{*n.symbol});
     }
@@ -862,10 +884,10 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::StructureComponent &sc) {
                     IgnoreAnySubscripts(std::move(*designator)), *sym}));
           }
         }
-        Say(name, "type parameter is not INTEGER"_err_en_US);
+        Say(name, "Type parameter is not INTEGER"_err_en_US);
       } else {
         Say(name,
-            "type parameter inquiry must be applied to "
+            "A type parameter inquiry must be applied to "
             "a designator"_err_en_US);
       }
     } else if (dtSpec == nullptr || dtSpec->scope() == nullptr) {
@@ -877,12 +899,12 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::StructureComponent &sc) {
               CreateComponent(std::move(*dataRef), *sym, *dtSpec->scope())}) {
         return Designate(DataRef{std::move(*component)});
       } else {
-        Say(name, "component is not in scope of derived TYPE(%s)"_err_en_US,
+        Say(name, "Component is not in scope of derived TYPE(%s)"_err_en_US,
             dtSpec->typeSymbol().name());
       }
     } else {
       Say(name,
-          "base of component reference must be a data reference"_err_en_US);
+          "Base of component reference must be a data reference"_err_en_US);
     }
   } else if (auto *details{sym->detailsIf<semantics::MiscDetails>()}) {
     // special part-ref: %re, %im, %kind, %len
@@ -1810,11 +1832,16 @@ static void FixMisparsedFunctionReference(
           std::get_if<common::Indirection<parser::FunctionReference>>(&u)}) {
     parser::FunctionReference &funcRef{func->value()};
     auto &proc{std::get<parser::ProcedureDesignator>(funcRef.v.t)};
-    if (auto *name{std::get_if<parser::Name>(&proc.u)}) {
-      if (name->symbol == nullptr) {
-        return;
-      }
-      Symbol &symbol{name->symbol->GetUltimate()};
+    if (Symbol *
+        origSymbol{std::visit(
+            common::visitors{
+                [&](parser::Name &name) { return name.symbol; },
+                [&](parser::ProcComponentRef &pcr) {
+                  return pcr.v.thing.component.symbol;
+                },
+            },
+            proc.u)}) {
+      Symbol &symbol{origSymbol->GetUltimate()};
       if (symbol.has<semantics::ObjectEntityDetails>()) {
         if constexpr (common::HasMember<common::Indirection<parser::Designator>,
                           uType>) {
@@ -1822,7 +1849,9 @@ static void FixMisparsedFunctionReference(
         } else {
           common::die("can't fix misparsed function as array reference");
         }
-      } else {
+      } else if (const auto *name{std::get_if<parser::Name>(&proc.u)}) {
+        // Don't convert a procedure component reference into a structure
+        // constructor, but do check for a misparsed bare name.
         const Symbol *derivedType{nullptr};
         if (symbol.has<semantics::DerivedTypeDetails>()) {
           derivedType = &symbol;
