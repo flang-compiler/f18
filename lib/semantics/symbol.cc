@@ -568,9 +568,9 @@ Symbol &Symbol::Instantiate(
                 const DeclTypeSpec &newType{scope.InstantiateIntrinsicType(
                     *origType, semanticsContext)};
                 details.ReplaceType(newType);
-              } else {
+              } else if (origType->category() != DeclTypeSpec::ClassStar) {
                 common::die("instantiated component has type that is "
-                            "neither intrinsic nor derived");
+                            "neither intrinsic, derived, nor CLASS(*)");
               }
             }
             details.set_init(
@@ -599,6 +599,7 @@ Symbol &Symbol::Instantiate(
           [&](const ProcBindingDetails &that) { symbol.details_ = that; },
           [&](const GenericBindingDetails &that) { symbol.details_ = that; },
           [&](const ProcEntityDetails &that) { symbol.details_ = that; },
+          [&](const FinalProcDetails &that) { symbol.details_ = that; },
           [&](const TypeParamDetails &that) {
             // LEN type parameter, or error recovery on a KIND type parameter
             // with no corresponding actual argument or default
