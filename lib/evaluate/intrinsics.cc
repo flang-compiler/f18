@@ -289,8 +289,8 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"char", {{"i", AnyInt}, DefaultingKIND}, KINDChar},
     {"cmplx", {{"x", AnyComplex}, DefaultingKIND}, KINDComplex},
     {"cmplx",
-        {{"x", SameIntOrReal, Rank::elementalOrBOZ},
-            {"y", SameIntOrReal, Rank::elementalOrBOZ, Optionality::optional},
+        {{"x", AnyIntOrReal, Rank::elementalOrBOZ},
+            {"y", AnyIntOrReal, Rank::elementalOrBOZ, Optionality::optional},
             DefaultingKIND},
         KINDComplex},
     {"command_argument_count", {}, DefaultInt, Rank::scalar},
@@ -410,7 +410,8 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
         {{"array", Anything, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
         KINDInt, Rank::vector},
     {"leadz", {{"i", AnyInt}}, DefaultInt},
-    {"len", {{"string", AnyChar}, SubscriptDefaultKIND}, KINDInt},
+    {"len", {{"string", AnyChar, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
+        KINDInt, Rank::scalar},
     {"len_trim", {{"string", AnyChar}, SubscriptDefaultKIND}, KINDInt},
     {"lge", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
     {"lgt", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
@@ -733,7 +734,8 @@ static const SpecificIntrinsicInterface specificIntrinsicFunction[]{
     {{"index", {{"string", DefaultChar}, {"substring", DefaultChar}},
         DefaultInt}},
     {{"isign", {{"a", DefaultInt}, {"b", DefaultInt}}, DefaultInt}, "sign"},
-    {{"len", {{"string", DefaultChar}}, DefaultInt}},
+    {{"len", {{"string", DefaultChar, Rank::anyOrAssumedRank}}, DefaultInt,
+        Rank::scalar}},
     {{"log", {{"x", DefaultReal}}, DefaultReal}},
     {{"log10", {{"x", DefaultReal}}, DefaultReal}},
     {{"max0",
@@ -965,7 +967,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
     }
     if (!argOk) {
       messages.Say(
-          "actual argument for '%s=' has bad type or kind '%s'"_err_en_US,
+          "Actual argument for '%s=' has bad type or kind '%s'"_err_en_US,
           d.keyword, type->AsFortran());
       return std::nullopt;
     }
@@ -980,7 +982,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
     const IntrinsicDummyArgument &d{dummy[std::min(j, dummyArgPatterns - 1)]};
     if (const ActualArgument * arg{actualForDummy[j]}) {
       if (IsAssumedRank(*arg) && d.rank != Rank::anyOrAssumedRank) {
-        messages.Say("assumed-rank array cannot be forwarded to "
+        messages.Say("Assumed-rank array cannot be forwarded to "
                      "'%s=' argument"_err_en_US,
             d.keyword);
         return std::nullopt;
@@ -1402,6 +1404,7 @@ std::optional<SpecificCall> IntrinsicProcTable::Implementation::Probe(
   std::string name{call.name.ToString()};
   auto specificRange{specificFuncs_.equal_range(name)};
   for (auto iter{specificRange.first}; iter != specificRange.second; ++iter) {
+    CHECK(localBuffer.empty());
     if (auto specificCall{
             iter->second->Match(call, defaults_, arguments, localContext)}) {
       if (const char *genericName{iter->second->generic}) {
@@ -1421,6 +1424,7 @@ std::optional<SpecificCall> IntrinsicProcTable::Implementation::Probe(
   parser::Messages genericBuffer;
   auto genericRange{genericFuncs_.equal_range(name)};
   for (auto iter{genericRange.first}; iter != genericRange.second; ++iter) {
+    CHECK(localBuffer.empty());
     if (auto specificCall{
             iter->second->Match(call, defaults_, arguments, localContext)}) {
       // Apply any semantic checks peculiar to the intrinsic

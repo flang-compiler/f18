@@ -512,6 +512,8 @@ public:
     }
   }
 
+  void MakeExternal(Symbol &);
+
 protected:
   // Apply the implicit type rules to this symbol.
   void ApplyImplicitRules(Symbol &);
@@ -891,7 +893,9 @@ public:
   bool Pre(const parser::WhereConstructStmt &x) { return CheckDef(x.t); }
   bool Pre(const parser::ForallConstructStmt &x) { return CheckDef(x.t); }
   bool Pre(const parser::CriticalStmt &x) { return CheckDef(x.t); }
-  bool Pre(const parser::LabelDoStmt &x) { common::die("should not happen"); }
+  bool Pre(const parser::LabelDoStmt &x) {
+    return false;  // error recovery
+  }
   bool Pre(const parser::NonLabelDoStmt &x) { return CheckDef(x.t); }
   bool Pre(const parser::IfThenStmt &x) { return CheckDef(x.t); }
   bool Pre(const parser::SelectCaseStmt &x) { return CheckDef(x.t); }
@@ -1567,6 +1571,7 @@ void ScopeHandler::PushScope(Scope &scope) {
 void ScopeHandler::PopScope() {
   // Entities that are not yet classified as objects or procedures are now
   // assumed to be objects.
+  // TODO: Statement functions
   for (auto &pair : currScope()) {
     ConvertToObjectEntity(*pair.second);
   }
@@ -1667,7 +1672,6 @@ static bool NeedsType(const Symbol &symbol) {
   return true;
 }
 void ScopeHandler::ApplyImplicitRules(Symbol &symbol) {
-  ConvertToObjectEntity(symbol);
   if (NeedsType(symbol)) {
     if (isImplicitNoneType()) {
       Say(symbol.name(), "No explicit type declared for '%s'"_err_en_US);
@@ -1737,6 +1741,17 @@ const DeclTypeSpec &ScopeHandler::MakeLogicalType(
     return context().MakeLogicalType(static_cast<int>(*known));
   } else {
     return currScope_->MakeLogicalType(std::move(value));
+  }
+}
+
+void ScopeHandler::MakeExternal(Symbol &symbol) {
+  if (!symbol.attrs().test(Attr::EXTERNAL)) {
+    symbol.attrs().set(Attr::EXTERNAL);
+    if (symbol.attrs().test(Attr::INTRINSIC)) {  // C840
+      Say(symbol.name(),
+          "Symbol '%s' cannot have both EXTERNAL and INTRINSIC attributes"_err_en_US,
+          symbol.name());
+    }
   }
 }
 
@@ -2086,9 +2101,18 @@ void InterfaceVisitor::ResolveSpecificsInGeneric(Symbol &generic) {
       continue;
     }
     if (kind == ProcedureKind::ModuleProcedure) {
-      const auto *d{symbol->detailsIf<SubprogramNameDetails>()};
-      if (!d || d->kind() != SubprogramKind::Module) {
-        Say(*name, "'%s' is not a module procedure"_err_en_US);
+      if (const auto *nd{symbol->detailsIf<SubprogramNameDetails>()}) {
+        if (nd->kind() != SubprogramKind::Module) {
+          Say(*name, "'%s' is not a module procedure"_err_en_US);
+        }
+      } else {
+        // USE-associated procedure
+        const auto *sd{symbol->detailsIf<SubprogramDetails>()};
+        CHECK(sd != nullptr);
+        if (symbol->owner().kind() != Scope::Kind::Module ||
+            sd->isInterface()) {
+          Say(*name, "'%s' is not a module procedure"_err_en_US);
+        }
       }
     }
     if (!namesSeen.insert(name->source).second) {
@@ -2250,10 +2274,12 @@ void SubprogramVisitor::Post(const parser::SubroutineStmt &stmt) {
   const auto &name{std::get<parser::Name>(stmt.t)};
   auto &details{PostSubprogramStmt(name)};
   for (const auto &dummyArg : std::get<std::list<parser::DummyArg>>(stmt.t)) {
-    const parser::Name *dummyName = std::get_if<parser::Name>(&dummyArg.u);
-    CHECK(dummyName != nullptr && "TODO: alternate return indicator");
-    Symbol &dummy{MakeSymbol(*dummyName, EntityDetails(true))};
-    details.add_dummyArg(dummy);
+    if (const auto *dummyName{std::get_if<parser::Name>(&dummyArg.u)}) {
+      Symbol &dummy{MakeSymbol(*dummyName, EntityDetails(true))};
+      details.add_dummyArg(dummy);
+    } else {
+      details.add_alternateReturn();
+    }
   }
 }
 
@@ -2338,7 +2364,7 @@ Symbol &SubprogramVisitor::PushSubprogramScope(
   if (inInterfaceBlock()) {
     details.set_isInterface();
     if (!isAbstract()) {
-      symbol->attrs().set(Attr::EXTERNAL);
+      MakeExternal(*symbol);
     }
     if (isGeneric()) {
       GetGenericDetails().add_specificProc(*symbol);
@@ -2538,7 +2564,19 @@ bool DeclarationVisitor::Pre(const parser::IntentStmt &x) {
       HandleAttributeStmt(IntentSpecToAttr(intentSpec), names);
 }
 bool DeclarationVisitor::Pre(const parser::IntrinsicStmt &x) {
-  return HandleAttributeStmt(Attr::INTRINSIC, x.v);
+  HandleAttributeStmt(Attr::INTRINSIC, x.v);
+  for (const auto &name : x.v) {
+    auto *symbol{FindSymbol(name)};
+    if (!ConvertToProcEntity(*symbol)) {
+      SayWithDecl(
+          name, *symbol, "INTRINSIC attribute not allowed on '%s'"_err_en_US);
+    } else if (symbol->attrs().test(Attr::EXTERNAL)) {  // C840
+      Say(symbol->name(),
+          "Symbol '%s' cannot have both EXTERNAL and INTRINSIC attributes"_err_en_US,
+          symbol->name());
+    }
+  }
+  return false;
 }
 bool DeclarationVisitor::Pre(const parser::OptionalStmt &x) {
   return CheckNotInBlock("OPTIONAL") &&
@@ -3589,6 +3627,7 @@ Symbol *DeclarationVisitor::DeclareLocalEntity(const parser::Name &name) {
     // Declare the name as an object in the enclosing scope so that
     // the name can't be repurposed there later as something else.
     prev = &MakeSymbol(InclusiveScope(), name.source, Attrs{});
+    ConvertToObjectEntity(*prev);
     ApplyImplicitRules(*prev);
     implicit = true;
   }
@@ -4258,6 +4297,7 @@ const parser::Name *DeclarationVisitor::ResolveName(const parser::Name &name) {
       return nullptr;  // reported an error
     }
     if (symbol->IsDummy()) {
+      ConvertToObjectEntity(*symbol);
       ApplyImplicitRules(*symbol);
     }
     return &name;
@@ -4274,6 +4314,7 @@ const parser::Name *DeclarationVisitor::ResolveName(const parser::Name &name) {
         "'%s' from host scoping unit is not accessible due to IMPORT"_err_en_US);
     return nullptr;
   }
+  ConvertToObjectEntity(*symbol);
   ApplyImplicitRules(*symbol);
   return &name;
 }
@@ -4369,7 +4410,7 @@ void ResolveNamesVisitor::HandleProcedureName(
           " attribute in a scope with IMPLICIT NONE(EXTERNAL)"_err_en_US);
       return;
     }
-    symbol->attrs().set(Attr::EXTERNAL);
+    MakeExternal(*symbol);
     if (!symbol->has<ProcEntityDetails>()) {
       ConvertToProcEntity(*symbol);
     }
@@ -4630,6 +4671,49 @@ bool ResolveNamesVisitor::Pre(const parser::ProgramUnit &x) {
   return false;
 }
 
+// Calls to dummy procedures need to record that their symbols are known
+// to be procedures, so that they don't get converted to objects by default.
+class ExecutionPartSkimmer {
+public:
+  explicit ExecutionPartSkimmer(Scope &s) : scope_{s} {}
+
+  void Walk(const parser::ExecutionPart *exec) {
+    if (exec != nullptr) {
+      parser::Walk(*exec, *this);
+    }
+  }
+
+  template<typename A> bool Pre(const A &) { return true; }
+  template<typename A> void Post(const A &) {}
+  void Post(const parser::FunctionReference &fr) {
+    NoteCall(Symbol::Flag::Function, fr.v);
+  }
+  void Post(const parser::CallStmt &cs) {
+    NoteCall(Symbol::Flag::Subroutine, cs.v);
+  }
+
+private:
+  void NoteCall(Symbol::Flag, const parser::Call &);
+
+  Scope &scope_;
+};
+
+void ExecutionPartSkimmer::NoteCall(
+    Symbol::Flag flag, const parser::Call &call) {
+  auto &designator{std::get<parser::ProcedureDesignator>(call.t)};
+  if (const auto *name{std::get_if<parser::Name>(&designator.u)}) {
+    if (Symbol * symbol{scope_.FindSymbol(name->source)}) {
+      if (auto *details{symbol->detailsIf<EntityDetails>()}) {
+        if (details->isDummy()) {
+          symbol->set_details(ProcEntityDetails{std::move(*details)});
+          symbol->set(flag);
+          symbol->attrs().set(Attr::EXTERNAL);
+        }
+      }
+    }
+  }
+}
+
 // Build the scope tree and resolve names in the specification parts of this
 // node and its children
 void ResolveNamesVisitor::ResolveSpecificationParts(ProgramTree &node) {
@@ -4644,14 +4728,6 @@ void ResolveNamesVisitor::ResolveSpecificationParts(ProgramTree &node) {
   if (node.IsModule()) {
     ApplyDefaultAccess();
   }
-  for (auto &child : node.children()) {
-    ResolveSpecificationParts(child);
-  }
-  // Subtlety: PopScope() is not called here because we want to defer
-  // conversions of uncategorized entities into objects until after
-  // we have traversed the executable part of the subprogram.
-  // Function results, however, are converted now so that they can
-  // be used in executable parts.
   if (Symbol * symbol{currScope().symbol()}) {
     if (auto *details{symbol->detailsIf<SubprogramDetails>()}) {
       if (details->isFunction()) {
@@ -4660,6 +4736,13 @@ void ResolveNamesVisitor::ResolveSpecificationParts(ProgramTree &node) {
       }
     }
   }
+  ExecutionPartSkimmer{scope}.Walk(node.exec());
+  for (auto &child : node.children()) {
+    ResolveSpecificationParts(child);
+  }
+  // Subtlety: PopScope() is not called here because we want to defer
+  // conversions of uncategorized entities into objects until after
+  // we have traversed the executable part of the subprogram.
   SetScope(currScope().parent());
 }
 
