@@ -36,7 +36,7 @@
 # Return ldd or similar tool to use to check for libpgmath
 function get_ldd() {
   case $(uname -s) in
-    Linux) echo 'ldd' ;;
+    Linux|OpenBSD) echo 'ldd' ;;
     Darwin) echo 'otool -L' ;;
     *)
       >&2 echo "Warning: cannot detect libpgmath on $(uname -s)"
