@@ -3384,7 +3384,7 @@ void DeclarationVisitor::Post(const parser::CommonBlockObject &x) {
     return;  // error was reported
   }
   commonBlockInfo_.curr->get<CommonBlockDetails>().add_object(symbol);
-  if (!IsExplicit(details->shape())) {
+  if (!IsAllocatableOrPointer(symbol) && !IsExplicit(details->shape())) {
     Say(name,
         "The shape of common block object '%s' must be explicit"_err_en_US);
     return;
