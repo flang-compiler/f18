@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "fold.h"
+#include "character.h"
 #include "characteristics.h"
 #include "common.h"
 #include "constant.h"
@@ -76,7 +77,6 @@ Expr<Type<TypeCategory::Real, KIND>> FoldOperation(
 template<int KIND>
 Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(
     FoldingContext &context, FunctionRef<Type<TypeCategory::Complex, KIND>> &&);
-// TODO: Character intrinsic function folding
 template<int KIND>
 Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
     FoldingContext &context, FunctionRef<Type<TypeCategory::Logical, KIND>> &&);
@@ -378,6 +378,28 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
       } else {
         common::die("exponent argument must be real");
       }
+    } else if (name == "iachar" || name == "ichar") {
+      auto *someChar{UnwrapExpr<Expr<SomeCharacter>>(args[0])};
+      CHECK(someChar != nullptr);
+      if (auto len{ToInt64(someChar->LEN())}) {
+        if (len.value() != 1) {
+          // Do not die, this was not checked before
+          context.messages().Say(
+              "Character in intrinsic function %s must have length one"_en_US,
+              name);
+        } else {
+          return std::visit(
+              [&funcRef, &context](const auto &str) -> Expr<T> {
+                using Char = typename std::decay_t<decltype(str)>::Result;
+                return FoldElementalIntrinsic<T, Char>(context,
+                    std::move(funcRef),
+                    ScalarFunc<T, Char>([](const Scalar<Char> &c) {
+                      return Scalar<T>{CharacterUtils<Char::kind>::ICHAR(c)};
+                    }));
+              },
+              someChar->u);
+        }
+      }
     } else if (name == "iand" || name == "ior" || name == "ieor") {
       // convert boz
       for (int i{0}; i <= 1; ++i) {
@@ -593,8 +615,8 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     }
     // TODO:
     // ceiling, count, cshift, dot_product, eoshift,
-    // findloc, floor, iachar, iall, iany, iparity, ibits, ichar, image_status,
-    // index, ishftc, lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
+    // findloc, floor, iall, iany, iparity, ibits, image_status, index, ishftc,
+    // lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
     // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
     // scan, selected_char_kind,
     // sign, spread, sum, transfer, transpose, ubound, unpack, verify
@@ -870,6 +892,40 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(FoldingContext &context,
     // TODO: btest, cshift, dot_product, eoshift, is_iostat_end,
     // is_iostat_eor, lge, lgt, lle, llt, logical, matmul, merge, out_of_range,
     // pack, parity, reduce, reshape, spread, transfer, transpose, unpack
+  }
+  return Expr<T>{std::move(funcRef)};
+}
+
+template<int KIND>
+Expr<Type<TypeCategory::Character, KIND>> FoldOperation(FoldingContext &context,
+    FunctionRef<Type<TypeCategory::Character, KIND>> &&funcRef) {
+  using T = Type<TypeCategory::Character, KIND>;
+  ActualArguments &args{FoldArguments(context, funcRef)};
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    std::string name{intrinsic->name};
+    if (name == "achar" || name == "char") {
+      auto *sn{UnwrapExpr<Expr<SomeInteger>>(args[0])};
+      CHECK(sn != nullptr);
+      return std::visit(
+          [&funcRef, &context](const auto &n) -> Expr<T> {
+            using IntT = typename std::decay_t<decltype(n)>::Result;
+            return FoldElementalIntrinsic<T, IntT>(context, std::move(funcRef),
+                ScalarFunc<T, IntT>([](const Scalar<IntT> &i) {
+                  return CharacterUtils<KIND>::CHAR(i.ToUInt64());
+                }));
+          },
+          sn->u);
+    } else if (name == "adjustl") {
+      return FoldElementalIntrinsic<T, T>(
+          context, std::move(funcRef), CharacterUtils<KIND>::ADJUSTL);
+    } else if (name == "adjustr") {
+      return FoldElementalIntrinsic<T, T>(
+          context, std::move(funcRef), CharacterUtils<KIND>::ADJUSTR);
+    } else if (name == "new_line") {
+      return Expr<T>{Constant<T>{CharacterUtils<KIND>::NEW_LINE()}};
+    }
+    // TODO: cshift, eoshift, max, maxval, merge, min, minval, pack, reduce,
+    // repeat, reshape, spread, transfer, transpose, trim, unpack
   }
   return Expr<T>{std::move(funcRef)};
 }
