@@ -17,6 +17,7 @@
 
 #include "intrinsics-library.h"
 #include "../common/Fortran.h"
+#include "../common/default-kinds.h"
 #include "../common/enum-set.h"
 #include "../common/idioms.h"
 #include "../common/indirection.h"
@@ -32,6 +33,7 @@ class DerivedTypeSpec;
 
 namespace Fortran::evaluate {
 
+using common::ConstantSubscript;
 using common::RelationalOperator;
 
 // Integers are always ordered; reals may not be.
@@ -228,11 +230,11 @@ public:
     return hostIntrinsicsLibrary_;
   }
 
-  std::int64_t &StartImpliedDo(parser::CharBlock, std::int64_t = 1);
-  std::optional<std::int64_t> GetImpliedDo(parser::CharBlock) const;
+  ConstantSubscript &StartImpliedDo(parser::CharBlock, ConstantSubscript = 1);
+  std::optional<ConstantSubscript> GetImpliedDo(parser::CharBlock) const;
   void EndImpliedDo(parser::CharBlock);
 
-  std::map<parser::CharBlock, std::int64_t> &impliedDos() {
+  std::map<parser::CharBlock, ConstantSubscript> &impliedDos() {
     return impliedDos_;
   }
 
@@ -247,7 +249,7 @@ private:
   bool flushSubnormalsToZero_{false};
   bool bigEndian_{false};
   const semantics::DerivedTypeSpec *pdtInstance_{nullptr};
-  std::map<parser::CharBlock, std::int64_t> impliedDos_;
+  std::map<parser::CharBlock, ConstantSubscript> impliedDos_;
   HostIntrinsicProceduresLibrary hostIntrinsicsLibrary_;
 };
 
