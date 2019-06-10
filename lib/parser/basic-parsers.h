@@ -49,7 +49,7 @@ namespace Fortran::parser {
 
 // fail<A>("..."_err_en_US) returns a parser that never succeeds.  It reports an
 // error message at the current position.  The result type is unused,
-// but might have to be specified at the point of call for satisfy
+// but might have to be specified at the point of call to satisfy
 // the type checker.  The state remains valid.
 template<typename A> class FailParser {
 public:
@@ -69,14 +69,14 @@ template<typename A = Success> inline constexpr auto fail(MessageFixedText t) {
   return FailParser<A>{t};
 }
 
-// pure(x) returns a parsers that always succeeds, does not advance the
+// pure(x) returns a parser that always succeeds, does not advance the
 // parse, and returns a captured value whose type must be copy-constructible.
 template<typename A> class PureParser {
 public:
   using resultType = A;
   constexpr PureParser(const PureParser &) = default;
   constexpr explicit PureParser(A &&x) : value_(std::move(x)) {}
-  std::optional<A> Parse(ParseState &) const { return {value_}; }
+  std::optional<A> Parse(ParseState &) const { return value_; }
 
 private:
   const A value_;
@@ -126,8 +126,9 @@ public:
     forked.set_deferMessages(true);
     if (parser_.Parse(forked)) {
       return std::nullopt;
+    } else {
+      return Success{};
     }
-    return {Success{}};
   }
 
 private:
@@ -148,8 +149,8 @@ public:
   std::optional<Success> Parse(ParseState &state) const {
     ParseState forked{state};
     forked.set_deferMessages(true);
-    if (parser_.Parse(forked).has_value()) {
-      return {Success{}};
+    if (parser_.Parse(forked)) {
+      return Success{};
     }
     return std::nullopt;
   }
@@ -294,8 +295,10 @@ public:
     Messages messages{std::move(state.messages())};
     ParseState backtrack{state};
     std::optional<resultType> result{std::get<0>(ps_).Parse(state)};
-    if (!result.has_value()) {
-      ParseRest<1>(result, state, backtrack);
+    if constexpr (sizeof...(Ps) > 0) {
+      if (!result.has_value()) {
+        ParseRest<1>(result, state, backtrack);
+      }
     }
     state.messages().Restore(std::move(messages));
     return result;
@@ -305,15 +308,12 @@ private:
   template<int J>
   void ParseRest(std::optional<resultType> &result, ParseState &state,
       ParseState &backtrack) const {
-    if constexpr (J <= sizeof...(Ps)) {
-      ParseState prevState{std::move(state)};
-      state = backtrack;
-      const auto &parser{std::get<J>(ps_)};
-      static_assert(std::is_same_v<resultType,
-          typename std::decay_t<decltype(parser)>::resultType>);
-      result = parser.Parse(state);
-      if (!result.has_value()) {
-        state.CombineFailedParses(std::move(prevState));
+    ParseState prevState{std::move(state)};
+    state = backtrack;
+    result = std::get<J>(ps_).Parse(state);
+    if (!result.has_value()) {
+      state.CombineFailedParses(std::move(prevState));
+      if constexpr (J < sizeof...(Ps)) {
         ParseRest<J + 1>(result, state, backtrack);
       }
     }
@@ -415,7 +415,7 @@ public:
       }
       at = state.GetLocation();
     }
-    return {std::move(result)};
+    return result;
   }
 
 private:
@@ -445,7 +445,7 @@ public:
       if (state.GetLocation() > start) {
         result.splice(result.end(), many(parser_).Parse(state).value());
       }
-      return {std::move(result)};
+      return result;
     }
     return std::nullopt;
   }
@@ -469,7 +469,7 @@ public:
          parser_.Parse(state) && state.GetLocation() > at;
          at = state.GetLocation()) {
     }
-    return {Success{}};
+    return Success{};
   }
 
 private:
@@ -491,7 +491,7 @@ public:
   std::optional<Success> Parse(ParseState &state) const {
     while (parser_.Parse(state)) {
     }
-    return {Success{}};
+    return Success{};
   }
 
 private:
@@ -513,9 +513,9 @@ public:
   constexpr MaybeParser(PA parser) : parser_{parser} {}
   std::optional<resultType> Parse(ParseState &state) const {
     if (resultType result{parser_.Parse(state)}) {
-      return {std::move(result)};
+      return result;
     }
-    return {resultType{}};
+    return resultType{};
   }
 
 private:
@@ -539,7 +539,7 @@ public:
     if (ax.value().has_value()) {  // maybe() always succeeds
       return std::move(*ax);
     }
-    return {resultType{}};
+    return resultType{};
   }
 
 private:
@@ -610,8 +610,8 @@ public:
     ApplyArgs<PARSER...> results;
     using Sequence = std::index_sequence_for<PARSER...>;
     if (ApplyHelperArgs(parsers_, results, state, Sequence{})) {
-      return {ApplyHelperFunction<FUNCTION, RESULT, PARSER...>(
-          function_, std::move(results), Sequence{})};
+      return ApplyHelperFunction<FUNCTION, RESULT, PARSER...>(
+          function_, std::move(results), Sequence{});
     } else {
       return std::nullopt;
     }
@@ -669,8 +669,8 @@ public:
     using Sequence1 = std::index_sequence_for<OBJPARSER, PARSER...>;
     using Sequence2 = std::index_sequence_for<PARSER...>;
     if (ApplyHelperArgs(parsers_, results, state, Sequence1{})) {
-      return {ApplyHelperMember<OBJPARSER, PARSER...>(
-          function_, std::move(results), Sequence2{})};
+      return ApplyHelperMember<OBJPARSER, PARSER...>(
+          function_, std::move(results), Sequence2{});
     } else {
       return std::nullopt;
     }
@@ -696,6 +696,10 @@ inline constexpr auto applyMem(
 // instance of T constructed upon the values they returned.
 // With a single argument that is a parser with no usable value,
 // construct<T>(p) invokes T's default nullary constructor (T(){}).
+// (This means that "construct<T>(Foo >> Bar >> ok)" is functionally
+// equivalent to "Foo >> Bar >> construct<T>()", but I'd like to hold open
+// the opportunity to make construct<> capture source provenance all of the
+// time, and the first form will then lead to better error positioning.)
 
 template<typename RESULT, typename... PARSER, std::size_t... J>
 inline RESULT ApplyHelperConstructor(
@@ -794,10 +798,11 @@ template<bool pass> struct FixedParser {
   using resultType = Success;
   constexpr FixedParser() {}
   static constexpr std::optional<Success> Parse(ParseState &) {
-    if (pass) {
-      return {Success{}};
+    if constexpr (pass) {
+      return Success{};
+    } else {
+      return std::nullopt;
     }
-    return std::nullopt;
   }
 };
 
