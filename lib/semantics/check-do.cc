@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "check-do-concurrent.h"
+#include "check-do.h"
 #include "attr.h"
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
 #include "tools.h"
 #include "type.h"
+#include "../evaluate/expression.h"
 #include "../evaluate/traversal.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree-visitor.h"
@@ -31,6 +32,7 @@ static bool isPure(const Attrs &attrs) {
   return attrs.test(Attr::PURE) ||
       (attrs.test(Attr::ELEMENTAL) && !attrs.test(Attr::IMPURE));
 }
+
 static bool isProcedure(const Symbol::Flags &flags) {
   return flags.test(Symbol::Flag::Function) ||
       flags.test(Symbol::Flag::Subroutine);
@@ -39,7 +41,7 @@ static bool isProcedure(const Symbol::Flags &flags) {
 // 11.1.7.5 - enforce semantics constraints on a DO CONCURRENT loop body
 class DoConcurrentEnforcement {
 public:
-  DoConcurrentEnforcement(parser::Messages &messages) : messages_{messages} {}
+  DoConcurrentEnforcement(SemanticsContext &context) : context_{context} {}
   std::set<parser::Label> labels() { return labels_; }
   std::set<parser::CharBlock> names() { return names_; }
   template<typename T> bool Pre(const T &) { return true; }
@@ -51,57 +53,70 @@ public:
     }
     return true;
   }
+
   // C1167
   bool Pre(const parser::WhereConstructStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::ForallConstructStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::ChangeTeamStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::CriticalStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::LabelDoStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::NonLabelDoStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::IfThenStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::SelectCaseStmt &s) {
     addName(std::get<std::optional<parser::Name>>(s.t));
     return true;
   }
+
   bool Pre(const parser::SelectRankStmt &s) {
     addName(std::get<0>(s.t));
     return true;
   }
+
   bool Pre(const parser::SelectTypeStmt &s) {
     addName(std::get<0>(s.t));
     return true;
   }
+
   // C1136
   void Post(const parser::ReturnStmt &) {
-    messages_.Say(currentStatementSourcePosition_,
+    context_.Say(currentStatementSourcePosition_,
         "RETURN not allowed in DO CONCURRENT"_err_en_US);
   }
+
   // C1137
   void NoImageControl() {
-    messages_.Say(currentStatementSourcePosition_,
+    context_.Say(currentStatementSourcePosition_,
         "image control statement not allowed in DO CONCURRENT"_err_en_US);
   }
+
   void Post(const parser::SyncAllStmt &) { NoImageControl(); }
   void Post(const parser::SyncImagesStmt &) { NoImageControl(); }
   void Post(const parser::SyncMemoryStmt &) { NoImageControl(); }
@@ -118,54 +133,57 @@ public:
 
   void Post(const parser::AllocateStmt &) {
     if (anyObjectIsCoarray()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "ALLOCATE coarray not allowed in DO CONCURRENT"_err_en_US);
     }
   }
+
   void Post(const parser::DeallocateStmt &) {
     if (anyObjectIsCoarray()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "DEALLOCATE coarray not allowed in DO CONCURRENT"_err_en_US);
     }
     // C1140: deallocation of polymorphic objects
     if (anyObjectIsPolymorphic()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "DEALLOCATE polymorphic object(s) not allowed"
           " in DO CONCURRENT"_err_en_US);
     }
   }
+
   template<typename T> void Post(const parser::Statement<T> &) {
     if (EndTDeallocatesCoarray()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "implicit deallocation of coarray not allowed"
           " in DO CONCURRENT"_err_en_US);
     }
   }
+
   // C1141: cannot call ieee_get_flag, ieee_[gs]et_halting_mode
   void Post(const parser::ProcedureDesignator &procedureDesignator) {
     if (auto *name{std::get_if<parser::Name>(&procedureDesignator.u)}) {
       // C1137: call move_alloc with coarray arguments
       if (name->source == "move_alloc") {
         if (anyObjectIsCoarray()) {
-          messages_.Say(currentStatementSourcePosition_,
+          context_.Say(currentStatementSourcePosition_,
               "call to MOVE_ALLOC intrinsic in DO CONCURRENT with coarray"
               " argument(s) not allowed"_err_en_US);
         }
       }
       // C1139: call to impure procedure
       if (name->symbol && !isPure(name->symbol->attrs())) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "call to impure subroutine in DO CONCURRENT not allowed"_err_en_US);
       }
       if (name->symbol && fromScope(*name->symbol, "ieee_exceptions"s)) {
         if (name->source == "ieee_get_flag") {
-          messages_.Say(currentStatementSourcePosition_,
+          context_.Say(currentStatementSourcePosition_,
               "IEEE_GET_FLAG not allowed in DO CONCURRENT"_err_en_US);
         } else if (name->source == "ieee_set_halting_mode") {
-          messages_.Say(currentStatementSourcePosition_,
+          context_.Say(currentStatementSourcePosition_,
               "IEEE_SET_HALTING_MODE not allowed in DO CONCURRENT"_err_en_US);
         } else if (name->source == "ieee_get_halting_mode") {
-          messages_.Say(currentStatementSourcePosition_,
+          context_.Say(currentStatementSourcePosition_,
               "IEEE_GET_HALTING_MODE not allowed in DO CONCURRENT"_err_en_US);
         }
       }
@@ -174,7 +192,7 @@ public:
       auto &component{std::get<parser::ProcComponentRef>(procedureDesignator.u)
                           .v.thing.component};
       if (component.symbol && !isPure(component.symbol->attrs())) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "call to impure subroutine in DO CONCURRENT not allowed"_err_en_US);
       }
     }
@@ -186,7 +204,7 @@ public:
             std::get_if<parser::IoControlSpec::CharExpr>(&ioControlSpec.u)}) {
       if (std::get<parser::IoControlSpec::CharExpr::Kind>(charExpr->t) ==
           parser::IoControlSpec::CharExpr::Kind::Advance) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "ADVANCE specifier not allowed in DO CONCURRENT"_err_en_US);
       }
     }
@@ -203,6 +221,7 @@ private:
     }
     return false;
   }
+
   void addName(const std::optional<parser::Name> &nm) {
     if (nm.has_value()) {
       names_.insert(nm.value().source);
@@ -212,25 +231,27 @@ private:
   std::set<parser::CharBlock> names_;
   std::set<parser::Label> labels_;
   parser::CharBlock currentStatementSourcePosition_;
-  parser::Messages &messages_;
-};
+  SemanticsContext &context_;
+};  // class DoConcurrentEnforcement
 
 class DoConcurrentLabelEnforce {
 public:
-  DoConcurrentLabelEnforce(parser::Messages &messages,
+  DoConcurrentLabelEnforce(SemanticsContext &context,
       std::set<parser::Label> &&labels, std::set<parser::CharBlock> &&names,
       parser::CharBlock doConcurrentSourcePosition)
-    : messages_{messages}, labels_{labels}, names_{names},
+    : context_{context}, labels_{labels}, names_{names},
       doConcurrentSourcePosition_{doConcurrentSourcePosition} {}
   template<typename T> bool Pre(const T &) { return true; }
   template<typename T> bool Pre(const parser::Statement<T> &statement) {
     currentStatementSourcePosition_ = statement.source;
     return true;
   }
+
   bool Pre(const parser::DoConstruct &) {
     ++do_depth_;
     return true;
   }
+
   template<typename T> void Post(const T &) {}
 
   // C1138: branch from within a DO CONCURRENT shall not target outside loop
@@ -241,22 +262,27 @@ public:
       checkLabelUse(i);
     }
   }
+
   void Post(const parser::ArithmeticIfStmt &arithmeticIfStmt) {
     checkLabelUse(std::get<1>(arithmeticIfStmt.t));
     checkLabelUse(std::get<2>(arithmeticIfStmt.t));
     checkLabelUse(std::get<3>(arithmeticIfStmt.t));
   }
+
   void Post(const parser::AssignStmt &assignStmt) {
     checkLabelUse(std::get<parser::Label>(assignStmt.t));
   }
+
   void Post(const parser::AssignedGotoStmt &assignedGotoStmt) {
     for (auto &i : std::get<std::list<parser::Label>>(assignedGotoStmt.t)) {
       checkLabelUse(i);
     }
   }
+
   void Post(const parser::AltReturnSpec &altReturnSpec) {
     checkLabelUse(altReturnSpec.v);
   }
+
   void Post(const parser::ErrLabel &errLabel) { checkLabelUse(errLabel.v); }
   void Post(const parser::EndLabel &endLabel) { checkLabelUse(endLabel.v); }
   void Post(const parser::EorLabel &eorLabel) { checkLabelUse(eorLabel.v); }
@@ -264,33 +290,34 @@ public:
   void checkName(const std::optional<parser::Name> &nm) {
     if (!nm.has_value()) {
       if (do_depth_ == 0) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "exit from DO CONCURRENT construct (%s)"_err_en_US,
             doConcurrentSourcePosition_);
       }
       // nesting of named constructs is assumed to have been previously checked
       // by the name/label resolution pass
     } else if (names_.find(nm.value().source) == names_.end()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "exit from DO CONCURRENT construct (%s) to construct with name '%s'"_err_en_US,
           doConcurrentSourcePosition_, nm.value().source);
     }
   }
+
   void checkLabelUse(const parser::Label &labelUsed) {
     if (labels_.find(labelUsed) == labels_.end()) {
-      messages_.Say(currentStatementSourcePosition_,
+      context_.Say(currentStatementSourcePosition_,
           "control flow escapes from DO CONCURRENT"_err_en_US);
     }
   }
 
 private:
-  parser::Messages &messages_;
+  SemanticsContext &context_;
   std::set<parser::Label> labels_;
   std::set<parser::CharBlock> names_;
   int do_depth_{0};
   parser::CharBlock currentStatementSourcePosition_{nullptr};
   parser::CharBlock doConcurrentSourcePosition_{nullptr};
-};
+};  // class DoConcurrentLabelEnforce
 
 using CS = std::vector<const Symbol *>;
 
@@ -302,6 +329,7 @@ struct GatherSymbols {
 };
 
 enum GatherWhichVariables { All, NotShared, Local };
+
 static CS GatherVariables(const std::list<parser::LocalitySpec> &localitySpecs,
     GatherWhichVariables which) {
   CS symbols;
@@ -344,41 +372,120 @@ static CS GatherReferencesFromExpression(const parser::Expr &expression) {
   }
 }
 
-// Find a canonical DO CONCURRENT and enforce semantics checks on its body
-class DoConcurrentContext {
+// Find a DO statement and enforce semantics checks on its body
+class DoContext {
 public:
-  DoConcurrentContext(SemanticsContext &context)
-    : messages_{context.messages()} {}
-
-  bool operator==(const DoConcurrentContext &x) const { return this == &x; }
+  DoContext(SemanticsContext &context) : context_{context} {}
 
   void Check(const parser::DoConstruct &doConstruct) {
-    auto &doStmt{
-        std::get<parser::Statement<parser::NonLabelDoStmt>>(doConstruct.t)};
-    auto &optionalLoopControl{
-        std::get<std::optional<parser::LoopControl>>(doStmt.statement.t)};
-    if (optionalLoopControl) {
-      currentStatementSourcePosition_ = doStmt.source;
-      if (auto *concurrent{std::get_if<parser::LoopControl::Concurrent>(
-              &optionalLoopControl->u)}) {
-        DoConcurrentEnforcement doConcurrentEnforcement{messages_};
-        parser::Walk(
-            std::get<parser::Block>(doConstruct.t), doConcurrentEnforcement);
-        DoConcurrentLabelEnforce doConcurrentLabelEnforce{messages_,
-            doConcurrentEnforcement.labels(), doConcurrentEnforcement.names(),
-            currentStatementSourcePosition_};
-        parser::Walk(
-            std::get<parser::Block>(doConstruct.t), doConcurrentLabelEnforce);
-        EnforceConcurrentLoopControl(*concurrent);
-      }
+    if (doConstruct.IsDoConcurrent()) {
+      CheckDoConcurrent(doConstruct);
+      return;
     }
+    if (doConstruct.IsDoNormal()) {
+      CheckDoNormal(doConstruct);
+      return;
+    }
+    // TODO: handle the other cases
   }
 
 private:
+  using Bounds = parser::LoopControl::Bounds;
+
+  const Bounds &GetBounds(const parser::DoConstruct &doConstruct) {
+    auto &loopControl{doConstruct.GetLoopControl().value()};
+    return std::get<Bounds>(loopControl.u);
+  }
+
+  void SayBadDoControl(parser::CharBlock sourceLocation) {
+    context_.Say(sourceLocation, "DO controls should be INTEGER"_err_en_US);
+  }
+
+  void CheckDoControl(parser::CharBlock sourceLocation, bool isReal) {
+    bool warn{context_.warnOnNonstandardUsage() ||
+        context_.ShouldWarn(parser::LanguageFeature::RealDoControls)};
+    if (isReal && !warn) {
+      // No messages for the default case
+    } else if (isReal && warn) {
+      // TODO: Mark the following message as a warning when we have warnings
+      context_.Say(sourceLocation, "DO controls should be INTEGER"_en_US);
+    } else {
+      SayBadDoControl(sourceLocation);
+    }
+  }
+
+  void CheckDoVariable(const parser::ScalarName &scalarName) {
+    const parser::CharBlock &sourceLocation{scalarName.thing.source};
+    const Symbol *symbol{scalarName.thing.symbol};
+    if (symbol) {
+      if (!IsVariableName(*symbol)) {
+        context_.Say(
+            sourceLocation, "DO control must be an INTEGER variable"_err_en_US);
+      } else {
+        const DeclTypeSpec *symType{symbol->GetType()};
+        if (!symType) {
+          SayBadDoControl(sourceLocation);
+        } else {
+          if (!symType->IsNumeric(TypeCategory::Integer)) {
+            CheckDoControl(
+                sourceLocation, symType->IsNumeric(TypeCategory::Real));
+          }
+        }
+      }  // No messages for INTEGER
+    }
+  }
+
+  void CheckDoExpression(const parser::ScalarExpr &scalarExpression) {
+    const evaluate::Expr<evaluate::SomeType> *expr{GetExpr(scalarExpression)};
+    const parser::CharBlock &sourceLocation{
+        scalarExpression.thing.value().source};
+    if (expr) {
+      if (ExprHasTypeCategory(*expr, TypeCategory::Integer)) {
+        return;  // No warnings or errors for INTEGER
+      }
+      CheckDoControl(
+          sourceLocation, ExprHasTypeCategory(*expr, TypeCategory::Real));
+    }
+  }
+
+  void CheckDoNormal(const parser::DoConstruct &doConstruct) {
+    // C1120 extended by allowing REAL and DOUBLE PRECISION
+    // Get the bounds, then check the variable, init, final, and step
+    const Bounds &bounds{GetBounds(doConstruct)};
+    CheckDoVariable(bounds.name);
+    CheckDoExpression(bounds.lower);
+    CheckDoExpression(bounds.upper);
+    if (bounds.step.has_value()) {
+      CheckDoExpression(bounds.step.value());
+    }
+  }
+
+  void CheckDoConcurrent(const parser::DoConstruct &doConstruct) {
+    auto &doStmt{
+        std::get<parser::Statement<parser::NonLabelDoStmt>>(doConstruct.t)};
+    auto &loopControl{
+        std::get<std::optional<parser::LoopControl>>(doStmt.statement.t)};
+    currentStatementSourcePosition_ = doStmt.source;
+
+    DoConcurrentEnforcement doConcurrentEnforcement{context_};
+    parser::Walk(
+        std::get<parser::Block>(doConstruct.t), doConcurrentEnforcement);
+
+    DoConcurrentLabelEnforce doConcurrentLabelEnforce{context_,
+        doConcurrentEnforcement.labels(), doConcurrentEnforcement.names(),
+        currentStatementSourcePosition_};
+    parser::Walk(
+        std::get<parser::Block>(doConstruct.t), doConcurrentLabelEnforce);
+
+    auto &concurrent{std::get<parser::LoopControl::Concurrent>(loopControl->u)};
+    EnforceConcurrentLoopControl(concurrent);
+  }
+
   bool InnermostEnclosingScope(const semantics::Symbol &symbol) const {
     // TODO - implement
     return true;
   }
+
   void CheckZeroOrOneDefaultNone(
       const std::list<parser::LocalitySpec> &localitySpecs) const {
     // C1127
@@ -387,18 +494,19 @@ private:
       if (std::holds_alternative<parser::LocalitySpec::DefaultNone>(ls.u)) {
         ++count;
         if (count > 1) {
-          messages_.Say(currentStatementSourcePosition_,
+          context_.Say(currentStatementSourcePosition_,
               "only one DEFAULT(NONE) may appear"_err_en_US);
           return;
         }
       }
     }
   }
+
   void CheckScopingConstraints(const CS &symbols) const {
     // C1124
     for (auto *symbol : symbols) {
       if (!InnermostEnclosingScope(*symbol)) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "variable in locality-spec must be in innermost"
             " scoping unit"_err_en_US);
         return;
@@ -411,7 +519,7 @@ private:
     CS references{GatherReferencesFromExpression(mask.thing.thing.value())};
     for (auto *r : references) {
       if (isProcedure(r->flags()) && !isPure(r->attrs())) {
-        messages_.Say(currentStatementSourcePosition_,
+        context_.Say(currentStatementSourcePosition_,
             "concurrent-header mask expression cannot reference an impure"
             " procedure"_err_en_US);
         return;
@@ -423,7 +531,7 @@ private:
     for (auto *a : containerA) {
       for (auto *b : containerB) {
         if (a == b) {
-          messages_.Say(currentStatementSourcePosition_, errorMessage);
+          context_.Say(currentStatementSourcePosition_, errorMessage);
           return;
         }
       }
@@ -453,6 +561,7 @@ private:
     // C1130
     // TODO - implement
   }
+
   // check constraints [C1121 .. C1130]
   void EnforceConcurrentLoopControl(
       const parser::LoopControl::Concurrent &concurrent) const {
@@ -498,21 +607,14 @@ private:
     CheckDefaultNoneImpliesExplicitLocality(localitySpecs);
   }
 
-  parser::Messages &messages_;
+  SemanticsContext &context_;
   parser::CharBlock currentStatementSourcePosition_;
-};
-
-DoConcurrentChecker::DoConcurrentChecker(SemanticsContext &context)
-  : context_{new DoConcurrentContext{context}} {}
-
-DoConcurrentChecker::~DoConcurrentChecker() = default;
+};  // class DoContext
 
 // DO loops must be canonicalized prior to calling
-void DoConcurrentChecker::Leave(const parser::DoConstruct &x) {
-  context_.value().Check(x);
+void DoChecker::Leave(const parser::DoConstruct &x) {
+  DoContext doContext{context_};
+  doContext.Check(x);
 }
 
 }  // namespace Fortran::semantics
-
-template class Fortran::common::Indirection<
-    Fortran::semantics::DoConcurrentContext>;

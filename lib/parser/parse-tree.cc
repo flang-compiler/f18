@@ -80,9 +80,26 @@ Expr::Expr(Designator &&x)
 Expr::Expr(FunctionReference &&x)
   : u{common::Indirection<FunctionReference>::Make(std::move(x))} {}
 
+const std::optional<LoopControl> &DoConstruct::GetLoopControl() const {
+  const NonLabelDoStmt &doStmt{
+      std::get<Statement<NonLabelDoStmt>>(t).statement};
+  const std::optional<LoopControl> &control{
+      std::get<std::optional<LoopControl>>(doStmt.t)};
+  return control;
+}
+
+bool DoConstruct::IsDoNormal() const {
+  const std::optional<LoopControl> &control{GetLoopControl()};
+  return control && std::holds_alternative<LoopControl::Bounds>(control->u);
+}
+
+bool DoConstruct::IsDoWhile() const {
+  const std::optional<LoopControl> &control{GetLoopControl()};
+  return control && std::holds_alternative<ScalarLogicalExpr>(control->u);
+}
+
 bool DoConstruct::IsDoConcurrent() const {
-  auto &doStmt{std::get<Statement<NonLabelDoStmt>>(t).statement};
-  auto &control{std::get<std::optional<LoopControl>>(doStmt.t)};
+  const std::optional<LoopControl> &control{GetLoopControl()};
   return control && std::holds_alternative<LoopControl::Concurrent>(control->u);
 }
 

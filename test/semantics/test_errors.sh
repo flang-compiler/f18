@@ -36,8 +36,13 @@ log=$temp/log
 actual=$temp/actual
 expect=$temp/expect
 diffs=$temp/diffs
+options=$temp/options
 
-cmd="$CMD $src"
+# See if there are additional options
+sed -n 's/^ *! *OPTIONS: *//p' $src > $options
+cat $options
+
+cmd="$CMD `cat $options` $src"
 ( cd $temp; $cmd ) > $log 2>&1
 if [[ $? -ge 128 ]]; then
   cat $log
