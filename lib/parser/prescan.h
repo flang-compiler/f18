@@ -65,7 +65,7 @@ public:
   void NextLine();
 
   // Callbacks for use by Preprocessor.
-  bool IsAtEnd() const { return lineStart_ >= limit_; }
+  bool IsAtEnd() const { return nextLine_ >= limit_; }
   bool IsNextLinePreprocessorDirective() const;
   TokenSequence TokenizePreprocessorDirective();
   Provenance GetCurrentProvenance() const { return GetProvenance(at_); }
@@ -106,7 +106,7 @@ private:
   }
 
   void BeginSourceLineAndAdvance() {
-    BeginSourceLine(lineStart_);
+    BeginSourceLine(nextLine_);
     NextLine();
   }
 
@@ -149,6 +149,7 @@ private:
 
   void LabelField(TokenSequence &, int outCol = 1);
   void SkipToEndOfLine();
+  bool MustSkipToEndOfLine() const;
   void NextChar();
   void SkipCComments();
   void SkipSpaces();
@@ -170,6 +171,7 @@ private:
   const char *FreeFormContinuationLine(bool ampersand);
   bool FixedFormContinuation(bool mightNeedSpace);
   bool FreeFormContinuation();
+  bool Continuation(bool mightNeedFixedFormSpace);
   std::optional<LineClassification> IsFixedFormCompilerDirectiveLine(
       const char *) const;
   std::optional<LineClassification> IsFreeFormCompilerDirectiveLine(
@@ -191,12 +193,12 @@ private:
   Provenance startProvenance_;
   const char *start_{nullptr};  // beginning of current source file content
   const char *limit_{nullptr};  // first address after end of current source
-  const char *lineStart_{nullptr};  // next line to process; <= limit_
+  const char *nextLine_{nullptr};  // next line to process; <= limit_
   const char *directiveSentinel_{nullptr};  // current compiler directive
 
   // This data members are state for processing the source line containing
-  // "at_", which goes to up to the newline character before "lineStart_".
-  const char *at_{nullptr};  // next character to process; < lineStart_
+  // "at_", which goes to up to the newline character before "nextLine_".
+  const char *at_{nullptr};  // next character to process; < nextLine_
   int column_{1};  // card image column position of next character
   bool tabInCurrentLine_{false};
   bool slashInCurrentLine_{false};
