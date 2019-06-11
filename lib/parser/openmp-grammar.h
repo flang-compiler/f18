@@ -237,8 +237,8 @@ TYPE_PARSER("DEFAULTMAP" >>
         construct<OmpClause>(parenthesized(Parser<OmpScheduleClause>{})))
 
 // [Clause, [Clause], ...]
-TYPE_PARSER(
-    construct<OmpClauseList>(many(maybe(","_tok) >> Parser<OmpClause>{})))
+TYPE_PARSER(construct<OmpClauseList>(
+    many(maybe(","_tok) >> sourced(Parser<OmpClause>{}))))
 
 // (variable | /common-block | array-sections)
 TYPE_PARSER(construct<OmpObjectList>(nonemptyList(Parser<OmpObject>{})))
@@ -478,9 +478,9 @@ TYPE_PARSER(!"!$OMP END"_tok >> "!$OMP "_tok >>
                 endOmpLine)))
 
 // Block Construct
-TYPE_PARSER(construct<OpenMPBlockConstruct>(Parser<OmpBlockDirective>{},
-    Parser<OmpClauseList>{} / endOmpLine, block,
-    Parser<OmpEndBlockDirective>{} / endOmpLine))
+TYPE_PARSER(construct<OpenMPBlockConstruct>(
+    sourced(Parser<OmpBlockDirective>{}), Parser<OmpClauseList>{} / endOmpLine,
+    block, Parser<OmpEndBlockDirective>{} / endOmpLine))
 
 TYPE_PARSER(construct<OpenMPStandaloneConstruct>(
     Parser<OmpStandaloneDirective>{}, Parser<OmpClauseList>{} / endOmpLine))
