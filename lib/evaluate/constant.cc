@@ -44,6 +44,23 @@ bool IncrementSubscripts(
   }
   return false;  // all done
 }
+bool IncrementSubscripts(ConstantSubscripts &indices,
+    const ConstantSubscripts &shape, const std::vector<int> &dimOrder) {
+  int rank{GetRank(shape)};
+  CHECK(GetRank(indices) == rank);
+  CHECK(static_cast<int>(dimOrder.size()) == rank);
+  for (int j{0}; j < rank; ++j) {
+    ConstantSubscript k{dimOrder[j]};
+    CHECK(indices[k] >= 1);
+    if (++indices[k] <= shape[k]) {
+      return true;
+    } else {
+      CHECK(indices[k] == shape[k] + 1);
+      indices[k] = 1;
+    }
+  }
+  return false;  // all done
+}
 
 template<typename RESULT, typename ELEMENT>
 ConstantBase<RESULT, ELEMENT>::ConstantBase(
@@ -228,4 +245,100 @@ auto Constant<SomeDerived>::Reshape(ConstantSubscripts &&dims) const
 }
 
 INSTANTIATE_CONSTANT_TEMPLATES
+
+typename ConstantDescriptor::SubscriptValue
+ConstantDescriptor::GetSubscriptValueAt(
+    const SubscriptArray &subscripts) const {
+  return std::visit(
+      [&](const auto &constant) -> SubscriptValue {
+        using T = typename std::decay_t<decltype(constant.value())>::Result;
+        if constexpr (T::category == TypeCategory::Integer) {
+          return constant.value().At(subscripts).ToInt64();
+        } else {
+          CHECK(false); /* Cannot use non-integer as subscripts */
+          return 0;
+        }
+      },
+      someConstant_);
+}
+
+typename ConstantDescriptor::OwningPointer<ConstantDescriptor>
+ConstantDescriptor::CreateWithSameTypeAs(
+    const ConstantDescriptor &source, int rank, Attribute) {
+  ConstantDescriptor *ptr{std::visit(
+      [&](const auto &constant) -> ConstantDescriptor * {
+        using T = typename std::decay_t<decltype(constant.value())>::Result;
+        return new ConstantDescriptor(
+            source.type_, rank, source.elementBytes_, T{});
+      },
+      source.someConstant_)};
+  return OwningPointer<ConstantDescriptor>{ptr};
+}
+
+void ConstantDescriptor::Allocate(const SubscriptArray &extents) {
+  std::visit(
+      [&](auto &constant) {
+        using T = typename std::decay_t<decltype(constant.value())>::Result;
+        SizeValue elements{Elements(extents)};
+        std::vector<ConstantSubscript> shape = extents;
+        if constexpr (T::category == TypeCategory::Character) {
+          SubscriptValue len{static_cast<SubscriptValue>(
+              elementBytes_ / sizeof(typename Scalar<T>::value_type))};
+          Scalar<T> scalar(len, ' ');
+          constant = Constant<T>{
+              len, std::vector<Scalar<T>>(elements, scalar), std::move(shape)};
+        } else if constexpr (T::category == TypeCategory::Derived) {
+          constant = Constant<T>{type_.GetDerivedTypeSpec(),
+              std::vector<StructureConstructorValues>(elements),
+              std::move(shape)};
+        } else {
+          constant =
+              Constant<T>{std::vector<Scalar<T>>(elements), std::move(shape)};
+        }
+      },
+      someConstant_);
+}
+
+typename ConstantDescriptor::SizeValue ConstantDescriptor::CopyFrom(
+    const ConstantDescriptor &source, SubscriptArray &resultSubscripts,
+    SizeValue count, const RankedSizedArray<int> *dimOrder) {
+  SubscriptArray sourceSubscripts(source.rank());
+  source.GetLowerBounds(sourceSubscripts);
+  return std::visit(
+      [&](auto &optionalConstant) -> SizeValue {
+        auto &constant{optionalConstant.value()};
+        using T = typename std::decay_t<decltype(constant)>::Result;
+        using ElementT = typename Constant<T>::Element;
+        const auto &constantSource{
+            std::get<AllocatableConstant<T>>(source.someConstant_).value()};
+        SizeValue copied{0};
+        while (copied < count) {
+          if constexpr (T::category == TypeCategory::Character) {
+            // Character array elements cannot be represented as string in a
+            // mutable way, memcpy the content manually instead.
+            std::memcpy(Element<T, void>(constant, resultSubscripts),
+                Element<T, void>(constantSource, sourceSubscripts),
+                elementBytes_);
+          } else {
+            // Do not memcpy derived type because they are currently represented
+            // as maps so they need to be deep copied.
+            *Element<T, ElementT>(constant, resultSubscripts) =
+                *Element<T, ElementT>(constantSource, sourceSubscripts);
+          }
+          copied++;
+          IncrementSubscripts(sourceSubscripts, constantSource.shape());
+          if (dimOrder) {
+            IncrementSubscripts(resultSubscripts, constant.shape(), *dimOrder);
+          } else {
+            IncrementSubscripts(resultSubscripts, constant.shape());
+          }
+        }
+        return copied;
+      },
+      someConstant_);
+}
+
+}
+namespace Fortran::common {
+template class Transformational<evaluate::ConstantDescriptor>;
 }

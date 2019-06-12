@@ -14,8 +14,10 @@
 
 #include "descriptor.h"
 #include "../lib/common/idioms.h"
+#include "../lib/evaluate/integer.h"  // TODO: Get rid of dependency
 #include <cassert>
 #include <cstdlib>
+#include <iostream>  // same
 
 namespace Fortran::runtime {
 
@@ -146,6 +148,89 @@ void Descriptor::Check() const {
   // TODO
 }
 
+template<int BITS> inline std::int64_t LoadSubscriptValue(const char *p) {
+  using Int = const evaluate::value::Integer<BITS>;
+  Int *ip{reinterpret_cast<Int *>(p)};
+  return static_cast<SubscriptValue>(ip->ToInt64());
+}
+
+static inline std::int64_t GetSubscriptValue(const char *p, std::size_t bytes) {
+  switch (bytes) {
+  case 1: return LoadSubscriptValue<8>(p);
+  case 2: return LoadSubscriptValue<16>(p);
+  case 4: return LoadSubscriptValue<32>(p);
+  case 8: return LoadSubscriptValue<64>(p);
+  default: CRASH_NO_CASE;
+  }
+}
+
+SubscriptValue Descriptor::GetSubscriptValueAt(
+    const SubscriptArray &subscripts) const {
+  return GetSubscriptValue(Element<char>(subscripts), ElementBytes());
+}
+
+Descriptor::SizeValue Descriptor::CopyFrom(const Descriptor &source,
+    SubscriptArray &resultSubscript, SizeValue count,
+    const RankedSizedArray<int> *dimOrder) {
+  SubscriptArray sourceSubscript;
+  source.GetLowerBounds(sourceSubscript);
+  SizeValue elementBytes{ElementBytes()};
+  SizeValue copied{0};
+  for (; copied < count; ++copied) {
+    std::memcpy(Element<void>(resultSubscript),
+        source.Element<const void>(sourceSubscript), elementBytes);
+    source.IncrementSubscripts(sourceSubscript);
+    IncrementSubscripts(resultSubscript,
+        dimOrder ? static_cast<const int *>(*dimOrder) : nullptr);
+  }
+  return copied;
+}
+
+bool Descriptor::HasSameTypeAs(const Descriptor &other) const {
+  if (type().IsDerived()) {
+    // TODO: derived type and character
+  } else if (type().IsCharacter()) {
+  } else {
+    return type() == other.type();
+  }
+  return false;
+}
+
+Descriptor *Descriptor::CreateWithSameTypeAs(
+    const Descriptor &source, int resultRank, int attribute) {
+  const DescriptorAddendum *sourceAddendum{source.Addendum()};
+  const DerivedType *sourceDerivedType{
+      sourceAddendum ? sourceAddendum->derivedType() : nullptr};
+  Descriptor *result{nullptr};
+  if (sourceDerivedType != nullptr) {
+    result = Descriptor::Create(
+        *sourceDerivedType, nullptr, resultRank, nullptr, attribute)
+                 .release();
+  } else {
+    result = Descriptor::Create(source.type(), source.ElementBytes(), nullptr,
+        resultRank, nullptr, attribute)
+                 .release();
+  }
+  DescriptorAddendum *resultAddendum{result->Addendum()};
+  CHECK(resultAddendum != nullptr);
+  if (sourceDerivedType != nullptr) {
+    std::size_t lenParameters{sourceDerivedType->lenParameters()};
+    for (std::size_t j{0}; j < lenParameters; ++j) {
+      resultAddendum->SetLenParameterValue(
+          j, sourceAddendum->LenParameterValue(j));
+    }
+  }
+  return result;
+}
+
+void Descriptor::Allocate(const SubscriptArray &extents) {
+  SubscriptArray lower_bounds(rank());
+  for (int j{0}; j < rank(); ++j) {
+    lower_bounds[j] = 1;
+  }
+  ISO::CFI_allocate(&raw_, lower_bounds, extents, ElementBytes());
+}
+
 std::ostream &Descriptor::Dump(std::ostream &o) const {
   o << "Descriptor @ 0x" << std::hex << reinterpret_cast<std::intptr_t>(this)
     << std::dec << ":\n";
@@ -180,4 +265,8 @@ std::ostream &DescriptorAddendum::Dump(std::ostream &o) const {
   // TODO: LEN parameter values
   return o;
 }
+}
+
+namespace Fortran::common {
+template class Transformational<Fortran::runtime::Descriptor>;
 }

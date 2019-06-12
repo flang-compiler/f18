@@ -322,6 +322,63 @@ ActualArguments &FoldArguments(
   return args;
 }
 
+template<typename T>
+Expr<T> FoldTransformational(
+    FoldingContext &context, FunctionRef<T> &&funcRef) {
+  auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)};
+  CHECK(intrinsic);
+  const std::string name{intrinsic->name};
+  using Int8 = Type<TypeCategory::Integer, 8>;
+  auto &args{funcRef.arguments()};
+  if (name == "reshape") {
+    auto *source{UnwrapConstantValue<T>(args[0])};
+
+    // shape and order are converted to Int8 to reduce the number of cases
+    // to handle. ConstantSubscript cannot handle bigger values anyway.
+    Expr<SomeInteger> *shapePtr{UnwrapExpr<Expr<SomeInteger>>(args[1])};
+    CHECK(shapePtr);
+    *args[1] =
+        AsGenericExpr(Fold(context, ConvertToType<Int8>(std::move(*shapePtr))));
+    auto *shape{UnwrapConstantValue<Int8>(args[1])};
+
+    Constant<T> *pad{nullptr};
+    if (args[2].has_value()) {
+      pad = UnwrapConstantValue<T>(args[2]);
+    }
+
+    Constant<Int8> *order{nullptr};
+    if (args[3].has_value()) {
+      Expr<SomeInteger> *orderPtr{UnwrapExpr<Expr<SomeInteger>>(args[3])};
+      CHECK(orderPtr);
+      *args[3] = AsGenericExpr(
+          Fold(context, ConvertToType<Int8>(std::move(*orderPtr))));
+      order = UnwrapConstantValue<Int8>(args[3]);
+    }
+
+    if (source && shape && (!args[2].has_value() || pad) &&
+        (!args[3].has_value() || order)) {
+      // Optional serves as a temporary storage to point to for
+      // ConstantDescriptor that are pass with pointers (optional arguments).
+      std::optional<ConstantDescriptor> padDesc{pad
+              ? std::optional<ConstantDescriptor>{ConstantDescriptor{
+                    std::move(*pad)}}
+              : std::nullopt};
+      std::optional<ConstantDescriptor> orderDesc{order
+              ? std::optional<ConstantDescriptor>{ConstantDescriptor{
+                    std::move(*order)}}
+              : std::nullopt};
+      return Expr<T>{common::Transformational<ConstantDescriptor>::RESHAPE(
+          ConstantDescriptor{std::move(*source)},
+          ConstantDescriptor{std::move(*shape)},
+          padDesc.has_value() ? &padDesc.value() : nullptr,
+          orderDesc.has_value() ? &orderDesc.value() : nullptr)
+                         ->ReleaseConstant<T>()};
+    }
+  }
+  // TODO: other type independent transformational
+  return Expr<T>{std::move(funcRef)};
+}
+
 template<int KIND>
 Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     FunctionRef<Type<TypeCategory::Integer, KIND>> &&funcRef) {
@@ -569,6 +626,8 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     } else if (name == "rank") {
       // TODO assumed-rank dummy argument
       return Expr<T>{args[0].value().Rank()};
+    } else if (name == "reshape") {
+      return FoldTransformational(context, std::move(funcRef));
     } else if (name == "selected_int_kind") {
       if (auto p{GetInt64Arg(args[0])}) {
         return Expr<T>{SelectedIntKind(*p)};
@@ -617,7 +676,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     // ceiling, count, cshift, dot_product, eoshift,
     // findloc, floor, iall, iany, iparity, ibits, image_status, index, ishftc,
     // lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
-    // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
+    // minloc, minval, mod, modulo, nint, not, pack, product, reduce,
     // scan, selected_char_kind,
     // sign, spread, sum, transfer, transpose, ubound, unpack, verify
   }
@@ -764,10 +823,12 @@ Expr<Type<TypeCategory::Real, KIND>> FoldOperation(FoldingContext &context,
       if (auto *expr{args[0].value().UnwrapExpr()}) {
         return ToReal<KIND>(context, std::move(*expr));
       }
+    } else if (name == "reshape") {
+      return FoldTransformational(context, std::move(funcRef));
     }
     // TODO: anint, cshift, dim, dot_product, eoshift, fraction, huge, matmul,
     // max, maxval, merge, min, minval, modulo, nearest, norm2, pack, product,
-    // reduce, reshape, rrspacing, scale, set_exponent, sign, spacing, spread,
+    // reduce, rrspacing, scale, set_exponent, sign, spacing, spread,
     // sum, tiny, transfer, transpose, unpack, bessel_jn (transformational) and
     // bessel_yn (transformational)
   }
@@ -815,9 +876,11 @@ Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(FoldingContext &context,
                 ComplexConstructor<KIND>{ToReal<KIND>(context, std::move(re)),
                     ToReal<KIND>(context, std::move(im))}});
       }
+    } else if (name == "reshape") {
+      return FoldTransformational(context, std::move(funcRef));
     }
     // TODO: cshift, dot_product, eoshift, matmul, merge, pack, product,
-    // reduce, reshape, spread, sum, transfer, transpose, unpack
+    // reduce, spread, sum, transfer, transpose, unpack
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -888,10 +951,12 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(FoldingContext &context,
                   const Scalar<LargestInt> &i, const Scalar<LargestInt> &j) {
                 return Scalar<T>{std::invoke(fptr, i, j)};
               }));
+    } else if (name == "reshape") {
+      return FoldTransformational(context, std::move(funcRef));
     }
     // TODO: btest, cshift, dot_product, eoshift, is_iostat_end,
     // is_iostat_eor, lge, lgt, lle, llt, logical, matmul, merge, out_of_range,
-    // pack, parity, reduce, reshape, spread, transfer, transpose, unpack
+    // pack, parity, reduce, spread, transfer, transpose, unpack
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -923,11 +988,26 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(FoldingContext &context,
           context, std::move(funcRef), CharacterUtils<KIND>::ADJUSTR);
     } else if (name == "new_line") {
       return Expr<T>{Constant<T>{CharacterUtils<KIND>::NEW_LINE()}};
+    } else if (name == "reshape") {
+      return FoldTransformational(context, std::move(funcRef));
     }
     // TODO: cshift, eoshift, max, maxval, merge, min, minval, pack, reduce,
-    // repeat, reshape, spread, transfer, transpose, trim, unpack
+    // repeat, spread, transfer, transpose, trim, unpack
   }
   return Expr<T>{std::move(funcRef)};
+}
+
+Expr<SomeDerived> FoldOperation(
+    FoldingContext &context, FunctionRef<SomeDerived> &&funcRef) {
+  FoldArguments(context, funcRef);
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    std::string name{intrinsic->name};
+    if (name == "reshape") {
+      return FoldTransformational<SomeDerived>(context, std::move(funcRef));
+    }
+  }
+  return Expr<SomeDerived>{std::move(funcRef)};
+  // TODO: other intrinsics operating on Derived types
 }
 
 // Get the value of a PARAMETER

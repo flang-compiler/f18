@@ -27,6 +27,7 @@
 #include "derived-type.h"
 #include "type-code.h"
 #include "../include/flang/ISO_Fortran_binding.h"
+#include "../lib/common/abstract-descriptor.h"
 #include <cassert>
 #include <cinttypes>
 #include <cstddef>
@@ -111,7 +112,21 @@ private:
   // type parameter's type, if shorter than 64 bits, then sign-extended.
 };
 
+template<typename A> struct CRankedSizedArray {
+  explicit CRankedSizedArray(int rank) { CHECK(rank > 0 && rank <= maxRank); }
+  CRankedSizedArray() {}
+  operator A *() { return data_; }
+  operator const A *() const { return data_; }
+
+private:
+  A data_[maxRank];
+};
+
 // A C++ view of a standard descriptor object.
+// It complies with the DescriptorInterface. Fortran transformational intrinsic
+// abstract implementation can be instantiated with it.
+// TODO: review and remove C++ runtime dependencies (std::unique_ptr, new/delete
+// ?)
 class Descriptor {
 public:
   // Be advised: this class type is not suitable for use when allocating
@@ -124,6 +139,16 @@ public:
   // whose type and rank are fixed and known at compilation time.  Use the
   // Create() static member functions otherwise to dynamically allocate a
   // descriptor.
+  using SubscriptValue = ISO::CFI_index_t;
+  using SizeValue = std::size_t;
+  using Attribute = ISO::CFI_attribute_t;
+  using Rank = int;
+  template<typename A> using RankedSizedArray = CRankedSizedArray<A>;
+  using SubscriptArray = RankedSizedArray<SubscriptValue>;
+  template<typename A> using OwningPointer = A *;
+  using Dimension = Fortran::runtime::Dimension;
+  using FortranType = TypeCode;
+  static constexpr Rank maxRank{Fortran::runtime::maxRank};
 
   Descriptor() {
     // Minimal initialization to prevent the destructor from running amuck
@@ -273,6 +298,23 @@ public:
 
   void Check() const;
 
+  void SetCompilerCreatedFlag() {
+    CHECK(Addendum() != nullptr);
+    Addendum()->flags() |= DescriptorAddendum::DoNotFinalize;
+  }
+
+  static constexpr Attribute AllocatableAttribute() {
+    return CFI_attribute_allocatable;
+  }
+
+  SubscriptValue GetSubscriptValueAt(const SubscriptArray &) const;
+  SizeValue CopyFrom(const Descriptor &pad, SubscriptArray &resultSubscript,
+      SizeValue count, const RankedSizedArray<int> *dimOrder);
+  bool HasSameTypeAs(const Descriptor &) const;
+  void Allocate(const SubscriptArray &extents);
+  static Descriptor *CreateWithSameTypeAs(
+      const Descriptor &source, int resultRank, int attribute);
+
   // TODO: creation of array sections
 
   std::ostream &Dump(std::ostream &) const;
@@ -329,5 +371,9 @@ public:
 private:
   char storage_[byteSize];
 };
+}
+
+namespace Fortran::common {
+extern template class Transformational<Fortran::runtime::Descriptor>;
 }
 #endif  // FORTRAN_RUNTIME_DESCRIPTOR_H_

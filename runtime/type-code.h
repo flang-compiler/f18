@@ -27,6 +27,12 @@ public:
   TypeCode() {}
   explicit TypeCode(ISO::CFI_type_t t) : raw_{t} {}
   TypeCode(TypeCategory, int);
+  constexpr bool operator==(const TypeCode& other) const {
+    return raw_ == other.raw_;
+  }
+  constexpr bool operator!=(const TypeCode& other) const {
+    return !(*this == other);
+  }
 
   int raw() const { return raw_; }
 

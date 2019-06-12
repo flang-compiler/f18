@@ -14,11 +14,15 @@
 
 #include "testing.h"
 #include "../../runtime/descriptor.h"
-#include "../../runtime/transformational.h"
 #include <cinttypes>
 
 using namespace Fortran::common;
 using namespace Fortran::runtime;
+
+namespace Fortran::common {
+template class DescriptorInterface<Descriptor>;
+template class Transformational<DescriptorInterface<Descriptor>>;
+}
 
 int main() {
   static const SubscriptValue ones[]{1, 1, 1};
@@ -68,7 +72,8 @@ int main() {
   MATCH(2, pad.GetDimension(1).Extent());
   MATCH(3, pad.GetDimension(2).Extent());
 
-  std::unique_ptr<Descriptor> result{RESHAPE(*source, *shape, &pad)};
+  std::unique_ptr<Descriptor> result{
+      Transformational<Descriptor>::RESHAPE(*source, *shape, &pad)};
 
   TEST(result.get() != nullptr);
   result->Check();
