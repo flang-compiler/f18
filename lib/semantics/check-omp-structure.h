@@ -14,8 +14,8 @@
 
 // OpenMP clause validity check for directives
 
-#ifndef FORTRAN_SEMANTICS_CHECK_OMP_CLAUSE_H_
-#define FORTRAN_SEMANTICS_CHECK_OMP_CLAUSE_H_
+#ifndef FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
+#define FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
 
 #include "semantics.h"
 #include "../parser/parse-tree.h"
@@ -23,9 +23,9 @@
 
 namespace Fortran::semantics {
 
-class OmpClauseChecker : public virtual BaseChecker {
+class OmpStructureChecker : public virtual BaseChecker {
 public:
-  OmpClauseChecker(SemanticsContext &context) : context_{context} {}
+  OmpStructureChecker(SemanticsContext &context) : context_{context} {}
 
   void Enter(const parser::OmpBlockDirective &);
   void Enter(const parser::OmpBlockDirective::Parallel &);
@@ -83,10 +83,9 @@ public:
     }
     auto it{allowedClauses_.find(typeid(node))};
     if (it == allowedClauses_.end()) {
-      context_.Say(currentClauseSource_, "'%s' not allowed in %s"_err_en_US,
+      context_.Say(currentClauseSource_, "'%s' not allowed in OMP %s"_err_en_US,
           parser::ToUpperCaseLetters(currentClauseSource_.ToString()),
-          "OMP "s +
-              parser::ToUpperCaseLetters(currentDirectiveSource_.ToString()));
+          parser::ToUpperCaseLetters(currentDirectiveSource_.ToString()));
     }
   }
 
@@ -108,4 +107,4 @@ private:
   // TODO: 2.17 Nesting of Regions
 };
 }
-#endif  // FORTRAN_SEMANTICS_CHECK_OMP_CLAUSE_H_
+#endif  // FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
