@@ -47,6 +47,11 @@ public:
   const common::IntrinsicTypeDefaultKinds &defaultKinds() const {
     return defaultKinds_;
   }
+  int GetDefaultKind(TypeCategory) const;
+  int doublePrecisionKind() const {
+    return defaultKinds_.doublePrecisionKind();
+  }
+  int quadPrecisionKind() const { return defaultKinds_.quadPrecisionKind(); }
   bool IsEnabled(parser::LanguageFeature) const;
   bool ShouldWarn(parser::LanguageFeature) const;
   const parser::CharBlock *location() const { return location_; }
