@@ -31,6 +31,24 @@ namespace Fortran::semantics {
 class SemanticsContext;
 using namespace parser::literals;
 
+using common::ConstantSubscript;
+
+// An equivalence object is represented by a symbol for the variable name,
+// the indices for an array element, and the lower bound for a substring.
+struct EquivalenceObject {
+  EquivalenceObject(Symbol &symbol, std::vector<ConstantSubscript> subscripts,
+      std::optional<ConstantSubscript> substringStart)
+    : symbol{symbol}, subscripts{subscripts}, substringStart{substringStart} {}
+  bool operator==(const EquivalenceObject &) const;
+  bool operator<(const EquivalenceObject &) const;
+  std::string AsFortran() const;
+
+  Symbol &symbol;
+  std::vector<ConstantSubscript> subscripts;  // for array elem
+  std::optional<ConstantSubscript> substringStart;
+};
+using EquivalenceSet = std::vector<EquivalenceObject>;
+
 class Scope {
   using mapType = std::map<SourceName, Symbol *>;
 
@@ -122,6 +140,8 @@ public:
     return symbols_.emplace(name, &symbol);
   }
 
+  const std::list<EquivalenceSet> &equivalenceSets() const;
+  void add_equivalenceSet(EquivalenceSet &&);
   mapType &commonBlocks() { return commonBlocks_; }
   const mapType &commonBlocks() const { return commonBlocks_; }
   Symbol &MakeCommonBlock(const SourceName &);
@@ -207,6 +227,7 @@ private:
   std::list<Scope> children_;
   mapType symbols_;
   mapType commonBlocks_;
+  std::list<EquivalenceSet> equivalenceSets_;
   std::map<SourceName, Scope *> submodules_;
   std::list<DeclTypeSpec> declTypeSpecs_;
   std::string chars_;

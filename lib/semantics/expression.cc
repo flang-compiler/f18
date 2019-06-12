@@ -1947,7 +1947,7 @@ Expr<SubscriptInteger> ExpressionAnalyzer::AnalyzeKindSelector(
 }
 
 int ExpressionAnalyzer::GetDefaultKind(common::TypeCategory category) {
-  return context_.defaultKinds().GetDefaultKind(category);
+  return context_.GetDefaultKind(category);
 }
 
 DynamicType ExpressionAnalyzer::GetDefaultKindOfType(
@@ -2012,7 +2012,7 @@ bool ExpressionAnalyzer::EnforceTypeConstraint(parser::CharBlock at,
             parser::ToUpperCaseLetters(type->AsFortran()));
         return false;
       } else if (defaultKind) {
-        int kind{context_.defaultKinds().GetDefaultKind(category)};
+        int kind{context_.GetDefaultKind(category)};
         if (type->kind() != kind) {
           Say(at, "Must have default kind(%d) of %s type, but is %s"_err_en_US,
               kind, parser::ToUpperCaseLetters(EnumToString(category)),
