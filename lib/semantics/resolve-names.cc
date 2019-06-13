@@ -3239,7 +3239,7 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   const auto &accessSpec{std::get<std::optional<parser::AccessSpec>>(x.t)};
   const auto &genericSpec{std::get<Indirection<parser::GenericSpec>>(x.t)};
   const auto &bindingNames{std::get<std::list<parser::Name>>(x.t)};
-  SymbolList specificProcs;
+  SymbolVector specificProcs;
   for (const auto &bindingName : bindingNames) {
     auto *symbol{FindInTypeOrParents(bindingName)};
     if (!symbol) {
