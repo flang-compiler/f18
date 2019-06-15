@@ -22,9 +22,9 @@ template<typename CHAR> CHAR FormatValidator<CHAR>::NextChar() {
       return toupper(*cursor_);
     }
   }
-  cursor_ = end_;
+  cursor_ = end_;  // don't allow cursor_ > end_
   return ' ';
-};
+}
 
 template<typename CHAR> CHAR FormatValidator<CHAR>::LookAheadChar() {
   for (laCursor_ = cursor_ + 1; laCursor_ < end_; ++laCursor_) {
@@ -32,14 +32,15 @@ template<typename CHAR> CHAR FormatValidator<CHAR>::LookAheadChar() {
       return toupper(*laCursor_);
     }
   }
-  laCursor_ = end_;
+  laCursor_ = end_;  // don't allow laCursor_ > end_
   return ' ';
-};
+}
 
+// After a call to LookAheadChar, set token kind and advance cursor to laCursor.
 template<typename CHAR> void FormatValidator<CHAR>::Advance(TokenKind tk) {
   cursor_ = laCursor_;
   token_.set_kind(tk);
-};
+}
 
 template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
   // At entry, cursor_ points before the start of the next token.
@@ -89,17 +90,21 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
       break;
     }
     // Hollerith constant
-    if (stmt_ == IoStmtKind::Read) {
-      AppendError("String edit descriptor in READ format");  // 13.3.2p6
-    }
     if (laCursor_ + integerValue_ < end_) {
       token_.set_kind(TokenKind::String);
       cursor_ = laCursor_ + integerValue_;
+      token_.set_length(cursor_ - format_ - token_.offset() + 1);
     } else {
       token_.set_kind(TokenKind::None);
       cursor_ = end_;
       token_.set_length(cursor_ - format_ - token_.offset());
-      AppendError("Unterminated Hollerith constant");
+    }
+    if (stmt_ == IoStmtKind::Read) {  // 13.3.2p6
+      AppendError("'H' edit descriptor in READ format expression");
+    } else if (warnOnNonstandardUsage_) {
+      AppendError("Legacy 'H' edit descriptor");
+    } else if (token_.kind() == TokenKind::None) {
+      AppendError("Unterminated 'H' edit descriptor");
     }
     break;
   }
@@ -188,23 +193,19 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
   case '"':
     for (++cursor_; cursor_ < end_; ++cursor_) {
       if (*cursor_ == c) {
-        if (cursor_ >= end_ || *(cursor_ + 1) != c) {
+        if (auto nc{cursor_ + 1}; nc < end_ && *nc != c) {
           token_.set_kind(TokenKind::String);
           break;
         }
         ++cursor_;
       }
     }
-    if (stmt_ == IoStmtKind::Read) {
-      AppendError("String edit descriptor in READ format");  // 13.3.2p6
+    token_.set_length(cursor_ - format_ - token_.offset() + (cursor_ < end_));
+    if (stmt_ == IoStmtKind::Read) {  // 13.3.2p6
+      AppendError("String edit descriptor in READ format expression");
+    } else if (token_.kind() != TokenKind::String) {
+      AppendError("Unterminated string");
     }
-    if (token_.kind() == TokenKind::String) {
-      break;
-    }
-    token_.set_kind(TokenKind::None);
-    cursor_ = end_;
-    token_.set_length(cursor_ - format_ - token_.offset());
-    AppendError("Unterminated string");
     break;
   default:
     if (cursor_ >= end_) {
@@ -217,6 +218,76 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
 
   token_.set_length(cursor_ - format_ - token_.offset() + 1);
 }
+
+template<typename CHAR> void FormatValidator<CHAR>::check_r(bool allowed) {
+  if (!allowed && knrValue_ >= 0) {
+    AppendError("Repeat specifier before '%s' edit descriptor", knrToken_);
+  } else if (knrValue_ == 0) {
+    AppendError("'%s' edit descriptor repeat specifier must be positive",
+        knrToken_);  // C1304
+  }
+};
+
+// Return the predicate "w value is present" to control further processing.
+template<typename CHAR> bool FormatValidator<CHAR>::check_w(bool required) {
+  if (token_.kind() == TokenKind::UnsignedInteger) {
+    wValue_ = integerValue_;
+    if (wValue_ == 0 &&
+        (*argString_ == 'A' || *argString_ == 'L' ||
+            stmt_ == IoStmtKind::Read)) {  // C1306, 13.7.2.1p6
+      AppendError("'%s' edit descriptor 'w' value must be positive");
+    }
+    NextToken();
+    return true;
+  }
+  if (required) {
+    AppendError("Expected '%s' edit descriptor 'w' value");  // C1306
+  }
+  return false;
+};
+
+template<typename CHAR> void FormatValidator<CHAR>::check_m() {
+  if (token_.kind() != TokenKind::Point) {
+    return;
+  }
+  NextToken();
+  if (token_.kind() != TokenKind::UnsignedInteger) {
+    AppendError("Expected integer value after '.'");
+    return;
+  }
+  if ((stmt_ == IoStmtKind::Print || stmt_ == IoStmtKind::Write) &&
+      wValue_ > 0 && integerValue_ > wValue_) {  // 13.7.2.2p5, 13.7.2.4p6
+    AppendError("'%s' edit descriptor 'm' value is greater than 'w' value");
+  }
+  NextToken();
+};
+
+// Return the predicate "d value is present" to control further processing.
+template<typename CHAR> bool FormatValidator<CHAR>::check_d(bool required) {
+  if (token_.kind() != TokenKind::Point) {
+    AppendError("Expected '%s' edit descriptor 'd' value");
+    return false;
+  }
+  NextToken();
+  if (token_.kind() != TokenKind::UnsignedInteger) {
+    AppendError("Expected integer value after '.' in '%s' edit descriptor");
+    return false;
+  }
+  NextToken();
+  return true;
+};
+
+template<typename CHAR> void FormatValidator<CHAR>::check_e() {
+  if (token_.kind() != TokenKind::E) {
+    return;
+  }
+  NextToken();
+  if (token_.kind() != TokenKind::UnsignedInteger) {
+    AppendError("Expected integer value after 'E' in '%s' edit descriptor");
+    return;
+  }
+  NextToken();
+};
 
 template<typename CHAR> int FormatValidator<CHAR>::Check() {
   if (format_ == nullptr || !*format_) {
@@ -241,9 +312,8 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
   //  - a threshold caller-chosen number of errors have been diagnosed
   while (errorCount_ < maxErrors_) {
     Token signToken{};
-    Token knrToken{};  // (nonnegative) k, n, or r value
-    int64_t knrValue{-1};  // -1 ==> not present
-    int64_t wValue{-1};
+    knrValue_ = -1;  // -1 ==> not present
+    wValue_ = -1;
     bool commaRequired{true};
 
     if (token_.kind() == TokenKind::Sign) {
@@ -251,92 +321,22 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       NextToken();
     }
     if (token_.kind() == TokenKind::UnsignedInteger) {
-      knrToken = token_;
-      knrValue = integerValue_;
+      knrToken_ = token_;
+      knrValue_ = integerValue_;
       NextToken();
     }
-    if (signToken.IsSet() && (knrValue < 0 || token_.kind() != TokenKind::P)) {
+    if (signToken.IsSet() && (knrValue_ < 0 || token_.kind() != TokenKind::P)) {
       argString_[0] = format_[signToken.offset()];
       argString_[1] = 0;
       AppendError(
           "Unexpected '%s' in format expression", signToken, argString_);
     }
     // Default error argument.
-    // Alphabetic descriptor names are one or two characters in length.
+    // Alphabetic edit descriptor names are one or two characters in length.
     argString_[0] = toupper(format_[token_.offset()]);
     argString_[1] = token_.length() > 1 ? toupper(*cursor_) : 0;
 
-    auto check_r = [&](bool allowed = true, const char *name = {}) -> void {
-      if (!allowed && knrValue >= 0) {
-        AppendError("Repeat specifier before %s descriptor", knrToken, name);
-      } else if (knrValue == 0) {
-        AppendError(  // C1304
-            "%s descriptor repeat specifier must be positive", knrToken, name);
-      }
-    };
-
-    // Return the predicate "w value is present" to control further processing.
-    [[maybe_unused]] auto check_w = [&](bool required = true) -> bool {
-      if (token_.kind() == TokenKind::UnsignedInteger) {
-        wValue = integerValue_;
-        if (wValue == 0 &&
-            (*argString_ == 'A' || *argString_ == 'L' ||
-                stmt_ == IoStmtKind::Read)) {  // C1306, 13.7.2.1p6
-          AppendError("%s descriptor 'w' value must be positive");
-        }
-        NextToken();
-        return true;
-      }
-      if (required) {
-        AppendError("Expected %s descriptor 'w' value");  // C1306
-      }
-      return false;
-    };
-
-    auto check_m = [&]() -> void {
-      if (token_.kind() != TokenKind::Point) {
-        return;
-      }
-      NextToken();
-      if (token_.kind() != TokenKind::UnsignedInteger) {
-        AppendError("Expected integer value after '.'");
-        return;
-      }
-      if ((stmt_ == IoStmtKind::Print || stmt_ == IoStmtKind::Write) &&
-          wValue > 0 && integerValue_ > wValue) {  // 13.7.2.2p5, 13.7.2.4p6
-        AppendError("%s descriptor 'm' value is greater than 'w' value");
-      }
-      NextToken();
-    };
-
-    // Return the predicate "d value is present" to control further processing.
-    [[maybe_unused]] auto check_d = [&](bool required = true) -> bool {
-      if (token_.kind() != TokenKind::Point) {
-        AppendError("Expected %s descriptor 'd' value");
-        return false;
-      }
-      NextToken();
-      if (token_.kind() != TokenKind::UnsignedInteger) {
-        AppendError("Expected integer value after '.' in %s descriptor");
-        return false;
-      }
-      NextToken();
-      return true;
-    };
-
-    auto check_e = [&]() -> void {
-      if (token_.kind() != TokenKind::E) {
-        return;
-      }
-      NextToken();
-      if (token_.kind() != TokenKind::UnsignedInteger) {
-        AppendError("Expected integer value after 'E' in %s descriptor");
-        return;
-      }
-      NextToken();
-    };
-
-    // Process one format descriptor or do format list management.
+    // Process one format edit descriptor or do format list management.
     switch (token_.kind()) {
     case TokenKind::A:
       // R1307 data-edit-desc -> A [w]
@@ -386,12 +386,12 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       check_r();
       NextToken();
       if (check_w(warnOnNonstandardUsage_)) {
-        if (wValue > 0) {
+        if (wValue_ > 0) {
           if (check_d(true)) {  // C1307
             check_e();
           }
         } else if (check_d() && token_.kind() == TokenKind::E) {
-          AppendError("Unexpected 'e' in G0 edit descriptor");  // C1308
+          AppendError("Unexpected 'e' in 'G0' edit descriptor");  // C1308
           NextToken();
           if (token_.kind() == TokenKind::UnsignedInteger) {
             NextToken();
@@ -422,13 +422,13 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
           }
           if (token_.kind() != TokenKind::UnsignedInteger) {
             AppendError(
-                "Expected integer constant in DT edit descriptor v-list");
+                "Expected integer constant in 'DT' edit descriptor v-list");
             break;
           }
           NextToken();
         } while (token_.kind() == TokenKind::Comma);
         if (token_.kind() != TokenKind::RParen) {
-          AppendError("Expected ',' or ')' in DT edit descriptor v-list");
+          AppendError("Expected ',' or ')' in 'DT' edit descriptor v-list");
           while (cursor_ < end_ && token_.kind() != TokenKind::RParen) {
             NextToken();
           }
@@ -438,7 +438,10 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       break;
     case TokenKind::String:
       // R1304 data-edit-desc -> char-string-edit-desc
-      check_r(false, "character string");
+      if (knrValue_ >= 0) {
+        AppendError("Repeat specifier before character string edit descriptor",
+            knrToken_);
+      }
       NextToken();
       break;
     case TokenKind::BN:
@@ -463,8 +466,8 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       break;
     case TokenKind::P: {
       // R1313 control-edit-desc -> k P
-      if (knrValue < 0) {
-        AppendError("P descriptor must have a scale factor");
+      if (knrValue_ < 0) {
+        AppendError("'P' edit descriptor must have a scale factor");
       }
       // Diagnosing C1302 may require multiple token lookahead.
       // Save current cursor position to enable backup.
@@ -494,17 +497,17 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       check_r(false);
       NextToken();
       if (integerValue_ <= 0) {  // C1311
-        AppendError("%s descriptor must have a positive position value");
+        AppendError("'%s' edit descriptor must have a positive position value");
       }
       NextToken();
       break;
     case TokenKind::X:
       // R1315 position-edit-desc -> n X
-      if (knrValue == 0) {  // C1311
-        AppendError(
-            "X descriptor must have a positive position value", knrToken);
-      } else if (knrValue < 0 && warnOnNonstandardUsage_) {
-        AppendError("X descriptor must have a positive position value");
+      if (knrValue_ == 0) {  // C1311
+        AppendError("'X' edit descriptor must have a positive position value",
+            knrToken_);
+      } else if (knrValue_ < 0 && warnOnNonstandardUsage_) {
+        AppendError("'X' edit descriptor must have a positive position value");
       }
       NextToken();
       break;
@@ -522,14 +525,14 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
     case TokenKind::Backslash:
       check_r(false);
       if (warnOnNonstandardUsage_) {
-        AppendError("Non-standard \\ edit descriptor");
+        AppendError("Non-standard '\\' edit descriptor");
       }
       NextToken();
       break;
     case TokenKind::Dollar:
       check_r(false);
       if (warnOnNonstandardUsage_) {
-        AppendError("Non-standard $ edit descriptor");
+        AppendError("Non-standard '$' edit descriptor");
       }
       NextToken();
       break;
@@ -537,22 +540,24 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       // NextToken assigns a token kind of Star only if * is followed by (.
       // So the next token is guaranteed to be LParen.
       if (nestLevel > 0) {
-        AppendError("Nested unlimited format list");
+        AppendError("Nested unlimited format item list");
       }
       starToken = token_;
-      check_r(false, "unlimited format item");
+      if (knrValue_ >= 0) {
+        AppendError("Repeat specifier before unlimited format item list");
+      }
       hasDataEditDesc = false;
       NextToken();
       // fall through
     case TokenKind::LParen:
-      if (knrValue == 0) {
-        AppendError("List repeat specifier must be positive", knrToken);
+      if (knrValue_ == 0) {
+        AppendError("List repeat specifier must be positive", knrToken_);
       }
       ++nestLevel;
       break;
     case TokenKind::RParen:
-      if (knrValue >= 0) {
-        AppendError("Unexpected integer constant", knrToken);
+      if (knrValue_ >= 0) {
+        AppendError("Unexpected integer constant", knrToken_);
       }
       do {
         if (nestLevel == 0) {
@@ -562,19 +567,19 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
         if (nestLevel == 1 && starToken.IsSet() && !hasDataEditDesc) {
           starToken.set_length(cursor_ - format_ - starToken.offset() + 1);
           AppendError(  // C1303
-              "Unlimited format list must contain a data edit descriptor",
+              "Unlimited format item list must contain a data edit descriptor",
               starToken);
         }
         --nestLevel;
         NextToken();
       } while (token_.kind() == TokenKind::RParen);
       if (nestLevel == 0 && starToken.IsSet()) {
-        AppendError("Character in format after unlimited format list");
+        AppendError("Character in format after unlimited format item list");
       }
       break;
     case TokenKind::Comma:
-      if (knrValue >= 0) {
-        AppendError("Unexpected integer constant", knrToken);
+      if (knrValue_ >= 0) {
+        AppendError("Unexpected integer constant", knrToken_);
       }
       break;
     default: AppendError("Unexpected '%s' in format expression"); NextToken();
@@ -612,5 +617,4 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
 template class FormatValidator<char>;
 template class FormatValidator<char16_t>;
 template class FormatValidator<char32_t>;
-
 }

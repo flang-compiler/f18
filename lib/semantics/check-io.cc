@@ -27,10 +27,10 @@ void IoChecker::Enter(
   if (!stmt.label.has_value()) {
     context_.Say("Format statement must be labeled"_err_en_US);  // C1301
   }
-  parser::CharBlock stmtCharBlock{stmt.source};
-  auto parenIndex{stmtCharBlock.ToString().find('(')};
-  parser::CharBlock formatCharBlock{parser::CharBlock(
-      stmtCharBlock.begin() + parenIndex, stmtCharBlock.size() - parenIndex)};
+  const char *formatStart{static_cast<const char *>(
+      std::memchr(stmt.source.begin(), '(', stmt.source.size()))};
+  parser::CharBlock formatCharBlock{
+      formatStart, stmt.source.size() - (formatStart - stmt.source.begin())};
   static constexpr int maxFormatErrors{3};
   common::FormatError formatErrors[maxFormatErrors];
   int errorCount{0};
@@ -45,16 +45,16 @@ void IoChecker::Enter(
   case 2: {
     // TODO: Get this to work.
     common::FormatValidator<char16_t> validator{/*???*/ nullptr,
-        /*???*/ formatCharBlock.size(), IoStmtKind::None,
-        context_.warnOnNonstandardUsage(), formatErrors, maxFormatErrors};
+        /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
+        formatErrors, maxFormatErrors};
     errorCount = validator.Check();
     break;
   }
   case 4: {
     // TODO: Get this to work.
     common::FormatValidator<char32_t> validator{/*???*/ nullptr,
-        /*???*/ formatCharBlock.size(), IoStmtKind::None,
-        context_.warnOnNonstandardUsage(), formatErrors, maxFormatErrors};
+        /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
+        formatErrors, maxFormatErrors};
     errorCount = validator.Check();
     break;
   }
@@ -63,11 +63,11 @@ void IoChecker::Enter(
   for (int i{0}; i < errorCount; ++i) {
     common::FormatError *error{formatErrors + i};
     parser::MessageFormattedText msg{
-        parser::MessageFixedText(error->text_, strlen(error->text_)),
-        error->arg_};
+        parser::MessageFixedText(error->text, strlen(error->text), true),
+        error->arg};
     parser::CharBlock errorCharBlock{parser::CharBlock(
-        formatCharBlock.begin() + error->offset_, error->length_)};
-    context_.Say(errorCharBlock, "%s"_err_en_US, msg.string());
+        formatCharBlock.begin() + error->offset, error->length)};
+    context_.Say(errorCharBlock, msg);
   }
 }
 
@@ -171,20 +171,18 @@ void IoChecker::Enter(const parser::Format &spec) {
               break;
             }
             case 2: {
-              // TODO: Get this to work.
+              // TODO: Get this to work.  (Maybe combine with earlier instance?)
               common::FormatValidator<char16_t> validator{/*???*/ nullptr,
-                  /*???*/ constantFormat->length(), stmt_,
-                  context_.warnOnNonstandardUsage(), formatErrors,
-                  maxFormatErrors};
+                  /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
+                  formatErrors, maxFormatErrors};
               errorCount = validator.Check();
               break;
             }
             case 4: {
-              // TODO: Get this to work.
+              // TODO: Get this to work.  (Maybe combine with earlier instance?)
               common::FormatValidator<char32_t> validator{/*???*/ nullptr,
-                  /*???*/ constantFormat->length(), stmt_,
-                  context_.warnOnNonstandardUsage(), formatErrors,
-                  maxFormatErrors};
+                  /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
+                  formatErrors, maxFormatErrors};
               errorCount = validator.Check();
               break;
             }
@@ -201,14 +199,14 @@ void IoChecker::Enter(const parser::Format &spec) {
             for (int i{0}; i < errorCount; ++i) {
               common::FormatError *error{formatErrors + i};
               parser::MessageFormattedText msg{
-                  parser::MessageFixedText(error->text_, strlen(error->text_)),
-                  error->arg_};
+                  parser::MessageFixedText(
+                      error->text, strlen(error->text), true),
+                  error->arg};
               if (IsNotFolded) {
                 errorCharBlock = parser::CharBlock(
-                    formatCharBlock.begin() + error->offset_ + 1,
-                    error->length_);
+                    formatCharBlock.begin() + error->offset + 1, error->length);
               }
-              context_.Say(errorCharBlock, "%s"_err_en_US, msg.string());
+              context_.Say(errorCharBlock, msg);
             }
           },
       },

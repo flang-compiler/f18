@@ -63,10 +63,10 @@
   !ERROR: Unexpected '-' in format expression
   write(*,'(-7I2)')
 
-  !ERROR: P descriptor must have a scale factor
+  !ERROR: 'P' edit descriptor must have a scale factor
   write(*,'(P7F5.2)')
 
-  !ERROR: P descriptor must have a scale factor
+  !ERROR: 'P' edit descriptor must have a scale factor
   write(*,'(P7F' // '5.2)')
 
   !ERROR: Expected ',' or ')' in format expression
@@ -94,26 +94,26 @@
   !ERROR: Unexpected '*' in format expression
   write(*,'(*)')
 
-  !ERROR: Expected integer constant in DT edit descriptor v-list
+  !ERROR: Expected integer constant in 'DT' edit descriptor v-list
   write(*,'(*(DT(+1,0,=1)))')
 
-  !ERROR: Expected integer constant in DT edit descriptor v-list
+  !ERROR: Expected integer constant in 'DT' edit descriptor v-list
   write(*,'(DT(1,0,+))')
 
-  !ERROR: Expected integer constant in DT edit descriptor v-list
+  !ERROR: Expected integer constant in 'DT' edit descriptor v-list
   write(*,'(DT(1,0,*))')
 
-  !ERROR: Expected ',' or ')' in DT edit descriptor v-list
+  !ERROR: Expected ',' or ')' in 'DT' edit descriptor v-list
   write(*,'(DT(1,0,2*))')
 
-  !ERROR: Expected ',' or ')' in DT edit descriptor v-list
+  !ERROR: Expected ',' or ')' in 'DT' edit descriptor v-list
   write(*,'(DT(1,0,2*,+,?))')
 
-  !ERROR: Expected integer constant in DT edit descriptor v-list
+  !ERROR: Expected integer constant in 'DT' edit descriptor v-list
   !ERROR: Unterminated format expression
   write(*,'(DT(1,0,*)')
 
-  !ERROR: Expected ',' or ')' in DT edit descriptor v-list
+  !ERROR: Expected ',' or ')' in 'DT' edit descriptor v-list
   !ERROR: Unterminated format expression
   write(*,'(DT(1,0,2*,+,?)')
 
@@ -121,28 +121,31 @@
   !ERROR: Unexpected ',' in format expression
   write(*,'(?,*(DT(+1,,1)))')
 
-  !ERROR: Nested unlimited format list
+  !ERROR: Repeat specifier before unlimited format item list
+   write(*,'(5X,3*(2(X)))')
+
+  !ERROR: Nested unlimited format item list
   write(*,'(D12.2,(*(F10.2)))')
 
-  !ERROR: Unlimited format list must contain a data edit descriptor
+  !ERROR: Unlimited format item list must contain a data edit descriptor
   write(*,'(5X,*(2(X)))')
 
-  !ERROR: Character in format after unlimited format list
+  !ERROR: Character in format after unlimited format item list
   write(*,'(*(Z5),*(2F20.3))')
 
-  !ERROR: Character in format after unlimited format list
+  !ERROR: Character in format after unlimited format item list
   write(*,'(*(B5),*(2(I5)))')
 
-  !ERROR: Character in format after unlimited format list
+  !ERROR: Character in format after unlimited format item list
   write(*,'(*(I5), D12.7)')
 
-  !ERROR: I descriptor 'm' value is greater than 'w' value
+  !ERROR: 'I' edit descriptor 'm' value is greater than 'w' value
   write(*,'(07I02.0 3)')
 
-  !ERROR: Z descriptor 'm' value is greater than 'w' value
+  !ERROR: 'Z' edit descriptor 'm' value is greater than 'w' value
   write(*,'(07Z02.4)')
 
-  !ERROR: I descriptor repeat specifier must be positive
+  !ERROR: 'I' edit descriptor repeat specifier must be positive
   write(*,'(0I2)')
 
   !ERROR: List repeat specifier must be positive
@@ -152,7 +155,7 @@
   write(*,'(000(I2))')
 
   !ERROR: List repeat specifier must be positive
-  !ERROR: I descriptor repeat specifier must be positive
+  !ERROR: 'I' edit descriptor repeat specifier must be positive
   write(*,'(0(0I2))')
 
   !ERROR: Kind parameter '_' character in format expression
@@ -167,7 +170,7 @@
   !ERROR: Unexpected '-' in format expression
   write(*,'(I-3, X)')
 
-  !ERROR: X descriptor must have a positive position value
+  !ERROR: 'X' edit descriptor must have a positive position value
   write(*,'(0X)')
 
   !ERROR: Unexpected 'Y' in format expression
@@ -182,23 +185,27 @@
   !ERROR: Expected ',' or ')' in format expression
   write(*,'(XEN)')
 
+  !ERROR: Unexpected 'R' in format expression
+  !ERROR: Unexpected 'R' in format expression
+  write(*,"(RR, RV)")
+
   !ERROR: Unexpected '-' in format expression
   !ERROR: Unexpected 'Y' in format expression
   write(*,'(I-3, XY)')
 
-  !ERROR: A descriptor 'w' value must be positive
+  !ERROR: 'A' edit descriptor 'w' value must be positive
   write(*,'(A0)')
 
-  !ERROR: L descriptor 'w' value must be positive
+  !ERROR: 'L' edit descriptor 'w' value must be positive
   write(*,'(L0)')
 
-  !ERROR: Expected G descriptor 'd' value
+  !ERROR: Expected 'G' edit descriptor 'd' value
   write(*,'(G4)')
 
-  !ERROR: Unexpected 'e' in G0 edit descriptor
+  !ERROR: Unexpected 'e' in 'G0' edit descriptor
   write(*,'(G0.8e)')
 
-  !ERROR: Unexpected 'e' in G0 edit descriptor
+  !ERROR: Unexpected 'e' in 'G0' edit descriptor
   write(*,'(G0.8e2)')
 
   !ERROR: Kind parameter '_' character in format expression
@@ -207,23 +214,23 @@
   !ERROR: Kind parameter '_' character in format expression
   write(*,'(5_4P)')
 
-  !ERROR: T descriptor must have a positive position value
+  !ERROR: 'T' edit descriptor must have a positive position value
   write(*,'(T0)')
 
-  !ERROR: T descriptor must have a positive position value
+  !ERROR: 'T' edit descriptor must have a positive position value
   !ERROR: Unterminated format expression
   write(*,'(T0')
 
-  !ERROR: TL descriptor must have a positive position value
-  !ERROR: T descriptor must have a positive position value
-  !ERROR: Expected integer value after '.' in EN descriptor
+  !ERROR: 'TL' edit descriptor must have a positive position value
+  !ERROR: 'T' edit descriptor must have a positive position value
+  !ERROR: Expected integer value after '.' in 'EN' edit descriptor
   write(*,'(TL0,T0,EN12.)')
 
-  !ERROR: Expected integer value after 'E' in EX descriptor
+  !ERROR: Expected integer value after 'E' in 'EX' edit descriptor
   write(*,'(EX12.3e2, EX12.3e)')
 
-  !ERROR: TL descriptor must have a positive position value
-  !ERROR: T descriptor must have a positive position value
+  !ERROR: 'TL' edit descriptor must have a positive position value
+  !ERROR: 'T' edit descriptor must have a positive position value
   !ERROR: Unterminated format expression
   write(*,'(TL00,T000')
 
@@ -252,12 +259,12 @@
   !ERROR: Unexpected '@' in format expression
   !ERROR: Unexpected '#' in format expression
   !ERROR: Unexpected '&' in format expression
-  write(*,'(@@, #  ,&&& &&)')
+  write(*,'(@@, #  ,&&& &&, ignore error 4)')
 
-  !ERROR: Repeat specifier before TR descriptor
+  !ERROR: Repeat specifier before 'TR' edit descriptor
   write(*,'(3TR0)')
 
-  !ERROR: TR descriptor must have a positive position value
+  !ERROR: 'TR' edit descriptor must have a positive position value
   write(*,'(TR0)')
 
   !ERROR: Kind parameter '_' character in format expression
@@ -279,11 +286,11 @@
   !ERROR: Unterminated format expression
   write(*,'(4Habc)')
 
-  !ERROR: Unterminated Hollerith constant
+  !ERROR: Unterminated 'H' edit descriptor
   !ERROR: Unterminated format expression
   write(*,'(5Habc)')
 
-  !ERROR: Unterminated Hollerith constant
+  !ERROR: Unterminated 'H' edit descriptor
   !ERROR: Unterminated format expression
   write(*,'(50Habc)')
 
@@ -302,6 +309,6 @@
   !ERROR: Integer overflow in format expression
   write(*,'(45' // '  I20.9876543' // '2109876543210, 45I20)')
 
-  !ERROR: Repeat specifier before $ descriptor
+  !ERROR: Repeat specifier before '$' edit descriptor
   write(*,'(7$)')
 end

@@ -17,19 +17,19 @@
   write(*, '(B0)')
   write(*, '(B3)')
 
-  !ERROR: Expected B descriptor 'w' value
+  !ERROR: Expected 'B' edit descriptor 'w' value
   write(*, '(B)')
 
-  !ERROR: Expected EN descriptor 'w' value
-  !ERROR: Non-standard $ edit descriptor
+  !ERROR: Expected 'EN' edit descriptor 'w' value
+  !ERROR: Non-standard '$' edit descriptor
   write(*, '(EN,$)')
 
-  !ERROR: Expected G descriptor 'w' value
+  !ERROR: Expected 'G' edit descriptor 'w' value
   write(*, '(3G)')
 
-  !ERROR: Non-standard \ edit descriptor
+  !ERROR: Non-standard '\' edit descriptor
   write(*,'(A, \)') 'Hello'
 
-  !ERROR: X descriptor must have a positive position value
+  !ERROR: 'X' edit descriptor must have a positive position value
   write(*, '(X)')
 end
