@@ -1262,8 +1262,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
         dummyArgs.emplace_back(
             characteristics::DummyDataObject{std::move(typeAndShape)});
       }
-      std::get<characteristics::DummyDataObject>(dummyArgs.back())
-          .attrs.set(characteristics::DummyDataObject::Attr::Optional);
+      dummyArgs.back().SetOptional();
     }
   }
   characteristics::Procedure::Attrs attrs;

@@ -44,26 +44,15 @@ extern template class Fortran::common::Indirection<
 
 namespace Fortran::evaluate::characteristics {
 
+template<typename T> using CopyableIndirection = common::CopyableIndirection<T>;
+
 class TypeAndShape {
 public:
   explicit TypeAndShape(DynamicType t) : type_{t} {}
   TypeAndShape(DynamicType t, int rank) : type_{t}, shape_(rank) {}
   TypeAndShape(DynamicType t, Shape &&s) : type_{t}, shape_{std::move(s)} {}
   DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(TypeAndShape)
-
-  DynamicType type() const { return type_; }
-  TypeAndShape &set_type(DynamicType t) {
-    type_ = t;
-    return *this;
-  }
-  const Shape &shape() const { return shape_; }
-
   bool operator==(const TypeAndShape &) const;
-  bool IsAssumedRank() const { return isAssumedRank_; }
-  int Rank() const { return GetRank(shape_); }
-  bool IsCompatibleWith(
-      parser::ContextualMessages &, const TypeAndShape &) const;
-
   static std::optional<TypeAndShape> Characterize(const semantics::Symbol &);
   static std::optional<TypeAndShape> Characterize(
       const semantics::ObjectEntityDetails &);
@@ -75,12 +64,20 @@ public:
       const semantics::DeclTypeSpec &);
   template<typename A>
   static std::optional<TypeAndShape> Characterize(const A *p) {
-    if (p != nullptr) {
-      return Characterize(*p);
-    } else {
-      return std::nullopt;
-    }
+    return p ? Characterize(*p) : std::nullopt;
   }
+
+  DynamicType type() const { return type_; }
+  TypeAndShape &set_type(DynamicType t) {
+    type_ = t;
+    return *this;
+  }
+  const Shape &shape() const { return shape_; }
+
+  bool IsAssumedRank() const { return isAssumedRank_; }
+  int Rank() const { return GetRank(shape_); }
+  bool IsCompatibleWith(
+      parser::ContextualMessages &, const TypeAndShape &) const;
 
   std::ostream &Dump(std::ostream &) const;
 
@@ -120,7 +117,7 @@ struct DummyProcedure {
   static std::optional<DummyProcedure> Characterize(
       const semantics::Symbol &, const IntrinsicProcTable &);
   std::ostream &Dump(std::ostream &) const;
-  common::CopyableIndirection<Procedure> procedure;
+  CopyableIndirection<Procedure> procedure;
   common::EnumSet<Attr, Attr_enumSize> attrs;
 };
 
@@ -131,12 +128,21 @@ struct AlternateReturn {
 };
 
 // 15.3.2.1
-using DummyArgument =
-    std::variant<DummyDataObject, DummyProcedure, AlternateReturn>;
+struct DummyArgument {
+  DECLARE_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
+  explicit DummyArgument(DummyDataObject &&x) : u{std::move(x)} {}
+  explicit DummyArgument(DummyProcedure &&x) : u{std::move(x)} {}
+  explicit DummyArgument(AlternateReturn &&x) : u{std::move(x)} {}
+  bool operator==(const DummyArgument &) const;
+  static std::optional<DummyArgument> Characterize(
+      const semantics::Symbol &, const IntrinsicProcTable &);
+  bool IsOptional() const;
+  void SetOptional(bool = true);
+  std::ostream &Dump(std::ostream &) const;
+  std::variant<DummyDataObject, DummyProcedure, AlternateReturn> u;
+};
+
 using DummyArguments = std::vector<DummyArgument>;
-bool IsOptional(const DummyArgument &);
-std::optional<DummyArgument> CharacterizeDummyArgument(
-    const semantics::Symbol &, const IntrinsicProcTable &);
 
 // 15.3.3
 struct FunctionResult {
@@ -153,8 +159,7 @@ struct FunctionResult {
   bool IsAssumedLengthCharacter() const;
 
   const Procedure *IsProcedurePointer() const {
-    if (const auto *pp{
-            std::get_if<common::CopyableIndirection<Procedure>>(&u)}) {
+    if (const auto *pp{std::get_if<CopyableIndirection<Procedure>>(&u)}) {
       return &pp->value();
     } else {
       return nullptr;
@@ -168,7 +173,7 @@ struct FunctionResult {
   std::ostream &Dump(std::ostream &) const;
 
   common::EnumSet<Attr, Attr_enumSize> attrs;
-  std::variant<TypeAndShape, common::CopyableIndirection<Procedure>> u;
+  std::variant<TypeAndShape, CopyableIndirection<Procedure>> u;
 };
 
 // 15.3.1
@@ -201,6 +206,7 @@ struct Procedure {
 
 private:
   Procedure() {}
+  void SetAttrsFrom(const semantics::Symbol &);
 };
 }
 #endif  // FORTRAN_EVALUATE_CHARACTERISTICS_H_
