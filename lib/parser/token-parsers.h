@@ -25,6 +25,7 @@
 #include "provenance.h"
 #include "type-parsers.h"
 #include "../common/idioms.h"
+#include <cctype>
 #include <cstddef>
 #include <cstring>
 #include <functional>
@@ -207,70 +208,30 @@ template<class PA> inline constexpr auto bracketed(const PA &p) {
 
 // Quoted character literal constants.
 struct CharLiteralChar {
-  struct Result {
-    Result(char c, bool esc) : ch{c}, wasEscaped{esc} {}
-    static Result Bare(char c) { return Result{c, false}; }
-    static Result Escaped(char c) { return Result{c, true}; }
-    char ch;
-    bool wasEscaped;
-  };
-  using resultType = Result;
-  static std::optional<Result> Parse(ParseState &state) {
+  using resultType = std::pair<char, bool /* was escaped */>;
+  static std::optional<resultType> Parse(ParseState &state) {
     auto at{state.GetLocation()};
-    std::optional<const char *> och{nextCh.Parse(state)};
-    if (!och.has_value()) {
-      return std::nullopt;
-    }
-    char ch{**och};
-    if (ch == '\n') {
-      state.Say(CharBlock{at, state.GetLocation()},
-          "unclosed character constant"_err_en_US);
-      return std::nullopt;
-    }
-    if (ch != '\\') {
-      return {Result::Bare(ch)};
-    }
-    if (!(och = nextCh.Parse(state)).has_value()) {
-      return std::nullopt;
-    }
-    ch = **och;
-    if (ch == '\n') {
-      state.Say(CharBlock{at, state.GetLocation()},
-          "unclosed character constant"_err_en_US);
-      return std::nullopt;
-    }
-    if (std::optional<char> escChar{BackslashEscapeValue(ch)}) {
-      return {Result::Escaped(*escChar)};
-    }
-    if (IsOctalDigit(ch)) {
-      ch -= '0';
-      for (int j = (ch > 3 ? 1 : 2); j-- > 0;) {
-        static constexpr auto octalDigit{attempt("01234567"_ch)};
-        och = octalDigit.Parse(state);
-        if (och.has_value()) {
-          ch = 8 * ch + **och - '0';
-        } else {
-          break;
-        }
-      }
-    } else if (ch == 'x' || ch == 'X') {
-      ch = 0;
-      static constexpr auto hexDigit{"0123456789abcdefABCDEF"_ch};
-      och = hexDigit.Parse(state);
-      if (och.has_value()) {
-        ch = HexadecimalDigitValue(**och);
-        static constexpr auto hexDigit2{attempt("0123456789abcdefABCDEF"_ch)};
-        och = hexDigit2.Parse(state);
-        if (och.has_value()) {
-          ch = 16 * ch + HexadecimalDigitValue(**och);
-        }
-      } else {
+    if (std::optional<const char *> cp{nextCh.Parse(state)}) {
+      char ch{**cp};
+      if (ch == '\n') {
+        state.Say(CharBlock{at, state.GetLocation()},
+            "Unclosed character constant"_err_en_US);
         return std::nullopt;
       }
-    } else {
-      state.Say(at, "bad escaped character"_en_US);
+      if (ch == '\\') {
+        // Most escape sequences in character literals are processed later,
+        // but we have to look for quotes here so that doubled quotes work.
+        if (std::optional<const char *> next{state.PeekAtNextChar()}) {
+          char escaped{**next};
+          if (escaped == '\'' || escaped == '"' || escaped == '\\') {
+            state.UncheckedAdvance();
+            return std::make_pair(escaped, true);
+          }
+        }
+      }
+      return std::make_pair(ch, false);
     }
-    return {Result::Escaped(ch)};
+    return std::nullopt;
   }
 };
 
@@ -279,14 +240,16 @@ template<char quote> struct CharLiteral {
   static std::optional<std::string> Parse(ParseState &state) {
     std::string str;
     static constexpr auto nextch{attempt(CharLiteralChar{})};
-    while (std::optional<CharLiteralChar::Result> ch{nextch.Parse(state)}) {
-      if (ch->ch == quote && !ch->wasEscaped) {
+    while (auto ch{nextch.Parse(state)}) {
+      if (ch->second) {
+        str += '\\';
+      } else if (ch->first == quote) {
         static constexpr auto doubled{attempt(AnyOfChars{SetOfChars{quote}})};
         if (!doubled.Parse(state).has_value()) {
-          return {str};
+          return str;
         }
       }
-      str += ch->ch;
+      str += ch->first;
     }
     return std::nullopt;
   }
@@ -543,39 +506,21 @@ struct HollerithLiteral {
     }
     std::string content;
     for (auto j{*charCount}; j-- > 0;) {
-      int bytes{1};
-      const char *p{state.GetLocation()};
-      if (state.encoding() == Encoding::EUC_JP) {
-        std::optional<int> chBytes{EUC_JPCharacterBytes(p)};
-        if (!chBytes.has_value()) {
-          state.Say(start, "bad EUC_JP characters in Hollerith"_err_en_US);
+      int chBytes{UTF_8CharacterBytes(state.GetLocation())};
+      for (int bytes{chBytes}; bytes > 0; --bytes) {
+        if (std::optional<const char *> at{nextCh.Parse(state)}) {
+          if (chBytes == 1 && !std::isprint(**at)) {
+            state.Say(start, "Bad character in Hollerith"_err_en_US);
+            return std::nullopt;
+          }
+          content += **at;
+        } else {
+          state.Say(start, "Insufficient characters in Hollerith"_err_en_US);
           return std::nullopt;
-        }
-        bytes = *chBytes;
-      } else if (state.encoding() == Encoding::UTF8) {
-        std::optional<int> chBytes{UTF8CharacterBytes(p)};
-        if (!chBytes.has_value()) {
-          state.Say(start, "bad UTF-8 characters in Hollerith"_err_en_US);
-          return std::nullopt;
-        }
-        bytes = *chBytes;
-      }
-      if (bytes == 1) {
-        std::optional<const char *> at{nextCh.Parse(state)};
-        if (!at.has_value() || !isprint(**at)) {
-          state.Say(
-              start, "insufficient or bad characters in Hollerith"_err_en_US);
-          return std::nullopt;
-        }
-        content += **at;
-      } else {
-        // Multi-byte character
-        while (bytes-- > 0) {
-          content += *nextCh.Parse(state).value();
         }
       }
     }
-    return {content};
+    return content;
   }
 };
 

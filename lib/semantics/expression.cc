@@ -519,26 +519,17 @@ MaybeExpr ExpressionAnalyzer::AnalyzeString(std::string &&string, int kind) {
   if (!CheckIntrinsicKind(TypeCategory::Character, kind)) {
     return std::nullopt;
   }
-  if (kind == 1) {
-    return {AsGenericExpr(
-        Constant<Type<TypeCategory::Character, 1>>{std::move(string)})};
-  } else if (std::optional<std::u32string> unicode{
-                 parser::DecodeUTF8(string)}) {
-    if (kind == 4) {
-      return {AsGenericExpr(
-          Constant<Type<TypeCategory::Character, 4>>{std::move(*unicode)})};
-    }
-    CHECK(kind == 2);
-    // TODO: better Kanji support
-    std::u16string result;
-    for (const char32_t &ch : *unicode) {
-      result += static_cast<char16_t>(ch);
-    }
-    return {AsGenericExpr(
-        Constant<Type<TypeCategory::Character, 2>>{std::move(result)})};
-  } else {
-    Say("bad UTF-8 encoding of CHARACTER(KIND=%d) literal"_err_en_US, kind);
-    return std::nullopt;
+  switch (kind) {
+  case 1:
+    return AsGenericExpr(Constant<Type<TypeCategory::Character, 1>>{
+        parser::DecodeString<parser::Encoding::LATIN_1>(string, true)});
+  case 2:
+    return AsGenericExpr(Constant<Type<TypeCategory::Character, 2>>{
+        parser::DecodeString<parser::Encoding::EUC_JP>(string, true)});
+  case 4:
+    return AsGenericExpr(Constant<Type<TypeCategory::Character, 4>>{
+        parser::DecodeString<parser::Encoding::UTF_8>(string, true)});
+  default: CRASH_NO_CASE;
   }
 }
 
