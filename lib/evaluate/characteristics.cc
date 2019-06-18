@@ -20,8 +20,6 @@
 #include "../parser/message.h"
 #include "../semantics/symbol.h"
 #include <ostream>
-#include <sstream>
-#include <string>
 
 using namespace Fortran::parser::literals;
 
@@ -30,16 +28,6 @@ namespace Fortran::evaluate::characteristics {
 bool TypeAndShape::operator==(const TypeAndShape &that) const {
   return type_ == that.type_ && shape_ == that.shape_ &&
       isAssumedRank_ == that.isAssumedRank_;
-}
-
-bool TypeAndShape::IsCompatibleWith(
-    parser::ContextualMessages &messages, const TypeAndShape &that) const {
-  if (!type_.IsTypeCompatibleWith(that.type_)) {
-    messages.Say("Target type '%s' is not compatible with '%s'"_err_en_US,
-        that.type_.AsFortran(), type_.AsFortran());
-    return false;
-  }
-  return CheckConformance(messages, shape_, that.shape_);
 }
 
 std::optional<TypeAndShape> TypeAndShape::Characterize(
@@ -86,6 +74,16 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
   } else {
     return std::nullopt;
   }
+}
+
+bool TypeAndShape::IsCompatibleWith(
+    parser::ContextualMessages &messages, const TypeAndShape &that) const {
+  if (!type_.IsTypeCompatibleWith(that.type_)) {
+    messages.Say("Target type '%s' is not compatible with '%s'"_err_en_US,
+        that.type_.AsFortran(), type_.AsFortran());
+    return false;
+  }
+  return CheckConformance(messages, shape_, that.shape_);
 }
 
 void TypeAndShape::AcquireShape(const semantics::ObjectEntityDetails &object) {
@@ -135,94 +133,6 @@ bool DummyDataObject::operator==(const DummyDataObject &that) const {
       coshape == that.coshape;
 }
 
-std::ostream &DummyDataObject::Dump(std::ostream &o) const {
-  attrs.Dump(o, EnumToString);
-  if (intent != common::Intent::Default) {
-    o << "INTENT(" << common::EnumToString(intent) << ')';
-  }
-  type.Dump(o);
-  if (!coshape.empty()) {
-    char sep{'['};
-    for (const auto &expr : coshape) {
-      expr.AsFortran(o << sep);
-      sep = ',';
-    }
-  }
-  return o;
-}
-
-DummyProcedure::DummyProcedure(Procedure &&p)
-  : procedure{new Procedure{std::move(p)}} {}
-
-bool DummyProcedure::operator==(const DummyProcedure &that) const {
-  return attrs == that.attrs && procedure.value() == that.procedure.value();
-}
-
-std::ostream &DummyProcedure::Dump(std::ostream &o) const {
-  attrs.Dump(o, EnumToString);
-  procedure.value().Dump(o);
-  return o;
-}
-
-std::ostream &AlternateReturn::Dump(std::ostream &o) const { return o << '*'; }
-
-bool IsOptional(const DummyArgument &da) {
-  return std::visit(
-      common::visitors{
-          [](const DummyDataObject &data) {
-            return data.attrs.test(DummyDataObject::Attr::Optional);
-          },
-          [](const DummyProcedure &proc) {
-            return proc.attrs.test(DummyProcedure::Attr::Optional);
-          },
-          [](const AlternateReturn &) { return false; },
-      },
-      da);
-}
-
-FunctionResult::FunctionResult(DynamicType t) : u{TypeAndShape{t}} {}
-FunctionResult::FunctionResult(TypeAndShape &&t) : u{std::move(t)} {}
-FunctionResult::FunctionResult(Procedure &&p) : u{std::move(p)} {}
-FunctionResult::~FunctionResult() = default;
-
-bool FunctionResult::operator==(const FunctionResult &that) const {
-  return attrs == that.attrs && u == that.u;
-}
-
-std::ostream &FunctionResult::Dump(std::ostream &o) const {
-  attrs.Dump(o, EnumToString);
-  std::visit(
-      common::visitors{
-          [&](const TypeAndShape &ts) { ts.Dump(o); },
-          [&](const common::CopyableIndirection<Procedure> &p) {
-            p.value().Dump(o << " procedure(") << ')';
-          },
-      },
-      u);
-  return o;
-}
-
-bool Procedure::operator==(const Procedure &that) const {
-  return attrs == that.attrs && dummyArguments == that.dummyArguments &&
-      functionResult == that.functionResult;
-}
-
-std::ostream &Procedure::Dump(std::ostream &o) const {
-  attrs.Dump(o, EnumToString);
-  if (functionResult.has_value()) {
-    functionResult->Dump(o << "TYPE(") << ") FUNCTION";
-  } else {
-    o << "SUBROUTINE";
-  }
-  char sep{'('};
-  for (const auto &dummy : dummyArguments) {
-    o << sep;
-    sep = ',';
-    std::visit([&](const auto &x) { x.Dump(o); }, dummy);
-  }
-  return o << (sep == '(' ? "()" : ")");
-}
-
 std::optional<DummyDataObject> DummyDataObject::Characterize(
     const semantics::Symbol &symbol) {
   if (const auto *obj{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
@@ -270,6 +180,29 @@ std::optional<DummyDataObject> DummyDataObject::Characterize(
   return std::nullopt;
 }
 
+std::ostream &DummyDataObject::Dump(std::ostream &o) const {
+  attrs.Dump(o, EnumToString);
+  if (intent != common::Intent::Default) {
+    o << "INTENT(" << common::EnumToString(intent) << ')';
+  }
+  type.Dump(o);
+  if (!coshape.empty()) {
+    char sep{'['};
+    for (const auto &expr : coshape) {
+      expr.AsFortran(o << sep);
+      sep = ',';
+    }
+  }
+  return o;
+}
+
+DummyProcedure::DummyProcedure(Procedure &&p)
+  : procedure{new Procedure{std::move(p)}} {}
+
+bool DummyProcedure::operator==(const DummyProcedure &that) const {
+  return attrs == that.attrs && procedure.value() == that.procedure.value();
+}
+
 std::optional<DummyProcedure> DummyProcedure::Characterize(
     const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
   if (symbol.has<semantics::ProcEntityDetails>()) {
@@ -287,16 +220,70 @@ std::optional<DummyProcedure> DummyProcedure::Characterize(
   return std::nullopt;
 }
 
-std::optional<DummyArgument> CharacterizeDummyArgument(
+std::ostream &DummyProcedure::Dump(std::ostream &o) const {
+  attrs.Dump(o, EnumToString);
+  procedure.value().Dump(o);
+  return o;
+}
+
+std::ostream &AlternateReturn::Dump(std::ostream &o) const { return o << '*'; }
+
+bool DummyArgument::operator==(const DummyArgument &that) const {
+  return u == that.u;
+}
+
+std::optional<DummyArgument> DummyArgument::Characterize(
     const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
   if (auto objCharacteristics{DummyDataObject::Characterize(symbol)}) {
-    return std::move(objCharacteristics.value());
+    return DummyArgument{std::move(objCharacteristics.value())};
   } else if (auto procCharacteristics{
                  DummyProcedure::Characterize(symbol, intrinsics)}) {
-    return std::move(procCharacteristics.value());
+    return DummyArgument{std::move(procCharacteristics.value())};
   } else {
     return std::nullopt;
   }
+}
+
+bool DummyArgument::IsOptional() const {
+  return std::visit(
+      common::visitors{
+          [](const DummyDataObject &data) {
+            return data.attrs.test(DummyDataObject::Attr::Optional);
+          },
+          [](const DummyProcedure &proc) {
+            return proc.attrs.test(DummyProcedure::Attr::Optional);
+          },
+          [](const AlternateReturn &) { return false; },
+      },
+      u);
+}
+
+void DummyArgument::SetOptional(bool value) {
+  std::visit(
+      common::visitors{
+          [value](DummyDataObject &data) {
+            data.attrs.set(DummyDataObject::Attr::Optional, value);
+          },
+          [value](DummyProcedure &proc) {
+            proc.attrs.set(DummyProcedure::Attr::Optional, value);
+          },
+          [](AlternateReturn &) { DIE("cannot set optional"); },
+      },
+      u);
+}
+
+std::ostream &DummyArgument::Dump(std::ostream &o) const {
+  std::visit([&](const auto &x) { x.Dump(o); }, u);
+  return o;
+}
+
+FunctionResult::FunctionResult(DynamicType t) : u{TypeAndShape{t}} {}
+FunctionResult::FunctionResult(TypeAndShape &&t) : u{std::move(t)} {}
+FunctionResult::FunctionResult(Procedure &&p) : u{std::move(p)} {}
+FunctionResult::~FunctionResult() = default;
+
+bool FunctionResult::operator==(const FunctionResult &that) const {
+  return attrs == that.attrs && u == that.u;
 }
 
 std::optional<FunctionResult> FunctionResult::Characterize(
@@ -331,22 +318,27 @@ bool FunctionResult::IsAssumedLengthCharacter() const {
   }
 }
 
+std::ostream &FunctionResult::Dump(std::ostream &o) const {
+  attrs.Dump(o, EnumToString);
+  std::visit(
+      common::visitors{
+          [&](const TypeAndShape &ts) { ts.Dump(o); },
+          [&](const CopyableIndirection<Procedure> &p) {
+            p.value().Dump(o << " procedure(") << ')';
+          },
+      },
+      u);
+  return o;
+}
+
 Procedure::Procedure(FunctionResult &&fr, DummyArguments &&args, Attrs a)
   : functionResult{std::move(fr)}, dummyArguments{std::move(args)}, attrs{a} {}
 Procedure::Procedure(DummyArguments &&args, Attrs a)
   : dummyArguments{std::move(args)}, attrs{a} {}
 
-static void SetProcedureAttrs(
-    Procedure &procedure, const semantics::Symbol &symbol) {
-  if (symbol.attrs().test(semantics::Attr::PURE)) {
-    procedure.attrs.set(Procedure::Attr::Pure);
-  }
-  if (symbol.attrs().test(semantics::Attr::ELEMENTAL)) {
-    procedure.attrs.set(Procedure::Attr::Elemental);
-  }
-  if (symbol.attrs().test(semantics::Attr::BIND_C)) {
-    procedure.attrs.set(Procedure::Attr::BindC);
-  }
+bool Procedure::operator==(const Procedure &that) const {
+  return attrs == that.attrs && dummyArguments == that.dummyArguments &&
+      functionResult == that.functionResult;
 }
 
 std::optional<Procedure> Procedure::Characterize(
@@ -361,12 +353,12 @@ std::optional<Procedure> Procedure::Characterize(
         return std::nullopt;
       }
     }
-    SetProcedureAttrs(result, symbol);
+    result.SetAttrsFrom(symbol);
     for (const semantics::Symbol *arg : subp->dummyArgs()) {
       if (arg == nullptr) {
         result.dummyArguments.emplace_back(AlternateReturn{});
       } else if (auto argCharacteristics{
-                     CharacterizeDummyArgument(*arg, intrinsics)}) {
+                     DummyArgument::Characterize(*arg, intrinsics)}) {
         result.dummyArguments.emplace_back(
             std::move(argCharacteristics.value()));
       } else {
@@ -396,7 +388,7 @@ std::optional<Procedure> Procedure::Characterize(
         // subroutine, not function
       }
     }
-    SetProcedureAttrs(result, symbol);
+    result.SetAttrsFrom(symbol);
     // The PASS name, if any, is not a characteristic.
     return result;
   } else if (const auto *misc{symbol.detailsIf<semantics::MiscDetails>()}) {
@@ -410,6 +402,34 @@ std::optional<Procedure> Procedure::Characterize(
   return std::nullopt;
 }
 
+std::ostream &Procedure::Dump(std::ostream &o) const {
+  attrs.Dump(o, EnumToString);
+  if (functionResult.has_value()) {
+    functionResult->Dump(o << "TYPE(") << ") FUNCTION";
+  } else {
+    o << "SUBROUTINE";
+  }
+  char sep{'('};
+  for (const auto &dummy : dummyArguments) {
+    dummy.Dump(o << sep);
+    sep = ',';
+  }
+  return o << (sep == '(' ? "()" : ")");
+}
+
+void Procedure::SetAttrsFrom(const semantics::Symbol &symbol) {
+  if (symbol.attrs().test(semantics::Attr::PURE)) {
+    attrs.set(Procedure::Attr::Pure);
+  }
+  if (symbol.attrs().test(semantics::Attr::ELEMENTAL)) {
+    attrs.set(Procedure::Attr::Elemental);
+  }
+  if (symbol.attrs().test(semantics::Attr::BIND_C)) {
+    attrs.set(Procedure::Attr::BindC);
+  }
+}
+
+DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyProcedure)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(FunctionResult)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(Procedure)
