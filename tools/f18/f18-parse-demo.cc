@@ -92,7 +92,7 @@ struct DriverOptions {
   bool forcedForm{false};  // -Mfixed or -Mfree appeared
   bool warnOnNonstandardUsage{false};  // -Mstandard
   bool warningsAreErrors{false};  // -Werror
-  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF8};
+  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::LATIN_1};
   bool parseOnly{false};
   bool dumpProvenance{false};
   bool dumpCookedChars{false};
@@ -446,7 +446,6 @@ int main(int argc, char *const argv[]) {
       }
     }
   }
-  driver.encoding = options.encoding;
 
   if (driver.warnOnNonstandardUsage) {
     options.features.WarnOnAllNonstandard();

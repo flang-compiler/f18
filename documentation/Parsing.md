@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 -->
 
 The F18 Parser
@@ -58,6 +58,8 @@ by a CookedSource class instance, in which:
 * except for the payload in character literals, Hollerith constants,
   and character and Hollerith edit descriptors, all letters have been
   normalized to lower case
+* all original non-ASCII characters in Hollerith constants have been
+  decoded and re-encoded into UTF-8
 
 Lines in the cooked character stream can be of arbitrary length.
 

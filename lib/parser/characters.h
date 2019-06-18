@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,13 @@
 
 namespace Fortran::parser {
 
-enum class Encoding { UTF8, EUC_JP };
+// We can easily support Fortran program source in any character
+// set whose first 128 code points correspond to ASCII codes 0-127 (ISO/IEC646).
+// The specific encodings that we can handle include:
+//   LATIN_1: ISO 8859-1 Latin-1
+//   UTF_8: Multi-byte encoding of Unicode (ISO/IEC 10646)
+//   EUC_JP: 1-3 byte encoding of JIS X 0208 / 0212
+enum class Encoding { LATIN_1, UTF_8, EUC_JP };
 
 inline constexpr bool IsUpperCaseLetter(char ch) {
   return ch >= 'A' && ch <= 'Z';
@@ -103,87 +109,147 @@ inline constexpr char HexadecimalDigitValue(char ch) {
 
 inline constexpr std::optional<char> BackslashEscapeValue(char ch) {
   switch (ch) {
-  // case 'a': return {'\a'};  // pgf90 has no \a
-  case 'b': return {'\b'};
-  case 'f': return {'\f'};
-  case 'n': return {'\n'};
-  case 'r': return {'\r'};
-  case 't': return {'\t'};
-  case 'v': return {'\v'};
+  case 'a': return std::nullopt;  // '\a';  PGF90 doesn't know \a
+  case 'b': return '\b';
+  case 'f': return '\f';
+  case 'n': return '\n';
+  case 'r': return '\r';
+  case 't': return '\t';
+  case 'v': return '\v';
   case '"':
   case '\'':
-  case '\\': return {ch};
+  case '\\': return ch;
   default: return std::nullopt;
   }
 }
 
 inline constexpr std::optional<char> BackslashEscapeChar(char ch) {
   switch (ch) {
-  // case '\a': return {'a'};  // pgf90 has no \a
-  case '\b': return {'b'};
-  case '\f': return {'f'};
-  case '\n': return {'n'};
-  case '\r': return {'r'};
-  case '\t': return {'t'};
-  case '\v': return {'v'};
+  case '\a': return std::nullopt;  // 'a';  PGF90 doesn't know \a
+  case '\b': return 'b';
+  case '\f': return 'f';
+  case '\n': return 'n';
+  case '\r': return 'r';
+  case '\t': return 't';
+  case '\v': return 'v';
   case '"':
   case '\'':
-  case '\\': return {ch};
+  case '\\': return ch;
   default: return std::nullopt;
   }
 }
 
+struct EncodedCharacter {
+  static constexpr int maxEncodingBytes{6};
+  char buffer[maxEncodingBytes];
+  int bytes{0};
+};
+
+template<Encoding ENCODING> EncodedCharacter EncodeCharacter(char32_t ucs);
+template<> EncodedCharacter EncodeCharacter<Encoding::LATIN_1>(char32_t);
+template<> EncodedCharacter EncodeCharacter<Encoding::EUC_JP>(char32_t);
+template<> EncodedCharacter EncodeCharacter<Encoding::UTF_8>(char32_t);
+
+EncodedCharacter EncodeCharacter(Encoding, char32_t ucs);
+
+template<Encoding ENCODING, typename STRING>
+std::string EncodeString(const STRING &);
+extern template std::string EncodeString<Encoding::LATIN_1, std::string>(
+    const std::string &);
+extern template std::string EncodeString<Encoding::EUC_JP, std::u16string>(
+    const std::u16string &);
+extern template std::string EncodeString<Encoding::UTF_8, std::u32string>(
+    const std::u32string &);
+
+// EmitQuotedChar drives callbacks "emit" and "insert" to output the
+// bytes of an encoding for a codepoint.
 template<typename NORMAL, typename INSERTED>
 void EmitQuotedChar(char32_t ch, const NORMAL &emit, const INSERTED &insert,
-    bool doubleDoubleQuotes = true, bool doubleBackslash = true) {
-  if (ch == '"') {
-    if (doubleDoubleQuotes) {
-      insert('"');
-    }
-    emit('"');
-  } else if (ch == '\\') {
-    if (doubleBackslash) {
+    bool backslashEscapes = true, Encoding encoding = Encoding::UTF_8) {
+  auto emitOneChar{[&](std::uint8_t ch) {
+    if (ch < ' ' || (backslashEscapes && (ch == '\\' || ch >= 0x7f))) {
       insert('\\');
-    }
-    emit('\\');
-  } else if (ch < ' ' || (ch >= 0x80 && ch <= 0xff)) {
-    insert('\\');
-    if (std::optional<char> escape{BackslashEscapeChar(ch)}) {
-      emit(*escape);
+      if (std::optional<char> escape{BackslashEscapeChar(ch)}) {
+        emit(*escape);
+      } else {
+        // octal escape sequence; always emit 3 digits to avoid ambiguity
+        insert('0' + (ch >> 6));
+        insert('0' + ((ch >> 3) & 7));
+        insert('0' + (ch & 7));
+      }
     } else {
-      // octal escape sequence
-      insert('0' + ((ch >> 6) & 3));
-      insert('0' + ((ch >> 3) & 7));
-      insert('0' + (ch & 7));
+      emit(ch);
     }
-  } else if (ch <= 0x7f) {
-    emit(ch);
-  } else if (ch <= 0x7ff) {
-    emit(0xc0 | ((ch >> 6) & 0x1f));
-    emit(0x80 | (ch & 0x3f));
-  } else if (ch <= 0xffff) {
-    emit(0xe0 | ((ch >> 12) & 0x0f));
-    emit(0x80 | ((ch >> 6) & 0x3f));
-    emit(0x80 | (ch & 0x3f));
+  }};
+  if (ch <= 0x7f) {
+    emitOneChar(ch);
   } else {
-    emit(0xf0 | ((ch >> 18) & 0x07));
-    emit(0x80 | ((ch >> 12) & 0x3f));
-    emit(0x80 | ((ch >> 6) & 0x3f));
-    emit(0x80 | (ch & 0x3f));
+    EncodedCharacter encoded{EncodeCharacter(encoding, ch)};
+    for (int j{0}; j < encoded.bytes; ++j) {
+      emitOneChar(encoded.buffer[j]);
+    }
   }
 }
 
 std::string QuoteCharacterLiteral(const std::string &,
-    bool doubleDoubleQuotes = true, bool doubleBackslash = true);
+    bool backslashEscapes = true, Encoding = Encoding::LATIN_1);
 std::string QuoteCharacterLiteral(const std::u16string &,
-    bool doubleDoubleQuotes = true, bool doubleBackslash = true);
+    bool backslashEscapes = true, Encoding = Encoding::EUC_JP);
 std::string QuoteCharacterLiteral(const std::u32string &,
-    bool doubleDoubleQuotes = true, bool doubleBackslash = true);
+    bool backslashEscapes = true, Encoding = Encoding::UTF_8);
 
-std::optional<int> UTF8CharacterBytes(const char *);
-std::optional<int> EUC_JPCharacterBytes(const char *);
-std::optional<std::size_t> CountCharacters(
-    const char *, std::size_t bytes, std::optional<int> (*)(const char *));
-std::optional<std::u32string> DecodeUTF8(const std::string &);
+int UTF_8CharacterBytes(const char *);
+
+struct DecodedCharacter {
+  char32_t codepoint{0};
+  int bytes{0};  // signifying failure
+};
+
+template<Encoding ENCODING>
+DecodedCharacter DecodeRawCharacter(const char *, std::size_t);
+template<>
+DecodedCharacter DecodeRawCharacter<Encoding::LATIN_1>(
+    const char *, std::size_t);
+template<>
+DecodedCharacter DecodeRawCharacter<Encoding::EUC_JP>(
+    const char *, std::size_t);
+template<>
+DecodedCharacter DecodeRawCharacter<Encoding::UTF_8>(const char *, std::size_t);
+
+// DecodeCharacter optionally handles backslash escape sequences, too.
+template<Encoding ENCODING>
+DecodedCharacter DecodeCharacter(
+    const char *, std::size_t, bool backslashEscapes);
+extern template DecodedCharacter DecodeCharacter<Encoding::LATIN_1>(
+    const char *, std::size_t, bool);
+extern template DecodedCharacter DecodeCharacter<Encoding::EUC_JP>(
+    const char *, std::size_t, bool);
+extern template DecodedCharacter DecodeCharacter<Encoding::UTF_8>(
+    const char *, std::size_t, bool);
+
+DecodedCharacter DecodeCharacter(
+    Encoding, const char *, std::size_t, bool backslashEscapes);
+
+template<Encoding ENCODING> struct StringForEncoding;
+template<> struct StringForEncoding<Encoding::LATIN_1> {
+  using type = std::string;
+};
+template<> struct StringForEncoding<Encoding::EUC_JP> {
+  using type = std::u16string;
+};
+template<> struct StringForEncoding<Encoding::UTF_8> {
+  using type = std::u32string;
+};
+template<Encoding ENCODING>
+using StringFor = typename StringForEncoding<ENCODING>::type;
+
+template<Encoding ENCODING>
+StringFor<ENCODING> DecodeString(const std::string &, bool backslashEscapes);
+extern template std::string DecodeString<Encoding::LATIN_1>(
+    const std::string &, bool);
+extern template std::u16string DecodeString<Encoding::EUC_JP>(
+    const std::string &, bool);
+extern template std::u32string DecodeString<Encoding::UTF_8>(
+    const std::string &, bool);
 }
 #endif  // FORTRAN_PARSER_CHARACTERS_H_

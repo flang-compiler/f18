@@ -31,8 +31,8 @@ static constexpr int maxPrescannerNesting{100};
 
 Prescanner::Prescanner(Messages &messages, CookedSource &cooked,
     Preprocessor &preprocessor, LanguageFeatureControl lfc)
-  : messages_{messages}, cooked_{cooked},
-    preprocessor_{preprocessor}, features_{lfc} {}
+  : messages_{messages}, cooked_{cooked}, preprocessor_{preprocessor},
+    features_{lfc}, encoding_{cooked.allSources().encoding()} {}
 
 Prescanner::Prescanner(const Prescanner &that)
   : messages_{that.messages_}, cooked_{that.cooked_},
@@ -106,6 +106,7 @@ void Prescanner::Statement() {
     return;
   case LineClassification::Kind::ConditionalCompilationDirective:
   case LineClassification::Kind::IncludeDirective:
+  case LineClassification::Kind::DefinitionDirective:
   case LineClassification::Kind::PreprocessorDirective:
     preprocessor_.Directive(TokenizePreprocessorDirective(), this);
     return;
@@ -168,12 +169,12 @@ void Prescanner::Statement() {
   Provenance newlineProvenance{GetCurrentProvenance()};
   if (std::optional<TokenSequence> preprocessed{
           preprocessor_.MacroReplacement(tokens, *this)}) {
-    // Reprocess the preprocessed line.
+    // Reprocess the preprocessed line.  Append a newline temporarily.
     preprocessed->PutNextTokenChar('\n', newlineProvenance);
     preprocessed->CloseToken();
     const char *ppd{preprocessed->ToCharBlock().begin()};
     LineClassification ppl{ClassifyLine(ppd)};
-    preprocessed->ReopenLastToken();  // remove the newline
+    preprocessed->RemoveLastToken();  // remove the newline
     switch (ppl.kind) {
     case LineClassification::Kind::Comment: break;
     case LineClassification::Kind::IncludeLine:
@@ -181,9 +182,10 @@ void Prescanner::Statement() {
       break;
     case LineClassification::Kind::ConditionalCompilationDirective:
     case LineClassification::Kind::IncludeDirective:
+    case LineClassification::Kind::DefinitionDirective:
     case LineClassification::Kind::PreprocessorDirective:
       Say(preprocessed->GetProvenanceRange(),
-          "preprocessed line resembles a preprocessor directive"_en_US);
+          "Preprocessed line resembles a preprocessor directive"_en_US);
       preprocessed->ToLowerCase().Emit(cooked_);
       break;
     case LineClassification::Kind::CompilerDirective:
@@ -295,6 +297,11 @@ bool Prescanner::MustSkipToEndOfLine() const {
 void Prescanner::NextChar() {
   CHECK(*at_ != '\n');
   ++at_, ++column_;
+  while (at_[0] == '\xef' && at_[1] == '\xbb' && at_[2] == '\xbf') {
+    // UTF-8 byte order mark - treat this file as UTF-8
+    at_ += 3;
+    encoding_ = Encoding::UTF_8;
+  }
   if (inPreprocessorDirective_) {
     SkipCComments();
   } else {
@@ -325,7 +332,9 @@ void Prescanner::SkipCComments() {
         nextLine_ = at_ = after;
         NextLine();
       } else {
-        Say(GetProvenance(at_), "unclosed C-style comment"_err_en_US);
+        // Don't emit any messages about unclosed C-style comments, because
+        // the sequence /* can appear legally in a FORMAT statement.  There's
+        // no ambiguity, since the sequence */ cannot appear legally.
         break;
       }
     } else if (inPreprocessorDirective_ && at_[0] == '\\' && at_ + 2 < limit_ &&
@@ -477,8 +486,8 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
     }
     preventHollerith_ = false;
   } else if (IsLegalInIdentifier(*at_)) {
-    while (IsLegalInIdentifier(EmitCharAndAdvance(tokens, *at_))) {
-    }
+    do {
+    } while (IsLegalInIdentifier(EmitCharAndAdvance(tokens, *at_)));
     if (*at_ == '\'' || *at_ == '"') {
       QuotedCharacterLiteral(tokens, start);
       preventHollerith_ = false;
@@ -522,7 +531,7 @@ bool Prescanner::NextToken(TokenSequence &tokens) {
 }
 
 bool Prescanner::ExponentAndKind(TokenSequence &tokens) {
-  char ed = ToLowerCaseLetter(*at_);
+  char ed{ToLowerCaseLetter(*at_)};
   if (ed != 'e' && ed != 'd') {
     return false;
   }
@@ -547,27 +556,37 @@ void Prescanner::QuotedCharacterLiteral(
   inCharLiteral_ = true;
   const auto emit{[&](char ch) { EmitChar(tokens, ch); }};
   const auto insert{[&](char ch) { EmitInsertedChar(tokens, ch); }};
-  bool escape{false};
+  bool isEscaped{false};
   bool escapesEnabled{features_.IsEnabled(LanguageFeature::BackslashEscapes)};
   while (true) {
-    char32_t ch{static_cast<unsigned char>(*at_)};
-    escape = !escape && ch == '\\' && escapesEnabled;
-    EmitQuotedChar(ch, emit, insert, false, !escapesEnabled);
+    if (*at_ == '\\') {
+      if (escapesEnabled) {
+        isEscaped = !isEscaped;
+      } else {
+        // The parser always processes escape sequences, so don't confuse it
+        // when escapes are disabled.
+        insert('\\');
+      }
+    } else {
+      isEscaped = false;
+    }
+    EmitQuotedChar(static_cast<unsigned char>(*at_), emit, insert, false,
+        Encoding::LATIN_1);
     while (PadOutCharacterLiteral(tokens)) {
     }
     if (*at_ == '\n') {
       if (!inPreprocessorDirective_) {
         Say(GetProvenanceRange(start, end),
-            "incomplete character literal"_err_en_US);
+            "Incomplete character literal"_err_en_US);
       }
       break;
     }
     end = at_ + 1;
     NextChar();
-    if (*at_ == quote && !escape) {
-      // A doubled quote mark becomes a single instance of the quote character
-      // in the literal (later).  There can be spaces between the quotes in
-      // fixed form source.
+    if (*at_ == quote && !isEscaped) {
+      // A doubled unescaped quote mark becomes a single instance of that
+      // quote character in the literal (later).  There can be spaces between
+      // the quotes in fixed form source.
       EmitChar(tokens, quote);
       inCharLiteral_ = false;  // for cases like print *, '...'!comment
       NextChar();
@@ -592,24 +611,27 @@ void Prescanner::Hollerith(
     if (PadOutCharacterLiteral(tokens)) {
     } else if (*at_ == '\n') {
       Say(GetProvenanceRange(start, at_),
-          "possible truncated Hollerith literal"_en_US);
+          "Possible truncated Hollerith literal"_en_US);
       break;
     } else {
       NextChar();
-      EmitChar(tokens, *at_);
-      // Multi-byte character encodings should count as single characters.
-      int bytes{1};
-      if (encoding_ == Encoding::EUC_JP) {
-        if (std::optional<int> chBytes{EUC_JPCharacterBytes(at_)}) {
-          bytes = *chBytes;
+      // Each multi-byte character encoding counts as a single character.
+      // No escape sequences are recognized.
+      // Hollerith is always emitted to the cooked character
+      // stream in UTF-8.
+      DecodedCharacter decoded{DecodeCharacter(
+          encoding_, at_, static_cast<std::size_t>(limit_ - at_), false)};
+      if (decoded.bytes > 0) {
+        EncodedCharacter utf8{
+            EncodeCharacter<Encoding::UTF_8>(decoded.codepoint)};
+        for (int j{0}; j < utf8.bytes; ++j) {
+          EmitChar(tokens, utf8.buffer[j]);
         }
-      } else if (encoding_ == Encoding::UTF8) {
-        if (std::optional<int> chBytes{UTF8CharacterBytes(at_)}) {
-          bytes = *chBytes;
-        }
-      }
-      while (bytes-- > 1) {
-        EmitChar(tokens, *++at_);
+        at_ += decoded.bytes - 1;
+      } else {
+        Say(GetProvenanceRange(start, at_),
+            "Bad character in Hollerith literal"_err_en_US);
+        break;
       }
     }
   }
@@ -738,7 +760,7 @@ void Prescanner::FortranInclude(const char *firstQuote) {
         provenance, static_cast<std::size_t>(p - nextLine_)};
     ProvenanceRange fileRange{
         allSources.AddIncludedFile(*included, includeLineRange)};
-    Prescanner{*this}.Prescan(fileRange);
+    Prescanner{*this}.set_encoding(included->encoding()).Prescan(fileRange);
   }
 }
 
@@ -780,9 +802,12 @@ bool Prescanner::SkipCommentLine(bool afterAmpersand) {
   } else if (inPreprocessorDirective_) {
     return false;
   } else if (lineClass.kind ==
-      LineClassification::Kind::ConditionalCompilationDirective) {
+          LineClassification::Kind::ConditionalCompilationDirective ||
+      lineClass.kind == LineClassification::Kind::PreprocessorDirective) {
     // Allow conditional compilation directives (e.g., #ifdef) to affect
     // continuation lines.
+    // Allow other preprocessor directives, too, except #include,
+    // #define, & #undef.
     preprocessor_.Directive(TokenizePreprocessorDirective(), this);
     return true;
   } else if (afterAmpersand &&
@@ -920,7 +945,7 @@ bool Prescanner::FixedFormContinuation(bool mightNeedSpace) {
       NextLine();
       return true;
     }
-  } while (SkipCommentLine(false /* not after & */));
+  } while (SkipCommentLine(false /* not after ampersand */));
   return false;
 }
 
@@ -1088,6 +1113,9 @@ Prescanner::LineClassification Prescanner::ClassifyLine(
       return {LineClassification::Kind::ConditionalCompilationDirective};
     } else if (std::memcmp(dir, "include", 7) == 0) {
       return {LineClassification::Kind::IncludeDirective};
+    } else if (std::memcmp(dir, "define", 6) == 0 ||
+        std::memcmp(dir, "undef", 5) == 0) {
+      return {LineClassification::Kind::DefinitionDirective};
     } else {
       return {LineClassification::Kind::PreprocessorDirective};
     }
