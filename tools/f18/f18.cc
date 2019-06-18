@@ -87,7 +87,7 @@ struct DriverOptions {
   bool forcedForm{false};  // -Mfixed or -Mfree appeared
   bool warnOnNonstandardUsage{false};  // -Mstandard
   bool warningsAreErrors{false};  // -Werror
-  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF8};
+  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF_8};
   bool parseOnly{false};
   bool dumpProvenance{false};
   bool dumpCookedChars{false};
@@ -451,6 +451,13 @@ int main(int argc, char *const argv[]) {
     } else if (arg == "-module-suffix") {
       driver.moduleFileSuffix = args.front();
       args.pop_front();
+    } else if (arg == "-futf-8") {
+      driver.encoding = Fortran::parser::Encoding::UTF_8;
+    } else if (arg == "-flatin") {
+      driver.encoding = Fortran::parser::Encoding::LATIN_1;
+    } else if (arg == "-fkanji") {
+      driver.encoding = Fortran::parser::Encoding::EUC_JP;
+      driver.pgf90Args.push_back("-Mx,125,4");  // PGI "Kanji" mode
     } else if (arg == "-help" || arg == "--help" || arg == "-?") {
       std::cerr
           << "f18 options:\n"
@@ -465,6 +472,10 @@ int main(int argc, char *const argv[]) {
           << "  -ed                  enable fixed form D lines\n"
           << "  -E                   prescan & preprocess only\n"
           << "  -module dir          module output directory (default .)\n"
+          << "  -fkanji              interpret source as EUC_JP rather than "
+             "UTF-8\n"
+          << "  -flatin              interpret source as Latin-1 (ISO 8859-1) "
+             "rather than UTF-8\n"
           << "  -fparse-only         parse only, no output except messages\n"
           << "  -funparse            parse & reformat only, no code "
              "generation\n"
@@ -494,24 +505,20 @@ int main(int argc, char *const argv[]) {
       } else if (arg.substr(0, 2) == "-I") {
         driver.searchDirectories.push_back(arg.substr(2));
       } else if (arg == "-Mx,125,4") {  // PGI "all Kanji" mode
-        options.encoding = Fortran::parser::Encoding::EUC_JP;
+        driver.encoding = Fortran::parser::Encoding::EUC_JP;
       }
     }
   }
-  driver.encoding = options.encoding;
 
   if (driver.warnOnNonstandardUsage) {
     options.features.WarnOnAllNonstandard();
-  }
-  if (!options.features.IsEnabled(
-          Fortran::parser::LanguageFeature::BackslashEscapes)) {
-    driver.pgf90Args.push_back("-Mbackslash");
   }
   if (options.features.IsEnabled(Fortran::parser::LanguageFeature::OpenMP)) {
     driver.pgf90Args.push_back("-mp");
   }
 
   Fortran::parser::AllSources allSources;
+  allSources.set_encoding(driver.encoding);
   Fortran::semantics::SemanticsContext semanticsContext{
       defaultKinds, options.features, allSources};
   semanticsContext.set_moduleDirectory(driver.moduleDirectory)

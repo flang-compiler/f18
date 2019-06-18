@@ -68,6 +68,9 @@ public:
     return {&char_[start_.at(token)], TokenBytes(token)};
   }
   char CharAt(std::size_t j) const { return char_.at(j); }
+  CharBlock CurrentOpenToken() const {
+    return {&char_[nextStart_], char_.size() - nextStart_};
+  }
 
   std::size_t SkipBlanks(std::size_t) const;
 
@@ -85,6 +88,8 @@ public:
     nextStart_ = start_.back();
     start_.pop_back();
   }
+
+  void RemoveLastToken();
 
   void Put(const TokenSequence &);
   void Put(const TokenSequence &, ProvenanceRange);
