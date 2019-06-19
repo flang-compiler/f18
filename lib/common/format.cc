@@ -101,10 +101,10 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
     }
     if (stmt_ == IoStmtKind::Read) {  // 13.3.2p6
       AppendError("'H' edit descriptor in READ format expression");
-    } else if (warnOnNonstandardUsage_) {
-      AppendError("Legacy 'H' edit descriptor");
     } else if (token_.kind() == TokenKind::None) {
       AppendError("Unterminated 'H' edit descriptor");
+    } else if (warnOnNonstandardUsage_) {
+      AppendWarning("Legacy 'H' edit descriptor");
     }
     break;
   }
@@ -209,14 +209,14 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
     break;
   default:
     if (cursor_ >= end_) {
-      suppressErrorCascade_ = false;
+      suppressMessageCascade_ = false;
       AppendError("Unterminated format expression");
     }
     token_.set_kind(TokenKind::None);
     break;
   }
 
-  token_.set_length(cursor_ - format_ - token_.offset() + 1);
+  token_.set_length(cursor_ - format_ - token_.offset() + (cursor_ < end_));
 }
 
 template<typename CHAR> void FormatValidator<CHAR>::check_r(bool allowed) {
@@ -241,7 +241,7 @@ template<typename CHAR> bool FormatValidator<CHAR>::check_w(bool required) {
     return true;
   }
   if (required) {
-    AppendError("Expected '%s' edit descriptor 'w' value");  // C1306
+    AppendWarning("Expected '%s' edit descriptor 'w' value");  // C1306
   }
   return false;
 };
@@ -292,12 +292,12 @@ template<typename CHAR> void FormatValidator<CHAR>::check_e() {
 template<typename CHAR> int FormatValidator<CHAR>::Check() {
   if (format_ == nullptr || !*format_) {
     AppendError("Empty format expression");
-    return errorCount_;
+    return messageCount_;
   }
   NextToken();
   if (token_.kind() != TokenKind::LParen) {
     AppendError("Format expression must have an initial '('");
-    return errorCount_;
+    return messageCount_;
   }
   NextToken();
 
@@ -305,12 +305,12 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
   Token starToken{};  // unlimited format token
   bool hasDataEditDesc{false};
 
-  // Subject to error processing exceptions, a loop iteration processes an
+  // Subject to error recovery exceptions, a loop iteration processes an
   // edit descriptor or does list management.  The loop terminates when
   //  - a level-0 right paren is processed
   //  - the end of an incomplete format is reached
-  //  - a threshold caller-chosen number of errors have been diagnosed
-  while (errorCount_ < maxErrors_) {
+  //  - a threshold caller-chosen number of messages have been diagnosed
+  while (messageCount_ < maxMessages_) {
     Token signToken{};
     knrValue_ = -1;  // -1 ==> not present
     wValue_ = -1;
@@ -331,7 +331,7 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       AppendError(
           "Unexpected '%s' in format expression", signToken, argString_);
     }
-    // Default error argument.
+    // Default message argument.
     // Alphabetic edit descriptor names are one or two characters in length.
     argString_[0] = toupper(format_[token_.offset()]);
     argString_[1] = token_.length() > 1 ? toupper(*cursor_) : 0;
@@ -507,7 +507,8 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
         AppendError("'X' edit descriptor must have a positive position value",
             knrToken_);
       } else if (knrValue_ < 0 && warnOnNonstandardUsage_) {
-        AppendError("'X' edit descriptor must have a positive position value");
+        AppendWarning(
+            "'X' edit descriptor must have a positive position value");
       }
       NextToken();
       break;
@@ -525,14 +526,14 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
     case TokenKind::Backslash:
       check_r(false);
       if (warnOnNonstandardUsage_) {
-        AppendError("Non-standard '\\' edit descriptor");
+        AppendWarning("Non-standard '\\' edit descriptor");
       }
       NextToken();
       break;
     case TokenKind::Dollar:
       check_r(false);
       if (warnOnNonstandardUsage_) {
-        AppendError("Non-standard '$' edit descriptor");
+        AppendWarning("Non-standard '$' edit descriptor");
       }
       NextToken();
       break;
@@ -562,7 +563,7 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       do {
         if (nestLevel == 0) {
           // Any characters after level-0 ) are ignored.
-          return errorCount_;  // normal exit (may have errors)
+          return messageCount_;  // normal exit (may have messages)
         }
         if (nestLevel == 1 && starToken.IsSet() && !hasDataEditDesc) {
           starToken.set_length(cursor_ - format_ - starToken.offset() + 1);
@@ -581,7 +582,10 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
       if (knrValue_ >= 0) {
         AppendError("Unexpected integer constant", knrToken_);
       }
-      break;
+      if (messageCount_) {
+        break;
+      }
+      // fall through
     default: AppendError("Unexpected '%s' in format expression"); NextToken();
     }
 
@@ -590,17 +594,17 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
     case TokenKind::Colon:  // Comma not required; token not yet processed.
     case TokenKind::Slash:  // Comma not required; token not yet processed.
     case TokenKind::RParen:  // Comma not allowed; token not yet processed.
-      suppressErrorCascade_ = false;
+      suppressMessageCascade_ = false;
       break;
     case TokenKind::LParen:  // Comma not allowed; token already processed.
     case TokenKind::Comma:  // Normal comma case; move past token.
-      suppressErrorCascade_ = false;
+      suppressMessageCascade_ = false;
       NextToken();
       break;
     case TokenKind::Sign:  // Error; main switch has a better message.
     case TokenKind::None:  // Error; token not yet processed.
       if (cursor_ >= end_) {
-        return errorCount_;  // incomplete format error exit
+        return messageCount_;  // incomplete format error exit
       }
       break;
     default:
@@ -611,7 +615,7 @@ template<typename CHAR> int FormatValidator<CHAR>::Check() {
     }
   }
 
-  return errorCount_;  // error threshold exit
+  return messageCount_;  // message threshold exit
 }
 
 template class FormatValidator<char>;

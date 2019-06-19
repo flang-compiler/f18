@@ -243,7 +243,7 @@
   !ERROR: Unexpected ',' before ')' in format expression
   write(*,'(3,)')
 
-  !ERROR: Unexpected integer constant
+  !ERROR: Unexpected ',' in format expression
   write(*,'(,3)')
 
   !ERROR: Unexpected ',' before ')' in format expression

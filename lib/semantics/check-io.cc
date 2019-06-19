@@ -31,43 +31,43 @@ void IoChecker::Enter(
       std::memchr(stmt.source.begin(), '(', stmt.source.size()))};
   parser::CharBlock formatCharBlock{
       formatStart, stmt.source.size() - (formatStart - stmt.source.begin())};
-  static constexpr int maxFormatErrors{3};
-  common::FormatError formatErrors[maxFormatErrors];
-  int errorCount{0};
+  static constexpr int maxFormatMessages{3};
+  common::FormatMessage formatMessages[maxFormatMessages];
+  int messageCount{0};
   switch (context_.GetDefaultKind(TypeCategory::Character)) {
   case 1: {
     common::FormatValidator<char> validator{formatCharBlock.begin(),
         formatCharBlock.size(), IoStmtKind::None,
-        context_.warnOnNonstandardUsage(), formatErrors, maxFormatErrors};
-    errorCount = validator.Check();
+        context_.warnOnNonstandardUsage(), formatMessages, maxFormatMessages};
+    messageCount = validator.Check();
     break;
   }
   case 2: {
     // TODO: Get this to work.
     common::FormatValidator<char16_t> validator{/*???*/ nullptr,
         /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
-        formatErrors, maxFormatErrors};
-    errorCount = validator.Check();
+        formatMessages, maxFormatMessages};
+    messageCount = validator.Check();
     break;
   }
   case 4: {
     // TODO: Get this to work.
     common::FormatValidator<char32_t> validator{/*???*/ nullptr,
         /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
-        formatErrors, maxFormatErrors};
-    errorCount = validator.Check();
+        formatMessages, maxFormatMessages};
+    messageCount = validator.Check();
     break;
   }
   default: CRASH_NO_CASE;
   }
-  for (int i{0}; i < errorCount; ++i) {
-    common::FormatError *error{formatErrors + i};
-    parser::MessageFormattedText msg{
-        parser::MessageFixedText(error->text, strlen(error->text), true),
-        error->arg};
-    parser::CharBlock errorCharBlock{parser::CharBlock(
-        formatCharBlock.begin() + error->offset, error->length)};
-    context_.Say(errorCharBlock, msg);
+  for (int i{0}; i < messageCount; ++i) {
+    common::FormatMessage *msg{formatMessages + i};
+    parser::MessageFormattedText s{
+        parser::MessageFixedText(msg->text, strlen(msg->text), msg->error),
+        msg->arg};
+    parser::CharBlock messageCharBlock{
+        parser::CharBlock(formatCharBlock.begin() + msg->offset, msg->length)};
+    context_.Say(messageCharBlock, s);
   }
 }
 
@@ -158,55 +158,54 @@ void IoChecker::Enter(const parser::Format &spec) {
               return;
             }
             // validate constant format -- 12.6.2.2
-            static constexpr int maxFormatErrors{3};
-            common::FormatError formatErrors[maxFormatErrors];
-            int errorCount{0};
+            static constexpr int maxFormatMessages{3};
+            common::FormatMessage formatMessages[maxFormatMessages];
+            int messageCount{0};
             switch (context_.GetDefaultKind(TypeCategory::Character)) {
             case 1: {
               common::FormatValidator<char> validator{constantFormat->c_str(),
                   constantFormat->length(), stmt_,
-                  context_.warnOnNonstandardUsage(), formatErrors,
-                  maxFormatErrors};
-              errorCount = validator.Check();
+                  context_.warnOnNonstandardUsage(), formatMessages,
+                  maxFormatMessages};
+              messageCount = validator.Check();
               break;
             }
             case 2: {
               // TODO: Get this to work.  (Maybe combine with earlier instance?)
               common::FormatValidator<char16_t> validator{/*???*/ nullptr,
                   /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
-                  formatErrors, maxFormatErrors};
-              errorCount = validator.Check();
+                  formatMessages, maxFormatMessages};
+              messageCount = validator.Check();
               break;
             }
             case 4: {
               // TODO: Get this to work.  (Maybe combine with earlier instance?)
               common::FormatValidator<char32_t> validator{/*???*/ nullptr,
                   /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
-                  formatErrors, maxFormatErrors};
-              errorCount = validator.Check();
+                  formatMessages, maxFormatMessages};
+              messageCount = validator.Check();
               break;
             }
             default: CRASH_NO_CASE;
             }
-            if (errorCount == 0) {
+            if (messageCount == 0) {
               return;
             }
             // Retain outer quotes in case the original expression is folded.
             parser::CharBlock formatCharBlock{format.thing.value().source};
             bool IsNotFolded{
                 constantFormat->size() + 2 == formatCharBlock.size()};
-            parser::CharBlock errorCharBlock{formatCharBlock};
-            for (int i{0}; i < errorCount; ++i) {
-              common::FormatError *error{formatErrors + i};
-              parser::MessageFormattedText msg{
-                  parser::MessageFixedText(
-                      error->text, strlen(error->text), true),
-                  error->arg};
+            parser::CharBlock messageCharBlock{formatCharBlock};
+            for (int i{0}; i < messageCount; ++i) {
+              common::FormatMessage *msg{formatMessages + i};
+              parser::MessageFormattedText s{parser::MessageFixedText(msg->text,
+                                                 strlen(msg->text), msg->error),
+                  msg->arg};
               if (IsNotFolded) {
-                errorCharBlock = parser::CharBlock(
-                    formatCharBlock.begin() + error->offset + 1, error->length);
+                messageCharBlock = parser::CharBlock(
+                    formatCharBlock.begin() + msg->offset + 1, msg->length);
               }
-              context_.Say(errorCharBlock, msg);
+              context_.Say(messageCharBlock, s);
             }
           },
       },
