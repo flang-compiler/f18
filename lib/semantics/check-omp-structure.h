@@ -12,24 +12,58 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// OpenMP clause validity check for directives
+// OpenMP structure validity check list
+//    1. invalid clauses on directive
+//    2. invalid repeated clauses on directive
+//    3. TODO: invalid nesting of regions
 
 #ifndef FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
 #define FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
 
 #include "semantics.h"
+#include "../common/enum-set.h"
 #include "../parser/parse-tree.h"
-#include <typeindex>
 
 namespace Fortran::semantics {
+
+ENUM_CLASS(OmpDirectiveEnum, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
+    SIMD, DECLARE_SIMD, DO_SIMD, TASK, TASKLOOP, TASKLOOP_SIMD, TASKYIELD,
+    TARGET_DATA, TARGET_ENTER_DATA, TARGET_EXIT_DATA, TARGET, TARGET_UPDATE,
+    DECLARE_TARGET, TEAMS, DISTRIBUTE, DISTRIBUTE_SIMD, DISTRIBUTE_PARALLEL_DO,
+    DISTRIBUTE_PARALLEL_DO_SIMD, PARALLEL_DO, PARALLEL_SECTIONS,
+    PARALLEL_WORKSHARE, PARALLEL_DO_SIMD, TARGET_PARALLEL, TARGET_PARALLEL_DO,
+    TARGET_PARALLEL_DO_SIMD, TARGET_SIMD, TARGET_TEAMS, TEAMS_DISTRIBUTE,
+    TEAMS_DISTRIBUTE_SIMD, TARGET_TEAMS_DISTRIBUTE,
+    TARGET_TEAMS_DISTRIBUTE_SIMD, TEAMS_DISTRIBUTE_PARALLEL_DO,
+    TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO, TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD,
+    TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD, MASTER, CRITICAL, BARRIER,
+    TASKWAIT, TASKGROUP, ATOMIC, FLUSH, ORDERED, CANCEL, CANCELLATION_POINT,
+    THREADPRIVATE, DECLARE_REDUCTION)
+
+using OmpDirectiveEnumType =
+    common::EnumSet<OmpDirectiveEnum, OmpDirectiveEnum_enumSize>;
+
+ENUM_CLASS(OmpClauseEnum, DEFAULTMAP, INBRANCH, MERGEABLE, NOGROUP, NOTINBRANCH,
+    NOWAIT, UNTIED, COLLAPSE, COPYIN, COPYPRIVATE, DEVICE, DIST_SCHEDULE, FINAL,
+    FIRSTPRIVATE, FROM, GRAINSIZE, LASTPRIVATE, NUM_TASKS, NUM_TEAMS,
+    NUM_THREADS, ORDERED, PRIORITY, PRIVATE, SAFELEN, SHARED, SIMDLEN,
+    THREAD_LIMIT, TO, LINK, UNIFORM, USE_DEVICE_PTR, IS_DEVICE_PTR, ALIGNED,
+    DEFAULT, DEPEND, IF, LINEAR, MAP, PROC_BIND, REDUCTION, SCHEDULE)
+
+using OmpClauseEnumType =
+    common::EnumSet<OmpClauseEnum, OmpClauseEnum_enumSize>;
 
 class OmpStructureChecker : public virtual BaseChecker {
 public:
   OmpStructureChecker(SemanticsContext &context) : context_{context} {}
 
-  void Enter(const parser::OmpBlockDirective &);
+  void Enter(const parser::OpenMPLoopConstruct &);
+  void Leave(const parser::OpenMPLoopConstruct &);
+  void Enter(const parser::OmpLoopDirective::Do &);
+
+  void Enter(const parser::OpenMPBlockConstruct &);
+  void Leave(const parser::OpenMPBlockConstruct &);
   void Enter(const parser::OmpBlockDirective::Parallel &);
-  void Leave(const parser::OmpEndBlockDirective &);
 
   void Enter(const parser::OmpClause &);
   void Enter(const parser::OmpClause::Defaultmap &);
@@ -59,8 +93,10 @@ public:
   void Enter(const parser::OmpClause::Simdlen &);
   void Enter(const parser::OmpClause::ThreadLimit &);
   void Enter(const parser::OmpClause::To &);
+  // TODO: Link
   void Enter(const parser::OmpClause::Uniform &);
   void Enter(const parser::OmpClause::UseDevicePtr &);
+  // TODO: IsDevicePtr
 
   void Enter(const parser::OmpAlignedClause &);
   void Enter(const parser::OmpDefaultClause &);
@@ -72,39 +108,41 @@ public:
   void Enter(const parser::OmpReductionClause &);
   void Enter(const parser::OmpScheduleClause &);
 
-  void EmptyAllowed() { allowedClauses_ = {}; }
-  void SetAllowed(std::set<std::type_index> allowedClauses) {
-    allowedClauses_ = allowedClauses;
-  }
-  template<typename N> void CheckAllowed(const N &node) {
-    if (allowedClauses_.empty()) {
-      context_.Say(
-          currentClauseSource_, "Internal: allowed clauses not set"_err_en_US);
-    }
-    auto it{allowedClauses_.find(typeid(node))};
-    if (it == allowedClauses_.end()) {
-      context_.Say(currentClauseSource_, "'%s' not allowed in OMP %s"_err_en_US,
-          parser::ToUpperCaseLetters(currentClauseSource_.ToString()),
-          parser::ToUpperCaseLetters(currentDirectiveSource_.ToString()));
-    }
-  }
-
-  void SetCurrentDirectiveSource(const parser::CharBlock &source) {
-    currentDirectiveSource_ = source;
-  }
-  void EmptyCurrentDirectiveSource() { currentDirectiveSource_ = {}; }
-
-  void SetCurrentClauseSource(const parser::CharBlock &source) {
-    currentClauseSource_ = source;
-  }
-  void EmptyCurrentClauseSource() { currentClauseSource_ = {}; }
+  bool HasInvalidCloselyNestedRegion(
+      const parser::CharBlock &, const OmpDirectiveEnumType &);
+  void CheckAllowed(const OmpClauseEnum &);
 
 private:
+  struct OmpContext {
+    parser::CharBlock currentDirectiveSource{nullptr};
+    parser::CharBlock currentClauseSource{nullptr};
+    OmpDirectiveEnum currentDirectiveEnum;
+    OmpClauseEnumType allowedClauses;
+    OmpClauseEnumType allowedOnceClauses;
+    OmpClauseEnumType seenClauses;
+  };
+  const OmpContext &GetOmpContext() const { return ompContext_.back(); }
+  void SetOmpContextDirectiveSource(const parser::CharBlock &directive) {
+    ompContext_.back().currentDirectiveSource = directive;
+  }
+  void SetOmpContextClauseSource(const parser::CharBlock &clause) {
+    ompContext_.back().currentClauseSource = clause;
+  }
+  void SetOmpContextDirectiveEnum(const OmpDirectiveEnum &dir) {
+    ompContext_.back().currentDirectiveEnum = dir;
+  }
+  void SetOmpContextAllowed(const OmpClauseEnumType &allowed) {
+    ompContext_.back().allowedClauses = allowed;
+  }
+  void SetOmpContextAllowedOnce(const OmpClauseEnumType &allowedOnce) {
+    ompContext_.back().allowedOnceClauses = allowedOnce;
+  }
+  void SetOmpContextSeen(const OmpClauseEnum &seenType) {
+    ompContext_.back().seenClauses.set(seenType);
+  }
+
   SemanticsContext &context_;
-  std::set<std::type_index> allowedClauses_;
-  parser::CharBlock currentDirectiveSource_;
-  parser::CharBlock currentClauseSource_;
-  // TODO: 2.17 Nesting of Regions
+  std::vector<OmpContext> ompContext_;
 };
 }
 #endif  // FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_

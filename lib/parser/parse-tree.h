@@ -3652,6 +3652,7 @@ struct OmpLoopDirective {
   EMPTY_CLASS(TeamsDistributeParallelDo);
   EMPTY_CLASS(TeamsDistributeSimd);
   EMPTY_CLASS(TeamsDistribute);
+  CharBlock source;
   std::variant<DistributeParallelDoSimd, DistributeParallelDo, DistributeSimd,
       Distribute, ParallelDoSimd, ParallelDo, Do, DoSimd, Simd,
       TargetParallelDoSimd, TargetParallelDo,
@@ -3712,7 +3713,7 @@ struct OpenMPBlockConstruct {
 
 struct OpenMPLoopConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPLoopConstruct);
-  std::tuple<OmpLoopDirective, OmpClauseList> t;
+  std::tuple<OmpLoopDirective, OmpClauseList, DoConstruct> t;
 };
 
 struct OpenMPStandaloneConstruct {

@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -587,7 +587,7 @@ TYPE_PARSER(skipStuffBeforeStatement >> "!$OMP "_sptok >> "END"_tok >>
         construct<OpenMPEndLoopDirective>(
             indirect(Parser<OmpLoopDirective>{}) / endOmpLine)))
 
-TYPE_PARSER(construct<OpenMPLoopConstruct>(
-    Parser<OmpLoopDirective>{}, Parser<OmpClauseList>{} / endOmpLine))
+TYPE_PARSER(construct<OpenMPLoopConstruct>(sourced(Parser<OmpLoopDirective>{}),
+    Parser<OmpClauseList>{} / endOmpLine, Parser<DoConstruct>{}))
 }
 #endif  // FORTRAN_PARSER_OPENMP_GRAMMAR_H_

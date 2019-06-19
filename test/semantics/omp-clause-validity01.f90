@@ -27,14 +27,14 @@
   enddo
   !$omp end parallel
 
-  !ERROR: 'SCHEDULE(STATIC)' not allowed in OMP PARALLEL
+  !ERROR: 'SCHEDULE' clause is not allowed on the PARALLEL directive
   !$omp parallel schedule(static)
   do i = 1, N
      a = 3.14
   enddo
   !$omp end parallel
 
-  !ERROR: 'COLLAPSE(2)' not allowed in OMP PARALLEL
+  !ERROR: 'COLLAPSE' clause is not allowed on the PARALLEL directive
   !$omp parallel collapse(2)
   do i = 1, N
      a = 3.14
@@ -48,10 +48,17 @@
   enddo
   !$omp end parallel
 
-  !ERROR: 'LASTPRIVATE(A)' not allowed in OMP PARALLEL
-  !ERROR: 'NUM_TASKS(4)' not allowed in OMP PARALLEL
-  !ERROR: 'INBRANCH' not allowed in OMP PARALLEL
+  !ERROR: 'LASTPRIVATE' clause is not allowed on the PARALLEL directive
+  !ERROR: 'NUM_TASKS' clause is not allowed on the PARALLEL directive
+  !ERROR: 'INBRANCH' clause is not allowed on the PARALLEL directive
   !$omp parallel lastprivate(a) NUM_TASKS(4) inbranch
+  do i = 1, N
+     a = 3.14
+  enddo
+  !$omp end parallel
+
+  !ERROR: At most one 'NUM_THREADS' clause can appear on the PARALLEL directive
+  !$omp parallel num_threads(2) num_threads(4)
   do i = 1, N
      a = 3.14
   enddo
