@@ -875,7 +875,6 @@ private:
 class ConstructVisitor : public DeclarationVisitor {
 public:
   bool Pre(const parser::ConcurrentHeader &);
-  void Post(const parser::ConcurrentHeader &);
   bool Pre(const parser::LocalitySpec::Local &);
   bool Pre(const parser::LocalitySpec::LocalInit &);
   bool Pre(const parser::LocalitySpec::Shared &);
@@ -885,7 +884,6 @@ public:
   bool Pre(const parser::DataStmtObject &);
   bool Pre(const parser::DoConstruct &);
   void Post(const parser::DoConstruct &);
-  void Post(const parser::ConcurrentControl &);
   bool Pre(const parser::ForallConstruct &);
   void Post(const parser::ForallConstruct &);
   bool Pre(const parser::ForallStmt &);
@@ -970,6 +968,8 @@ private:
   void SetTypeFromAssociation(Symbol &);
   void SetAttrsFromAssociation(Symbol &);
   Selector ResolveSelector(const parser::Selector &);
+  void ResolveControlExpressions(const parser::ConcurrentControl &control);
+  void ResolveIndexName(const parser::ConcurrentControl &control);
 };
 
 // Walk the parse tree and resolve names to symbols.
@@ -2883,13 +2883,13 @@ void DeclarationVisitor::Post(const parser::DerivedTypeSpec &x) {
     if (!spec.FindParameter(name)) {
       auto it{std::find_if(parameterDecls.begin(), parameterDecls.end(),
           [&](const Symbol *symbol) { return symbol->name() == name; })};
-      CHECK(it != parameterDecls.end());
-      auto &symbol{**it};
-      const auto *details{symbol.detailsIf<TypeParamDetails>()};
-      if (details == nullptr || !details->init().has_value()) {
-        Say(typeName.source,
-            "Type parameter '%s' lacks a value and has no default"_err_en_US,
-            symbol.name());
+      if (it != parameterDecls.end()) {
+        const auto *details{(*it)->detailsIf<TypeParamDetails>()};
+        if (details == nullptr || !details->init().has_value()) {
+          Say(typeName.source,
+              "Type parameter '%s' lacks a value and has no default"_err_en_US,
+              name);
+        }
       }
     }
   }
@@ -3886,12 +3886,77 @@ ParamValue DeclarationVisitor::GetParamValue(const parser::TypeParamValue &x) {
 
 // ConstructVisitor implementation
 
-bool ConstructVisitor::Pre(const parser::ConcurrentHeader &) {
-  BeginDeclTypeSpec();
-  return true;
+void ConstructVisitor::ResolveIndexName(
+    const parser::ConcurrentControl &control) {
+  const parser::Name &name{std::get<parser::Name>(control.t)};
+  auto *prev{FindSymbol(name)};
+  if (prev) {
+    if (prev->owner().kind() == Scope::Kind::Forall ||
+        prev->owner() == currScope()) {
+      SayAlreadyDeclared(name, *prev);
+      return;
+    }
+    name.symbol = nullptr;
+  }
+  auto &symbol{DeclareObjectEntity(name, {})};
+
+  if (symbol.GetType()) {
+    // type came from explicit type-spec
+  } else if (!prev) {
+    ApplyImplicitRules(symbol);
+  } else if (!prev->has<ObjectEntityDetails>() && !prev->has<EntityDetails>()) {
+    Say2(name, "Index name '%s' conflicts with existing identifier"_err_en_US,
+        *prev, "Previous declaration of '%s'"_en_US);
+    return;
+  } else {
+    if (const auto *type{prev->GetType()}) {
+      symbol.SetType(*type);
+    }
+    if (prev->IsObjectArray()) {
+      SayWithDecl(name, *prev, "Index variable '%s' is not scalar"_err_en_US);
+      return;
+    }
+  }
+  EvaluateExpr(parser::Scalar{parser::Integer{common::Clone(name)}});
 }
-void ConstructVisitor::Post(const parser::ConcurrentHeader &) {
+
+void ConstructVisitor::ResolveControlExpressions(
+    const parser::ConcurrentControl &control) {
+  Walk(std::get<1>(control.t));  // Initial expression
+  Walk(std::get<2>(control.t));  // Final expression
+  Walk(std::get<3>(control.t));  // Step expression
+}
+
+// We need to make sure that all of the index-names get declared before the
+// expressions in the loop control are evaluated so that references to the
+// index-names in the expressions are correctly detected.
+bool ConstructVisitor::Pre(const parser::ConcurrentHeader &header) {
+  BeginDeclTypeSpec();
+
+  // Process the type spec, if present
+  const auto &typeSpec{
+      std::get<std::optional<parser::IntegerTypeSpec>>(header.t)};
+  if (typeSpec.has_value()) {
+    SetDeclTypeSpec(MakeNumericType(TypeCategory::Integer, typeSpec->v));
+  }
+
+  // Process the index-name nodes in the ConcurrentControl nodes
+  const auto &controls{
+      std::get<std::list<parser::ConcurrentControl>>(header.t)};
+  for (const auto &control : controls) {
+    ResolveIndexName(control);
+  }
+
+  // Process the expressions in ConcurrentControls
+  for (const auto &control : controls) {
+    ResolveControlExpressions(control);
+  }
+
+  // Resolve the names in the scalar-mask-expr
+  Walk(std::get<std::optional<parser::ScalarLogicalExpr>>(header.t));
+
   EndDeclTypeSpec();
+  return false;
 }
 
 bool ConstructVisitor::Pre(const parser::LocalitySpec::Local &x) {
@@ -3902,6 +3967,7 @@ bool ConstructVisitor::Pre(const parser::LocalitySpec::Local &x) {
   }
   return false;
 }
+
 bool ConstructVisitor::Pre(const parser::LocalitySpec::LocalInit &x) {
   for (auto &name : x.v) {
     if (auto *symbol{DeclareLocalEntity(name)}) {
@@ -3982,38 +4048,6 @@ void ConstructVisitor::Post(const parser::DoConstruct &x) {
   if (x.IsDoConcurrent()) {
     PopScope();
   }
-}
-
-void ConstructVisitor::Post(const parser::ConcurrentControl &x) {
-  const auto &name{std::get<parser::Name>(x.t)};
-  auto *prev{FindSymbol(name)};
-  if (prev) {
-    if (prev->owner().kind() == Scope::Kind::Forall ||
-        prev->owner() == currScope()) {
-      SayAlreadyDeclared(name, *prev);
-      return;
-    }
-    name.symbol = nullptr;
-  }
-  auto &symbol{DeclareObjectEntity(name, {})};
-  if (symbol.GetType()) {
-    // type came from explicit type-spec
-  } else if (!prev) {
-    ApplyImplicitRules(symbol);
-  } else if (!prev->has<ObjectEntityDetails>() && !prev->has<EntityDetails>()) {
-    Say2(name, "Index name '%s' conflicts with existing identifier"_err_en_US,
-        *prev, "Previous declaration of '%s'"_en_US);
-    return;
-  } else {
-    if (auto *type{prev->GetType()}) {
-      symbol.SetType(*type);
-    }
-    if (prev->IsObjectArray()) {
-      SayWithDecl(name, *prev, "Index variable '%s' is not scalar"_err_en_US);
-      return;
-    }
-  }
-  EvaluateExpr(parser::Scalar{parser::Integer{common::Clone(name)}});
 }
 
 bool ConstructVisitor::Pre(const parser::ForallConstruct &) {
@@ -4097,8 +4131,15 @@ void ConstructVisitor::Post(const parser::SelectTypeStmt &x) {
     MakePlaceholder(*name, MiscDetails::Kind::SelectTypeAssociateName);
     association_.name = &*name;
   } else {
-    const Symbol *whole{UnwrapWholeSymbolDataRef(association_.selector.expr)};
-    if (!whole || !whole->has<ObjectEntityDetails>()) {
+    if (const Symbol *
+        whole{UnwrapWholeSymbolDataRef(association_.selector.expr)}) {
+      ConvertToObjectEntity(const_cast<Symbol &>(*whole));
+      if (!IsVariableName(*whole)) {
+        Say(association_.selector.source,  // C901
+            "Selector is not a variable"_err_en_US);
+        association_ = {};
+      }
+    } else {
       Say(association_.selector.source,  // C1157
           "Selector is not a named variable: 'associate-name =>' is required"_err_en_US);
       association_ = {};
@@ -4141,21 +4182,26 @@ void ConstructVisitor::CheckRef(const std::optional<parser::Name> &x) {
 
 // Make a symbol representing an associating entity from association_.
 Symbol *ConstructVisitor::MakeAssocEntity() {
-  if (!association_.name) {
-    return nullptr;
-  }
-  auto &symbol{MakeSymbol(*association_.name, UnknownDetails{})};
-  if (symbol.has<AssocEntityDetails>() && symbol.owner() == currScope()) {
-    Say(*association_.name,  // C1104
-        "The associate name '%s' is already used in this associate statement"_err_en_US);
+  Symbol *symbol{nullptr};
+  if (association_.name) {
+    symbol = &MakeSymbol(*association_.name, UnknownDetails{});
+    if (symbol->has<AssocEntityDetails>() && symbol->owner() == currScope()) {
+      Say(*association_.name,  // C1104
+          "The associate name '%s' is already used in this associate statement"_err_en_US);
+      return nullptr;
+    }
+  } else if (const Symbol *
+      whole{UnwrapWholeSymbolDataRef(association_.selector.expr)}) {
+    symbol = &MakeSymbol(whole->name());
+  } else {
     return nullptr;
   }
   if (auto &expr{association_.selector.expr}) {
-    symbol.set_details(AssocEntityDetails{common::Clone(*expr)});
+    symbol->set_details(AssocEntityDetails{common::Clone(*expr)});
   } else {
-    symbol.set_details(AssocEntityDetails{});
+    symbol->set_details(AssocEntityDetails{});
   }
-  return &symbol;
+  return symbol;
 }
 
 // Set the type of symbol based on the current association selector.

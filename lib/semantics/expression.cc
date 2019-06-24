@@ -1613,8 +1613,6 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::NOT &x) {
               return {AsGenericExpr(LogicalNegation(std::move(lx)))};
             },
             [&](auto &&) -> MaybeExpr {
-              // TODO: accept INTEGER operand and maybe typeless
-              // if not overridden
               Say("Operand of .NOT. must be LOGICAL"_err_en_US);
               return std::nullopt;
             },
@@ -1644,7 +1642,7 @@ MaybeExpr BinaryOperationHelper(ExpressionAnalyzer &context, const PARSED &x) {
     ConformabilityCheck(context.GetContextualMessages(), std::get<0>(*both),
         std::get<1>(*both));
     return NumericOperation<OPR>(context.GetContextualMessages(),
-        std::move(std::get<0>(*both)), std::move(std::get<1>(*both)),
+        std::get<0>(std::move(*both)), std::get<1>(std::move(*both)),
         context.GetDefaultKind(TypeCategory::Real));
   }
   return std::nullopt;
@@ -1722,7 +1720,7 @@ MaybeExpr RelationHelper(
     ConformabilityCheck(context.GetContextualMessages(), std::get<0>(*both),
         std::get<1>(*both));
     return AsMaybeExpr(Relate(context.GetContextualMessages(), opr,
-        std::move(std::get<0>(*both)), std::move(std::get<1>(*both))));
+        std::get<0>(std::move(*both)), std::get<1>(std::move(*both))));
   }
   return std::nullopt;
 }
@@ -1871,7 +1869,7 @@ MaybeExpr ExpressionAnalyzer::ExprOrVariable(const PARSED &x) {
     if constexpr (std::is_same_v<PARSED, parser::Expr>) {
       // Analyze the expression in a specified source position context for
       // better error reporting.
-      auto save{GetFoldingContext().messages().SetLocation(x.source)};
+      auto save{GetContextualMessages().SetLocation(x.source)};
       result = Analyze(x.u);
     } else {
       result = Analyze(x.u);
