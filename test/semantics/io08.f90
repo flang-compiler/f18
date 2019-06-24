@@ -54,6 +54,9 @@
   !ERROR: Empty format expression
   write(*,"")
 
+  !ERROR: Empty format expression
+  write(*,"" // '' // "")
+
   !ERROR: Format expression must have an initial '('
   write(*,'I3')
 
@@ -122,6 +125,7 @@
   write(*,'(?,*(DT(+1,,1)))')
 
   !ERROR: Repeat specifier before unlimited format item list
+  !ERROR: Unlimited format item list must contain a data edit descriptor
    write(*,'(5X,3*(2(X)))')
 
   !ERROR: Nested unlimited format item list
@@ -199,7 +203,7 @@
   !ERROR: 'L' edit descriptor 'w' value must be positive
   write(*,'(L0)')
 
-  !ERROR: Expected 'G' edit descriptor 'd' value
+  !ERROR: Expected 'G' edit descriptor '.d' value
   write(*,'(G4)')
 
   !ERROR: Unexpected 'e' in 'G0' edit descriptor
@@ -223,10 +227,10 @@
 
   !ERROR: 'TL' edit descriptor must have a positive position value
   !ERROR: 'T' edit descriptor must have a positive position value
-  !ERROR: Expected integer value after '.' in 'EN' edit descriptor
+  !ERROR: Expected 'EN' edit descriptor 'd' value after '.'
   write(*,'(TL0,T0,EN12.)')
 
-  !ERROR: Expected integer value after 'E' in 'EX' edit descriptor
+  !ERROR: Expected 'EX' edit descriptor 'e' value after 'E'
   write(*,'(EX12.3e2, EX12.3e)')
 
   !ERROR: 'TL' edit descriptor must have a positive position value

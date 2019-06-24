@@ -22,6 +22,42 @@ namespace Fortran::semantics {
 
 // TODO: C1234, C1235 -- defined I/O constraints
 
+class FormatErrorReporter {
+public:
+  FormatErrorReporter(SemanticsContext &context,
+      const parser::CharBlock &formatCharBlock, int errorAllowance = 3)
+    : context_{context}, formatCharBlock_{formatCharBlock},
+      errorAllowance_{errorAllowance} {}
+
+  bool Say(const common::FormatMessage &);
+
+private:
+  SemanticsContext &context_;
+  const parser::CharBlock &formatCharBlock_;
+  int errorAllowance_;  // initialized to maximum number of errors to report
+};
+
+bool FormatErrorReporter::Say(const common::FormatMessage &msg) {
+  if (!msg.isError && !context_.warnOnNonstandardUsage()) {
+    return false;
+  }
+  parser::MessageFormattedText text{
+      parser::MessageFixedText(msg.text, strlen(msg.text), msg.isError),
+      msg.arg};
+  if (formatCharBlock_.size()) {
+    // The input format is a folded expression.  Error markers span the full
+    // original unfolded expression in formatCharBlock_.
+    context_.Say(formatCharBlock_, text);
+  } else {
+    // The input format is a source expression.  Error markers have an offset
+    // and length relative to the beginning of formatCharBlock_.
+    parser::CharBlock messageCharBlock{
+        parser::CharBlock(formatCharBlock_.begin() + msg.offset, msg.length)};
+    context_.Say(messageCharBlock, text);
+  }
+  return msg.isError && --errorAllowance_ <= 0;
+}
+
 void IoChecker::Enter(
     const parser::Statement<common::Indirection<parser::FormatStmt>> &stmt) {
   if (!stmt.label.has_value()) {
@@ -29,45 +65,30 @@ void IoChecker::Enter(
   }
   const char *formatStart{static_cast<const char *>(
       std::memchr(stmt.source.begin(), '(', stmt.source.size()))};
-  parser::CharBlock formatCharBlock{
-      formatStart, stmt.source.size() - (formatStart - stmt.source.begin())};
-  static constexpr int maxFormatMessages{3};
-  common::FormatMessage formatMessages[maxFormatMessages];
-  int messageCount{0};
+  parser::CharBlock reporterCharBlock{formatStart, static_cast<std::size_t>(0)};
+  FormatErrorReporter reporter{context_, reporterCharBlock};
+  auto reporterWrapper{[&](const auto &msg) { return reporter.Say(msg); }};
   switch (context_.GetDefaultKind(TypeCategory::Character)) {
   case 1: {
-    common::FormatValidator<char> validator{formatCharBlock.begin(),
-        formatCharBlock.size(), IoStmtKind::None,
-        context_.warnOnNonstandardUsage(), formatMessages, maxFormatMessages};
-    messageCount = validator.Check();
+    common::FormatValidator<char> validator{formatStart,
+        stmt.source.size() - (formatStart - stmt.source.begin()),
+        reporterWrapper};
+    validator.Check();
     break;
   }
-  case 2: {
-    // TODO: Get this to work.
-    common::FormatValidator<char16_t> validator{/*???*/ nullptr,
-        /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
-        formatMessages, maxFormatMessages};
-    messageCount = validator.Check();
+  case 2: {  // TODO: Get this to work.
+    common::FormatValidator<char16_t> validator{
+        /*???*/ nullptr, /*???*/ 0, reporterWrapper};
+    validator.Check();
     break;
   }
-  case 4: {
-    // TODO: Get this to work.
-    common::FormatValidator<char32_t> validator{/*???*/ nullptr,
-        /*???*/ 0, IoStmtKind::None, context_.warnOnNonstandardUsage(),
-        formatMessages, maxFormatMessages};
-    messageCount = validator.Check();
+  case 4: {  // TODO: Get this to work.
+    common::FormatValidator<char32_t> validator{
+        /*???*/ nullptr, /*???*/ 0, reporterWrapper};
+    validator.Check();
     break;
   }
   default: CRASH_NO_CASE;
-  }
-  for (int i{0}; i < messageCount; ++i) {
-    common::FormatMessage *msg{formatMessages + i};
-    parser::MessageFormattedText s{
-        parser::MessageFixedText(msg->text, strlen(msg->text), msg->error),
-        msg->arg};
-    parser::CharBlock messageCharBlock{
-        parser::CharBlock(formatCharBlock.begin() + msg->offset, msg->length)};
-    context_.Say(messageCharBlock, s);
   }
 }
 
@@ -158,54 +179,37 @@ void IoChecker::Enter(const parser::Format &spec) {
               return;
             }
             // validate constant format -- 12.6.2.2
-            static constexpr int maxFormatMessages{3};
-            common::FormatMessage formatMessages[maxFormatMessages];
-            int messageCount{0};
+            bool isFolded{constantFormat->size() !=
+                format.thing.value().source.size() - 2};
+            parser::CharBlock reporterCharBlock{isFolded
+                    ? parser::CharBlock{format.thing.value().source}
+                    : parser::CharBlock{format.thing.value().source.begin() + 1,
+                          static_cast<std::size_t>(0)}};
+            FormatErrorReporter reporter{context_, reporterCharBlock};
+            auto reporterWrapper{
+                [&](const auto &msg) { return reporter.Say(msg); }};
             switch (context_.GetDefaultKind(TypeCategory::Character)) {
             case 1: {
               common::FormatValidator<char> validator{constantFormat->c_str(),
-                  constantFormat->length(), stmt_,
-                  context_.warnOnNonstandardUsage(), formatMessages,
-                  maxFormatMessages};
-              messageCount = validator.Check();
+                  constantFormat->length(), reporterWrapper, stmt_};
+              validator.Check();
               break;
             }
             case 2: {
               // TODO: Get this to work.  (Maybe combine with earlier instance?)
-              common::FormatValidator<char16_t> validator{/*???*/ nullptr,
-                  /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
-                  formatMessages, maxFormatMessages};
-              messageCount = validator.Check();
+              common::FormatValidator<char16_t> validator{
+                  /*???*/ nullptr, /*???*/ 0, reporterWrapper, stmt_};
+              validator.Check();
               break;
             }
             case 4: {
               // TODO: Get this to work.  (Maybe combine with earlier instance?)
-              common::FormatValidator<char32_t> validator{/*???*/ nullptr,
-                  /*???*/ 0, stmt_, context_.warnOnNonstandardUsage(),
-                  formatMessages, maxFormatMessages};
-              messageCount = validator.Check();
+              common::FormatValidator<char32_t> validator{
+                  /*???*/ nullptr, /*???*/ 0, reporterWrapper, stmt_};
+              validator.Check();
               break;
             }
             default: CRASH_NO_CASE;
-            }
-            if (messageCount == 0) {
-              return;
-            }
-            // Retain outer quotes in case the original expression is folded.
-            parser::CharBlock formatCharBlock{format.thing.value().source};
-            bool IsNotFolded{
-                constantFormat->size() + 2 == formatCharBlock.size()};
-            parser::CharBlock messageCharBlock{formatCharBlock};
-            for (int i{0}; i < messageCount; ++i) {
-              common::FormatMessage *msg{formatMessages + i};
-              parser::MessageFormattedText s{parser::MessageFixedText(msg->text,
-                                                 strlen(msg->text), msg->error),
-                  msg->arg};
-              if (IsNotFolded) {
-                messageCharBlock = parser::CharBlock(
-                    formatCharBlock.begin() + msg->offset + 1, msg->length);
-              }
-              context_.Say(messageCharBlock, s);
             }
           },
       },

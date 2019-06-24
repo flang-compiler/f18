@@ -14,7 +14,6 @@
 
 add_library(FortranCommon
   default-kinds.cc
-  format.cc
   idioms.cc
 )
 

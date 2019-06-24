@@ -83,7 +83,7 @@
 
 7001 format(17G8.1, 17G8.1e3)
 
-     !ERROR: Expected 'G' edit descriptor 'd' value
+     !ERROR: Expected 'G' edit descriptor '.d' value
 7101 format(17G8)
 
 8001 format(9G0.5)
