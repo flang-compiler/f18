@@ -26,7 +26,7 @@
 
 namespace Fortran::semantics {
 
-ENUM_CLASS(OmpDirectiveEnum, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
+ENUM_CLASS(OmpDirective, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
     SIMD, DECLARE_SIMD, DO_SIMD, TASK, TASKLOOP, TASKLOOP_SIMD, TASKYIELD,
     TARGET_DATA, TARGET_ENTER_DATA, TARGET_EXIT_DATA, TARGET, TARGET_UPDATE,
     DECLARE_TARGET, TEAMS, DISTRIBUTE, DISTRIBUTE_SIMD, DISTRIBUTE_PARALLEL_DO,
@@ -40,18 +40,16 @@ ENUM_CLASS(OmpDirectiveEnum, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
     TASKWAIT, TASKGROUP, ATOMIC, FLUSH, ORDERED, CANCEL, CANCELLATION_POINT,
     THREADPRIVATE, DECLARE_REDUCTION)
 
-using OmpDirectiveEnumType =
-    common::EnumSet<OmpDirectiveEnum, OmpDirectiveEnum_enumSize>;
+using OmpDirectiveSet = common::EnumSet<OmpDirective, OmpDirective_enumSize>;
 
-ENUM_CLASS(OmpClauseEnum, DEFAULTMAP, INBRANCH, MERGEABLE, NOGROUP, NOTINBRANCH,
+ENUM_CLASS(OmpClause, DEFAULTMAP, INBRANCH, MERGEABLE, NOGROUP, NOTINBRANCH,
     NOWAIT, UNTIED, COLLAPSE, COPYIN, COPYPRIVATE, DEVICE, DIST_SCHEDULE, FINAL,
     FIRSTPRIVATE, FROM, GRAINSIZE, LASTPRIVATE, NUM_TASKS, NUM_TEAMS,
     NUM_THREADS, ORDERED, PRIORITY, PRIVATE, SAFELEN, SHARED, SIMDLEN,
     THREAD_LIMIT, TO, LINK, UNIFORM, USE_DEVICE_PTR, IS_DEVICE_PTR, ALIGNED,
     DEFAULT, DEPEND, IF, LINEAR, MAP, PROC_BIND, REDUCTION, SCHEDULE)
 
-using OmpClauseEnumType =
-    common::EnumSet<OmpClauseEnum, OmpClauseEnum_enumSize>;
+using OmpClauseSet = common::EnumSet<OmpClause, OmpClause_enumSize>;
 
 class OmpStructureChecker : public virtual BaseChecker {
 public:
@@ -93,10 +91,10 @@ public:
   void Enter(const parser::OmpClause::Simdlen &);
   void Enter(const parser::OmpClause::ThreadLimit &);
   void Enter(const parser::OmpClause::To &);
-  // TODO: Link
+  void Enter(const parser::OmpClause::Link &);
   void Enter(const parser::OmpClause::Uniform &);
   void Enter(const parser::OmpClause::UseDevicePtr &);
-  // TODO: IsDevicePtr
+  void Enter(const parser::OmpClause::IsDevicePtr &);
 
   void Enter(const parser::OmpAlignedClause &);
   void Enter(const parser::OmpDefaultClause &);
@@ -108,41 +106,43 @@ public:
   void Enter(const parser::OmpReductionClause &);
   void Enter(const parser::OmpScheduleClause &);
 
-  bool HasInvalidCloselyNestedRegion(
-      const parser::CharBlock &, const OmpDirectiveEnumType &);
-  void CheckAllowed(const OmpClauseEnum &);
-
 private:
   struct OmpContext {
     parser::CharBlock currentDirectiveSource{nullptr};
     parser::CharBlock currentClauseSource{nullptr};
-    OmpDirectiveEnum currentDirectiveEnum;
-    OmpClauseEnumType allowedClauses;
-    OmpClauseEnumType allowedOnceClauses;
-    OmpClauseEnumType seenClauses;
+    OmpDirective currentDirectiveEnum;
+    OmpClauseSet allowedClauses;
+    OmpClauseSet allowedOnceClauses;
+    OmpClauseSet seenClauses;
   };
-  const OmpContext &GetOmpContext() const { return ompContext_.back(); }
-  void SetOmpContextDirectiveSource(const parser::CharBlock &directive) {
+  // back() is the top of the stack
+  const OmpContext &GetContext() const { return ompContext_.back(); }
+  void SetContextDirectiveSource(const parser::CharBlock &directive) {
     ompContext_.back().currentDirectiveSource = directive;
   }
-  void SetOmpContextClauseSource(const parser::CharBlock &clause) {
+  void SetContextClauseSource(const parser::CharBlock &clause) {
     ompContext_.back().currentClauseSource = clause;
   }
-  void SetOmpContextDirectiveEnum(const OmpDirectiveEnum &dir) {
+  void SetContextDirectiveEnum(const OmpDirective &dir) {
     ompContext_.back().currentDirectiveEnum = dir;
   }
-  void SetOmpContextAllowed(const OmpClauseEnumType &allowed) {
+  void SetContextAllowed(const OmpClauseSet &allowed) {
     ompContext_.back().allowedClauses = allowed;
   }
-  void SetOmpContextAllowedOnce(const OmpClauseEnumType &allowedOnce) {
+  void SetContextAllowedOnce(const OmpClauseSet &allowedOnce) {
     ompContext_.back().allowedOnceClauses = allowedOnce;
   }
-  void SetOmpContextSeen(const OmpClauseEnum &seenType) {
+  void SetContextSeen(const OmpClause &seenType) {
     ompContext_.back().seenClauses.set(seenType);
   }
 
+  bool CurrentDirectiveIsNested() { return ompContext_.size() > 0; };
+  bool HasInvalidWorksharingNesting(
+      const parser::CharBlock &, const OmpDirectiveSet &);
+  void CheckAllowed(const OmpClause &);
+
   SemanticsContext &context_;
-  std::vector<OmpContext> ompContext_;
+  std::vector<OmpContext> ompContext_;  // used as a stack
 };
 }
 #endif  // FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_

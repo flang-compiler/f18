@@ -12,7 +12,6 @@
 ! See the License for the specific language governing permissions and
 ! limitations under the License.
 
-! RUN: ${F18} -fopenmp -funparse-with-symbols %s 2>&1 | ${FileCheck} %s
 ! OPTIONS: -fopenmp
 
 ! Check OpenMP 2.17 Nesting of Regions

@@ -14,13 +14,14 @@
 
 #include "check-omp-structure.h"
 #include "../parser/parse-tree.h"
-#include <variant>
 
 namespace Fortran::semantics {
 
-bool OmpStructureChecker::HasInvalidCloselyNestedRegion(
-    const parser::CharBlock &source, const OmpDirectiveEnumType &set) {
-  if (ompContext_.size() && set.test(GetOmpContext().currentDirectiveEnum)) {
+bool OmpStructureChecker::HasInvalidWorksharingNesting(
+    const parser::CharBlock &source, const OmpDirectiveSet &set) {
+  // set contains all the invalid closely nested directives
+  // for the given directive (`source` here)
+  if (CurrentDirectiveIsNested() && set.test(GetContext().currentDirectiveEnum)) {
     context_.Say(source,
         "A worksharing region may not be closely nested inside a "
         "worksharing, explicit task, taskloop, critical, ordered, atomic, or "
@@ -30,52 +31,51 @@ bool OmpStructureChecker::HasInvalidCloselyNestedRegion(
   return false;
 }
 
-void OmpStructureChecker::CheckAllowed(const OmpClauseEnum &type) {
+void OmpStructureChecker::CheckAllowed(const OmpClause &type) {
   if (ompContext_.empty()) {
     return;
   }
-  bool f{true};
-  if (!GetOmpContext().allowedClauses.test(type)) {
-    context_.Say(GetOmpContext().currentClauseSource,
-        "'%s' clause is not allowed on the %s directive"_err_en_US,
-        parser::ToUpperCaseLetters(EnumToString(type)),
+  if ((!GetContext().allowedClauses.empty() &&
+          !GetContext().allowedClauses.test(type)) &&
+      (!GetContext().allowedOnceClauses.empty() &&
+          !GetContext().allowedOnceClauses.test(type))) {
+    context_.Say(GetContext().currentClauseSource,
+        "%s clause is not allowed on the %s directive"_err_en_US,
+        EnumToString(type),
         parser::ToUpperCaseLetters(
-            GetOmpContext().currentDirectiveSource.ToString()));
-    f = false;
+            GetContext().currentDirectiveSource.ToString()));
+    return;
   }
-  if (!GetOmpContext().allowedOnceClauses.empty() &&
-      GetOmpContext().allowedOnceClauses.test(type) &&
-      GetOmpContext().seenClauses.test(type)) {
-    context_.Say(GetOmpContext().currentClauseSource,
-        "At most one '%s' clause can appear on the %s directive"_err_en_US,
-        parser::ToUpperCaseLetters(EnumToString(type)),
+  if (!GetContext().allowedOnceClauses.empty() &&
+      GetContext().allowedOnceClauses.test(type) &&
+      GetContext().seenClauses.test(type)) {
+    context_.Say(GetContext().currentClauseSource,
+        "At most one %s clause can appear on the %s directive"_err_en_US,
+        EnumToString(type),
         parser::ToUpperCaseLetters(
-            GetOmpContext().currentDirectiveSource.ToString()));
-    f = false;
+            GetContext().currentDirectiveSource.ToString()));
+    return;
   }
-  if (f) {
-    SetOmpContextSeen(type);
-  }
+  SetContextSeen(type);
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
-  bool f{false};
   const auto &dir{std::get<parser::OmpLoopDirective>(x.t)};
-  if (parser::ToUpperCaseLetters(dir.source.ToString()) == "DO") {
-    f = HasInvalidCloselyNestedRegion(dir.source,
-        {OmpDirectiveEnum::DO, OmpDirectiveEnum::SECTIONS,
-            OmpDirectiveEnum::SINGLE, OmpDirectiveEnum::WORKSHARE});
+  if (std::holds_alternative<parser::OmpLoopDirective::Do>(dir.u)) {
+    HasInvalidWorksharingNesting(dir.source,
+        {OmpDirective::DO, OmpDirective::SECTIONS, OmpDirective::SINGLE,
+            OmpDirective::WORKSHARE, OmpDirective::TASK, OmpDirective::TASKLOOP,
+            OmpDirective::CRITICAL, OmpDirective::ORDERED, OmpDirective::ATOMIC,
+            OmpDirective::MASTER});
   }
-  if (!f) {
-    OmpContext ct{dir.source};
-    ompContext_.push_back(ct);
-  }
+
+  // push a context even in the error case
+  OmpContext ct{dir.source};
+  ompContext_.push_back(ct);
 }
 
-void OmpStructureChecker::Leave(const parser::OpenMPLoopConstruct &x) {
-  if (!ompContext_.empty()) {
-    ompContext_.pop_back();
-  }
+void OmpStructureChecker::Leave(const parser::OpenMPLoopConstruct &) {
+  ompContext_.pop_back();
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
@@ -84,10 +84,8 @@ void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
   ompContext_.push_back(ct);
 }
 
-void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &x) {
-  if (!ompContext_.empty()) {
-    ompContext_.pop_back();
-  }
+void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &) {
+  ompContext_.pop_back();
 }
 
 // 2.5 parallel-clause -> if-clause |
@@ -99,22 +97,21 @@ void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &x) {
 //                        copyin-clause |
 //                        reduction-clause |
 //                        proc-bind-clause
-void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &x) {
+void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &) {
   if (ompContext_.empty()) {
     return;
   }
   // reserve for nesting check
-  SetOmpContextDirectiveEnum(OmpDirectiveEnum::PARALLEL);
+  SetContextDirectiveEnum(OmpDirective::PARALLEL);
 
-  OmpClauseEnumType allowed{OmpClauseEnum::IF, OmpClauseEnum::NUM_THREADS,
-      OmpClauseEnum::DEFAULT, OmpClauseEnum::PRIVATE,
-      OmpClauseEnum::FIRSTPRIVATE, OmpClauseEnum::SHARED, OmpClauseEnum::COPYIN,
-      OmpClauseEnum::REDUCTION, OmpClauseEnum::PROC_BIND};
-  SetOmpContextAllowed(allowed);
+  OmpClauseSet allowed{OmpClause::DEFAULT, OmpClause::PRIVATE,
+      OmpClause::FIRSTPRIVATE, OmpClause::SHARED, OmpClause::COPYIN,
+      OmpClause::REDUCTION};
+  SetContextAllowed(allowed);
 
-  OmpClauseEnumType allowedOnce{
-      OmpClauseEnum::IF, OmpClauseEnum::NUM_THREADS, OmpClauseEnum::PROC_BIND};
-  SetOmpContextAllowedOnce(allowedOnce);
+  OmpClauseSet allowedOnce{
+      OmpClause::IF, OmpClause::NUM_THREADS, OmpClause::PROC_BIND};
+  SetContextAllowedOnce(allowedOnce);
 }
 
 // 2.7.1 do-clause -> private-clause |
@@ -124,144 +121,148 @@ void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &x) {
 //                    schedule-clause |
 //                    collapse-clause |
 //                    ordered-clause
-void OmpStructureChecker::Enter(const parser::OmpLoopDirective::Do &x) {
+void OmpStructureChecker::Enter(const parser::OmpLoopDirective::Do &) {
   if (ompContext_.empty()) {
     return;
   }
   // reserve for nesting check
-  SetOmpContextDirectiveEnum(OmpDirectiveEnum::DO);
+  SetContextDirectiveEnum(OmpDirective::DO);
 
-  OmpClauseEnumType allowed{OmpClauseEnum::PRIVATE, OmpClauseEnum::LASTPRIVATE,
-      OmpClauseEnum::LINEAR, OmpClauseEnum::REDUCTION, OmpClauseEnum::SCHEDULE,
-      OmpClauseEnum::COLLAPSE, OmpClauseEnum::ORDERED};
-  SetOmpContextAllowed(allowed);
+  OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::LASTPRIVATE,
+      OmpClause::LINEAR, OmpClause::REDUCTION, OmpClause::SCHEDULE,
+      OmpClause::COLLAPSE, OmpClause::ORDERED};
+  SetContextAllowed(allowed);
 
-  OmpClauseEnumType allowedOnce{
-      OmpClauseEnum::SCHEDULE, OmpClauseEnum::COLLAPSE, OmpClauseEnum::ORDERED};
-  SetOmpContextAllowedOnce(allowedOnce);
+  OmpClauseSet allowedOnce{
+      OmpClause::SCHEDULE, OmpClause::COLLAPSE, OmpClause::ORDERED};
+  SetContextAllowedOnce(allowedOnce);
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause &x) {
   if (!ompContext_.empty()) {
-    SetOmpContextClauseSource(x.source);
+    SetContextClauseSource(x.source);
   }
 }
 
-void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &x) {
-  CheckAllowed(OmpClauseEnum::DEFAULTMAP);
+void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &) {
+  CheckAllowed(OmpClause::DEFAULTMAP);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Inbranch &x) {
-  CheckAllowed(OmpClauseEnum::INBRANCH);
+void OmpStructureChecker::Enter(const parser::OmpClause::Inbranch &) {
+  CheckAllowed(OmpClause::INBRANCH);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Mergeable &x) {
-  CheckAllowed(OmpClauseEnum::MERGEABLE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Mergeable &) {
+  CheckAllowed(OmpClause::MERGEABLE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Nogroup &x) {
-  CheckAllowed(OmpClauseEnum::NOGROUP);
+void OmpStructureChecker::Enter(const parser::OmpClause::Nogroup &) {
+  CheckAllowed(OmpClause::NOGROUP);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Notinbranch &x) {
-  CheckAllowed(OmpClauseEnum::NOTINBRANCH);
+void OmpStructureChecker::Enter(const parser::OmpClause::Notinbranch &) {
+  CheckAllowed(OmpClause::NOTINBRANCH);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Untied &x) {
-  CheckAllowed(OmpClauseEnum::UNTIED);
+void OmpStructureChecker::Enter(const parser::OmpClause::Untied &) {
+  CheckAllowed(OmpClause::UNTIED);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Collapse &x) {
-  CheckAllowed(OmpClauseEnum::COLLAPSE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Collapse &) {
+  CheckAllowed(OmpClause::COLLAPSE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Copyin &x) {
-  CheckAllowed(OmpClauseEnum::COPYIN);
+void OmpStructureChecker::Enter(const parser::OmpClause::Copyin &) {
+  CheckAllowed(OmpClause::COPYIN);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Copyprivate &x) {
-  CheckAllowed(OmpClauseEnum::COPYPRIVATE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Copyprivate &) {
+  CheckAllowed(OmpClause::COPYPRIVATE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Device &x) {
-  CheckAllowed(OmpClauseEnum::DEVICE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Device &) {
+  CheckAllowed(OmpClause::DEVICE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::DistSchedule &x) {
-  CheckAllowed(OmpClauseEnum::DIST_SCHEDULE);
+void OmpStructureChecker::Enter(const parser::OmpClause::DistSchedule &) {
+  CheckAllowed(OmpClause::DIST_SCHEDULE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Final &x) {
-  CheckAllowed(OmpClauseEnum::FINAL);
+void OmpStructureChecker::Enter(const parser::OmpClause::Final &) {
+  CheckAllowed(OmpClause::FINAL);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Firstprivate &x) {
-  CheckAllowed(OmpClauseEnum::FIRSTPRIVATE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Firstprivate &) {
+  CheckAllowed(OmpClause::FIRSTPRIVATE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::From &x) {
-  CheckAllowed(OmpClauseEnum::FROM);
+void OmpStructureChecker::Enter(const parser::OmpClause::From &) {
+  CheckAllowed(OmpClause::FROM);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Grainsize &x) {
-  CheckAllowed(OmpClauseEnum::GRAINSIZE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Grainsize &) {
+  CheckAllowed(OmpClause::GRAINSIZE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Lastprivate &x) {
-  CheckAllowed(OmpClauseEnum::LASTPRIVATE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Lastprivate &) {
+  CheckAllowed(OmpClause::LASTPRIVATE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::NumTasks &x) {
-  CheckAllowed(OmpClauseEnum::NUM_TASKS);
+void OmpStructureChecker::Enter(const parser::OmpClause::NumTasks &) {
+  CheckAllowed(OmpClause::NUM_TASKS);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::NumTeams &x) {
-  CheckAllowed(OmpClauseEnum::NUM_TEAMS);
+void OmpStructureChecker::Enter(const parser::OmpClause::NumTeams &) {
+  CheckAllowed(OmpClause::NUM_TEAMS);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::NumThreads &x) {
-  CheckAllowed(OmpClauseEnum::NUM_THREADS);
+void OmpStructureChecker::Enter(const parser::OmpClause::NumThreads &) {
+  CheckAllowed(OmpClause::NUM_THREADS);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Ordered &x) {
-  CheckAllowed(OmpClauseEnum::ORDERED);
+void OmpStructureChecker::Enter(const parser::OmpClause::Ordered &) {
+  CheckAllowed(OmpClause::ORDERED);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Priority &x) {
-  CheckAllowed(OmpClauseEnum::PRIORITY);
+void OmpStructureChecker::Enter(const parser::OmpClause::Priority &) {
+  CheckAllowed(OmpClause::PRIORITY);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Private &x) {
-  CheckAllowed(OmpClauseEnum::PRIVATE);
+void OmpStructureChecker::Enter(const parser::OmpClause::Private &) {
+  CheckAllowed(OmpClause::PRIVATE);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Safelen &x) {
-  CheckAllowed(OmpClauseEnum::SAFELEN);
+void OmpStructureChecker::Enter(const parser::OmpClause::Safelen &) {
+  CheckAllowed(OmpClause::SAFELEN);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Shared &x) {
-  CheckAllowed(OmpClauseEnum::SHARED);
+void OmpStructureChecker::Enter(const parser::OmpClause::Shared &) {
+  CheckAllowed(OmpClause::SHARED);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::Simdlen &x) {
-  CheckAllowed(OmpClauseEnum::SIMDLEN);
+void OmpStructureChecker::Enter(const parser::OmpClause::Simdlen &) {
+  CheckAllowed(OmpClause::SIMDLEN);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::ThreadLimit &x) {
-  CheckAllowed(OmpClauseEnum::THREAD_LIMIT);
+void OmpStructureChecker::Enter(const parser::OmpClause::ThreadLimit &) {
+  CheckAllowed(OmpClause::THREAD_LIMIT);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::To &x) {
-  CheckAllowed(OmpClauseEnum::TO);
+void OmpStructureChecker::Enter(const parser::OmpClause::To &) {
+  CheckAllowed(OmpClause::TO);
 }
-// TODO: 2.10.6 link-clause -> LINK (variable-name-list)
-void OmpStructureChecker::Enter(const parser::OmpClause::Uniform &x) {
-  CheckAllowed(OmpClauseEnum::UNIFORM);
+void OmpStructureChecker::Enter(const parser::OmpClause::Link &) {
+  CheckAllowed(OmpClause::LINK);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::UseDevicePtr &x) {
-  CheckAllowed(OmpClauseEnum::USE_DEVICE_PTR);
+void OmpStructureChecker::Enter(const parser::OmpClause::Uniform &) {
+  CheckAllowed(OmpClause::UNIFORM);
 }
-// TODO: 2.10.4 is-device-ptr-clause -> IS_DEVICE_PTR (variable-name-list)
+void OmpStructureChecker::Enter(const parser::OmpClause::UseDevicePtr &) {
+  CheckAllowed(OmpClause::USE_DEVICE_PTR);
+}
+void OmpStructureChecker::Enter(const parser::OmpClause::IsDevicePtr &) {
+  CheckAllowed(OmpClause::IS_DEVICE_PTR);
+}
 
-void OmpStructureChecker::Enter(const parser::OmpAlignedClause &x) {
-  CheckAllowed(OmpClauseEnum::ALIGNED);
+void OmpStructureChecker::Enter(const parser::OmpAlignedClause &) {
+  CheckAllowed(OmpClause::ALIGNED);
 }
-void OmpStructureChecker::Enter(const parser::OmpDefaultClause &x) {
-  CheckAllowed(OmpClauseEnum::DEFAULT);
+void OmpStructureChecker::Enter(const parser::OmpDefaultClause &) {
+  CheckAllowed(OmpClause::DEFAULT);
 }
-void OmpStructureChecker::Enter(const parser::OmpDependClause &x) {
-  CheckAllowed(OmpClauseEnum::DEPEND);
+void OmpStructureChecker::Enter(const parser::OmpDependClause &) {
+  CheckAllowed(OmpClause::DEPEND);
 }
-void OmpStructureChecker::Enter(const parser::OmpIfClause &x) {
-  CheckAllowed(OmpClauseEnum::IF);
+void OmpStructureChecker::Enter(const parser::OmpIfClause &) {
+  CheckAllowed(OmpClause::IF);
 }
-void OmpStructureChecker::Enter(const parser::OmpLinearClause &x) {
-  CheckAllowed(OmpClauseEnum::LINEAR);
+void OmpStructureChecker::Enter(const parser::OmpLinearClause &) {
+  CheckAllowed(OmpClause::LINEAR);
 }
-void OmpStructureChecker::Enter(const parser::OmpMapClause &x) {
-  CheckAllowed(OmpClauseEnum::MAP);
+void OmpStructureChecker::Enter(const parser::OmpMapClause &) {
+  CheckAllowed(OmpClause::MAP);
 }
-void OmpStructureChecker::Enter(const parser::OmpProcBindClause &x) {
-  CheckAllowed(OmpClauseEnum::PROC_BIND);
+void OmpStructureChecker::Enter(const parser::OmpProcBindClause &) {
+  CheckAllowed(OmpClause::PROC_BIND);
 }
-void OmpStructureChecker::Enter(const parser::OmpReductionClause &x) {
-  CheckAllowed(OmpClauseEnum::REDUCTION);
+void OmpStructureChecker::Enter(const parser::OmpReductionClause &) {
+  CheckAllowed(OmpClause::REDUCTION);
 }
-void OmpStructureChecker::Enter(const parser::OmpScheduleClause &x) {
-  CheckAllowed(OmpClauseEnum::SCHEDULE);
+void OmpStructureChecker::Enter(const parser::OmpScheduleClause &) {
+  CheckAllowed(OmpClause::SCHEDULE);
 }
 }

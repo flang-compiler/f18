@@ -129,7 +129,7 @@ set(ERROR_TESTS
   expr-errors01.f90
   null01.f90
   omp-clause-validity01.f90
-  omp-nested01.f90
+#  omp-nested01.f90
   equivalence01.f90
   ${PROJECT_SOURCE_DIR}/module/ieee_arithmetic.f90
   ${PROJECT_SOURCE_DIR}/module/ieee_exceptions.f90

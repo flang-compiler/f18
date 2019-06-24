@@ -3713,7 +3713,7 @@ struct OpenMPBlockConstruct {
 
 struct OpenMPLoopConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPLoopConstruct);
-  std::tuple<OmpLoopDirective, OmpClauseList, DoConstruct> t;
+  std::tuple<OmpLoopDirective, OmpClauseList> t;
 };
 
 struct OpenMPStandaloneConstruct {
