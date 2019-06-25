@@ -138,10 +138,10 @@ private:
 
   void ReportError(const char *text) { ReportError(text, token_); }
   void ReportError(const char *text, Token &token, const char *arg = nullptr) {
-    formatHasErrors_ = true;
     if (suppressMessageCascade_) {
       return;
     }
+    formatHasErrors_ = true;
     suppressMessageCascade_ = true;
     FormatMessage msg{
         text, arg ? arg : argString_, token.offset(), token.length(), true};
@@ -178,6 +178,7 @@ private:
   int64_t wValue_{-1};
   char argString_[3]{};  // 1-2 character msg arg; usually edit descriptor name
   bool formatHasErrors_{false};
+  bool unterminatedFormatError_{false};
   bool suppressMessageCascade_{false};
   bool reporterExit_{false};
 };
@@ -373,10 +374,10 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
     }
     break;
   default:
-    if (cursor_ >= end_) {
+    if (cursor_ >= end_ && !unterminatedFormatError_) {
       suppressMessageCascade_ = false;
       ReportError("Unterminated format expression");
-      reporterExit_ = true;
+      unterminatedFormatError_ = true;
     }
     token_.set_kind(TokenKind::None);
     break;

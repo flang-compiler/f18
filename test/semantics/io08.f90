@@ -241,6 +241,15 @@
   !ERROR: Unterminated format expression
   write(*,'(')
 
+  !ERROR: Unterminated format expression
+  write(*,'(-')
+
+  !ERROR: Unterminated format expression
+  write(*,'(I3+')
+
+  !ERROR: Unterminated format expression
+  write(*,'(I3,-')
+
   !ERROR: Unexpected integer constant
   write(*,'(3)')
 
