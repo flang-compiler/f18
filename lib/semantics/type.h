@@ -101,14 +101,19 @@ public:
   bool isDeferred() const { return category_ == Category::Deferred; }
   const MaybeIntExpr &GetExplicit() const { return expr_; }
   void SetExplicit(SomeIntExpr &&);
+  bool isKind() const { return attr_ == common::TypeParamAttr::Kind; }
+  bool isLen() const { return attr_ == common::TypeParamAttr::Len; }
+  void set_attr(common::TypeParamAttr attr) { attr_ = attr; }
   bool operator==(const ParamValue &that) const {
     return category_ == that.category_ && expr_ == that.expr_;
   }
+  std::string AsFortran() const;
 
 private:
   enum class Category { Explicit, Deferred, Assumed };
   ParamValue(Category category) : category_{category} {}
   Category category_{Category::Explicit};
+  common::TypeParamAttr attr_{common::TypeParamAttr::Kind};
   MaybeIntExpr expr_;
   friend std::ostream &operator<<(std::ostream &, const ParamValue &);
 };
@@ -121,6 +126,7 @@ public:
     return category_ == x.category_ && kind_ == x.kind_;
   }
   bool operator!=(const IntrinsicTypeSpec &x) const { return !operator==(x); }
+  std::string AsFortran() const;
 
 protected:
   IntrinsicTypeSpec(TypeCategory, KindExpr &&);
@@ -151,6 +157,7 @@ public:
     : IntrinsicTypeSpec(TypeCategory::Character, std::move(kind)),
       length_{std::move(length)} {}
   const ParamValue &length() const { return length_; }
+  std::string AsFortran() const;
 
 private:
   ParamValue length_;
@@ -244,6 +251,7 @@ public:
   bool operator==(const DerivedTypeSpec &that) const {
     return &typeSymbol_ == &that.typeSymbol_ && parameters_ == that.parameters_;
   }
+  std::string AsFortran() const;
 
 private:
   const Symbol &typeSymbol_;
@@ -281,6 +289,12 @@ public:
 
   Category category() const { return category_; }
   void set_category(Category category) { category_ = category; }
+  bool IsPolymorphic() const {
+    return category_ == ClassDerived || IsUnlimitedPolymorphic();
+  }
+  bool IsUnlimitedPolymorphic() const {
+    return category_ == TypeStar || category_ == ClassStar;
+  }
   bool IsNumeric(TypeCategory) const;
   const NumericTypeSpec &numericTypeSpec() const;
   const LogicalTypeSpec &logicalTypeSpec() const;
@@ -314,6 +328,8 @@ public:
     default: return nullptr;
     }
   }
+
+  std::string AsFortran() const;
 
 private:
   Category category_;
