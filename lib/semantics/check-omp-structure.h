@@ -108,9 +108,9 @@ public:
 
 private:
   struct OmpContext {
-    parser::CharBlock currentDirectiveSource{nullptr};
-    parser::CharBlock currentClauseSource{nullptr};
-    OmpDirective currentDirectiveEnum;
+    parser::CharBlock directiveSource{nullptr};
+    parser::CharBlock clauseSource{nullptr};
+    OmpDirective directive;
     OmpClauseSet allowedClauses;
     OmpClauseSet allowedOnceClauses;
     OmpClauseSet seenClauses;
@@ -118,13 +118,13 @@ private:
   // back() is the top of the stack
   const OmpContext &GetContext() const { return ompContext_.back(); }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
-    ompContext_.back().currentDirectiveSource = directive;
+    ompContext_.back().directiveSource = directive;
   }
   void SetContextClauseSource(const parser::CharBlock &clause) {
-    ompContext_.back().currentClauseSource = clause;
+    ompContext_.back().clauseSource = clause;
   }
   void SetContextDirectiveEnum(const OmpDirective &dir) {
-    ompContext_.back().currentDirectiveEnum = dir;
+    ompContext_.back().directive = dir;
   }
   void SetContextAllowed(const OmpClauseSet &allowed) {
     ompContext_.back().allowedClauses = allowed;

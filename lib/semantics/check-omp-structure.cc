@@ -21,7 +21,7 @@ bool OmpStructureChecker::HasInvalidWorksharingNesting(
     const parser::CharBlock &source, const OmpDirectiveSet &set) {
   // set contains all the invalid closely nested directives
   // for the given directive (`source` here)
-  if (CurrentDirectiveIsNested() && set.test(GetContext().currentDirectiveEnum)) {
+  if (CurrentDirectiveIsNested() && set.test(GetContext().directive)) {
     context_.Say(source,
         "A worksharing region may not be closely nested inside a "
         "worksharing, explicit task, taskloop, critical, ordered, atomic, or "
@@ -32,28 +32,23 @@ bool OmpStructureChecker::HasInvalidWorksharingNesting(
 }
 
 void OmpStructureChecker::CheckAllowed(const OmpClause &type) {
-  if (ompContext_.empty()) {
-    return;
-  }
-  if ((!GetContext().allowedClauses.empty() &&
-          !GetContext().allowedClauses.test(type)) &&
+  // allowedOnceClauses can be empty
+  if (!GetContext().allowedClauses.test(type) &&
       (!GetContext().allowedOnceClauses.empty() &&
           !GetContext().allowedOnceClauses.test(type))) {
-    context_.Say(GetContext().currentClauseSource,
+    context_.Say(GetContext().clauseSource,
         "%s clause is not allowed on the %s directive"_err_en_US,
         EnumToString(type),
-        parser::ToUpperCaseLetters(
-            GetContext().currentDirectiveSource.ToString()));
+        parser::ToUpperCaseLetters(GetContext().directiveSource.ToString()));
     return;
   }
   if (!GetContext().allowedOnceClauses.empty() &&
       GetContext().allowedOnceClauses.test(type) &&
       GetContext().seenClauses.test(type)) {
-    context_.Say(GetContext().currentClauseSource,
+    context_.Say(GetContext().clauseSource,
         "At most one %s clause can appear on the %s directive"_err_en_US,
         EnumToString(type),
-        parser::ToUpperCaseLetters(
-            GetContext().currentDirectiveSource.ToString()));
+        parser::ToUpperCaseLetters(GetContext().directiveSource.ToString()));
     return;
   }
   SetContextSeen(type);
@@ -98,9 +93,6 @@ void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &) {
 //                        reduction-clause |
 //                        proc-bind-clause
 void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &) {
-  if (ompContext_.empty()) {
-    return;
-  }
   // reserve for nesting check
   SetContextDirectiveEnum(OmpDirective::PARALLEL);
 
@@ -122,9 +114,6 @@ void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &) {
 //                    collapse-clause |
 //                    ordered-clause
 void OmpStructureChecker::Enter(const parser::OmpLoopDirective::Do &) {
-  if (ompContext_.empty()) {
-    return;
-  }
   // reserve for nesting check
   SetContextDirectiveEnum(OmpDirective::DO);
 
@@ -139,9 +128,7 @@ void OmpStructureChecker::Enter(const parser::OmpLoopDirective::Do &) {
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause &x) {
-  if (!ompContext_.empty()) {
-    SetContextClauseSource(x.source);
-  }
+  SetContextClauseSource(x.source);
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &) {
