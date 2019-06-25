@@ -21,6 +21,7 @@
 #include <functional>
 #include <list>
 #include <optional>
+#include <vector>
 
 namespace Fortran::semantics {
 
@@ -73,14 +74,14 @@ public:
     CHECK(result_ == nullptr);
     result_ = &result;
   }
-  const std::list<Symbol *> &dummyArgs() const { return dummyArgs_; }
+  const std::vector<Symbol *> &dummyArgs() const { return dummyArgs_; }
   void add_dummyArg(Symbol &symbol) { dummyArgs_.push_back(&symbol); }
   void add_alternateReturn() { dummyArgs_.push_back(nullptr); }
 
 private:
   bool isInterface_{false};  // true if this represents an interface-body
   MaybeExpr bindName_;
-  std::list<Symbol *> dummyArgs_;  // nullptr -> alternate return indicator
+  std::vector<Symbol *> dummyArgs_;  // nullptr -> alternate return indicator
   Symbol *result_{nullptr};
   friend std::ostream &operator<<(std::ostream &, const SubprogramDetails &);
 };
@@ -189,8 +190,21 @@ private:
   friend std::ostream &operator<<(std::ostream &, const ObjectEntityDetails &);
 };
 
+// Mixin for details with passed-object dummy argument.
+class WithPassArg {
+public:
+  const SourceName *passName() const { return passName_; }
+  void set_passName(const SourceName &passName) { passName_ = &passName; }
+  const Symbol *passArg() const { return passArg_; }
+  void set_passArg(const Symbol *passArg) { passArg_ = passArg; }
+
+private:
+  const SourceName *passName_{nullptr};
+  const Symbol *passArg_{nullptr};
+};
+
 // A procedure pointer, dummy procedure, or external procedure
-class ProcEntityDetails : public EntityDetails {
+class ProcEntityDetails : public EntityDetails, public WithPassArg {
 public:
   ProcEntityDetails() = default;
   explicit ProcEntityDetails(EntityDetails &&d);
@@ -198,13 +212,10 @@ public:
   const ProcInterface &interface() const { return interface_; }
   ProcInterface &interface() { return interface_; }
   void set_interface(const ProcInterface &interface) { interface_ = interface; }
-  const std::optional<SourceName> &passName() const { return passName_; }
-  void set_passName(const SourceName &passName) { passName_ = passName; }
   inline bool HasExplicitInterface() const;
 
 private:
   ProcInterface interface_;
-  std::optional<SourceName> passName_;
   friend std::ostream &operator<<(std::ostream &, const ProcEntityDetails &);
 };
 
@@ -263,16 +274,13 @@ private:
   friend std::ostream &operator<<(std::ostream &, const DerivedTypeDetails &);
 };
 
-class ProcBindingDetails {
+class ProcBindingDetails : public WithPassArg {
 public:
   explicit ProcBindingDetails(const Symbol &symbol) : symbol_{&symbol} {}
   const Symbol &symbol() const { return *symbol_; }
-  std::optional<SourceName> passName() const { return passName_; }
-  void set_passName(const SourceName &passName) { passName_ = passName; }
 
 private:
   const Symbol *symbol_;  // procedure bound to
-  std::optional<SourceName> passName_;  // name in PASS attribute
 };
 
 ENUM_CLASS(GenericKind,  // Kinds of generic-spec
