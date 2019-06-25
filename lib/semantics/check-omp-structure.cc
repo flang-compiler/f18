@@ -32,18 +32,15 @@ bool OmpStructureChecker::HasInvalidWorksharingNesting(
 }
 
 void OmpStructureChecker::CheckAllowed(const OmpClause &type) {
-  // allowedOnceClauses can be empty
   if (!GetContext().allowedClauses.test(type) &&
-      (!GetContext().allowedOnceClauses.empty() &&
-          !GetContext().allowedOnceClauses.test(type))) {
+      !GetContext().allowedOnceClauses.test(type)) {
     context_.Say(GetContext().clauseSource,
         "%s clause is not allowed on the %s directive"_err_en_US,
         EnumToString(type),
         parser::ToUpperCaseLetters(GetContext().directiveSource.ToString()));
     return;
   }
-  if (!GetContext().allowedOnceClauses.empty() &&
-      GetContext().allowedOnceClauses.test(type) &&
+  if (GetContext().allowedOnceClauses.test(type) &&
       GetContext().seenClauses.test(type)) {
     context_.Say(GetContext().clauseSource,
         "At most one %s clause can appear on the %s directive"_err_en_US,
