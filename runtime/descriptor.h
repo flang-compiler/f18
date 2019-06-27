@@ -142,13 +142,12 @@ public:
   using SubscriptValue = ISO::CFI_index_t;
   using SizeValue = std::size_t;
   using Attribute = ISO::CFI_attribute_t;
-  using Rank = int;
   template<typename A> using RankedSizedArray = CRankedSizedArray<A>;
   using SubscriptArray = RankedSizedArray<SubscriptValue>;
   template<typename A> using OwningPointer = A *;
   using Dimension = Fortran::runtime::Dimension;
   using FortranType = TypeCode;
-  static constexpr Rank maxRank{Fortran::runtime::maxRank};
+  static constexpr int maxRank{Fortran::runtime::maxRank};
 
   Descriptor() {
     // Minimal initialization to prevent the destructor from running amuck

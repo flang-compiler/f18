@@ -217,7 +217,6 @@ public:
   using SubscriptValue = ConstantSubscript;
   using SizeValue = std::size_t;
   using Attribute = int;
-  using Rank = int;
 
   template<typename A> using RankedSizedArray = std::vector<A>;
   using SubscriptArray = RankedSizedArray<SubscriptValue>;
@@ -235,7 +234,7 @@ public:
     SubscriptValue Extent() const { return extent; };
     SubscriptValue extent;
   };
-  static constexpr Rank maxRank{15};
+  static constexpr int maxRank{15};
 
   template<typename T>
   ConstantDescriptor(const Constant<T> &constant)

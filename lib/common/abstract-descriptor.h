@@ -43,7 +43,6 @@ public:
   // basic integer types
   using SubscriptValue = typename DESC::SubscriptValue;
   using SizeValue = typename DESC::SizeValue;  // may or may not be unsigned
-  using Rank = typename DESC::Rank;
   using Attribute = typename DESC::Attribute;
 
   // RankedSizedArray<A>(n) are arrays with storage for at least n A elements.
@@ -68,15 +67,15 @@ public:
   using Dimension = typename DESC::Dimension;
 
   // Constants to be defined by descriptor implementation
-  static constexpr Rank maxRank{DESC::maxRank};
+  static constexpr int maxRank{DESC::maxRank};
 
   // A descriptor implementation must provide the following functions:
 
-  Rank rank() const { return DESC::rank(); }
+  int rank() const { return DESC::rank(); }
 
   FortranType type() const { return DESC::type(); }
 
-  Dimension GetDimension(Rank i) const { return DESC::GetDimension(i); }
+  Dimension GetDimension(int i) const { return DESC::GetDimension(i); }
 
   // Write lower bounds of the entity describe by the descriptor
   // into subscripts.
@@ -102,7 +101,7 @@ public:
   // applicable) as source and the given rank. The data and bounds are left
   // unset.
   static OwningPointer<DescriptorInterface<DESC>> CreateWithSameTypeAs(
-      const DescriptorInterface<DESC> &source, Rank rank, Attribute attribute) {
+      const DescriptorInterface<DESC> &source, int rank, Attribute attribute) {
     return OwningPointer<DescriptorInterface<DESC>>{
         static_cast<DescriptorInterface<DESC> *>(&(*DESC::CreateWithSameTypeAs(
             static_cast<const DESC &>(source), rank, attribute)))};
@@ -128,7 +127,7 @@ public:
   // of the entity whose last element was reached.
   SizeValue CopyFrom(const DescriptorInterface<DESC> &source,
       SubscriptArray &resultSubscripts, SizeValue count,
-      const RankedSizedArray<Rank> *dimOrder) {
+      const RankedSizedArray<int> *dimOrder) {
     return DESC::CopyFrom(
         static_cast<const DESC &>(source), resultSubscripts, count, dimOrder);
   }
@@ -190,8 +189,7 @@ public:
   using FortranType = typename DESC::FortranType;
   using Dimension = typename DESC::Dimension;
   using Attribute = typename DESC::Attribute;
-  using Rank = typename DESC::Rank;
-  static constexpr Rank maxRank{DESC::maxRank};
+  static constexpr int maxRank{DESC::maxRank};
 
   static OwningPointer<DESC> RESHAPE(const DESC &source, const DESC &shape,
       const DESC *pad = nullptr, const DESC *order = nullptr) {
@@ -224,7 +222,7 @@ public:
 
     // Extract and check the optional ORDER= argument, which must be a
     // permutation of [1..resultRank].
-    RankedSizedArray<Rank> dimOrder(resultRank);
+    RankedSizedArray<int> dimOrder(resultRank);
     if (order != nullptr) {
       CHECK(order->rank() == 1);
       CHECK(order->type().IsInteger());
@@ -239,7 +237,7 @@ public:
         dimOrder[k - 1] = j;
       }
     } else {
-      for (Rank j{0}; j < resultRank; ++j) {
+      for (int j{0}; j < resultRank; ++j) {
         dimOrder[j] = j;
       }
     }
