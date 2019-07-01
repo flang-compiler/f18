@@ -1244,7 +1244,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
       } else {
         typeAndShape.emplace(DynamicType::TypelessIntrinsicArgument());
       }
-      dummyArgs.emplace_back(
+      dummyArgs.emplace_back(std::string{d.keyword},
           characteristics::DummyDataObject{std::move(typeAndShape.value())});
       if (d.typePattern.kindCode == KindCode::same &&
           !sameDummyArg.has_value()) {
@@ -1259,7 +1259,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
         auto category{d.typePattern.categorySet.LeastElement().value()};
         characteristics::TypeAndShape typeAndShape{
             DynamicType{category, defaults.GetDefaultKind(category)}};
-        dummyArgs.emplace_back(
+        dummyArgs.emplace_back(std::string{d.keyword},
             characteristics::DummyDataObject{std::move(typeAndShape)});
       }
       dummyArgs.back().SetOptional();
@@ -1346,7 +1346,7 @@ SpecificCall IntrinsicProcTable::Implementation::HandleNull(
                 characteristics::Procedure::Characterize(*last, intrinsics)};
             characteristics::DummyProcedure dp{
                 common::Clone(procPointer.value())};
-            args.emplace_back(std::move(dp));
+            args.emplace_back("mold"s, std::move(dp));
             fResult.emplace(std::move(procPointer.value()));
           } else if (auto type{mold->GetType()}) {
             // MOLD= object pointer
@@ -1357,7 +1357,7 @@ SpecificCall IntrinsicProcTable::Implementation::HandleNull(
               typeAndShape.emplace(*type);
             }
             characteristics::DummyDataObject ddo{typeAndShape.value()};
-            args.emplace_back(std::move(ddo));
+            args.emplace_back("mold", std::move(ddo));
             fResult.emplace(std::move(*typeAndShape));
           } else {
             context.messages().Say(
@@ -1532,7 +1532,8 @@ IntrinsicProcTable::Implementation::IsUnrestrictedSpecificIntrinsicFunction(
         characteristics::DummyDataObject dummy{
             GetSpecificType(specific.dummy[j].typePattern)};
         dummy.intent = common::Intent::In;
-        args.emplace_back(std::move(dummy));
+        args.emplace_back(
+            std::string{specific.dummy[j].keyword}, std::move(dummy));
       }
       characteristics::Procedure::Attrs attrs;
       attrs.set(characteristics::Procedure::Attr::Pure)

@@ -30,6 +30,7 @@
 #include "../semantics/symbol.h"
 #include <optional>
 #include <ostream>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -130,8 +131,10 @@ struct AlternateReturn {
 // 15.3.2.1
 struct DummyArgument {
   DECLARE_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
-  explicit DummyArgument(DummyDataObject &&x) : u{std::move(x)} {}
-  explicit DummyArgument(DummyProcedure &&x) : u{std::move(x)} {}
+  explicit DummyArgument(std::string &&name, DummyDataObject &&x)
+    : name{std::move(name)}, u{std::move(x)} {}
+  explicit DummyArgument(std::string &&name, DummyProcedure &&x)
+    : name{std::move(name)}, u{std::move(x)} {}
   explicit DummyArgument(AlternateReturn &&x) : u{std::move(x)} {}
   bool operator==(const DummyArgument &) const;
   static std::optional<DummyArgument> Characterize(
@@ -139,6 +142,9 @@ struct DummyArgument {
   bool IsOptional() const;
   void SetOptional(bool = true);
   std::ostream &Dump(std::ostream &) const;
+  // name is not a characteristic and so does not participate in operator==
+  // but it is needed to determine if procedures are distinguishable
+  std::string name;
   std::variant<DummyDataObject, DummyProcedure, AlternateReturn> u;
 };
 
