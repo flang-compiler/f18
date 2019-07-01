@@ -206,7 +206,7 @@ struct Procedure {
 
 private:
   Procedure() {}
-  void SetAttrsFrom(const semantics::Symbol &);
 };
+
 }
 #endif  // FORTRAN_EVALUATE_CHARACTERISTICS_H_
