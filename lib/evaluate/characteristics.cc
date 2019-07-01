@@ -19,11 +19,23 @@
 #include "../common/indirection.h"
 #include "../parser/message.h"
 #include "../semantics/symbol.h"
+#include <initializer_list>
 #include <ostream>
 
 using namespace Fortran::parser::literals;
 
 namespace Fortran::evaluate::characteristics {
+
+// Copy attributes from a symbol to dst based on the mapping in pairs.
+template<typename A, typename B>
+static void CopyAttrs(const semantics::Symbol &src, A &dst,
+    const std::initializer_list<std::pair<semantics::Attr, B>> &pairs) {
+  for (const auto &pair : pairs) {
+    if (src.attrs().test(pair.first)) {
+      dst.attrs.set(pair.second);
+    }
+  }
+}
 
 bool TypeAndShape::operator==(const TypeAndShape &that) const {
   return type_ == that.type_ && shape_ == that.shape_ &&
@@ -138,30 +150,18 @@ std::optional<DummyDataObject> DummyDataObject::Characterize(
   if (const auto *obj{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
     if (auto type{TypeAndShape::Characterize(*obj)}) {
       DummyDataObject result{*type};
-      if (symbol.attrs().test(semantics::Attr::OPTIONAL)) {
-        result.attrs.set(DummyDataObject::Attr::Optional);
-      }
-      if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
-        result.attrs.set(DummyDataObject::Attr::Allocatable);
-      }
-      if (symbol.attrs().test(semantics::Attr::ASYNCHRONOUS)) {
-        result.attrs.set(DummyDataObject::Attr::Asynchronous);
-      }
-      if (symbol.attrs().test(semantics::Attr::CONTIGUOUS)) {
-        result.attrs.set(DummyDataObject::Attr::Contiguous);
-      }
-      if (symbol.attrs().test(semantics::Attr::VALUE)) {
-        result.attrs.set(DummyDataObject::Attr::Value);
-      }
-      if (symbol.attrs().test(semantics::Attr::VOLATILE)) {
-        result.attrs.set(DummyDataObject::Attr::Volatile);
-      }
-      if (symbol.attrs().test(semantics::Attr::POINTER)) {
-        result.attrs.set(DummyDataObject::Attr::Pointer);
-      }
-      if (symbol.attrs().test(semantics::Attr::TARGET)) {
-        result.attrs.set(DummyDataObject::Attr::Target);
-      }
+      using semantics::Attr;
+      CopyAttrs<DummyDataObject, DummyDataObject::Attr>(symbol, result,
+          {
+              {Attr::OPTIONAL, DummyDataObject::Attr::Optional},
+              {Attr::ALLOCATABLE, DummyDataObject::Attr::Allocatable},
+              {Attr::ASYNCHRONOUS, DummyDataObject::Attr::Asynchronous},
+              {Attr::CONTIGUOUS, DummyDataObject::Attr::Contiguous},
+              {Attr::VALUE, DummyDataObject::Attr::Value},
+              {Attr::VOLATILE, DummyDataObject::Attr::Volatile},
+              {Attr::POINTER, DummyDataObject::Attr::Pointer},
+              {Attr::TARGET, DummyDataObject::Attr::Target},
+          });
       if (symbol.attrs().test(semantics::Attr::INTENT_IN)) {
         result.intent = common::Intent::In;
       }
@@ -205,17 +205,16 @@ bool DummyProcedure::operator==(const DummyProcedure &that) const {
 
 std::optional<DummyProcedure> DummyProcedure::Characterize(
     const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
-  if (symbol.has<semantics::ProcEntityDetails>()) {
-    if (auto procedure{Procedure::Characterize(symbol, intrinsics)}) {
-      DummyProcedure result{std::move(procedure.value())};
-      if (symbol.attrs().test(semantics::Attr::OPTIONAL)) {
-        result.attrs.set(DummyProcedure::Attr::Optional);
-      }
-      if (symbol.attrs().test(semantics::Attr::POINTER)) {
-        result.attrs.set(DummyProcedure::Attr::Pointer);
-      }
-      return result;
-    }
+  if (auto procedure{Procedure::Characterize(symbol, intrinsics)}) {
+    DummyProcedure result{std::move(procedure.value())};
+    CopyAttrs<DummyProcedure, DummyProcedure::Attr>(symbol, result,
+        {
+            {semantics::Attr::OPTIONAL, DummyProcedure::Attr::Optional},
+            {semantics::Attr::POINTER, DummyProcedure::Attr::Pointer},
+        });
+    return result;
+  } else {
+    return std::nullopt;
   }
   return std::nullopt;
 }
@@ -291,15 +290,12 @@ std::optional<FunctionResult> FunctionResult::Characterize(
   if (const auto *obj{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
     if (auto type{TypeAndShape::Characterize(*obj)}) {
       FunctionResult result{std::move(*type)};
-      if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
-        result.attrs.set(FunctionResult::Attr::Pointer);
-      }
-      if (symbol.attrs().test(semantics::Attr::CONTIGUOUS)) {
-        result.attrs.set(FunctionResult::Attr::Contiguous);
-      }
-      if (symbol.attrs().test(semantics::Attr::POINTER)) {
-        result.attrs.set(FunctionResult::Attr::Pointer);
-      }
+      CopyAttrs<FunctionResult, FunctionResult::Attr>(symbol, result,
+          {
+              {semantics::Attr::ALLOCATABLE, FunctionResult::Attr::Allocatable},
+              {semantics::Attr::CONTIGUOUS, FunctionResult::Attr::Contiguous},
+              {semantics::Attr::POINTER, FunctionResult::Attr::Pointer},
+          });
       return result;
     }
   } else if (auto maybeProc{Procedure::Characterize(symbol, intrinsics)}) {
@@ -343,8 +339,14 @@ bool Procedure::operator==(const Procedure &that) const {
 
 std::optional<Procedure> Procedure::Characterize(
     const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
+  Procedure result;
+  CopyAttrs<Procedure, Procedure::Attr>(symbol, result,
+      {
+          {semantics::Attr::PURE, Procedure::Attr::Pure},
+          {semantics::Attr::ELEMENTAL, Procedure::Attr::Elemental},
+          {semantics::Attr::BIND_C, Procedure::Attr::BindC},
+      });
   if (const auto *subp{symbol.detailsIf<semantics::SubprogramDetails>()}) {
-    Procedure result;
     if (subp->isFunction()) {
       if (auto maybeResult{
               FunctionResult::Characterize(subp->result(), intrinsics)}) {
@@ -353,7 +355,6 @@ std::optional<Procedure> Procedure::Characterize(
         return std::nullopt;
       }
     }
-    result.SetAttrsFrom(symbol);
     for (const semantics::Symbol *arg : subp->dummyArgs()) {
       if (arg == nullptr) {
         result.dummyArguments.emplace_back(AlternateReturn{});
@@ -369,7 +370,6 @@ std::optional<Procedure> Procedure::Characterize(
   } else if (const auto *proc{
                  symbol.detailsIf<semantics::ProcEntityDetails>()}) {
     const semantics::ProcInterface &interface{proc->interface()};
-    Procedure result;
     if (const semantics::Symbol * interfaceSymbol{interface.symbol()}) {
       if (auto characterized{Characterize(*interfaceSymbol, intrinsics)}) {
         result = *characterized;
@@ -388,7 +388,6 @@ std::optional<Procedure> Procedure::Characterize(
         // subroutine, not function
       }
     }
-    result.SetAttrsFrom(symbol);
     // The PASS name, if any, is not a characteristic.
     return result;
   } else if (const auto *misc{symbol.detailsIf<semantics::MiscDetails>()}) {
@@ -415,18 +414,6 @@ std::ostream &Procedure::Dump(std::ostream &o) const {
     sep = ',';
   }
   return o << (sep == '(' ? "()" : ")");
-}
-
-void Procedure::SetAttrsFrom(const semantics::Symbol &symbol) {
-  if (symbol.attrs().test(semantics::Attr::PURE)) {
-    attrs.set(Procedure::Attr::Pure);
-  }
-  if (symbol.attrs().test(semantics::Attr::ELEMENTAL)) {
-    attrs.set(Procedure::Attr::Elemental);
-  }
-  if (symbol.attrs().test(semantics::Attr::BIND_C)) {
-    attrs.set(Procedure::Attr::BindC);
-  }
 }
 
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
