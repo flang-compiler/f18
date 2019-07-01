@@ -452,9 +452,8 @@ public:
   Symbol *FindInTypeOrParents(const parser::Name &);
   void EraseSymbol(const parser::Name &);
   void EraseSymbol(const Symbol &symbol) { currScope().erase(symbol.name()); }
-  // Record that name resolved to symbol
   // Make a new symbol with the name and attrs of an existing one
-  Symbol &CopySymbol(const Symbol &);
+  Symbol &CopySymbol(const SourceName &, const Symbol &);
 
   // Make symbols in the current or named scope
   Symbol &MakeSymbol(Scope &, const SourceName &, Attrs);
@@ -1565,7 +1564,7 @@ void ScopeHandler::PushScope(Scope &scope) {
       // Create a dummy symbol so we can't create another one with the same
       // name. It might already be there if we previously pushed the scope.
       if (!FindInScope(scope, symbol->name())) {
-        auto &newSymbol{CopySymbol(*symbol)};
+        auto &newSymbol{CopySymbol(symbol->name(), *symbol)};
         if (kind == Scope::Kind::Subprogram) {
           newSymbol.set_details(symbol->get<SubprogramDetails>());
         } else {
@@ -1621,9 +1620,9 @@ Symbol &ScopeHandler::MakeSymbol(const SourceName &name, Attrs attrs) {
 Symbol &ScopeHandler::MakeSymbol(const parser::Name &name, Attrs attrs) {
   return Resolve(name, MakeSymbol(name.source, attrs));
 }
-Symbol &ScopeHandler::CopySymbol(const Symbol &symbol) {
-  CHECK(!FindInScope(currScope(), symbol.name()));
-  return MakeSymbol(currScope(), symbol.name(), symbol.attrs());
+Symbol &ScopeHandler::CopySymbol(const SourceName &name, const Symbol &symbol) {
+  CHECK(!FindInScope(currScope(), name));
+  return MakeSymbol(currScope(), name, symbol.attrs());
 }
 
 // Look for name only in scope, not in enclosing scopes.
@@ -1819,7 +1818,7 @@ void ModuleVisitor::Post(const parser::UseStmt &x) {
         if (useNames.count(name) == 0) {
           auto *localSymbol{FindInScope(currScope(), name)};
           if (!localSymbol) {
-            localSymbol = &CopySymbol(*symbol);
+            localSymbol = &CopySymbol(name, *symbol);
           }
           AddUse(x.moduleName.source, *localSymbol, *symbol);
         }
@@ -2011,13 +2010,13 @@ bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
       // copy the USEd symbol into this scope so we can modify it
       const Symbol &ultimate{symbol->GetUltimate()};
       EraseSymbol(*symbol);
-      symbol = &CopySymbol(ultimate);
+      symbol = &CopySymbol(symbolName, ultimate);
       if (const auto *details{ultimate.detailsIf<GenericDetails>()}) {
         symbol->set_details(GenericDetails{details->specificProcs()});
       } else if (const auto *details{ultimate.detailsIf<SubprogramDetails>()}) {
         symbol->set_details(SubprogramDetails{*details});
       } else {
-        common::die("unexpected kind of symbol");
+        DIE("unexpected kind of symbol");
       }
     }
   }
