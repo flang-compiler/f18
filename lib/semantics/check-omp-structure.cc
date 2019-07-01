@@ -40,7 +40,7 @@ void OmpStructureChecker::CheckAllowed(const OmpClause &type) {
         parser::ToUpperCaseLetters(GetContext().directiveSource.ToString()));
     return;
   }
-  if (GetContext().allowedOnceClauses.test(type) && SeenClause(type)) {
+  if (GetContext().allowedOnceClauses.test(type) && FindClause(type)) {
     context_.Say(GetContext().clauseSource,
         "At most one %s clause can appear on the %s directive"_err_en_US,
         EnumToString(type),
@@ -103,6 +103,7 @@ void OmpStructureChecker::Enter(const parser::OmpBlockDirective::Parallel &) {
 }
 
 // 2.7.1 do-clause -> private-clause |
+//                    firstprivate-clause |
 //                    lastprivate-clause |
 //                    linear-clause |
 //                    reduction-clause |
@@ -125,14 +126,12 @@ void OmpStructureChecker::Enter(const parser::OmpLoopDirective::Do &) {
 void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
   // 2.7 Loop Construct Restriction
   if (GetContext().directive == OmpDirective::DO) {
-    if (SeenClause(OmpClause::SCHEDULE)) {
+    if (auto *clause{FindClause(OmpClause::SCHEDULE)}) {
       // only one schedule clause is allowed
-      auto it{GetContext().clauseInfo.find(OmpClause::SCHEDULE)};
-      auto *clause{it->second};
       const auto &schedClause{std::get<parser::OmpScheduleClause>(clause->u)};
       if (ScheduleModifierHasType(schedClause,
               parser::OmpScheduleModifierType::ModType::Nonmonotonic)) {
-        if (SeenClause(OmpClause::ORDERED)) {
+        if (FindClause(OmpClause::ORDERED)) {
           context_.Say(clause->source,
               "The NONMONOTONIC modifier cannot be specified "
               "if an ORDERED clause is specified"_err_en_US);
@@ -146,24 +145,25 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
       }
     }
 
-    if (SeenClause(OmpClause::ORDERED) && SeenClause(OmpClause::LINEAR)) {
-      // only one ordered clause is allowed
-      auto it{GetContext().clauseInfo.find(OmpClause::ORDERED)};
-      auto *clause{it->second};
-      const auto &orderedClause{
-          std::get<parser::OmpClause::Ordered>(clause->u)};
-      if (orderedClause.v.has_value()) {
-        context_.Say(clause->source,
-            "A LINEAR clause or an ORDERED clause with a parameter "
-            "can be specified on a loop directive but not both"_err_en_US);
+    if (auto *clause{FindClause(OmpClause::ORDERED)}) {
+      if (FindClause(OmpClause::LINEAR)) {
+        // only one ordered clause is allowed
+        const auto &orderedClause{
+            std::get<parser::OmpClause::Ordered>(clause->u)};
+        if (orderedClause.v.has_value()) {
+          context_.Say(clause->source,
+              "A loop directive may not have both a LINEAR clause and "
+              "an ORDERED clause with a parameter"_err_en_US);
+        }
       }
+
+      // TODO: ordered region binding check (requires nesting implementation)
     }
   }
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause &x) {
-  SetContextClauseSource(x.source);
-  SetContextClause(&x);
+  SetContextClause(x);
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &) {
@@ -298,12 +298,16 @@ void OmpStructureChecker::Enter(const parser::OmpReductionClause &) {
 bool OmpStructureChecker::ScheduleModifierHasType(
     const parser::OmpScheduleClause &x,
     const parser::OmpScheduleModifierType::ModType &type) {
-  const auto &modifier{std::get<0>(x.t)};
+  const auto &modifier{
+      std::get<std::optional<parser::OmpScheduleModifier>>(x.t)};
   if (modifier.has_value()) {
-    const auto &modType1{std::get<0>(modifier->t)};
-    const auto &modType2{std::get<1>(modifier->t)};
-    if ((modType1.v).v == type ||
-        (modType2.has_value() && (modType2->v).v == type)) {
+    const auto &modType1{
+        std::get<parser::OmpScheduleModifier::Modifier1>(modifier->t)};
+    const auto &modType2{
+        std::get<std::optional<parser::OmpScheduleModifier::Modifier2>>(
+            modifier->t)};
+    if (modType1.v.v == type ||
+        (modType2.has_value() && modType2->v.v == type)) {
       return true;
     }
   }
@@ -315,21 +319,22 @@ void OmpStructureChecker::Enter(const parser::OmpScheduleClause &x) {
   // 2.7 Loop Construct Restriction
   if (GetContext().directive == OmpDirective::DO) {
     const auto &kind{std::get<1>(x.t)};
-    const auto &chunk{std::get<2>(x.t)};  // chunk_size
-    if ((kind == parser::OmpScheduleClause::ScheduleType::Runtime ||
-            kind == parser::OmpScheduleClause::ScheduleType::Auto) &&
-        chunk.has_value()) {
-      context_.Say(GetContext().clauseSource,
-          "When SCHEDULE(%s) is specified, "
-          "CHUNK_SIZE must not be specified"_err_en_US,
-          parser::ToUpperCaseLetters(
-              parser::OmpScheduleClause::EnumToString(kind)));
+    const auto &chunk{std::get<2>(x.t)};
+    if (chunk.has_value()) {
+      if (kind == parser::OmpScheduleClause::ScheduleType::Runtime ||
+          kind == parser::OmpScheduleClause::ScheduleType::Auto) {
+        context_.Say(GetContext().clauseSource,
+            "When SCHEDULE clause has %s specified, "
+            "it must not have chunk size specified"_err_en_US,
+            parser::ToUpperCaseLetters(
+                parser::OmpScheduleClause::EnumToString(kind)));
+      }
     }
 
     if (ScheduleModifierHasType(
             x, parser::OmpScheduleModifierType::ModType::Nonmonotonic)) {
-      if ((kind != parser::OmpScheduleClause::ScheduleType::Dynamic &&
-              kind != parser::OmpScheduleClause::ScheduleType::Guided)) {
+      if (kind != parser::OmpScheduleClause::ScheduleType::Dynamic &&
+          kind != parser::OmpScheduleClause::ScheduleType::Guided) {
         context_.Say(GetContext().clauseSource,
             "The NONMONOTONIC modifier can only be specified with "
             "SCHEDULE(DYNAMIC) or SCHEDULE(GUIDED)"_err_en_US);

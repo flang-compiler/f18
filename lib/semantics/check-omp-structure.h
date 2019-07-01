@@ -123,8 +123,9 @@ private:
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
     ompContext_.back().directiveSource = directive;
   }
-  void SetContextClauseSource(const parser::CharBlock &clause) {
-    ompContext_.back().clauseSource = clause;
+  void SetContextClause(const parser::OmpClause &clause) {
+    ompContext_.back().clauseSource = clause.source;
+    ompContext_.back().clause = &clause;
   }
   void SetContextDirectiveEnum(const OmpDirective &dir) {
     ompContext_.back().directive = dir;
@@ -135,14 +136,15 @@ private:
   void SetContextAllowedOnce(const OmpClauseSet &allowedOnce) {
     ompContext_.back().allowedOnceClauses = allowedOnce;
   }
-  void SetContextClause(const parser::OmpClause *clause) {
-    ompContext_.back().clause = clause;
-  }
   void SetContextClauseInfo(const OmpClause &type) {
     ompContext_.back().clauseInfo.emplace(type, ompContext_.back().clause);
   }
-  bool SeenClause(const OmpClause &type) {
-    return GetContext().clauseInfo.find(type) != GetContext().clauseInfo.end();
+  const parser::OmpClause *FindClause(const OmpClause &type) {
+    auto it{GetContext().clauseInfo.find(type)};
+    if (it != GetContext().clauseInfo.end()) {
+      return it->second;
+    }
+    return nullptr;
   }
 
   bool CurrentDirectiveIsNested() { return ompContext_.size() > 0; };

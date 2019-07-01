@@ -87,9 +87,9 @@
 
 ! TODO: all the internal errors
 
-  !ERROR: When SCHEDULE(AUTO) is specified, CHUNK_SIZE must not be specified
+  !ERROR: When SCHEDULE clause has AUTO specified, it must not have chunk size specified
   !ERROR: At most one SCHEDULE clause can appear on the DO directive
-  !ERROR: When SCHEDULE(RUNTIME) is specified, CHUNK_SIZE must not be specified
+  !ERROR: When SCHEDULE clause has RUNTIME specified, it must not have chunk size specified
   !$omp do schedule(auto, 2) schedule(runtime, 2)
   do i = 1, N
      a = 3.14
@@ -114,7 +114,7 @@
      a = 3.14
   enddo
 
-  !ERROR: A LINEAR clause or an ORDERED clause with a parameter can be specified on a loop directive but not both
+  !ERROR: A loop directive may not have both a LINEAR clause and an ORDERED clause with a parameter
   !ERROR: Internal: no symbol found for 'b'
   !ERROR: Internal: no symbol found for 'a'
   !$omp do ordered(1) private(b) linear(b) linear(a)
