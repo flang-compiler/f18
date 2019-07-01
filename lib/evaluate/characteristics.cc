@@ -238,14 +238,15 @@ bool DummyArgument::operator==(const DummyArgument &that) const {
 
 std::optional<DummyArgument> DummyArgument::Characterize(
     const semantics::Symbol &symbol, const IntrinsicProcTable &intrinsics) {
-  if (auto objCharacteristics{DummyDataObject::Characterize(symbol)}) {
-    return DummyArgument{std::move(objCharacteristics.value())};
-  } else if (auto procCharacteristics{
-                 DummyProcedure::Characterize(symbol, intrinsics)}) {
-    return DummyArgument{std::move(procCharacteristics.value())};
-  } else {
-    return std::nullopt;
+  auto name{symbol.name().ToString()};
+  if (symbol.has<semantics::ObjectEntityDetails>()) {
+    if (auto obj{DummyDataObject::Characterize(symbol)}) {
+      return DummyArgument{std::move(name), std::move(obj.value())};
+    }
+  } else if (auto proc{DummyProcedure::Characterize(symbol, intrinsics)}) {
+    return DummyArgument{std::move(name), std::move(proc.value())};
   }
+  return std::nullopt;
 }
 
 bool DummyArgument::IsOptional() const {
@@ -277,6 +278,9 @@ void DummyArgument::SetOptional(bool value) {
 }
 
 std::ostream &DummyArgument::Dump(std::ostream &o) const {
+  if (!name.empty()) {
+    o << name << '=';
+  }
   std::visit([&](const auto &x) { x.Dump(o); }, u);
   return o;
 }
