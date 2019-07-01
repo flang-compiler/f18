@@ -44,14 +44,19 @@ bool TypeAndShape::operator==(const TypeAndShape &that) const {
 
 std::optional<TypeAndShape> TypeAndShape::Characterize(
     const semantics::Symbol &symbol) {
-  if (const auto *object{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
-    return Characterize(*object);
-  } else if (const auto *proc{
-                 symbol.detailsIf<semantics::ProcEntityDetails>()}) {
-    return Characterize(*proc);
-  } else {
-    return std::nullopt;
-  }
+  return std::visit(
+      common::visitors{
+          [&](const semantics::ObjectEntityDetails &object) {
+            return Characterize(object);
+          },
+          [&](const semantics::ProcEntityDetails &proc) {
+            return Characterize(proc);
+          },
+          [](const auto &) -> std::optional<TypeAndShape> {
+            return std::nullopt;
+          },
+      },
+      symbol.details());
 }
 
 std::optional<TypeAndShape> TypeAndShape::Characterize(
@@ -346,59 +351,66 @@ std::optional<Procedure> Procedure::Characterize(
           {semantics::Attr::ELEMENTAL, Procedure::Attr::Elemental},
           {semantics::Attr::BIND_C, Procedure::Attr::BindC},
       });
-  if (const auto *subp{symbol.detailsIf<semantics::SubprogramDetails>()}) {
-    if (subp->isFunction()) {
-      if (auto maybeResult{
-              FunctionResult::Characterize(subp->result(), intrinsics)}) {
-        result.functionResult = std::move(maybeResult);
-      } else {
-        return std::nullopt;
-      }
-    }
-    for (const semantics::Symbol *arg : subp->dummyArgs()) {
-      if (arg == nullptr) {
-        result.dummyArguments.emplace_back(AlternateReturn{});
-      } else if (auto argCharacteristics{
-                     DummyArgument::Characterize(*arg, intrinsics)}) {
-        result.dummyArguments.emplace_back(
-            std::move(argCharacteristics.value()));
-      } else {
-        return std::nullopt;
-      }
-    }
-    return result;
-  } else if (const auto *proc{
-                 symbol.detailsIf<semantics::ProcEntityDetails>()}) {
-    const semantics::ProcInterface &interface{proc->interface()};
-    if (const semantics::Symbol * interfaceSymbol{interface.symbol()}) {
-      if (auto characterized{Characterize(*interfaceSymbol, intrinsics)}) {
-        result = *characterized;
-      } else {
-        return std::nullopt;
-      }
-    } else {
-      result.attrs.set(Procedure::Attr::ImplicitInterface);
-      if (const semantics::DeclTypeSpec * type{interface.type()}) {
-        if (auto resultType{DynamicType::From(*type)}) {
-          result.functionResult = FunctionResult{*resultType};
-        } else {
-          return std::nullopt;
-        }
-      } else {
-        // subroutine, not function
-      }
-    }
-    // The PASS name, if any, is not a characteristic.
-    return result;
-  } else if (const auto *misc{symbol.detailsIf<semantics::MiscDetails>()}) {
-    if (misc->kind() == semantics::MiscDetails::Kind::SpecificIntrinsic) {
-      if (auto intrinsic{intrinsics.IsUnrestrictedSpecificIntrinsicFunction(
-              symbol.name().ToString())}) {
-        return *intrinsic;
-      }
-    }
-  }
-  return std::nullopt;
+  return std::visit(
+      common::visitors{
+          [&](const semantics::SubprogramDetails &subp)
+              -> std::optional<Procedure> {
+            if (subp.isFunction()) {
+              auto fr{FunctionResult::Characterize(subp.result(), intrinsics)};
+              if (!fr) {
+                return std::nullopt;
+              }
+              result.functionResult = std::move(fr);
+            }
+            for (const semantics::Symbol *arg : subp.dummyArgs()) {
+              if (arg == nullptr) {
+                result.dummyArguments.emplace_back(AlternateReturn{});
+              } else if (auto argCharacteristics{
+                             DummyArgument::Characterize(*arg, intrinsics)}) {
+                result.dummyArguments.emplace_back(
+                    std::move(argCharacteristics.value()));
+              } else {
+                return std::nullopt;
+              }
+            }
+            return result;
+          },
+          [&](const semantics::ProcEntityDetails &proc)
+              -> std::optional<Procedure> {
+            const semantics::ProcInterface &interface{proc.interface()};
+            if (const semantics::Symbol * interfaceSymbol{interface.symbol()}) {
+              auto characterized{Characterize(*interfaceSymbol, intrinsics)};
+              if (!characterized) {
+                return std::nullopt;
+              }
+              result = *characterized;
+            } else {
+              result.attrs.set(Procedure::Attr::ImplicitInterface);
+              if (const semantics::DeclTypeSpec * type{interface.type()}) {
+                auto resultType{DynamicType::From(*type)};
+                if (!resultType) {
+                  return std::nullopt;
+                }
+                result.functionResult = FunctionResult{*resultType};
+              } else {
+                // subroutine, not function
+              }
+            }
+            // The PASS name, if any, is not a characteristic.
+            return result;
+          },
+          [&](const semantics::MiscDetails &misc) -> std::optional<Procedure> {
+            if (misc.kind() ==
+                semantics::MiscDetails::Kind::SpecificIntrinsic) {
+              return intrinsics.IsUnrestrictedSpecificIntrinsicFunction(
+                  symbol.name().ToString());
+            } else {
+              return std::nullopt;
+            }
+          },
+          [](const auto &) -> std::optional<Procedure> { return std::nullopt; },
+      },
+      symbol.details());
 }
 
 std::ostream &Procedure::Dump(std::ostream &o) const {
