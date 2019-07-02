@@ -100,8 +100,7 @@ template<typename A> inline bool PointeeComparison(const A *x, const A *y) {
 bool DynamicType::operator==(const DynamicType &that) const {
   return category_ == that.category_ && kind_ == that.kind_ &&
       PointeeComparison(charLength_, that.charLength_) &&
-      PointeeComparison(derived_, that.derived_) &&
-      isPolymorphic_ == that.isPolymorphic_;
+      PointeeComparison(derived_, that.derived_);
 }
 
 bool DynamicType::IsAssumedLengthCharacter() const {
@@ -143,7 +142,8 @@ static const bool IsAncestorTypeOf(const semantics::DerivedTypeSpec *ancestor,
 
 bool DynamicType::IsTypeCompatibleWith(const DynamicType &that) const {
   return *this == that || IsUnlimitedPolymorphic() ||
-      (isPolymorphic_ && IsAncestorTypeOf(derived_, that.derived_));
+      (IsPolymorphic() && derived_ != nullptr &&
+          IsAncestorTypeOf(derived_, that.derived_));
 }
 
 // Do the kind type parameters of type1 have the same values as the
@@ -165,17 +165,15 @@ static bool IsKindCompatible(const semantics::DerivedTypeSpec &type1,
 }
 
 bool DynamicType::IsTkCompatibleWith(const DynamicType &that) const {
-  if (category_ != that.category_ || kind_ != that.kind_) {
-    return false;
-  } else if (category_ != TypeCategory::Derived) {
-    return true;  // same intrinsic category and kind
+  if (category_ != TypeCategory::Derived) {
+    return category_ == that.category_ && kind_ == that.kind_;
   } else if (IsUnlimitedPolymorphic()) {
     return true;
   } else if (that.IsUnlimitedPolymorphic()) {
     return false;
   } else if (!IsKindCompatible(*derived_, *that.derived_)) {
     return false;  // kind params don't match
-  } else if (!isPolymorphic_) {
+  } else if (!IsPolymorphic()) {
     return derived_->typeSymbol() == that.derived_->typeSymbol();
   } else {
     return IsAncestorTypeOf(derived_, that.derived_);
@@ -199,8 +197,12 @@ std::optional<DynamicType> DynamicType::From(
   } else if (const auto *derived{type.AsDerived()}) {
     return DynamicType{
         *derived, type.category() == semantics::DeclTypeSpec::ClassDerived};
-  } else {
+  } else if (type.category() == semantics::DeclTypeSpec::ClassStar) {
     return DynamicType::UnlimitedPolymorphic();
+  } else if (type.category() == semantics::DeclTypeSpec::TypeStar) {
+    return DynamicType::AssumedType();
+  } else {
+    common::die("DynamicType::From(DeclTypeSpec): failed");
   }
   return std::nullopt;
 }

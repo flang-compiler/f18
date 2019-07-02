@@ -96,7 +96,11 @@ public:
   }
   explicit constexpr DynamicType(
       const semantics::DerivedTypeSpec &dt, bool poly = false)
-    : category_{TypeCategory::Derived}, derived_{&dt}, isPolymorphic_{poly} {}
+    : category_{TypeCategory::Derived}, derived_{&dt} {
+    if (poly) {
+      kind_ = ClassKind;
+    }
+  }
 
   // A rare use case used for representing the characteristics of an
   // intrinsic function like REAL() that accepts a typeless BOZ literal
@@ -104,14 +108,24 @@ public:
   static constexpr DynamicType TypelessIntrinsicArgument() {
     DynamicType result;
     result.category_ = TypeCategory::Integer;
-    result.kind_ = 0;
+    result.kind_ = TypelessKind;
     return result;
   }
 
   static constexpr DynamicType UnlimitedPolymorphic() {
     DynamicType result;
-    result.isPolymorphic_ = true;
+    result.category_ = TypeCategory::Derived;
+    result.kind_ = ClassKind;
+    result.derived_ = nullptr;
     return result;  // CLASS(*)
+  }
+
+  static constexpr DynamicType AssumedType() {
+    DynamicType result;
+    result.category_ = TypeCategory::Derived;
+    result.kind_ = AssumedTypeKind;
+    result.derived_ = nullptr;
+    return result;  // TYPE(*)
   }
 
   // Comparison is deep -- type parameters are compared independently.
@@ -119,19 +133,27 @@ public:
   bool operator!=(const DynamicType &that) const { return !(*this == that); }
 
   constexpr TypeCategory category() const { return category_; }
-  constexpr int kind() const { return kind_; }
+  constexpr int kind() const {
+    CHECK(kind_ > 0);
+    return kind_;
+  }
   constexpr const semantics::ParamValue *charLength() const {
     return charLength_;
   }
-  constexpr bool isPolymorphic() const { return isPolymorphic_; }
 
   std::string AsFortran() const;
   std::string AsFortran(std::string &&charLenExpr) const;
   DynamicType ResultTypeForMultiply(const DynamicType &) const;
 
   bool IsAssumedLengthCharacter() const;
-  constexpr bool IsUnlimitedPolymorphic() const {
-    return isPolymorphic_ && derived_ == nullptr;
+  constexpr bool IsAssumedType() const {  // TYPE(*)
+    return kind_ == AssumedTypeKind;
+  }
+  constexpr bool IsPolymorphic() const {  // TYPE(*) or CLASS()
+    return kind_ == ClassKind || IsAssumedType();
+  }
+  constexpr bool IsUnlimitedPolymorphic() const {  // TYPE(*) or CLASS(*)
+    return IsPolymorphic() && derived_ == nullptr;
   }
   constexpr const semantics::DerivedTypeSpec &GetDerivedTypeSpec() const {
     CHECK(derived_ != nullptr);
@@ -171,13 +193,20 @@ public:
   }
 
 private:
+  // Special kind codes are used when category_ == TypeCategory::Derived
+  // to distinguish the following Fortran types.
+  enum SpecialKind {
+    TypelessKind = -1,  // BOZ actual argument to intrinsic function
+    ClassKind = -2,  // CLASS(T) or CLASS(*)
+    AssumedTypeKind = -3,  // TYPE(*)
+  };
+
   constexpr DynamicType() {}
 
   TypeCategory category_{TypeCategory::Derived};  // overridable default
-  int kind_{0};  // set only for intrinsic types
+  int kind_{0};
   const semantics::ParamValue *charLength_{nullptr};
   const semantics::DerivedTypeSpec *derived_{nullptr};  // TYPE(T), CLASS(T)
-  bool isPolymorphic_{false};  // CLASS(T), CLASS(*)
 };
 
 std::string DerivedTypeSpecAsFortran(const semantics::DerivedTypeSpec &);
