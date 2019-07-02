@@ -160,7 +160,7 @@ MaybeExpr ExpressionAnalyzer::Designate(DataRef &&ref) {
 MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
   const Symbol &symbol{ref.GetLastSymbol().GetUltimate()};
   int symbolRank{symbol.Rank()};
-  int subscripts = ref.size();
+  int subscripts{static_cast<int>(ref.size())};
   if (subscripts == 0) {
     // A -> A(:,:)
     for (; subscripts < symbolRank; ++subscripts) {
@@ -173,7 +173,7 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
     return std::nullopt;
   } else if (subscripts == 0) {
     // nothing to check
-  } else if (Component * component{std::get_if<Component>(&ref.base())}) {
+  } else if (Component * component{ref.base().UnwrapComponent()}) {
     int baseRank{component->base().Rank()};
     if (baseRank > 0) {
       int subscriptRank{0};
@@ -321,8 +321,7 @@ template<typename A> MaybeExpr AsMaybeExpr(std::optional<A> &&x) {
 
 // Type kind parameter values for literal constants.
 int ExpressionAnalyzer::AnalyzeKindParam(
-    const std::optional<parser::KindParam> &kindParam, int defaultKind,
-    int kanjiKind /* = -1 */) {
+    const std::optional<parser::KindParam> &kindParam, int defaultKind) {
   if (!kindParam.has_value()) {
     return defaultKind;
   }
@@ -339,13 +338,6 @@ int ExpressionAnalyzer::AnalyzeKindParam(
                 }
               }
             }
-            return defaultKind;
-          },
-          [&](parser::KindParam::Kanji) {
-            if (kanjiKind >= 0) {
-              return kanjiKind;
-            }
-            Say("Kanji not allowed here"_err_en_US);
             return defaultKind;
           },
       },
@@ -522,13 +514,16 @@ MaybeExpr ExpressionAnalyzer::AnalyzeString(std::string &&string, int kind) {
   switch (kind) {
   case 1:
     return AsGenericExpr(Constant<Type<TypeCategory::Character, 1>>{
-        parser::DecodeString<parser::Encoding::LATIN_1>(string, true)});
+        parser::DecodeString<std::string, parser::Encoding::LATIN_1>(
+            string, true)});
   case 2:
     return AsGenericExpr(Constant<Type<TypeCategory::Character, 2>>{
-        parser::DecodeString<parser::Encoding::EUC_JP>(string, true)});
+        parser::DecodeString<std::u16string, parser::Encoding::UTF_8>(
+            string, true)});
   case 4:
     return AsGenericExpr(Constant<Type<TypeCategory::Character, 4>>{
-        parser::DecodeString<parser::Encoding::UTF_8>(string, true)});
+        parser::DecodeString<std::u32string, parser::Encoding::UTF_8>(
+            string, true)});
   default: CRASH_NO_CASE;
   }
 }
@@ -591,8 +586,10 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::BOZLiteralConstant &x) {
 struct TypeParamInquiryVisitor {
   using Result = std::optional<Expr<SomeInteger>>;
   using Types = IntegerTypes;
-  TypeParamInquiryVisitor(int k, SymbolOrComponent &&b, const Symbol &param)
+  TypeParamInquiryVisitor(int k, NamedEntity &&b, const Symbol &param)
     : kind{k}, base{std::move(b)}, parameter{param} {}
+  TypeParamInquiryVisitor(int k, const Symbol &param)
+    : kind{k}, parameter{param} {}
   template<typename T> Result Test() {
     if (kind == T::kind) {
       return Expr<SomeInteger>{
@@ -601,7 +598,7 @@ struct TypeParamInquiryVisitor {
     return std::nullopt;
   }
   int kind;
-  SymbolOrComponent base;
+  std::optional<NamedEntity> base;
   const Symbol &parameter;
 };
 
@@ -609,8 +606,8 @@ static std::optional<Expr<SomeInteger>> MakeBareTypeParamInquiry(
     const Symbol *symbol) {
   if (std::optional<DynamicType> dyType{DynamicType::From(symbol)}) {
     if (dyType->category() == TypeCategory::Integer) {
-      return common::SearchTypes(TypeParamInquiryVisitor{
-          dyType->kind(), SymbolOrComponent{nullptr} /* no base */, *symbol});
+      return common::SearchTypes(
+          TypeParamInquiryVisitor{dyType->kind(), *symbol});
     }
   }
   return std::nullopt;
@@ -818,15 +815,16 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::ArrayElement &ae) {
 
 // Type parameter inquiries apply to data references, but don't depend
 // on any trailing (co)subscripts.
-static SymbolOrComponent IgnoreAnySubscripts(
-    Designator<SomeDerived> &&designator) {
+static NamedEntity IgnoreAnySubscripts(Designator<SomeDerived> &&designator) {
   return std::visit(
       common::visitors{
-          [](const Symbol *symbol) { return SymbolOrComponent{symbol}; },
-          [](Component &&component) { return SymbolOrComponent{component}; },
+          [](const Symbol *symbol) { return NamedEntity{*symbol}; },
+          [](Component &&component) {
+            return NamedEntity{std::move(component)};
+          },
           [](ArrayRef &&arrayRef) { return std::move(arrayRef.base()); },
           [](CoarrayRef &&coarrayRef) {
-            return SymbolOrComponent{&coarrayRef.GetLastSymbol()};
+            return NamedEntity{coarrayRef.GetLastSymbol()};
           },
       },
       std::move(designator.u));
@@ -1194,8 +1192,13 @@ MaybeExpr ExpressionAnalyzer::Analyze(
     return std::nullopt;
   }
   const auto &spec{*parsedType.derivedTypeSpec};
-  CHECK(spec.scope() != nullptr);
   const Symbol &typeSymbol{spec.typeSymbol()};
+  if (spec.scope() == nullptr ||
+      !typeSymbol.has<semantics::DerivedTypeDetails>()) {
+    return std::nullopt;  // error recovery
+  }
+  const auto &typeDetails{typeSymbol.get<semantics::DerivedTypeDetails>()};
+  const Symbol *parentComponent{typeDetails.GetParentComponent(*spec.scope())};
 
   if (typeSymbol.attrs().test(semantics::Attr::ABSTRACT)) {  // C796
     if (auto *msg{Say(typeName,
@@ -1232,6 +1235,8 @@ MaybeExpr ExpressionAnalyzer::Analyze(
     auto &messages{GetContextualMessages()};
     auto restorer{messages.SetLocation(source)};
     const Symbol *symbol{nullptr};
+    MaybeExpr value{Analyze(expr)};
+    std::optional<DynamicType> valueType{DynamicType::From(value)};
     if (const auto &kw{std::get<std::optional<parser::Keyword>>(component.t)}) {
       anyKeyword = true;
       source = kw->v.source;
@@ -1254,11 +1259,29 @@ MaybeExpr ExpressionAnalyzer::Analyze(
             "Value in structure constructor lacks a component name"_err_en_US);
         checkConflicts = false;  // stem cascade
       }
-      while (nextAnonymous != components.end()) {
+      // Here's a regrettably common extension of the standard: anonymous
+      // initialization of parent components, e.g., T(PT(1)) rather than
+      // T(1) or T(PT=PT(1)).
+      if (nextAnonymous == components.begin() && parentComponent != nullptr &&
+          valueType == DynamicType::From(*parentComponent) &&
+          context().IsEnabled(parser::LanguageFeature::AnonymousParents)) {
+        auto iter{
+            std::find(components.begin(), components.end(), parentComponent)};
+        if (iter != components.end()) {
+          symbol = parentComponent;
+          nextAnonymous = ++iter;
+          if (context().ShouldWarn(parser::LanguageFeature::AnonymousParents)) {
+            Say(source,
+                "Whole parent component '%s' in structure "
+                "constructor should not be anonymous"_en_US,
+                symbol->name());
+          }
+        }
+      }
+      while (symbol == nullptr && nextAnonymous != components.end()) {
         const Symbol *nextSymbol{*nextAnonymous++};
         if (!nextSymbol->test(Symbol::Flag::ParentComp)) {
           symbol = nextSymbol;
-          break;
         }
       }
       if (symbol == nullptr) {
@@ -1291,7 +1314,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(
         }
       }
       unavailable.insert(symbol->name());
-      if (MaybeExpr value{Analyze(expr)}) {
+      if (value.has_value()) {
         if (symbol->has<semantics::ProcEntityDetails>()) {
           CHECK(IsPointer(*symbol));
         } else if (symbol->has<semantics::ObjectEntityDetails>()) {
@@ -1335,11 +1358,12 @@ MaybeExpr ExpressionAnalyzer::Analyze(
                        ConvertToType(*symbol, std::move(*value))}) {
           result.Add(*symbol, std::move(*converted));
         } else if (auto symType{DynamicType::From(symbol)}) {
-          if (auto type{DynamicType::From(value)}) {
+          if (valueType.has_value()) {
             if (auto *msg{Say(expr.source,
                     "Value in structure constructor of type %s is "
                     "incompatible with component '%s' of type %s"_err_en_US,
-                    type->AsFortran(), symbol->name(), symType->AsFortran())}) {
+                    valueType->AsFortran(), symbol->name(),
+                    symType->AsFortran())}) {
               msg->Attach(symbol->name(), "Component declaration"_en_US);
             }
           } else {
@@ -1871,6 +1895,7 @@ MaybeExpr ExpressionAnalyzer::ExprOrVariable(const PARSED &x) {
       // better error reporting.
       auto save{GetContextualMessages().SetLocation(x.source)};
       result = Analyze(x.u);
+      result = Fold(GetFoldingContext(), std::move(result));
     } else {
       result = Analyze(x.u);
     }

@@ -380,7 +380,11 @@ std::optional<Procedure> Procedure::Characterize(
               result = *characterized;
             } else {
               result.attrs.set(Procedure::Attr::ImplicitInterface);
-              if (const semantics::DeclTypeSpec * type{interface.type()}) {
+              if (symbol.test(semantics::Symbol::Flag::Function)) {
+                const semantics::DeclTypeSpec *type{interface.type()};
+                if (!type) {
+                  return std::nullopt;
+                }
                 auto resultType{DynamicType::From(*type)};
                 if (!resultType) {
                   return std::nullopt;
@@ -388,6 +392,9 @@ std::optional<Procedure> Procedure::Characterize(
                 result.functionResult = FunctionResult{*resultType};
               } else {
                 // subroutine, not function
+                if (interface.type() != nullptr) {
+                  return std::nullopt;
+                }
               }
             }
             // The PASS name, if any, is not a characteristic.
