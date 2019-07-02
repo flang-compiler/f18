@@ -161,9 +161,10 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
           const auto &collapseClause{
               std::get<parser::OmpClause::Collapse>(clause2->u)};
           // ordered and collapse both have parameters
-          const auto orderedValue{GetConstPosIntValue(orderedClause.v)};
-          const auto collapseValue{GetConstPosIntValue(collapseClause.v)};
-          if (orderedValue && collapseValue && orderedValue < collapseValue) {
+          const auto orderedValue{GetPosIntValue(orderedClause.v)};
+          const auto collapseValue{GetPosIntValue(collapseClause.v)};
+          if (orderedValue && collapseValue &&
+              orderedValue.value() < collapseValue.value()) {
             context_.Say(clause->source,
                 "The parameter of the ORDERED clause must be greater than or "
                 "equal to the parameter of the COLLAPSE clause"_err_en_US);
@@ -202,7 +203,7 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Untied &) {
 void OmpStructureChecker::Enter(const parser::OmpClause::Collapse &x) {
   CheckAllowed(OmpClause::COLLAPSE);
   // collapse clause must have a parameter
-  if (!GetConstPosIntValue(x.v)) {
+  if (!GetPosIntValue(x.v)) {
     context_.Say(GetContext().clauseSource,
         "The parameter of the COLLAPSE clause must be "
         "a constant positive integer expression"_err_en_US);
@@ -244,8 +245,8 @@ void OmpStructureChecker::Enter(const parser::OmpClause::NumTeams &) {
 }
 void OmpStructureChecker::Enter(const parser::OmpClause::NumThreads &x) {
   CheckAllowed(OmpClause::NUM_THREADS);
-  const auto &v{GetIntValue(x.v)};
-  if (v && v <= 0) {
+  const auto v{GetIntValue(x.v)};
+  if (v && v.value() <= 0) {
     context_.Say(GetContext().clauseSource,
         "The parameter of the NUM_THREADS clause must be "
         "a positive integer expression"_err_en_US);
@@ -256,11 +257,13 @@ void OmpStructureChecker::Enter(const parser::OmpClause::NumThreads &x) {
 void OmpStructureChecker::Enter(const parser::OmpClause::Ordered &x) {
   CheckAllowed(OmpClause::ORDERED);
   // the parameter of ordered clause is optional
-  const auto &expr{x.v};
-  if (expr.has_value() && !GetConstPosIntValue(expr)) {
-    context_.Say(GetContext().clauseSource,
-        "The parameter of the ORDERED clause must be "
-        "a constant positive integer expression"_err_en_US);
+  if (const auto &expr{x.v}) {
+    const auto v{GetPosIntValue(expr)};
+    if (!v) {
+      context_.Say(GetContext().clauseSource,
+          "The parameter of the ORDERED clause must be "
+          "a constant positive integer expression"_err_en_US);
+    }
   }
 }
 void OmpStructureChecker::Enter(const parser::OmpClause::Priority &) {

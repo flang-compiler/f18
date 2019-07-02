@@ -134,10 +134,11 @@
      a = 3.14
   enddo
 
+  !ERROR: The parameter of the ORDERED clause must be a constant positive integer expression
   !ERROR: A loop directive may not have both a LINEAR clause and an ORDERED clause with a parameter
   !ERROR: Internal: no symbol found for 'b'
   !ERROR: Internal: no symbol found for 'a'
-  !$omp do ordered(1) private(b) linear(b) linear(a)
+  !$omp do ordered(1-1) private(b) linear(b) linear(a)
   do i = 1, N
      a = 3.14
   enddo
