@@ -311,6 +311,12 @@ bool Symbol::IsSeparateModuleProc() const {
   return false;
 }
 
+bool Symbol::IsFromModFile() const {
+  return test(Flag::ModFile) ||
+      (owner_->kind() != Scope::Kind::Global &&
+          owner_->symbol()->IsFromModFile());
+}
+
 ObjectEntityDetails::ObjectEntityDetails(EntityDetails &&d)
   : EntityDetails(d) {}
 

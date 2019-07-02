@@ -47,6 +47,9 @@ namespace Fortran::evaluate::characteristics {
 
 template<typename T> using CopyableIndirection = common::CopyableIndirection<T>;
 
+// Can these two procedures be distinguished based on C1514.
+bool Distinguishable(const Procedure &, const Procedure &);
+
 class TypeAndShape {
 public:
   explicit TypeAndShape(DynamicType t) : type_{t} {}

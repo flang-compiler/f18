@@ -410,7 +410,7 @@ public:
   GenericKind kind() const { return kind_; }
   void set_kind(GenericKind kind) { kind_ = kind; }
 
-  const SymbolVector specificProcs() const { return specificProcs_; }
+  const SymbolVector &specificProcs() const { return specificProcs_; }
   void add_specificProc(const Symbol &proc) { specificProcs_.push_back(&proc); }
 
   Symbol *specific() { return specific_; }
@@ -544,6 +544,7 @@ public:
   bool IsObjectArray() const;
   bool IsSubprogram() const;
   bool IsSeparateModuleProc() const;
+  bool IsFromModFile() const;
   bool HasExplicitInterface() const {
     return std::visit(
         common::visitors{
