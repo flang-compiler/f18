@@ -21,6 +21,7 @@
 !    ...
 
   integer :: b = 128
+  integer, parameter :: num = 16
   N = 1024
 
 ! 2.5 parallel-clause -> if-clause |
@@ -76,6 +77,25 @@
   enddo
   !$omp end parallel
 
+  !ERROR: The parameter of the NUM_THREADS clause must be a positive integer expression
+  !$omp parallel num_threads(1-4)
+  do i = 1, N
+     a = 3.14
+  enddo
+  !$omp end parallel
+
+  !$omp parallel num_threads(num-10)
+  do i = 1, N
+     a = 3.14
+  enddo
+  !$omp end parallel
+
+  !$omp parallel num_threads(b+1)
+  do i = 1, N
+     a = 3.14
+  enddo
+  !$omp end parallel
+
 ! 2.7.1  do-clause -> private-clause |
 !                     firstprivate-clause |
 !                     lastprivate-clause |
@@ -120,5 +140,15 @@
   !$omp do ordered(1) private(b) linear(b) linear(a)
   do i = 1, N
      a = 3.14
+  enddo
+
+  !ERROR: The parameter of the ORDERED clause must be greater than or equal to the parameter of the COLLAPSE clause
+  !$omp do collapse(num) ordered(1+2+3+4)
+  do i = 1, N
+     do j = 1, N
+        do k = 1, N
+           a = 3.14
+        enddo
+     enddo
   enddo
 end

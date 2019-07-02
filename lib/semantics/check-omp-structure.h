@@ -21,7 +21,9 @@
 #define FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
 
 #include "semantics.h"
+#include "tools.h"
 #include "../common/enum-set.h"
+#include "../evaluate/fold.h"
 #include "../parser/parse-tree.h"
 
 namespace Fortran::semantics {
@@ -145,6 +147,25 @@ private:
       return it->second;
     }
     return nullptr;
+  }
+
+  template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
+    const auto *expr{GetExpr(x)};
+    if (expr && evaluate::ToInt64(*expr).has_value()) {
+      return evaluate::ToInt64(*expr).value();
+    }
+    return std::nullopt;
+  }
+  template<typename T> std::int64_t GetPosIntValue(const T &x) {
+    const auto &v{GetIntValue(x)};
+    return v && v > 0 ? v.value() : 0;
+  }
+  template<typename T> std::int64_t GetConstPosIntValue(const T &x) {
+    const auto *expr{GetExpr(x)};
+    if (expr && IsConstantExpr(*expr)) {
+      return GetPosIntValue(x);
+    }
+    return 0;
   }
 
   bool CurrentDirectiveIsNested() { return ompContext_.size() > 0; };
