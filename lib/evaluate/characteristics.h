@@ -45,7 +45,7 @@ extern template class Fortran::common::Indirection<
 
 namespace Fortran::evaluate::characteristics {
 
-template<typename T> using CopyableIndirection = common::CopyableIndirection<T>;
+using common::CopyableIndirection;
 
 // Can these two procedures be distinguished based on C1514.
 bool Distinguishable(const Procedure &, const Procedure &);

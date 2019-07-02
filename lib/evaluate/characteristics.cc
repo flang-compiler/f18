@@ -459,7 +459,7 @@ private:
   static int FindLastToDistinguishByName(
       const DummyArguments &, const DummyArguments &);
   static int CountCompatibleWith(const DummyArgument &, const DummyArguments &);
-  static int CountDistinguishableFrom(
+  static int CountNotDistinguishableFrom(
       const DummyArgument &, const DummyArguments &);
   static bool Distinguishable(const DummyArgument &, const DummyArgument &);
   static bool Distinguishable(const DummyDataObject &, const DummyDataObject &);
@@ -509,8 +509,10 @@ const DummyArgument *DistinguishUtils::Rule1DistinguishingArg(
   for (std::size_t i{0}; i < size1 + size2; ++i) {
     const DummyArgument &x{i < size1 ? args1[i] : args2[i - size1]};
     if (std::holds_alternative<DummyDataObject>(x.u)) {
-      if (CountCompatibleWith(x, args1) > CountDistinguishableFrom(x, args2) ||
-          CountCompatibleWith(x, args2) > CountDistinguishableFrom(x, args1)) {
+      if (CountCompatibleWith(x, args1) >
+              CountNotDistinguishableFrom(x, args2) ||
+          CountCompatibleWith(x, args2) >
+              CountNotDistinguishableFrom(x, args1)) {
         return &x;
       }
     }
@@ -566,7 +568,7 @@ int DistinguishUtils::CountCompatibleWith(
 
 // Return the number of dummy data objects in args that are not
 // distinguishable from x and not passed-object.
-int DistinguishUtils::CountDistinguishableFrom(
+int DistinguishUtils::CountNotDistinguishableFrom(
     const DummyArgument &x, const DummyArguments &args) {
   return std::count_if(args.begin(), args.end(), [&](const DummyArgument &y) {
     return std::holds_alternative<DummyDataObject>(y.u) &&
