@@ -1391,7 +1391,7 @@ SpecificCall IntrinsicProcTable::Implementation::HandleNull(
               typeAndShape.emplace(*type);
             }
             characteristics::DummyDataObject ddo{typeAndShape.value()};
-            args.emplace_back("mold", std::move(ddo));
+            args.emplace_back("mold"s, std::move(ddo));
             fResult.emplace(std::move(*typeAndShape));
           } else {
             context.messages().Say(
