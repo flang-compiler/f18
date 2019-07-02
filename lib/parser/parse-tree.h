@@ -660,7 +660,7 @@ struct CharSelector {
 //        integer-type-spec | REAL [kind-selector] | DOUBLE PRECISION |
 //        COMPLEX [kind-selector] | CHARACTER [char-selector] |
 //        LOGICAL [kind-selector]
-// Extensions: DOUBLE COMPLEX, NCHARACTER (Kanji)
+// Extensions: DOUBLE COMPLEX
 struct IntrinsicTypeSpec {
   UNION_CLASS_BOILERPLATE(IntrinsicTypeSpec);
   struct Real {
@@ -685,9 +685,8 @@ struct IntrinsicTypeSpec {
     std::optional<KindSelector> kind;
   };
   EMPTY_CLASS(DoubleComplex);
-  WRAPPER_CLASS(NCharacter, std::optional<LengthSelector>);
   std::variant<IntegerTypeSpec, Real, DoublePrecision, Complex, Character,
-      Logical, DoubleComplex, NCharacter>
+      Logical, DoubleComplex>
       u;
 };
 
@@ -737,8 +736,7 @@ struct DeclarationTypeSpec {
 // R709 kind-param -> digit-string | scalar-int-constant-name
 struct KindParam {
   UNION_CLASS_BOILERPLATE(KindParam);
-  EMPTY_CLASS(Kanji);
-  std::variant<std::uint64_t, Scalar<Integer<Constant<Name>>>, Kanji> u;
+  std::variant<std::uint64_t, Scalar<Integer<Constant<Name>>>> u;
 };
 
 // R707 signed-int-literal-constant -> [sign] int-literal-constant
@@ -963,7 +961,7 @@ struct ComponentAttrSpec {
 };
 
 // R806 null-init -> function-reference
-// TODO check that NULL is still intrinsic
+// TODO replace with semantic check on expression
 EMPTY_CLASS(NullInit);
 
 // R744 initial-data-target -> designator

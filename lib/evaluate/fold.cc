@@ -59,10 +59,9 @@ common::IfNoLvalue<Expr<ResultType<A>>, A> FoldOperation(
 // Forward declarations of overloads, template instantiations, and template
 // specializations of FoldOperation() to enable mutual recursion between them.
 static Component FoldOperation(FoldingContext &, Component &&);
-static Triplet FoldOperation(
-    FoldingContext &, Triplet &&, const Symbol &, int dim);
-static Subscript FoldOperation(
-    FoldingContext &, Subscript &&, const Symbol &, int dim);
+static NamedEntity FoldOperation(FoldingContext &, NamedEntity &&);
+static Triplet FoldOperation(FoldingContext &, Triplet &&);
+static Subscript FoldOperation(FoldingContext &, Subscript &&);
 static ArrayRef FoldOperation(FoldingContext &, ArrayRef &&);
 static CoarrayRef FoldOperation(FoldingContext &, CoarrayRef &&);
 static DataRef FoldOperation(FoldingContext &, DataRef &&);
@@ -98,23 +97,22 @@ Component FoldOperation(FoldingContext &context, Component &&component) {
       component.GetLastSymbol()};
 }
 
-Triplet FoldOperation(
-    FoldingContext &context, Triplet &&triplet, const Symbol &symbol, int dim) {
+NamedEntity FoldOperation(FoldingContext &context, NamedEntity &&x) {
+  if (Component * c{x.UnwrapComponent()}) {
+    return NamedEntity{FoldOperation(context, std::move(*c))};
+  } else {
+    return std::move(x);
+  }
+}
+
+Triplet FoldOperation(FoldingContext &context, Triplet &&triplet) {
   MaybeExtentExpr lower{triplet.lower()};
-  if (!lower.has_value()) {
-    lower = GetLowerBound(context, symbol, dim);
-  }
   MaybeExtentExpr upper{triplet.upper()};
-  if (!upper.has_value()) {
-    upper = GetUpperBound(
-        context, common::Clone(lower), GetExtent(context, symbol, dim));
-  }
   return {Fold(context, std::move(lower)), Fold(context, std::move(upper)),
       Fold(context, triplet.stride())};
 }
 
-Subscript FoldOperation(FoldingContext &context, Subscript &&subscript,
-    const Symbol &symbol, int dim) {
+Subscript FoldOperation(FoldingContext &context, Subscript &&subscript) {
   return std::visit(
       common::visitors{
           [&](IndirectSubscriptIntegerExpr &&expr) {
@@ -122,38 +120,24 @@ Subscript FoldOperation(FoldingContext &context, Subscript &&subscript,
             return Subscript(std::move(expr));
           },
           [&](Triplet &&triplet) {
-            return Subscript(
-                FoldOperation(context, std::move(triplet), symbol, dim));
+            return Subscript(FoldOperation(context, std::move(triplet)));
           },
       },
       std::move(subscript.u));
 }
 
 ArrayRef FoldOperation(FoldingContext &context, ArrayRef &&arrayRef) {
-  const Symbol &symbol{arrayRef.GetLastSymbol()};
-  int dim{0};
+  NamedEntity base{FoldOperation(context, std::move(arrayRef.base()))};
   for (Subscript &subscript : arrayRef.subscript()) {
-    subscript = FoldOperation(context, std::move(subscript), symbol, dim++);
+    subscript = FoldOperation(context, std::move(subscript));
   }
-  return std::visit(
-      common::visitors{
-          [&](const Symbol *symbol) {
-            return ArrayRef{*symbol, std::move(arrayRef.subscript())};
-          },
-          [&](Component &&component) {
-            return ArrayRef{FoldOperation(context, std::move(component)),
-                std::move(arrayRef.subscript())};
-          },
-      },
-      std::move(arrayRef.base()));
+  return ArrayRef{std::move(base), std::move(arrayRef.subscript())};
 }
 
 CoarrayRef FoldOperation(FoldingContext &context, CoarrayRef &&coarrayRef) {
-  const Symbol &symbol{coarrayRef.GetLastSymbol()};
   std::vector<Subscript> subscript;
-  int dim{0};
   for (Subscript x : coarrayRef.subscript()) {
-    subscript.emplace_back(FoldOperation(context, std::move(x), symbol, dim++));
+    subscript.emplace_back(FoldOperation(context, std::move(x)));
   }
   std::vector<Expr<SubscriptInteger>> cosubscript;
   for (Expr<SubscriptInteger> x : coarrayRef.cosubscript()) {
@@ -250,7 +234,8 @@ static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
     // Compute all the scalar values of the results
     std::vector<Scalar<TR>> results;
     if (TotalElementCount(shape) > 0) {
-      ConstantSubscripts index{InitialSubscripts(rank)};
+      ConstantSubscripts lbound(rank, 1);
+      ConstantSubscripts index{lbound};
       do {
         if constexpr (std::is_same_v<WrapperType<TR, TA...>,
                           ScalarFuncWithContext<TR, TA...>>) {
@@ -263,7 +248,7 @@ static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
               (ranks[I] ? std::get<I>(args)->At(index)
                         : std::get<I>(args)->GetScalarValue().value())...));
         }
-      } while (IncrementSubscripts(index, shape));
+      } while (IncrementSubscripts(index, shape, lbound));
     }
     // Build and return constant result
     if constexpr (TR::category == TypeCategory::Character) {
@@ -569,6 +554,13 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     } else if (name == "rank") {
       // TODO assumed-rank dummy argument
       return Expr<T>{args[0].value().Rank()};
+    } else if (name == "selected_char_kind") {
+      if (const auto *chCon{
+              UnwrapExpr<Constant<TypeOf<std::string>>>(args[0])}) {
+        if (std::optional<std::string> value{chCon->GetScalarValue()}) {
+          return Expr<T>{SelectedCharKind(*value)};
+        }
+      }
     } else if (name == "selected_int_kind") {
       if (auto p{GetInt64Arg(args[0])}) {
         return Expr<T>{SelectedIntKind(*p)};
@@ -618,8 +610,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     // findloc, floor, iall, iany, iparity, ibits, image_status, index, ishftc,
     // lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
     // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
-    // scan, selected_char_kind,
-    // sign, spread, sum, transfer, transpose, ubound, unpack, verify
+    // scan, sign, spread, sum, transfer, transpose, ubound, unpack, verify
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -933,18 +924,17 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(FoldingContext &context,
 // Get the value of a PARAMETER
 template<typename T>
 std::optional<Expr<T>> GetParameterValue(
-    FoldingContext &context, const Symbol *symbol) {
-  CHECK(symbol != nullptr);
-  if (symbol->attrs().test(semantics::Attr::PARAMETER)) {
+    FoldingContext &context, const Symbol &symbol) {
+  if (symbol.attrs().test(semantics::Attr::PARAMETER)) {
     if (const auto *object{
-            symbol->detailsIf<semantics::ObjectEntityDetails>()}) {
+            symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
       if (object->initWasValidated()) {
         const auto *constant{UnwrapConstantValue<T>(object->init())};
         CHECK(constant != nullptr);
         return Expr<T>{*constant};
       }
       if (const auto &init{object->init()}) {
-        if (auto dyType{DynamicType::From(*symbol)}) {
+        if (auto dyType{DynamicType::From(symbol)}) {
           semantics::ObjectEntityDetails *mutableObject{
               const_cast<semantics::ObjectEntityDetails *>(object)};
           auto converted{
@@ -957,18 +947,27 @@ std::optional<Expr<T>> GetParameterValue(
             auto *unwrapped{UnwrapExpr<Expr<T>>(*converted)};
             CHECK(unwrapped != nullptr);
             if (auto *constant{UnwrapConstantValue<T>(*unwrapped)}) {
-              if (constant->Rank() == 0 && symbol->Rank() > 0) {
-                // scalar expansion
-                if (auto symShape{GetShape(context, *symbol)}) {
-                  if (auto extents{AsConstantExtents(*symShape)}) {
-                    *constant = constant->Reshape(std::move(*extents));
-                    CHECK(constant->Rank() == symbol->Rank());
+              if (symbol.Rank() > 0) {
+                if (constant->Rank() == 0) {
+                  // scalar expansion
+                  if (auto symShape{GetShape(context, symbol)}) {
+                    if (auto extents{AsConstantExtents(*symShape)}) {
+                      *constant = constant->Reshape(std::move(*extents));
+                      CHECK(constant->Rank() == symbol.Rank());
+                    }
+                  }
+                }
+                if (constant->Rank() == symbol.Rank()) {
+                  NamedEntity base{symbol};
+                  if (auto lbounds{
+                          AsConstantExtents(GetLowerBounds(context, base))}) {
+                    constant->set_lbounds(*std::move(lbounds));
                   }
                 }
               }
               mutableObject->set_init(AsGenericExpr(Expr<T>{*constant}));
               if (auto constShape{GetShape(context, *constant)}) {
-                if (auto symShape{GetShape(context, *symbol)}) {
+                if (auto symShape{GetShape(context, symbol)}) {
                   if (CheckConformance(context.messages(), *constShape,
                           *symShape, "initialization expression",
                           "PARAMETER")) {
@@ -976,27 +975,27 @@ std::optional<Expr<T>> GetParameterValue(
                     return std::move(*unwrapped);
                   }
                 } else {
-                  context.messages().Say(symbol->name(),
+                  context.messages().Say(symbol.name(),
                       "Could not determine the shape of the PARAMETER"_err_en_US);
                 }
               } else {
-                context.messages().Say(symbol->name(),
+                context.messages().Say(symbol.name(),
                     "Could not determine the shape of the initialization expression"_err_en_US);
               }
               mutableObject->set_init(std::nullopt);
             } else {
               std::stringstream ss;
               unwrapped->AsFortran(ss);
-              context.messages().Say(symbol->name(),
+              context.messages().Say(symbol.name(),
                   "Initialization expression for PARAMETER '%s' (%s) cannot be computed as a constant value"_err_en_US,
-                  symbol->name(), ss.str());
+                  symbol.name(), ss.str());
             }
           } else {
             std::stringstream ss;
             init->AsFortran(ss);
-            context.messages().Say(symbol->name(),
+            context.messages().Say(symbol.name(),
                 "Initialization expression for PARAMETER '%s' (%s) cannot be converted to its type (%s)"_err_en_US,
-                symbol->name(), ss.str(), dyType->AsFortran());
+                symbol.name(), ss.str(), dyType->AsFortran());
           }
         }
       }
@@ -1005,11 +1004,23 @@ std::optional<Expr<T>> GetParameterValue(
   return std::nullopt;
 }
 
+template<typename T>
+static std::optional<Constant<T>> GetFoldedParameterValue(
+    FoldingContext &context, const Symbol &symbol) {
+  if (auto value{GetParameterValue<T>(context, symbol)}) {
+    Expr<T> folded{Fold(context, std::move(*value))};
+    if (const Constant<T> *value{UnwrapConstantValue<T>(folded)}) {
+      return *value;
+    }
+  }
+  return std::nullopt;
+}
+
 // Apply subscripts to a constant array
 
 static std::optional<Constant<SubscriptInteger>> GetConstantSubscript(
-    FoldingContext &context, Subscript &ss, const Symbol &symbol, int dim) {
-  ss = FoldOperation(context, std::move(ss), symbol, dim);
+    FoldingContext &context, Subscript &ss, const NamedEntity &base, int dim) {
+  ss = FoldOperation(context, std::move(ss));
   return std::visit(
       common::visitors{
           [](IndirectSubscriptIntegerExpr &expr)
@@ -1021,15 +1032,17 @@ static std::optional<Constant<SubscriptInteger>> GetConstantSubscript(
               return std::nullopt;
             }
           },
-          [](Triplet &triplet) -> std::optional<Constant<SubscriptInteger>> {
-            std::optional<ConstantSubscript> lbi{1}, ubi;
+          [&](Triplet &triplet) -> std::optional<Constant<SubscriptInteger>> {
+            auto lower{triplet.lower()}, upper{triplet.upper()};
             std::optional<ConstantSubscript> stride{ToInt64(triplet.stride())};
-            if (auto lower{triplet.lower()}) {
-              lbi = ToInt64(*lower);
+            if (!lower.has_value()) {
+              lower = GetLowerBound(context, base, dim);
             }
-            if (auto upper{triplet.upper()}) {
-              ubi = ToInt64(*upper);
+            if (!upper.has_value()) {
+              upper = GetUpperBound(context, GetLowerBound(context, base, dim),
+                  GetExtent(context, base, dim));
             }
+            auto lbi{ToInt64(lower)}, ubi{ToInt64(upper)};
             if (lbi.has_value() && ubi.has_value() && stride.has_value() &&
                 *stride != 0) {
               std::vector<SubscriptInteger::Scalar> values;
@@ -1054,15 +1067,18 @@ std::optional<Constant<T>> ApplySubscripts(parser::ContextualMessages &messages,
     const Constant<T> &array,
     const std::vector<Constant<SubscriptInteger>> &subscripts) {
   const auto &shape{array.shape()};
+  const auto &lbounds{array.lbounds()};
   int rank{GetRank(shape)};
   CHECK(rank == static_cast<int>(subscripts.size()));
   std::size_t elements{1};
   ConstantSubscripts resultShape;
+  ConstantSubscripts ssLB;
   for (const auto &ss : subscripts) {
     CHECK(ss.Rank() <= 1);
     if (ss.Rank() == 1) {
       resultShape.push_back(static_cast<ConstantSubscript>(ss.size()));
       elements *= ss.size();
+      ssLB.push_back(ss.lbounds().front());
     }
   }
   ConstantSubscripts ssAt(rank, 0), at(rank, 0), tmp(1, 0);
@@ -1075,7 +1091,7 @@ std::optional<Constant<T>> ApplySubscripts(parser::ContextualMessages &messages,
         at[j] = subscripts[j].GetScalarValue().value().ToInt64();
       } else {
         CHECK(k < GetRank(resultShape));
-        tmp[0] = ssAt[j] + 1;
+        tmp[0] = ssLB[j] + ssAt[j];
         at[j] = subscripts[j].At(tmp).ToInt64();
         if (increment) {
           if (++ssAt[j] == resultShape[k]) {
@@ -1086,7 +1102,7 @@ std::optional<Constant<T>> ApplySubscripts(parser::ContextualMessages &messages,
         }
         ++k;
       }
-      if (at[j] < 1 || at[j] > shape[j]) {
+      if (at[j] < lbounds[j] || at[j] > lbounds[j] + shape[j]) {
         messages.Say("Subscript value (%jd) is out of range in reference "
                      "to a constant array value"_err_en_US,
             static_cast<std::intmax_t>(at[j]));
@@ -1132,7 +1148,7 @@ std::optional<Constant<T>> ApplyComponent(FoldingContext &context,
     if (structures.empty()) {
       return std::nullopt;
     }
-    ConstantSubscripts at{InitialSubscripts(structures.shape())};
+    ConstantSubscripts at{structures.lbounds()};
     do {
       StructureConstructor scalar{structures.At(at)};
       if (auto *expr{scalar.Find(&component)}) {
@@ -1160,7 +1176,7 @@ std::optional<Constant<T>> ApplyComponent(FoldingContext &context,
           return std::nullopt;
         }
       }
-    } while (IncrementSubscripts(at, structures.shape()));
+    } while (IncrementSubscripts(at, structures.shape(), structures.lbounds()));
     // Fold the ArrayConstructor<> into a Constant<>.
     CHECK(array);
     Expr<T> result{Fold(context, Expr<T>{std::move(*array)})};
@@ -1174,32 +1190,23 @@ std::optional<Constant<T>> ApplyComponent(FoldingContext &context,
 template<typename T>
 std::optional<Constant<T>> FoldArrayRef(
     FoldingContext &context, ArrayRef &aRef) {
-  const Symbol &symbol{aRef.GetLastSymbol()};
   std::vector<Constant<SubscriptInteger>> subscripts;
   int dim{0};
   for (Subscript &ss : aRef.subscript()) {
-    if (auto constant{GetConstantSubscript(context, ss, symbol, dim++)}) {
+    if (auto constant{GetConstantSubscript(context, ss, aRef.base(), dim++)}) {
       subscripts.emplace_back(std::move(*constant));
     } else {
       return std::nullopt;
     }
   }
-  return std::visit(
-      common::visitors{
-          [&](const Symbol *symbol) -> std::optional<Constant<T>> {
-            if (auto value{GetParameterValue<T>(context, symbol)}) {
-              Expr<T> folded{Fold(context, std::move(*value))};
-              if (const auto *array{UnwrapConstantValue<T>(folded)}) {
-                return ApplySubscripts(context.messages(), *array, subscripts);
-              }
-            }
-            return std::nullopt;
-          },
-          [&](Component &component) -> std::optional<Constant<T>> {
-            return GetConstantComponent<T>(context, component, &subscripts);
-          },
-      },
-      aRef.base());
+  if (Component * component{aRef.base().UnwrapComponent()}) {
+    return GetConstantComponent<T>(context, *component, &subscripts);
+  } else if (std::optional<Constant<T>> array{GetFoldedParameterValue<T>(
+                 context, aRef.base().GetLastSymbol())}) {
+    return ApplySubscripts(context.messages(), *array, subscripts);
+  } else {
+    return std::nullopt;
+  }
 }
 
 template<typename T>
@@ -1208,17 +1215,8 @@ std::optional<Constant<T>> GetConstantComponent(FoldingContext &context,
     const std::vector<Constant<SubscriptInteger>> *subscripts) {
   if (std::optional<Constant<SomeDerived>> structures{std::visit(
           common::visitors{
-              [&](const Symbol *symbol)
-                  -> std::optional<Constant<SomeDerived>> {
-                if (auto value{
-                        GetParameterValue<SomeDerived>(context, symbol)}) {
-                  Expr<SomeDerived> folded{Fold(context, std::move(*value))};
-                  if (const auto *structures{
-                          UnwrapConstantValue<SomeDerived>(folded)}) {
-                    return *structures;
-                  }
-                }
-                return std::nullopt;
+              [&](const Symbol *symbol) {
+                return GetFoldedParameterValue<SomeDerived>(context, *symbol);
               },
               [&](ArrayRef &aRef) {
                 return FoldArrayRef<SomeDerived>(context, aRef);
@@ -1257,11 +1255,12 @@ Expr<T> FoldOperation(FoldingContext &context, Designator<T> &&designator) {
   return std::visit(
       common::visitors{
           [&](const Symbol *symbol) {
-            if (auto constant{GetParameterValue<T>(context, symbol)}) {
-              return std::move(*constant);
-            } else {
-              return Expr<T>{std::move(designator)};
+            if (symbol != nullptr) {
+              if (auto constant{GetFoldedParameterValue<T>(context, *symbol)}) {
+                return Expr<T>{std::move(*constant)};
+              }
             }
+            return Expr<T>{std::move(designator)};
           },
           [&](ArrayRef &&aRef) {
             aRef = FoldOperation(context, std::move(aRef));
@@ -1409,31 +1408,27 @@ template<int KIND>
 Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(
     FoldingContext &context, TypeParamInquiry<KIND> &&inquiry) {
   using IntKIND = Type<TypeCategory::Integer, KIND>;
-  if (const Symbol *const *symbol{
-          std::get_if<const Symbol *>(&inquiry.base())}) {
-    if (*symbol == nullptr) {
-      // A "bare" type parameter: replace with its value, if that's now known.
-      if (const auto *pdt{context.pdtInstance()}) {
-        if (const semantics::Scope * scope{context.pdtInstance()->scope()}) {
-          auto iter{scope->find(inquiry.parameter().name())};
-          if (iter != scope->end()) {
-            const Symbol &symbol{*iter->second};
-            const auto *details{
-                symbol.detailsIf<semantics::TypeParamDetails>()};
-            if (details && details->init().has_value()) {
-              Expr<SomeInteger> expr{*details->init()};
-              return Fold(context,
-                  Expr<IntKIND>{Convert<IntKIND, TypeCategory::Integer>(
-                      std::move(expr))});
-            }
+  if (!inquiry.base().has_value()) {
+    // A "bare" type parameter: replace with its value, if that's now known.
+    if (const auto *pdt{context.pdtInstance()}) {
+      if (const semantics::Scope * scope{context.pdtInstance()->scope()}) {
+        auto iter{scope->find(inquiry.parameter().name())};
+        if (iter != scope->end()) {
+          const Symbol &symbol{*iter->second};
+          const auto *details{symbol.detailsIf<semantics::TypeParamDetails>()};
+          if (details && details->init().has_value()) {
+            Expr<SomeInteger> expr{*details->init()};
+            return Fold(context,
+                Expr<IntKIND>{
+                    Convert<IntKIND, TypeCategory::Integer>(std::move(expr))});
           }
         }
-        if (const auto *value{pdt->FindParameter(inquiry.parameter().name())}) {
-          if (value->isExplicit()) {
-            return Fold(context,
-                Expr<IntKIND>{Convert<IntKIND, TypeCategory::Integer>(
-                    Expr<SomeInteger>{value->GetExplicit().value()})});
-          }
+      }
+      if (const auto *value{pdt->FindParameter(inquiry.parameter().name())}) {
+        if (value->isExplicit()) {
+          return Fold(context,
+              Expr<IntKIND>{Convert<IntKIND, TypeCategory::Integer>(
+                  Expr<SomeInteger>{value->GetExplicit().value()})});
         }
       }
     }
@@ -1464,10 +1459,10 @@ std::optional<Expr<T>> AsFlatArrayConstructor(const Expr<T> &expr) {
   if (const auto *c{UnwrapConstantValue<T>(expr)}) {
     ArrayConstructor<T> result{expr};
     if (c->size() > 0) {
-      ConstantSubscripts at{InitialSubscripts(c->shape())};
+      ConstantSubscripts at{c->lbounds()};
       do {
         result.Push(Expr<T>{Constant<T>{c->At(at)}});
-      } while (IncrementSubscripts(at, c->shape()));
+      } while (IncrementSubscripts(at, c->shape(), c->lbounds()));
     }
     return std::make_optional<Expr<T>>(std::move(result));
   } else if (const auto *a{UnwrapExpr<ArrayConstructor<T>>(expr)}) {
@@ -2266,6 +2261,10 @@ private:
   }
 };
 
+template<typename A> bool IsConstantExpr(const A &x) {
+  return Visitor<IsConstantExprVisitor>{0}.Traverse(x);
+}
+
 bool IsConstantExpr(const Expr<SomeType> &expr) {
   return Visitor<IsConstantExprVisitor>{0}.Traverse(expr);
 }
@@ -2282,4 +2281,81 @@ std::optional<std::int64_t> ToInt64(const Expr<SomeType> &expr) {
     return std::nullopt;
   }
 }
+
+// Object pointer initialization checking predicate IsInitialDataTarget().
+// This code determines whether an expression is allowable as the static
+// data address used to initialize a pointer with "=> x".  See C765.
+// The caller is responsible for checking the base object symbol's
+// characteristics (TARGET, SAVE, &c.) since this code can't use GetUltimate().
+template<typename A> bool IsInitialDataTarget(const A &) { return false; }
+template<typename... A> bool IsInitialDataTarget(const std::variant<A...> &);
+bool IsInitialDataTarget(const DataRef &);
+template<typename T> bool IsInitialDataTarget(const Expr<T> &);
+bool IsInitialDataTarget(const semantics::Symbol &s) { return true; }
+bool IsInitialDataTarget(const semantics::Symbol *s) {
+  return IsInitialDataTarget(*s);
+}
+bool IsInitialDataTarget(const Component &x) {
+  return IsInitialDataTarget(x.base());
+}
+bool IsInitialDataTarget(const NamedEntity &x) {
+  if (const Component * c{x.UnwrapComponent()}) {
+    return IsInitialDataTarget(*c);
+  } else {
+    return IsInitialDataTarget(x.GetLastSymbol());
+  }
+}
+bool IsInitialDataTarget(const Triplet &x) {
+  if (auto lower{x.lower()}) {
+    if (!IsConstantExpr(*lower)) {
+      return false;
+    }
+  }
+  if (auto upper{x.upper()}) {
+    if (!IsConstantExpr(*upper)) {
+      return false;
+    }
+  }
+  return IsConstantExpr(x.stride());
+}
+bool IsInitialDataTarget(const Subscript &x) {
+  return std::visit(
+      common::visitors{
+          [](const Triplet &t) { return IsInitialDataTarget(t); },
+          [&](const auto &y) {
+            return y.value().Rank() == 0 && IsConstantExpr(y.value());
+          },
+      },
+      x.u);
+}
+bool IsInitialDataTarget(const ArrayRef &x) {
+  for (const Subscript &ss : x.subscript()) {
+    if (!IsInitialDataTarget(ss)) {
+      return false;
+    }
+  }
+  return IsInitialDataTarget(x.base());
+}
+bool IsInitialDataTarget(const DataRef &x) { return IsInitialDataTarget(x.u); }
+bool IsInitialDataTarget(const Substring &x) {
+  return IsConstantExpr(x.lower()) && IsConstantExpr(x.upper());
+}
+bool IsInitialDataTarget(const ComplexPart &x) {
+  return IsInitialDataTarget(x.complex());
+}
+template<typename T> bool IsInitialDataTarget(const Designator<T> &x) {
+  return IsInitialDataTarget(x.u);
+}
+bool IsInitialDataTarget(const NullPointer &) { return true; }
+template<typename T> bool IsInitialDataTarget(const Expr<T> &x) {
+  return IsInitialDataTarget(x.u);
+}
+template<typename... A> bool IsInitialDataTarget(const std::variant<A...> &u) {
+  return std::visit([](const auto &x) { return IsInitialDataTarget(x); }, u);
+}
+
+bool IsInitialDataTarget(const Expr<SomeType> &x) {
+  return IsInitialDataTarget(x.u);
+}
+
 }

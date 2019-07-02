@@ -612,6 +612,22 @@ struct TypeKindVisitor {
 template<typename A> const semantics::Symbol *GetLastSymbol(const A &) {
   return nullptr;
 }
+inline const semantics::Symbol *GetLastSymbol(const Symbol &x) { return &x; }
+inline const semantics::Symbol *GetLastSymbol(const Component &x) {
+  return &x.GetLastSymbol();
+}
+inline const semantics::Symbol *GetLastSymbol(const NamedEntity &x) {
+  return &x.GetLastSymbol();
+}
+inline const semantics::Symbol *GetLastSymbol(const ArrayRef &x) {
+  return &x.GetLastSymbol();
+}
+inline const semantics::Symbol *GetLastSymbol(const CoarrayRef &x) {
+  return &x.GetLastSymbol();
+}
+inline const semantics::Symbol *GetLastSymbol(const DataRef &x) {
+  return &x.GetLastSymbol();
+}
 template<typename T>
 const semantics::Symbol *GetLastSymbol(const Designator<T> &x) {
   return x.GetLastSymbol();
@@ -641,6 +657,26 @@ template<typename A> semantics::Attrs GetAttrs(const A &x) {
     return symbol->attrs();
   } else {
     return {};
+  }
+}
+
+// GetBaseObject()
+template<typename A> std::optional<BaseObject> GetBaseObject(const A &) {
+  return std::nullopt;
+}
+template<typename T>
+std::optional<BaseObject> GetBaseObject(const Designator<T> &x) {
+  return x.GetBaseObject();
+}
+template<typename T> std::optional<BaseObject> GetBaseObject(const Expr<T> &x) {
+  return std::visit([](const auto &y) { return GetBaseObject(y); }, x.u);
+}
+template<typename A>
+std::optional<BaseObject> GetBaseObject(const std::optional<A> &x) {
+  if (x.has_value()) {
+    return GetBaseObject(*x);
+  } else {
+    return std::nullopt;
   }
 }
 

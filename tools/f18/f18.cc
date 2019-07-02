@@ -98,6 +98,7 @@ struct DriverOptions {
   bool debugResolveNames{false};
   bool debugSemantics{false};
   bool measureTree{false};
+  bool unparseTypedExprsToPGF90{false};
   std::vector<std::string> pgf90Args;
   const char *prefix{nullptr};
 };
@@ -241,15 +242,17 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   if (driver.dumpParseTree) {
     Fortran::parser::DumpTree(std::cout, parseTree);
   }
+
+  Fortran::parser::TypedExprAsFortran unparseExpression{
+      [](std::ostream &o, const Fortran::evaluate::GenericExprWrapper &x) {
+        if (x.v.has_value()) {
+          o << *x.v;
+        } else {
+          o << "(bad expression)";
+        }
+      }};
+
   if (driver.dumpUnparse) {
-    Fortran::parser::TypedExprAsFortran unparseExpression{
-        [](std::ostream &o, const Fortran::evaluate::GenericExprWrapper &x) {
-          if (x.v.has_value()) {
-            o << *x.v;
-          } else {
-            o << "(bad expression)";
-          }
-        }};
     Unparse(std::cout, parseTree, driver.encoding, true /*capitalize*/,
         options.features.IsEnabled(
             Fortran::parser::LanguageFeature::BackslashEscapes),
@@ -268,9 +271,13 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   {
     std::ofstream tmpSource;
     tmpSource.open(tmpSourcePath);
+    Fortran::evaluate::formatForPGF90 = true;
     Unparse(tmpSource, parseTree, driver.encoding, true /*capitalize*/,
         options.features.IsEnabled(
-            Fortran::parser::LanguageFeature::BackslashEscapes));
+            Fortran::parser::LanguageFeature::BackslashEscapes),
+        nullptr /* action before each statement */,
+        driver.unparseTypedExprsToPGF90 ? &unparseExpression : nullptr);
+    Fortran::evaluate::formatForPGF90 = false;
   }
 
   if (ParentProcess()) {
@@ -321,6 +328,7 @@ int main(int argc, char *const argv[]) {
   DriverOptions driver;
   const char *pgf90{getenv("F18_FC")};
   driver.pgf90Args.push_back(pgf90 ? pgf90 : "pgf90");
+  bool isPGF90{driver.pgf90Args.back().rfind("pgf90") != std::string::npos};
 
   std::list<std::string> args{argList(argc, argv)};
   std::string prefix{args.front()};
@@ -386,7 +394,7 @@ int main(int argc, char *const argv[]) {
           Fortran::parser::LanguageFeature::BackslashEscapes, false);
     } else if (arg == "-Mnobackslash") {
       options.features.Enable(
-          Fortran::parser::LanguageFeature::BackslashEscapes);
+          Fortran::parser::LanguageFeature::BackslashEscapes, true);
     } else if (arg == "-Mstandard") {
       driver.warnOnNonstandardUsage = true;
     } else if (arg == "-fopenmp") {
@@ -400,7 +408,7 @@ int main(int argc, char *const argv[]) {
       driver.dumpCookedChars = true;
     } else if (arg == "-fbackslash") {
       options.features.Enable(
-          Fortran::parser::LanguageFeature::BackslashEscapes);
+          Fortran::parser::LanguageFeature::BackslashEscapes, true);
     } else if (arg == "-fno-backslash") {
       options.features.Enable(
           Fortran::parser::LanguageFeature::BackslashEscapes, false);
@@ -423,6 +431,8 @@ int main(int argc, char *const argv[]) {
       driver.dumpUnparse = true;
     } else if (arg == "-funparse-with-symbols") {
       driver.dumpUnparseWithSymbols = true;
+    } else if (arg == "-funparse-typed-exprs-to-pgf90") {
+      driver.unparseTypedExprsToPGF90 = true;
     } else if (arg == "-fparse-only") {
       driver.parseOnly = true;
     } else if (arg == "-c") {
@@ -455,9 +465,6 @@ int main(int argc, char *const argv[]) {
       driver.encoding = Fortran::parser::Encoding::UTF_8;
     } else if (arg == "-flatin") {
       driver.encoding = Fortran::parser::Encoding::LATIN_1;
-    } else if (arg == "-fkanji") {
-      driver.encoding = Fortran::parser::Encoding::EUC_JP;
-      driver.pgf90Args.push_back("-Mx,125,4");  // PGI "Kanji" mode
     } else if (arg == "-help" || arg == "--help" || arg == "-?") {
       std::cerr
           << "f18 options:\n"
@@ -472,8 +479,6 @@ int main(int argc, char *const argv[]) {
           << "  -ed                  enable fixed form D lines\n"
           << "  -E                   prescan & preprocess only\n"
           << "  -module dir          module output directory (default .)\n"
-          << "  -fkanji              interpret source as EUC_JP rather than "
-             "UTF-8\n"
           << "  -flatin              interpret source as Latin-1 (ISO 8859-1) "
              "rather than UTF-8\n"
           << "  -fparse-only         parse only, no output except messages\n"
@@ -504,8 +509,6 @@ int main(int argc, char *const argv[]) {
         args.pop_front();
       } else if (arg.substr(0, 2) == "-I") {
         driver.searchDirectories.push_back(arg.substr(2));
-      } else if (arg == "-Mx,125,4") {  // PGI "all Kanji" mode
-        driver.encoding = Fortran::parser::Encoding::EUC_JP;
       }
     }
   }
@@ -515,6 +518,15 @@ int main(int argc, char *const argv[]) {
   }
   if (options.features.IsEnabled(Fortran::parser::LanguageFeature::OpenMP)) {
     driver.pgf90Args.push_back("-mp");
+  }
+  if (isPGF90) {
+    if (!options.features.IsEnabled(
+            Fortran::parser::LanguageFeature::BackslashEscapes)) {
+      driver.pgf90Args.push_back(
+          "-Mbackslash");  // yes, this *disables* them in pgf90
+    }
+  } else {
+    // TODO: equivalents for other Fortran compilers
   }
 
   Fortran::parser::AllSources allSources;
