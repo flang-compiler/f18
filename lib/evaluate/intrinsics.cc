@@ -82,6 +82,7 @@ ENUM_CLASS(KindCode, none, defaultIntegerKind,
     effectiveKind,  // for function results: same "kindArg", possibly defaulted
     dimArg,  // this argument is DIM=
     likeMultiply,  // for DOT_PRODUCT and MATMUL
+    subscript,  // address-sized integer
 )
 
 struct TypePattern {
@@ -106,6 +107,7 @@ static constexpr TypePattern DoublePrecision{
     RealType, KindCode::doublePrecision};
 static constexpr TypePattern DoublePrecisionComplex{
     ComplexType, KindCode::doublePrecision};
+static constexpr TypePattern SubscriptInt{IntType, KindCode::subscript};
 
 // Match any kind of some intrinsic or derived types
 static constexpr TypePattern AnyInt{IntType, KindCode::any};
@@ -443,6 +445,8 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"lgt", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
     {"lle", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
     {"llt", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
+    {"loc", {{"x", Anything, Rank::anyOrAssumedRank}}, SubscriptInt,
+        Rank::scalar},
     {"log", {{"x", SameFloating}}, SameFloating},
     {"log10", {{"x", SameReal}}, SameReal},
     {"logical", {{"l", AnyLogical}, DefaultingKIND}, KINDLogical},
@@ -650,13 +654,15 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
 // TODO: Non-standard intrinsic functions
 //  AND, OR, XOR, LSHIFT, RSHIFT, SHIFT, ZEXT, IZEXT,
 //  COSD, SIND, TAND, ACOSD, ASIND, ATAND, ATAN2D, COMPL,
-//  DCMPLX, EQV, NEQV, INT8, JINT, JNINT, KNINT, LOC,
+//  DCMPLX, EQV, NEQV, INT8, JINT, JNINT, KNINT,
 //  QCMPLX, DREAL, DFLOAT, QEXT, QFLOAT, QREAL, DNUM,
 //  INUM, JNUM, KNUM, QNUM, RNUM, RAN, RANF, ILEN, SIZEOF,
 //  MCLOCK, SECNDS, COTAN, IBCHNG, ISHA, ISHC, ISHL, IXOR
 //  IARG, IARGC, NARGS, NUMARG, BADDRESS, IADDR, CACHESIZE,
 //  EOF, FP_CLASS, INT_PTR_KIND, ISNAN, MALLOC
 //  probably more (these are PGI + Intel, possibly incomplete)
+// TODO: Optionally warn on use of non-standard intrinsics:
+//  LOC, probably others
 
 // The following table contains the intrinsic functions listed in
 // Tables 16.2 and 16.3 in Fortran 2018.  The "unrestricted" functions
@@ -951,8 +957,10 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
         }
       } else {
         // NULL(), pointer to subroutine, &c.
-        messages.Say("Typeless item not allowed for '%s=' argument"_err_en_US,
-            d.keyword);
+        if ("loc"s != name) {
+          messages.Say("Typeless item not allowed for '%s=' argument"_err_en_US,
+              d.keyword);
+        }
       }
       return std::nullopt;
     } else if (!d.typePattern.categorySet.test(type->category())) {
@@ -1193,6 +1201,12 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
       resultType = actualForDummy[0]->GetType()->ResultTypeForMultiply(
           *actualForDummy[1]->GetType());
       break;
+    case KindCode::subscript:
+      CHECK(result.categorySet == IntType);
+      CHECK(*category == TypeCategory::Integer);
+      resultType =
+          DynamicType{TypeCategory::Integer, defaults.subscriptIntegerKind()};
+      break;
     case KindCode::typeless:
     case KindCode::teamType:
     case KindCode::any:
@@ -1266,23 +1280,25 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
   for (std::size_t j{0}; j < dummies; ++j) {
     const IntrinsicDummyArgument &d{dummy[std::min(j, dummyArgPatterns - 1)]};
     if (const auto &arg{rearranged[j]}) {
-      const Expr<SomeType> *expr{arg->UnwrapExpr()};
-      CHECK(expr != nullptr);
-      std::optional<characteristics::TypeAndShape> typeAndShape;
-      if (auto type{expr->GetType()}) {
-        if (auto shape{GetShape(context, *expr)}) {
-          typeAndShape.emplace(*type, std::move(*shape));
+      if (const Expr<SomeType> *expr{arg->UnwrapExpr()}) {
+        std::optional<characteristics::TypeAndShape> typeAndShape;
+        if (auto type{expr->GetType()}) {
+          if (auto shape{GetShape(context, *expr)}) {
+            typeAndShape.emplace(*type, std::move(*shape));
+          } else {
+            typeAndShape.emplace(*type);
+          }
         } else {
-          typeAndShape.emplace(*type);
+          typeAndShape.emplace(DynamicType::TypelessIntrinsicArgument());
+        }
+        dummyArgs.emplace_back(std::string{d.keyword},
+            characteristics::DummyDataObject{std::move(typeAndShape.value())});
+        if (d.typePattern.kindCode == KindCode::same &&
+            !sameDummyArg.has_value()) {
+          sameDummyArg = j;
         }
       } else {
-        typeAndShape.emplace(DynamicType::TypelessIntrinsicArgument());
-      }
-      dummyArgs.emplace_back(std::string{d.keyword},
-          characteristics::DummyDataObject{std::move(typeAndShape.value())});
-      if (d.typePattern.kindCode == KindCode::same &&
-          !sameDummyArg.has_value()) {
-        sameDummyArg = j;
+        CHECK(arg->GetAssumedTypeDummy() != nullptr);
       }
     } else {
       // optional argument is absent
@@ -1449,6 +1465,15 @@ static bool ApplySpecificChecks(
     if (!ok) {
       messages.Say(
           "Arguments of ASSOCIATED() must be a POINTER and an optional valid target"_err_en_US);
+    }
+  } else if (name == "loc") {
+    if (const auto &arg{call.arguments[0]}) {
+      ok = arg->GetAssumedTypeDummy() != nullptr ||
+          GetLastSymbol(arg->UnwrapExpr()) != nullptr;
+    }
+    if (!ok) {
+      messages.Say(
+          "Argument of LOC() must be an object or procedure"_err_en_US);
     }
   } else if (name == "present") {
     if (const auto &arg{call.arguments[0]}) {
