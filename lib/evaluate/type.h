@@ -143,6 +143,8 @@ public:
   // dummy argument x would be valid.  Be advised, this is not a reflexive
   // relation.
   bool IsTypeCompatibleWith(const DynamicType &) const;
+  // Type compatible and kind type parameters match
+  bool IsTkCompatibleWith(const DynamicType &) const;
 
   // Result will be missing when a symbol is absent or
   // has an erroneous type, e.g., REAL(KIND=666).

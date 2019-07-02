@@ -50,7 +50,12 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
             return Characterize(object);
           },
           [&](const semantics::ProcEntityDetails &proc) {
-            return Characterize(proc);
+            const semantics::ProcInterface &interface{proc.interface()};
+            if (interface.type()) {
+              return Characterize(*interface.type());
+            } else {
+              return Characterize(*interface.symbol());
+            }
           },
           [](const auto &) -> std::optional<TypeAndShape> {
             return std::nullopt;
@@ -67,20 +72,6 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
     return result;
   } else {
     return std::nullopt;
-  }
-}
-
-std::optional<TypeAndShape> TypeAndShape::Characterize(
-    const semantics::ProcEntityDetails &proc) {
-  return Characterize(proc.interface());
-}
-
-std::optional<TypeAndShape> TypeAndShape::Characterize(
-    const semantics::ProcInterface &interface) {
-  if (auto maybeType{Characterize(interface.symbol())}) {
-    return maybeType;
-  } else {
-    return Characterize(interface.type());
   }
 }
 
@@ -221,7 +212,6 @@ std::optional<DummyProcedure> DummyProcedure::Characterize(
   } else {
     return std::nullopt;
   }
-  return std::nullopt;
 }
 
 std::ostream &DummyProcedure::Dump(std::ostream &o) const {
@@ -403,6 +393,9 @@ std::optional<Procedure> Procedure::Characterize(
             // The PASS name, if any, is not a characteristic.
             return result;
           },
+          [&](const semantics::ProcBindingDetails &binding) {
+            return Characterize(binding.symbol(), intrinsics);
+          },
           [&](const semantics::MiscDetails &misc) -> std::optional<Procedure> {
             if (misc.kind() ==
                 semantics::MiscDetails::Kind::SpecificIntrinsic) {
@@ -412,7 +405,7 @@ std::optional<Procedure> Procedure::Characterize(
               return std::nullopt;
             }
           },
-          [](const auto &) -> std::optional<Procedure> { return std::nullopt; },
+          [](const auto &) -> std::optional<Procedure> { CRASH_NO_CASE; },
       },
       symbol.details());
 }
@@ -432,10 +425,241 @@ std::ostream &Procedure::Dump(std::ostream &o) const {
   return o << (sep == '(' ? "()" : ")");
 }
 
+// Utility class to determine if Procedures, etc. are distinguishable
+class DistinguishUtils {
+public:
+  // Is x distinguishable from y
+  static bool Distinguishable(const Procedure &, const Procedure &);
+
+private:
+  struct CountDummyProcedures {
+    CountDummyProcedures(const DummyArguments &args) {
+      for (const DummyArgument &arg : args) {
+        if (std::holds_alternative<DummyProcedure>(arg.u)) {
+          total += 1;
+          notOptional += !arg.IsOptional();
+        }
+      }
+    }
+    int total{0};
+    int notOptional{0};
+  };
+
+  static const DummyArgument *Rule1DistinguishingArg(
+      const DummyArguments &, const DummyArguments &);
+  static int FindFirstToDistinguishByPosition(
+      const DummyArguments &, const DummyArguments &);
+  static int FindLastToDistinguishByName(
+      const DummyArguments &, const DummyArguments &);
+  static int CountCompatibleWith(const DummyArgument &, const DummyArguments &);
+  static int CountDistinguishableFrom(
+      const DummyArgument &, const DummyArguments &);
+  static bool Distinguishable(const DummyArgument &, const DummyArgument &);
+  static bool Distinguishable(const DummyDataObject &, const DummyDataObject &);
+  static bool Distinguishable(const DummyProcedure &, const DummyProcedure &);
+  static bool Distinguishable(const FunctionResult &, const FunctionResult &);
+  static bool Distinguishable(const TypeAndShape &, const TypeAndShape &);
+  static bool IsTkrCompatible(const DummyArgument &, const DummyArgument &);
+  static bool IsTkrCompatible(const TypeAndShape &, const TypeAndShape &);
+};
+
+bool DistinguishUtils::Distinguishable(const Procedure &x, const Procedure &y) {
+  auto &args1{x.dummyArguments};
+  auto &args2{y.dummyArguments};
+  auto count1{CountDummyProcedures(args1)};
+  auto count2{CountDummyProcedures(args2)};
+  if (count1.notOptional > count2.total || count2.notOptional > count1.total) {
+    return true;  // distinguishable based on C1514 rule 2
+  }
+  // C1514 rule 3: TODO - depends on passed-object dummies
+  if (Rule1DistinguishingArg(args1, args2)) {
+    return true;  // distinguishable based on C1514 rule 1
+  }
+  int pos1{FindFirstToDistinguishByPosition(args1, args2)};
+  int name1{FindLastToDistinguishByName(args1, args2)};
+  if (pos1 >= 0 && pos1 <= name1) {
+    return true;  // distinguishable based on C1514 rule 4
+  }
+  int pos2{FindFirstToDistinguishByPosition(args2, args1)};
+  int name2{FindLastToDistinguishByName(args2, args1)};
+  if (pos2 >= 0 && pos2 <= name2) {
+    return true;  // distinguishable based on C1514 rule 4
+  }
+  return false;
+}
+
+// Find a non-passed-object dummy data object in one of the argument lists
+// that satisfies C1514 rule 1. I.e. x such that:
+// - m is the number of dummy data objects in one that are nonoptional,
+//   are not passed-object, that x is TKR compatible with
+// - n is the number of non-passed-object dummy data objects, in the other
+//   that are not distinguishable from x
+// - m is greater than n
+const DummyArgument *DistinguishUtils::Rule1DistinguishingArg(
+    const DummyArguments &args1, const DummyArguments &args2) {
+  auto size1{args1.size()};
+  auto size2{args2.size()};
+  for (std::size_t i{0}; i < size1 + size2; ++i) {
+    const DummyArgument &x{i < size1 ? args1[i] : args2[i - size1]};
+    if (std::holds_alternative<DummyDataObject>(x.u)) {
+      if (CountCompatibleWith(x, args1) > CountDistinguishableFrom(x, args2) ||
+          CountCompatibleWith(x, args2) > CountDistinguishableFrom(x, args1)) {
+        return &x;
+      }
+    }
+  }
+  return nullptr;
+}
+
+// Find the index of the first nonoptional non-passed-object dummy argument
+// in args1 at an effective position such that either:
+// - args2 has no dummy argument at that effective position
+// - the dummy argument at that position is distinguishable from it
+int DistinguishUtils::FindFirstToDistinguishByPosition(
+    const DummyArguments &args1, const DummyArguments &args2) {
+  for (std::size_t i{0}; i < args1.size(); ++i) {
+    const DummyArgument &arg1{args1.at(i)};
+    if (!arg1.IsOptional()) {
+      if (i >= args2.size() || Distinguishable(arg1, args2.at(i))) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+// Find the index of the last nonoptional non-passed-object dummy argument
+// in args1 whose name is such that either:
+// - args2 has no dummy argument with that name
+// - the dummy argument with that name is distinguishable from it
+int DistinguishUtils::FindLastToDistinguishByName(
+    const DummyArguments &args1, const DummyArguments &args2) {
+  std::map<std::string, const DummyArgument *> nameToArg;
+  for (const auto &arg2 : args2) {
+    nameToArg.emplace(arg2.name, &arg2);
+  }
+  for (int i = args1.size() - 1; i >= 0; --i) {
+    const DummyArgument &arg1{args1.at(i)};
+    auto it{nameToArg.find(arg1.name)};
+    if (it == nameToArg.end() || Distinguishable(arg1, *it->second)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Count the dummy data objects in args that are nonoptional, are not
+// passed-object, and that x is TKR compatible with
+int DistinguishUtils::CountCompatibleWith(
+    const DummyArgument &x, const DummyArguments &args) {
+  return std::count_if(args.begin(), args.end(), [&](const DummyArgument &y) {
+    return !y.IsOptional() && IsTkrCompatible(x, y);
+  });
+}
+
+// Return the number of dummy data objects in args that are not
+// distinguishable from x and not passed-object.
+int DistinguishUtils::CountDistinguishableFrom(
+    const DummyArgument &x, const DummyArguments &args) {
+  return std::count_if(args.begin(), args.end(), [&](const DummyArgument &y) {
+    return std::holds_alternative<DummyDataObject>(y.u) &&
+        !Distinguishable(y, x);
+  });
+}
+
+bool DistinguishUtils::Distinguishable(
+    const DummyArgument &x, const DummyArgument &y) {
+  if (x.u.index() != y.u.index()) {
+    return true;  // different kind: data/proc/alt-return
+  }
+  return std::visit(
+      common::visitors{
+          [&](const DummyDataObject &z) {
+            return Distinguishable(z, std::get<DummyDataObject>(y.u));
+          },
+          [&](const DummyProcedure &z) {
+            return Distinguishable(z, std::get<DummyProcedure>(y.u));
+          },
+          [&](const AlternateReturn &) { return false; },
+      },
+      x.u);
+}
+
+bool DistinguishUtils::Distinguishable(
+    const DummyDataObject &x, const DummyDataObject &y) {
+  using Attr = DummyDataObject::Attr;
+  if (Distinguishable(x.type, y.type)) {
+    return true;
+  } else if (x.attrs.test(Attr::Allocatable) && y.attrs.test(Attr::Pointer) &&
+      y.intent != common::Intent::In) {
+    return true;
+  } else if (y.attrs.test(Attr::Allocatable) && x.attrs.test(Attr::Pointer) &&
+      x.intent != common::Intent::In) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool DistinguishUtils::Distinguishable(
+    const DummyProcedure &x, const DummyProcedure &y) {
+  const Procedure &xProc{x.procedure.value()};
+  const Procedure &yProc{y.procedure.value()};
+  if (Distinguishable(xProc, yProc)) {
+    return true;
+  } else {
+    const std::optional<FunctionResult> &xResult{xProc.functionResult};
+    const std::optional<FunctionResult> &yResult{yProc.functionResult};
+    return xResult ? !yResult || Distinguishable(*xResult, *yResult)
+                   : yResult.has_value();
+  }
+}
+
+bool DistinguishUtils::Distinguishable(
+    const FunctionResult &x, const FunctionResult &y) {
+  if (x.u.index() != y.u.index()) {
+    return true;  // one is data object, one is procedure
+  }
+  return std::visit(
+      common::visitors{
+          [&](const TypeAndShape &z) {
+            return Distinguishable(z, std::get<TypeAndShape>(y.u));
+          },
+          [&](const CopyableIndirection<Procedure> &z) {
+            return Distinguishable(z.value(),
+                std::get<CopyableIndirection<Procedure>>(y.u).value());
+          },
+      },
+      x.u);
+}
+
+bool DistinguishUtils::Distinguishable(
+    const TypeAndShape &x, const TypeAndShape &y) {
+  return !IsTkrCompatible(x, y) && !IsTkrCompatible(y, x);
+}
+
+// Compatibility based on type, kind, and rank
+bool DistinguishUtils::IsTkrCompatible(
+    const DummyArgument &x, const DummyArgument &y) {
+  const auto *obj1{std::get_if<DummyDataObject>(&x.u)};
+  const auto *obj2{std::get_if<DummyDataObject>(&y.u)};
+  return obj1 && obj2 && IsTkrCompatible(obj1->type, obj2->type);
+}
+bool DistinguishUtils::IsTkrCompatible(
+    const TypeAndShape &x, const TypeAndShape &y) {
+  return x.type().IsTkCompatibleWith(y.type()) &&
+      (x.IsAssumedRank() || y.IsAssumedRank() || x.Rank() == y.Rank());
+}
+
+bool Distinguishable(const Procedure &x, const Procedure &y) {
+  return DistinguishUtils::Distinguishable(x, y);
+}
+
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(DummyProcedure)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(FunctionResult)
 DEFINE_DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(Procedure)
 }
+
 template class Fortran::common::Indirection<
     Fortran::evaluate::characteristics::Procedure, true>;

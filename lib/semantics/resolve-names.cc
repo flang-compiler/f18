@@ -28,6 +28,7 @@
 #include "../common/default-kinds.h"
 #include "../common/indirection.h"
 #include "../common/restorer.h"
+#include "../evaluate/characteristics.h"
 #include "../evaluate/common.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/intrinsics.h"
@@ -584,6 +585,7 @@ protected:
   GenericDetails &GetGenericDetails();
   // Add to generic the symbol for the subprogram with the same name
   void CheckGenericProcedures(Symbol &);
+  void CheckSpecificsAreDistinguishable(const Symbol &, const SymbolVector &);
 
 private:
   // A new GenericInfo is pushed for each interface block and generic stmt
@@ -605,6 +607,7 @@ private:
 
   void AddSpecificProcs(const std::list<parser::Name> &, ProcedureKind);
   void ResolveSpecificsInGeneric(Symbol &generic);
+  void SayNotDistinguishable(const Symbol &, const Symbol &, const Symbol &);
 };
 
 class SubprogramVisitor : public virtual ScopeHandler, public InterfaceVisitor {
@@ -1043,14 +1046,14 @@ private:
   void HandleCall(Symbol::Flag, const parser::Call &);
   void HandleProcedureName(Symbol::Flag, const parser::Name &);
   bool SetProcFlag(const parser::Name &, Symbol &, Symbol::Flag);
-  void ResolveExecutionParts(const ProgramTree &);
+  void ResolveSpecificationParts(ProgramTree &);
   void AddSubpNames(const ProgramTree &);
   bool BeginScope(const ProgramTree &);
-  void ResolveSpecificationParts(ProgramTree &);
   void FinishSpecificationParts(const ProgramTree &);
   void FinishDerivedType(Scope &);
   const Symbol *CheckPassArg(
       const Symbol &, const Symbol *, const SourceName *);
+  void ResolveExecutionParts(const ProgramTree &);
 };
 
 // ImplicitRules implementation
@@ -2160,8 +2163,8 @@ void InterfaceVisitor::CheckGenericProcedures(Symbol &generic) {
   }
   auto &firstSpecific{*specifics.front()};
   bool isFunction{firstSpecific.test(Symbol::Flag::Function)};
-  for (auto *specific : specifics) {
-    if (isFunction != specific->test(Symbol::Flag::Function)) {
+  for (const auto *specific : specifics) {
+    if (isFunction != specific->test(Symbol::Flag::Function)) {  // C1514
       auto &msg{Say(generic.name(),
           "Generic interface '%s' has both a function and a subroutine"_err_en_US)};
       if (isFunction) {
@@ -2180,6 +2183,50 @@ void InterfaceVisitor::CheckGenericProcedures(Symbol &generic) {
         *details.derivedType()->scope());
   }
   generic.set(isFunction ? Symbol::Flag::Function : Symbol::Flag::Subroutine);
+}
+
+void InterfaceVisitor::SayNotDistinguishable(
+    const Symbol &generic, const Symbol &proc1, const Symbol &proc2) {
+  auto &&text{IsDefinedOperator(generic.name())
+          ? "Generic operator '%s' may not have specific procedures '%s'"
+            " and '%s' as their interfaces are not distinguishable"_err_en_US
+          : "Generic '%s' may not have specific procedures '%s'"
+            " and '%s' as their interfaces are not distinguishable"_err_en_US};
+  auto &msg{context().Say(generic.name(), std::move(text), generic.name(),
+      proc1.name(), proc2.name())};
+  if (!proc1.IsFromModFile()) {
+    msg.Attach(proc1.name(), "Declaration of '%s'"_en_US, proc1.name());
+  }
+  if (!proc2.IsFromModFile()) {
+    msg.Attach(proc2.name(), "Declaration of '%s'"_en_US, proc2.name());
+  }
+}
+
+// Check that the specifics of this generic are distinguishable from each other
+void InterfaceVisitor::CheckSpecificsAreDistinguishable(
+    const Symbol &generic, const SymbolVector &specifics) {
+  auto count{specifics.size()};
+  if (specifics.size() < 2) {
+    return;
+  }
+  using evaluate::characteristics::Procedure;
+  std::vector<Procedure> procs;
+  for (const Symbol *symbol : specifics) {
+    auto proc{Procedure::Characterize(*symbol, context().intrinsics())};
+    if (!proc) {
+      return;
+    }
+    procs.emplace_back(*proc);
+  }
+  for (std::size_t i1{0}; i1 < count - 1; ++i1) {
+    auto &proc1{procs[i1]};
+    for (std::size_t i2{i1 + 1}; i2 < count; ++i2) {
+      auto &proc2{procs[i2]};
+      if (!evaluate::characteristics::Distinguishable(proc1, proc2)) {
+        SayNotDistinguishable(generic, *specifics[i1], *specifics[i2]);
+      }
+    }
+  }
 }
 
 // SubprogramVisitor implementation
@@ -4762,7 +4809,6 @@ bool ResolveNamesVisitor::Pre(const parser::ProgramUnit &x) {
   SetScope(context().globalScope());
   ResolveSpecificationParts(root);
   FinishSpecificationParts(root);
-  SetScope(context().globalScope());
   ResolveExecutionParts(root);
   return false;
 }
@@ -4873,6 +4919,12 @@ void ResolveNamesVisitor::FinishSpecificationParts(const ProgramTree &node) {
     return;  // error occurred creating scope
   }
   SetScope(*node.scope());
+  for (const auto &pair : currScope()) {
+    const Symbol &symbol{*pair.second};
+    if (const auto *details{symbol.detailsIf<GenericDetails>()}) {
+      CheckSpecificsAreDistinguishable(symbol, details->specificProcs());
+    }
+  }
   for (Scope &childScope : currScope().children()) {
     if (childScope.kind() == Scope::Kind::DerivedType && childScope.symbol()) {
       FinishDerivedType(childScope);
@@ -4906,6 +4958,9 @@ void ResolveNamesVisitor::FinishDerivedType(Scope &scope) {
             },
             [&](ProcBindingDetails &x) {
               x.set_passArg(CheckPassArg(comp, &x.symbol(), x.passName()));
+            },
+            [&](GenericBindingDetails &x) {
+              CheckSpecificsAreDistinguishable(comp, x.specificProcs());
             },
             [](auto &x) {},
         },
