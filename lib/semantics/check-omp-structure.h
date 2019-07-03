@@ -21,9 +21,7 @@
 #define FORTRAN_SEMANTICS_CHECK_OMP_STRUCTURE_H_
 
 #include "semantics.h"
-#include "tools.h"
 #include "../common/enum-set.h"
-#include "../evaluate/fold.h"
 #include "../parser/parse-tree.h"
 
 namespace Fortran::semantics {

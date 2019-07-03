@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "check-omp-structure.h"
+#include "tools.h"
 #include "../parser/parse-tree.h"
 
 namespace Fortran::semantics {
@@ -161,9 +162,10 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
           const auto &collapseClause{
               std::get<parser::OmpClause::Collapse>(clause2->u)};
           // ordered and collapse both have parameters
-          const auto orderedValue{GetPosIntValue(orderedClause.v)};
-          const auto collapseValue{GetPosIntValue(collapseClause.v)};
-          if (orderedValue && collapseValue &&
+          const auto orderedValue{GetIntValue(orderedClause.v)};
+          const auto collapseValue{GetIntValue(collapseClause.v)};
+          if (orderedValue && collapseValue && orderedValue.value() > 0 &&
+              collapseValue.value() > 0 &&
               orderedValue.value() < collapseValue.value()) {
             context_.Say(clause->source,
                 "The parameter of the ORDERED clause must be greater than or "
@@ -203,7 +205,8 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Untied &) {
 void OmpStructureChecker::Enter(const parser::OmpClause::Collapse &x) {
   CheckAllowed(OmpClause::COLLAPSE);
   // collapse clause must have a parameter
-  if (!GetPosIntValue(x.v)) {
+  const auto v{GetIntValue(x.v)};
+  if (v && v.value() <= 0) {
     context_.Say(GetContext().clauseSource,
         "The parameter of the COLLAPSE clause must be "
         "a constant positive integer expression"_err_en_US);
@@ -258,8 +261,8 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Ordered &x) {
   CheckAllowed(OmpClause::ORDERED);
   // the parameter of ordered clause is optional
   if (const auto &expr{x.v}) {
-    const auto v{GetPosIntValue(expr)};
-    if (!v) {
+    const auto v{GetIntValue(expr)};
+    if (v && v.value() <= 0) {
       context_.Say(GetContext().clauseSource,
           "The parameter of the ORDERED clause must be "
           "a constant positive integer expression"_err_en_US);

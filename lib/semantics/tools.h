@@ -168,10 +168,5 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   }
 }
 
-template<typename T> std::optional<std::int64_t> GetPosIntValue(const T &x) {
-  const auto v{GetIntValue(x)};
-  return v && v.value() > 0 ? v : std::nullopt;
-}
-
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_
