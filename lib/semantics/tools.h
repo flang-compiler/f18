@@ -81,6 +81,15 @@ const Symbol *HasEventOrLockPotentialComponent(const DerivedTypeSpec &);
 const Symbol *FindUltimateComponent(
     const DerivedTypeSpec &type, std::function<bool(const Symbol &)> predicate);
 
+// For a symbol that represents a derived type, return the complete list of
+// derived type parameter names in the order defined by 7.5.3.2.
+std::vector<SourceName> OrderParameterNames(const Symbol &);
+
+// For a symbol that represents a derived type, return the complete list of
+// derived type parameter symbols in the order in which their declarations
+// appear in the derived type definitions (parents first).
+std::vector<const Symbol *> OrderParameterDeclarations(const Symbol &);
+
 inline bool IsPointer(const Symbol &symbol) {
   return symbol.attrs().test(Attr::POINTER);
 }

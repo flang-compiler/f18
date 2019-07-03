@@ -17,6 +17,7 @@
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
+#include "tools.h"
 #include "../common/restorer.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
@@ -56,8 +57,7 @@ ParamValue *DerivedTypeSpec::FindParameter(SourceName target) {
 
 void DerivedTypeSpec::ProcessParameterExpressions(
     evaluate::FoldingContext &foldingContext) {
-  const DerivedTypeDetails &typeDetails{typeSymbol_.get<DerivedTypeDetails>()};
-  auto paramDecls{typeDetails.OrderParameterDeclarations(typeSymbol_)};
+  auto paramDecls{OrderParameterDeclarations(typeSymbol_)};
   // Fold the explicit type parameter value expressions first.  Do not
   // fold them within the scope of the derived type being instantiated;
   // these expressions cannot use its type parameters.  Convert the values
@@ -121,9 +121,7 @@ Scope &DerivedTypeSpec::Instantiate(
   scope_ = &newScope;
   const Scope *typeScope{typeSymbol_.scope()};
   CHECK(typeScope != nullptr);
-  const DerivedTypeDetails &typeDetails{typeSymbol_.get<DerivedTypeDetails>()};
-  for (const Symbol *symbol :
-      typeDetails.OrderParameterDeclarations(typeSymbol_)) {
+  for (const Symbol *symbol : OrderParameterDeclarations(typeSymbol_)) {
     const SourceName &name{symbol->name()};
     if (typeScope->find(symbol->name()) != typeScope->end()) {
       // This type parameter belongs to the derived type itself, not to

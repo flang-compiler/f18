@@ -387,4 +387,24 @@ const Symbol *FindUltimateComponent(const DerivedTypeSpec &derivedTypeSpec,
   return nullptr;
 }
 
+std::vector<SourceName> OrderParameterNames(const Symbol &typeSymbol) {
+  std::vector<SourceName> result;
+  if (const DerivedTypeSpec * parent{typeSymbol.GetParentTypeSpec()}) {
+    result = OrderParameterNames(parent->typeSymbol());
+  }
+  const auto &paramNames{typeSymbol.get<DerivedTypeDetails>().paramNames()};
+  result.insert(result.end(), paramNames.begin(), paramNames.end());
+  return result;
+}
+
+SymbolVector OrderParameterDeclarations(const Symbol &typeSymbol) {
+  SymbolVector result;
+  if (const DerivedTypeSpec * parent{typeSymbol.GetParentTypeSpec()}) {
+    result = OrderParameterDeclarations(parent->typeSymbol());
+  }
+  const auto &paramDecls{typeSymbol.get<DerivedTypeDetails>().paramDecls()};
+  result.insert(result.end(), paramDecls.begin(), paramDecls.end());
+  return result;
+}
+
 }
