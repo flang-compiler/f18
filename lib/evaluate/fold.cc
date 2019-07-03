@@ -313,6 +313,72 @@ static std::optional<std::int64_t> GetInt64ArgOr(
   }
 }
 
+template<typename A, typename B>
+std::optional<std::vector<A>> GetIntegerVector(const B &x) {
+  static_assert(std::is_integral_v<A>);
+  if (const auto *someInteger{UnwrapExpr<Expr<SomeInteger>>(x)}) {
+    return std::visit(
+        [](const auto &typedExpr) -> std::optional<std::vector<A>> {
+          using T = ResultType<decltype(typedExpr)>;
+          if (const auto *constant{UnwrapConstantValue<T>(typedExpr)}) {
+            if (constant->Rank() == 1) {
+              std::vector<A> result;
+              for (const auto &value : constant->values()) {
+                result.push_back(static_cast<A>(value.ToInt64()));
+              }
+              return result;
+            }
+          }
+          return std::nullopt;
+        },
+        someInteger->u);
+  }
+  return std::nullopt;
+}
+
+template<typename T>
+std::optional<Constant<T>> Reshape(
+    FoldingContext &context, const ActualArguments &args) {
+  CHECK(args.size() == 4);
+  const auto *source{UnwrapConstantValue<T>(args[0])};
+  const auto *pad{UnwrapConstantValue<T>(args[2])};
+  std::optional<std::vector<ConstantSubscript>> shape{
+      GetIntegerVector<ConstantSubscript>(args[1])};
+  std::optional<std::vector<int>> order{GetIntegerVector<int>(args[3])};
+  if (source && shape && (pad || !args[2].has_value()) &&
+      (order || !args[3].has_value())) {
+    if (IsValidShape(shape.value())) {
+      int rank{GetRank(shape.value())};
+      if (const auto dimOrder{IsValidDimensionOrder(rank, order)}) {
+        std::size_t resultElements{TotalElementCount(shape.value())};
+        if (resultElements <= source->size() || (pad && !pad->empty())) {
+          Constant<T> result{!source->empty()
+                  ? source->Reshape(std::move(shape.value()))
+                  : pad->Reshape(std::move(shape.value()))};
+          ConstantSubscripts subscripts{result.lbounds()};
+          auto copied{result.CopyFrom(
+              *source, source->size(), subscripts, &dimOrder.value())};
+          if (copied < resultElements) {
+            CHECK(pad);
+            copied += result.CopyFrom(
+                *pad, resultElements - copied, subscripts, &dimOrder.value());
+          }
+          CHECK(copied == resultElements);
+          return result;
+        } else {
+          context.messages().Say(
+              "Too few SOURCE elements in RESHAPE and PAD is not present or has null size"_en_US);
+        }
+      } else {
+        context.messages().Say("Invalid ORDER in RESHAPE"_en_US);
+      }
+    } else {
+      context.messages().Say("Invalid SHAPE in RESHAPE"_en_US);
+    }
+  }  // non-constant arguments
+  return std::nullopt;
+}
+
 template<typename T>
 ActualArguments &FoldArguments(
     FoldingContext &context, FunctionRef<T> &funcRef) {
@@ -545,6 +611,10 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     } else if (name == "rank") {
       // TODO assumed-rank dummy argument
       return Expr<T>{args[0].value().Rank()};
+    } else if (name == "reshape") {
+      if (auto maybeConstant{Reshape<T>(context, args)}) {
+        return Expr<T>{std::move(maybeConstant.value())};
+      }
     } else if (name == "selected_char_kind") {
       if (const auto *chCon{
               UnwrapExpr<Constant<TypeOf<std::string>>>(args[0])}) {
@@ -600,7 +670,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldOperation(FoldingContext &context,
     // ceiling, count, cshift, dot_product, eoshift,
     // findloc, floor, iall, iany, iparity, ibits, image_status, index, ishftc,
     // lbound, len_trim, matmul, max, maxloc, maxval, merge, min,
-    // minloc, minval, mod, modulo, nint, not, pack, product, reduce, reshape,
+    // minloc, minval, mod, modulo, nint, not, pack, product, reduce,
     // scan, sign, spread, sum, transfer, transpose, ubound, unpack, verify
   }
   return Expr<T>{std::move(funcRef)};
@@ -737,10 +807,14 @@ Expr<Type<TypeCategory::Real, KIND>> FoldOperation(FoldingContext &context,
       if (auto *expr{args[0].value().UnwrapExpr()}) {
         return ToReal<KIND>(context, std::move(*expr));
       }
+    } else if (name == "reshape") {
+      if (auto maybeConstant{Reshape<T>(context, args)}) {
+        return Expr<T>{std::move(maybeConstant.value())};
+      }
     }
     // TODO: anint, cshift, dim, dot_product, eoshift, fraction, huge, matmul,
     // max, maxval, merge, min, minval, modulo, nearest, norm2, pack, product,
-    // reduce, reshape, rrspacing, scale, set_exponent, sign, spacing, spread,
+    // reduce, rrspacing, scale, set_exponent, sign, spacing, spread,
     // sum, tiny, transfer, transpose, unpack, bessel_jn (transformational) and
     // bessel_yn (transformational)
   }
@@ -788,9 +862,13 @@ Expr<Type<TypeCategory::Complex, KIND>> FoldOperation(FoldingContext &context,
                 ComplexConstructor<KIND>{ToReal<KIND>(context, std::move(re)),
                     ToReal<KIND>(context, std::move(im))}});
       }
+    } else if (name == "reshape") {
+      if (auto maybeConstant{Reshape<T>(context, args)}) {
+        return Expr<T>{std::move(maybeConstant.value())};
+      }
     }
     // TODO: cshift, dot_product, eoshift, matmul, merge, pack, product,
-    // reduce, reshape, spread, sum, transfer, transpose, unpack
+    // reduce, spread, sum, transfer, transpose, unpack
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -861,10 +939,14 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(FoldingContext &context,
                   const Scalar<LargestInt> &i, const Scalar<LargestInt> &j) {
                 return Scalar<T>{std::invoke(fptr, i, j)};
               }));
+    } else if (name == "reshape") {
+      if (auto maybeConstant{Reshape<T>(context, args)}) {
+        return Expr<T>{std::move(maybeConstant.value())};
+      }
     }
     // TODO: btest, cshift, dot_product, eoshift, is_iostat_end,
     // is_iostat_eor, lge, lgt, lle, llt, logical, matmul, merge, out_of_range,
-    // pack, parity, reduce, reshape, spread, transfer, transpose, unpack
+    // pack, parity, reduce, spread, transfer, transpose, unpack
   }
   return Expr<T>{std::move(funcRef)};
 }
@@ -890,11 +972,30 @@ Expr<Type<TypeCategory::Character, KIND>> FoldOperation(FoldingContext &context,
           context, std::move(funcRef), CharacterUtils<KIND>::ADJUSTR);
     } else if (name == "new_line") {
       return Expr<T>{Constant<T>{CharacterUtils<KIND>::NEW_LINE()}};
+    } else if (name == "reshape") {
+      if (auto maybeConstant{Reshape<T>(context, args)}) {
+        return Expr<T>{std::move(maybeConstant.value())};
+      }
     }
     // TODO: cshift, eoshift, max, maxval, merge, min, minval, pack, reduce,
-    // repeat, reshape, spread, transfer, transpose, trim, unpack
+    // repeat, spread, transfer, transpose, trim, unpack
   }
   return Expr<T>{std::move(funcRef)};
+}
+
+Expr<SomeDerived> FoldOperation(
+    FoldingContext &context, FunctionRef<SomeDerived> &&funcRef) {
+  ActualArguments &args{FoldArguments(context, funcRef)};
+  if (auto *intrinsic{std::get_if<SpecificIntrinsic>(&funcRef.proc().u)}) {
+    std::string name{intrinsic->name};
+    if (name == "reshape") {
+      if (auto maybeConstant{Reshape<SomeDerived>(context, args)}) {
+        return Expr<SomeDerived>{std::move(maybeConstant.value())};
+      }
+    }
+  }
+  return Expr<SomeDerived>{std::move(funcRef)};
+  // TODO: other intrinsics operating on Derived types
 }
 
 // Get the value of a PARAMETER

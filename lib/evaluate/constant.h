@@ -47,6 +47,17 @@ std::size_t TotalElementCount(const ConstantSubscripts &);
 // varying most quickly).  Returns false when last element was visited.
 bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
     const ConstantSubscripts &lbound);
+bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
+    const ConstantSubscripts &lbound, const std::vector<int> &dimOrder);
+
+// Validate dimension re-ordering like ORDER in RESHAPE.
+// On success, return a vector that can be used as dimOrder in
+// IncrementSubscripts.
+// If order argument is nullopt, returns Fortran dimension order.
+std::optional<std::vector<int>> IsValidDimensionOrder(
+    int rank, const std::optional<std::vector<int>> &order);
+
+bool IsValidShape(const ConstantSubscripts &);
 
 // Constant<> is specialized for Character kinds and SomeDerived.
 // The non-Character intrinsic types, and SomeDerived, share enough
@@ -86,6 +97,8 @@ public:
 
 protected:
   std::vector<Element> Reshape(const ConstantSubscripts &) const;
+  std::size_t CopyFrom(const ConstantBase &source, std::size_t count,
+      ConstantSubscripts &resultSubscripts, const std::vector<int> *dimOrder);
 
   Result result_;
   std::vector<Element> values_;
@@ -114,6 +127,8 @@ public:
   Element At(const ConstantSubscripts &) const;
 
   Constant Reshape(ConstantSubscripts &&) const;
+  std::size_t CopyFrom(const Constant &source, std::size_t count,
+      ConstantSubscripts &resultSubscripts, const std::vector<int> *dimOrder);
 };
 
 template<int KIND> class Constant<Type<TypeCategory::Character, KIND>> {
@@ -156,6 +171,8 @@ public:
   static constexpr DynamicType GetType() {
     return {TypeCategory::Character, KIND};
   }
+  std::size_t CopyFrom(const Constant &source, std::size_t count,
+      ConstantSubscripts &resultSubscripts, const std::vector<int> *dimOrder);
 
 private:
   Scalar<Result> values_;  // one contiguous string
@@ -188,6 +205,8 @@ public:
   StructureConstructor At(const ConstantSubscripts &) const;
 
   Constant Reshape(ConstantSubscripts &&) const;
+  std::size_t CopyFrom(const Constant &source, std::size_t count,
+      ConstantSubscripts &resultSubscripts, const std::vector<int> *dimOrder);
 };
 
 FOR_EACH_LENGTHLESS_INTRINSIC_KIND(extern template class ConstantBase, )
