@@ -166,9 +166,9 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
             if (const auto collapseValue{GetIntValue(collapseClause.v)}) {
               if (*orderedValue > 0 && *orderedValue < *collapseValue) {
                 context_.Say(clause->source,
-                    "The parameter of the ORDERED clause must be greater than "
-                    "or "
-                    "equal to the parameter of the COLLAPSE clause"_err_en_US);
+                    "The parameter of the ORDERED clause must be "
+                    "greater than or equal to "
+                    "the parameter of the COLLAPSE clause"_err_en_US);
               }
             }
           }
