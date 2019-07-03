@@ -276,6 +276,34 @@ contains
   end
 end
 
+! Types distinguished by kind parameters in parent type
+module m15b
+  type t1(k1)
+    integer, kind :: k1 = 1
+  end type
+  type, extends(t1) :: t2(k2)
+    integer, kind :: k2
+  end type
+  interface g1
+    procedure s1
+    procedure s3
+  end interface
+  interface g2
+    procedure s2
+    procedure s3
+  end interface
+contains
+  subroutine s1(x)
+    type(t2(k1=4, k2=5)) :: x
+  end
+  subroutine s2(x)
+    type(t2(k1=5, k2=4)) :: x
+  end
+  subroutine s3(x)
+    type(t2(k1=5, k2=5)) :: x
+  end
+end
+
 ! Check that specifics for type-bound generics can be distinguished
 module m16
   type :: t

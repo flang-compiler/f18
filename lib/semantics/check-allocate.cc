@@ -339,34 +339,6 @@ static bool HaveSameAssumedTypeParameters(
   return true;  // other intrinsic types have no length type parameters
 }
 
-static std::optional<std::int64_t> GetTypeParameterInt64Value(
-    const Symbol &parameterSymbol, const DerivedTypeSpec &derivedType) {
-  if (const ParamValue *
-      paramValue{derivedType.FindParameter(parameterSymbol.name())}) {
-    return evaluate::ToInt64(paramValue->GetExplicit());
-  } else {
-    return std::nullopt;
-  }
-}
-
-// HaveCompatibleKindParameters functions assume type1 is type compatible with
-// type2 (except for kind type parameters)
-static bool HaveCompatibleKindParameters(
-    const DerivedTypeSpec &derivedType1, const DerivedTypeSpec &derivedType2) {
-  for (const Symbol *symbol :
-      OrderParameterDeclarations(derivedType1.typeSymbol())) {
-    if (symbol->get<TypeParamDetails>().attr() == common::TypeParamAttr::Kind) {
-      // At this point, it should have been ensured that these contain integer
-      // constants, so die if this is not the case.
-      if (GetTypeParameterInt64Value(*symbol, derivedType1).value() !=
-          GetTypeParameterInt64Value(*symbol, derivedType2).value()) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
 static bool HaveCompatibleKindParameters(
     const DeclTypeSpec &type1, const evaluate::DynamicType &type2) {
   if (type1.category() == DeclTypeSpec::Category::ClassStar) {
@@ -375,8 +347,7 @@ static bool HaveCompatibleKindParameters(
   if (const IntrinsicTypeSpec * intrinsicType1{type1.AsIntrinsic()}) {
     return evaluate::ToInt64(intrinsicType1->kind()).value() == type2.kind();
   } else if (const DerivedTypeSpec * derivedType1{type1.AsDerived()}) {
-    return HaveCompatibleKindParameters(
-        *derivedType1, type2.GetDerivedTypeSpec());
+    return derivedType1->IsKindCompatibleWith(type2.GetDerivedTypeSpec());
   } else {
     common::die("unexpected type1 category");
   }
@@ -394,7 +365,7 @@ static bool HaveCompatibleKindParameters(
   } else if (const DerivedTypeSpec * derivedType1{type1.AsDerived()}) {
     const DerivedTypeSpec *derivedType2{type2.AsDerived()};
     CHECK(derivedType2);  // Violation of type compatibility hypothesis.
-    return HaveCompatibleKindParameters(*derivedType1, *derivedType2);
+    return derivedType1->IsKindCompatibleWith(*derivedType2);
   } else {
     common::die("unexpected type1 category");
   }

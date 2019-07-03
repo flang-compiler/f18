@@ -173,6 +173,21 @@ Scope &DerivedTypeSpec::Instantiate(
   return newScope;
 }
 
+bool DerivedTypeSpec::IsKindCompatibleWith(const DerivedTypeSpec &that) const {
+  for (const Symbol *symbol : OrderParameterDeclarations(typeSymbol_)) {
+    if (const auto *details{symbol->detailsIf<TypeParamDetails>()}) {
+      if (details->attr() == common::TypeParamAttr::Kind) {
+        const ParamValue *param1{FindParameter(symbol->name())};
+        const ParamValue *param2{that.FindParameter(symbol->name())};
+        if (!common::PointeeComparison(param1, param2)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 std::string DerivedTypeSpec::AsFortran() const {
   std::stringstream ss;
   ss << typeSymbol_.name().ToString();

@@ -133,6 +133,10 @@ template<typename A> struct ListItemCount {
 // Given a const reference to a value, return a copy of the value.
 template<typename A> A Clone(const A &x) { return x; }
 
+template<typename A> inline bool PointeeComparison(const A *x, const A *y) {
+  return x == y || (x != nullptr && y != nullptr && *x == *y);
+}
+
 // C++ does a weird and dangerous thing when deducing template type parameters
 // from function arguments: lvalue references are allowed to match rvalue
 // reference arguments.  Template function declarations like

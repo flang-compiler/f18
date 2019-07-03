@@ -251,6 +251,10 @@ public:
   bool operator==(const DerivedTypeSpec &that) const {
     return &typeSymbol_ == &that.typeSymbol_ && parameters_ == that.parameters_;
   }
+
+  // Do the kind type parameters of this have the same values as the
+  // corresponding kind type parameters of that?
+  bool IsKindCompatibleWith(const DerivedTypeSpec &) const;
   std::string AsFortran() const;
 
 private:

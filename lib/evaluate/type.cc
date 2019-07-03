@@ -93,14 +93,10 @@ bool IsDescriptor(const Symbol &symbol) {
 
 namespace Fortran::evaluate {
 
-template<typename A> inline bool PointeeComparison(const A *x, const A *y) {
-  return x == y || (x != nullptr && y != nullptr && *x == *y);
-}
-
 bool DynamicType::operator==(const DynamicType &that) const {
   return category_ == that.category_ && kind_ == that.kind_ &&
-      PointeeComparison(charLength_, that.charLength_) &&
-      PointeeComparison(derived_, that.derived_);
+      common::PointeeComparison(charLength_, that.charLength_) &&
+      common::PointeeComparison(derived_, that.derived_);
 }
 
 bool DynamicType::IsAssumedLengthCharacter() const {
@@ -146,24 +142,6 @@ bool DynamicType::IsTypeCompatibleWith(const DynamicType &that) const {
           IsAncestorTypeOf(derived_, that.derived_));
 }
 
-// Do the kind type parameters of type1 have the same values as the
-// corresponding kind type parameters of the type2?
-static bool IsKindCompatible(const semantics::DerivedTypeSpec &type1,
-    const semantics::DerivedTypeSpec &type2) {
-  for (const auto &[name, symbol] : *type1.scope()) {
-    if (const auto *details{symbol->detailsIf<semantics::TypeParamDetails>()}) {
-      if (details->attr() == common::TypeParamAttr::Kind) {
-        const semantics::ParamValue *param1{type1.FindParameter(name)};
-        const semantics::ParamValue *param2{type2.FindParameter(name)};
-        if (!PointeeComparison(param1, param2)) {
-          return false;
-        }
-      }
-    }
-  }
-  return true;
-}
-
 bool DynamicType::IsTkCompatibleWith(const DynamicType &that) const {
   if (category_ != TypeCategory::Derived) {
     return category_ == that.category_ && kind_ == that.kind_;
@@ -171,7 +149,7 @@ bool DynamicType::IsTkCompatibleWith(const DynamicType &that) const {
     return true;
   } else if (that.IsUnlimitedPolymorphic()) {
     return false;
-  } else if (!IsKindCompatible(*derived_, *that.derived_)) {
+  } else if (!derived_->IsKindCompatibleWith(*that.derived_)) {
     return false;  // kind params don't match
   } else if (!IsPolymorphic()) {
     return derived_->typeSymbol() == that.derived_->typeSymbol();
@@ -255,7 +233,7 @@ DynamicType DynamicType::ResultTypeForMultiply(const DynamicType &that) const {
 
 bool SomeKind<TypeCategory::Derived>::operator==(
     const SomeKind<TypeCategory::Derived> &that) const {
-  return PointeeComparison(derivedTypeSpec_, that.derivedTypeSpec_);
+  return common::PointeeComparison(derivedTypeSpec_, that.derivedTypeSpec_);
 }
 
 int SelectedCharKind(const std::string &s) {  // 16.9.168
