@@ -53,5 +53,7 @@ ENUM_CLASS(IoSpecKind, Access, Action, Advance, Asynchronous, Blank, Decimal,
     Convert,  // nonstandard
     Dispose,  // nonstandard
 )
+
+static constexpr int maxRank{15};
 }
 #endif  // FORTRAN_COMMON_FORTRAN_H_
