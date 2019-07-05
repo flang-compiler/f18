@@ -43,12 +43,14 @@ inline int GetRank(const ConstantSubscripts &s) {
 
 std::size_t TotalElementCount(const ConstantSubscripts &);
 
-// Increments a vector of subscripts in Fortran array order (first dimension
-// varying most quickly).  Returns false when last element was visited.
+// If no optional dimension order argument is passed, increments a vector of
+// subscripts in Fortran array order (first dimension varying most quickly).
+// Otherwise, increments the vector of subscripts according to the given
+// dimension order (dimension dimOrder[0] varying most quickly. Dimensions
+// indexing is zero based here.) Returns false when last element was visited.
 bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
-    const ConstantSubscripts &lbound);
-bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
-    const ConstantSubscripts &lbound, const std::vector<int> &dimOrder);
+    const ConstantSubscripts &lbound,
+    const std::vector<int> *dimOrder = nullptr);
 
 // Validate dimension re-ordering like ORDER in RESHAPE.
 // On success, return a vector that can be used as dimOrder in
