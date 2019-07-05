@@ -30,33 +30,15 @@ std::size_t TotalElementCount(const ConstantSubscripts &shape) {
 }
 
 bool IncrementSubscripts(ConstantSubscripts &indices,
-    const ConstantSubscripts &shape, const ConstantSubscripts &lbound) {
-  int rank{GetRank(shape)};
-  CHECK(GetRank(indices) == rank);
-  CHECK(GetRank(lbound) == rank);
-  for (int j{0}; j < rank; ++j) {
-    auto lb{lbound[j]};
-    CHECK(indices[j] >= lb);
-    if (++indices[j] < lb + shape[j]) {
-      return true;
-    } else {
-      CHECK(indices[j] == lb + shape[j]);
-      indices[j] = lb;
-    }
-  }
-  return false;  // all done
-}
-
-bool IncrementSubscripts(ConstantSubscripts &indices,
     const ConstantSubscripts &shape, const ConstantSubscripts &lbound,
-    const std::vector<int> &dimOrder) {
+    const std::vector<int> *dimOrder) {
   int rank{GetRank(shape)};
   CHECK(GetRank(indices) == rank);
   CHECK(GetRank(lbound) == rank);
-  CHECK(static_cast<int>(dimOrder.size()) == rank);
+  CHECK(!dimOrder || static_cast<int>(dimOrder->size()) == rank);
   for (int j{0}; j < rank; ++j) {
     auto lb{lbound[j]};
-    ConstantSubscript k{dimOrder[j]};
+    ConstantSubscript k{dimOrder ? (*dimOrder)[j] : j};
     CHECK(indices[k] >= lb);
     if (++indices[k] < lb + shape[k]) {
       return true;
@@ -70,15 +52,13 @@ bool IncrementSubscripts(ConstantSubscripts &indices,
 
 std::optional<std::vector<int>> IsValidDimensionOrder(
     int rank, const std::optional<std::vector<int>> &order) {
+  std::vector<int> dimOrder(rank);
   if (!order.has_value()) {
-    std::vector<int> result;
     for (int j{0}; j < rank; ++j) {
-      result.push_back(j);
+      dimOrder[j] = j;
     }
-    return {std::move(result)};
-  }
-  if (static_cast<int>(order.value().size()) == rank) {
-    std::vector<int> dimOrder(rank);
+    return dimOrder;
+  } else if (static_cast<int>(order.value().size()) == rank) {
     std::bitset<common::maxRank> seenDimensions;
     for (int j{0}; j < rank; ++j) {
       int dim{order.value()[j]};
@@ -88,21 +68,19 @@ std::optional<std::vector<int>> IsValidDimensionOrder(
       dimOrder[dim - 1] = j;
       seenDimensions.set(dim - 1);
     }
-    return {std::move(dimOrder)};
+    return dimOrder;
+  } else {
+    return std::nullopt;
   }
-  return std::nullopt;
 }
 
 bool IsValidShape(const ConstantSubscripts &shape) {
-  if (shape.size() > common::maxRank) {
-    return false;
-  }
   for (ConstantSubscript extent : shape) {
     if (extent < 0) {
       return false;
     }
   }
-  return true;
+  return shape.size() <= common::maxRank;
 }
 
 template<typename RESULT, typename ELEMENT>
@@ -175,11 +153,7 @@ std::size_t ConstantBase<RESULT, ELEMENT>::CopyFrom(
             sourceSubscripts, source.shape_, source.lbounds_));
     copied++;
     IncrementSubscripts(sourceSubscripts, source.shape_, source.lbounds_);
-    if (dimOrder) {
-      IncrementSubscripts(resultSubscripts, shape_, lbounds_, *dimOrder);
-    } else {
-      IncrementSubscripts(resultSubscripts, shape_, lbounds_);
-    }
+    IncrementSubscripts(resultSubscripts, shape_, lbounds_, dimOrder);
   }
   return copied;
 }
@@ -304,11 +278,7 @@ std::size_t Constant<Type<TypeCategory::Character, KIND>>::CopyFrom(
     std::memcpy(dest, src, elementBytes);
     copied++;
     IncrementSubscripts(sourceSubscripts, source.shape_, source.lbounds_);
-    if (dimOrder) {
-      IncrementSubscripts(resultSubscripts, shape_, lbounds_, *dimOrder);
-    } else {
-      IncrementSubscripts(resultSubscripts, shape_, lbounds_);
-    }
+    IncrementSubscripts(resultSubscripts, shape_, lbounds_, dimOrder);
   }
   return copied;
 }
