@@ -216,9 +216,8 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
           if (const auto safelenValue{GetIntValue(safelenClause.v)}) {
             if (*safelenValue > 0 && *simdlenValue > *safelenValue) {
               context_.Say(clause->source,
-                  "The parameter of the SIMDLEN clause must be "
-                  "less than or equal to "
-                  "the parameter of the SAFELEN clause"_err_en_US);
+                  "The parameter of the SIMDLEN clause must be less than or "
+                  "equal to the parameter of the SAFELEN clause"_err_en_US);
             }
           }
         }
