@@ -88,9 +88,8 @@ subroutine s7
   do concurrent(integer::i=1:5) local(j, i) &
       !ERROR: 'j' is already declared in this scoping unit
       local_init(k, j) &
-      !ERROR: Variable 'a' not found
       shared(a)
-    a(i) = j + 1
+    a = j + 1
   end do
 end
 
