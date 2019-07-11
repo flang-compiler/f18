@@ -30,7 +30,6 @@ namespace Fortran::semantics {
 /// *Details classes.
 
 class Scope;
-class SemanticsContext;
 class Symbol;
 
 using SymbolVector = std::vector<const Symbol *>;
@@ -233,15 +232,6 @@ public:
   void add_paramDecl(const Symbol &symbol) { paramDecls_.push_back(&symbol); }
   void add_component(const Symbol &);
   void set_sequence(bool x = true) { sequence_ = x; }
-
-  // Returns the complete list of derived type parameter names in the
-  // order defined by 7.5.3.2.
-  std::list<SourceName> OrderParameterNames(const Symbol &) const;
-
-  // Returns the complete list of derived type parameter symbols in
-  // the order in which their declarations appear in the derived type
-  // definitions (parents first).
-  SymbolVector OrderParameterDeclarations(const Symbol &) const;
 
   // Returns the complete list of derived type components in the order
   // in which their declarations appear in the derived type definitions
@@ -609,9 +599,6 @@ public:
         },
         details_);
   }
-
-  // Clones the Symbol in the context of a parameterized derived type instance
-  Symbol &Instantiate(Scope &, SemanticsContext &) const;
 
   // If there is a parent component, return a pointer to its derived type spec.
   // The Scope * argument defaults to this->scope_ but should be overridden
