@@ -18,6 +18,14 @@
 
 namespace Fortran::semantics {
 
+static constexpr OmpDirectiveSet doSet{OmpDirective::DO,
+    OmpDirective::PARALLEL_DO, OmpDirective::DO_SIMD,
+    OmpDirective::PARALLEL_DO_SIMD};
+static constexpr OmpDirectiveSet simdSet{
+    OmpDirective::SIMD, OmpDirective::DO_SIMD, OmpDirective::PARALLEL_DO_SIMD};
+static constexpr OmpDirectiveSet doSimdSet{
+    OmpDirective::DO_SIMD, OmpDirective::PARALLEL_DO_SIMD};
+
 std::string OmpStructureChecker::ContextDirectiveAsFortran() {
   auto dir{EnumToString(GetContext().directive)};
   std::replace(dir.begin(), dir.end(), '_', ' ');

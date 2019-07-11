@@ -42,14 +42,6 @@ ENUM_CLASS(OmpDirective, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
 
 using OmpDirectiveSet = common::EnumSet<OmpDirective, OmpDirective_enumSize>;
 
-static constexpr OmpDirectiveSet doSet{OmpDirective::DO,
-    OmpDirective::PARALLEL_DO, OmpDirective::DO_SIMD,
-    OmpDirective::PARALLEL_DO_SIMD};
-static constexpr OmpDirectiveSet simdSet{
-    OmpDirective::SIMD, OmpDirective::DO_SIMD, OmpDirective::PARALLEL_DO_SIMD};
-static constexpr OmpDirectiveSet doSimdSet{
-    OmpDirective::DO_SIMD, OmpDirective::PARALLEL_DO_SIMD};
-
 ENUM_CLASS(OmpClause, DEFAULTMAP, INBRANCH, MERGEABLE, NOGROUP, NOTINBRANCH,
     NOWAIT, UNTIED, THREADS, SIMD, COLLAPSE, COPYIN, COPYPRIVATE, DEVICE,
     DIST_SCHEDULE, FINAL, FIRSTPRIVATE, FROM, GRAINSIZE, LASTPRIVATE, NUM_TASKS,
