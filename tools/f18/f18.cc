@@ -14,6 +14,7 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
+#include "crash.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/evaluate/expression.h"
 #include "../../lib/parser/characters.h"
@@ -333,6 +334,7 @@ void Link(std::vector<std::string> &relocatables, DriverOptions &driver) {
 int main(int argc, char *const argv[]) {
 
   atexit(CleanUpAtExit);
+  RegisterCrashHandler();
 
   DriverOptions driver;
   const char *pgf90{getenv("F18_FC")};

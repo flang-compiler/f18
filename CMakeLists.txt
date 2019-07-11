@@ -95,7 +95,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
    set(CMAKE_CXX_FLAGS_RELEASE    "-O2")
    set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
-   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUGF18")
+   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUGF18 -fdebug-types-section -femit-struct-debug-baseonly -feliminate-dwarf2-dups")
 
    # Building shared libraries is death on performance with GCC by default
    # due to the need to preserve the right to override external entry points

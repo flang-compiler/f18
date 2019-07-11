@@ -17,6 +17,7 @@ file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 add_executable(f18
   f18.cc
+  crash.cc
   dump.cc
 )
 
