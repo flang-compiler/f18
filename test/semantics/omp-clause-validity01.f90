@@ -188,11 +188,13 @@
      a = 3.14
   enddo
 
+  !$omp parallel
   !ERROR: The parameter of the SIMDLEN clause must be less than or equal to the parameter of the SAFELEN clause
   !$omp simd safelen(1+1) simdlen(1+2)
   do i = 1, N
      a = 3.14
   enddo
+  !$omp end parallel
 
 ! 2.11.1 parallel-do-clause -> parallel-clause |
 !                              do-clause
@@ -208,12 +210,14 @@
 ! 2.8.3 do-simd-clause -> do-clause |
 !                         simd-clause
 
+  !$omp parallel
   !ERROR: No ORDERED clause with a parameter can be specified on the DO SIMD directive
   !ERROR: NOGROUP clause is not allowed on the DO SIMD directive
   !$omp do simd ordered(2) NOGROUP
   do i = 1, N
      a = 3.14
   enddo
+  !$omp end parallel
 
 ! 2.11.4 parallel-do-simd-clause -> parallel-clause |
 !                                   do-simd-clause

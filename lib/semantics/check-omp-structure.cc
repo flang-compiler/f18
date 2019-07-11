@@ -18,6 +18,12 @@
 
 namespace Fortran::semantics {
 
+std::string OmpStructureChecker::ContextDirectiveAsFortran() {
+  auto dir{EnumToString(GetContext().directive)};
+  std::replace(dir.begin(), dir.end(), '_', ' ');
+  return dir;
+}
+
 bool OmpStructureChecker::HasInvalidWorksharingNesting(
     const parser::CharBlock &source, const OmpDirectiveSet &set) {
   // set contains all the invalid closely nested directives
@@ -199,10 +205,7 @@ void OmpStructureChecker::Enter(
 
 void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
   // 2.7 Loop Construct Restriction
-  if (GetContext().directive == OmpDirective::DO ||
-      GetContext().directive == OmpDirective::PARALLEL_DO ||
-      GetContext().directive == OmpDirective::DO_SIMD ||
-      GetContext().directive == OmpDirective::PARALLEL_DO_SIMD) {
+  if (doSet.test(GetContext().directive)) {
     if (auto *clause{FindClause(OmpClause::SCHEDULE)}) {
       // only one schedule clause is allowed
       const auto &schedClause{std::get<parser::OmpScheduleClause>(clause->u)};
@@ -253,12 +256,10 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
 
       // TODO: ordered region binding check (requires nesting implementation)
     }
-  }  // DO
+  }  // doSet
 
   // 2.8.1 Simd Construct Restriction
-  if (GetContext().directive == OmpDirective::SIMD ||
-      GetContext().directive == OmpDirective::DO_SIMD ||
-      GetContext().directive == OmpDirective::PARALLEL_DO_SIMD) {
+  if (simdSet.test(GetContext().directive)) {
     if (auto *clause{FindClause(OmpClause::SIMDLEN)}) {
       if (auto *clause2{FindClause(OmpClause::SAFELEN)}) {
         const auto &simdlenClause{
@@ -375,14 +376,11 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Ordered &x) {
     }
 
     // 2.8.3 Loop SIMD Construct Restriction
-    if (GetContext().directive == OmpDirective::DO_SIMD ||
-        GetContext().directive == OmpDirective::PARALLEL_DO_SIMD) {
-      auto dir{EnumToString(GetContext().directive)};
-      std::replace(dir.begin(), dir.end(), '_', ' ');
+    if (doSimdSet.test(GetContext().directive)) {
       context_.Say(GetContext().clauseSource,
           "No ORDERED clause with a parameter can be specified "
           "on the %s directive"_err_en_US,
-          dir);
+          ContextDirectiveAsFortran());
     }
   }
 }
@@ -464,18 +462,12 @@ void OmpStructureChecker::Enter(const parser::OmpLinearClause &x) {
   CheckAllowed(OmpClause::LINEAR);
 
   // 2.7 Loop Construct Restriction
-  if (GetContext().directive == OmpDirective::DO ||
-      GetContext().directive == OmpDirective::PARALLEL_DO ||
-      GetContext().directive == OmpDirective::SIMD ||
-      GetContext().directive == OmpDirective::DO_SIMD ||
-      GetContext().directive == OmpDirective::PARALLEL_DO_SIMD) {
+  if ((doSet | simdSet).test(GetContext().directive)) {
     if (std::holds_alternative<parser::OmpLinearClause::WithModifier>(x.u)) {
-      auto dir{EnumToString(GetContext().directive)};
-      std::replace(dir.begin(), dir.end(), '_', ' ');
       context_.Say(GetContext().clauseSource,
           "A modifier may not be specified in a LINEAR clause "
           "on the %s directive"_err_en_US,
-          dir);
+          ContextDirectiveAsFortran());
     }
   }
 }
@@ -511,10 +503,7 @@ void OmpStructureChecker::Enter(const parser::OmpScheduleClause &x) {
   CheckAllowed(OmpClause::SCHEDULE);
 
   // 2.7 Loop Construct Restriction
-  if (GetContext().directive == OmpDirective::DO ||
-      GetContext().directive == OmpDirective::DO_SIMD ||
-      GetContext().directive == OmpDirective::PARALLEL_DO ||
-      GetContext().directive == OmpDirective::PARALLEL_DO_SIMD) {
+  if (doSet.test(GetContext().directive)) {
     const auto &kind{std::get<1>(x.t)};
     const auto &chunk{std::get<2>(x.t)};
     if (chunk.has_value()) {
