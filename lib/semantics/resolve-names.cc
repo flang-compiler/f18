@@ -1062,8 +1062,7 @@ private:
   bool BeginScope(const ProgramTree &);
   void FinishSpecificationParts(const ProgramTree &);
   void FinishDerivedType(Scope &);
-  const Symbol *CheckPassArg(
-      const Symbol &, const Symbol *, const SourceName *);
+  void SetPassArg(const Symbol &, const Symbol *, WithPassArg &);
   void ResolveExecutionParts(const ProgramTree &);
 };
 
@@ -1557,8 +1556,7 @@ void ScopeHandler::Say2(const parser::Name &name, MessageFixedText &&msg1,
 
 Scope &ScopeHandler::InclusiveScope() {
   for (auto *scope{&currScope()};; scope = &scope->parent()) {
-    if (scope->kind() != Scope::Kind::Block &&
-        scope->kind() != Scope::Kind::DerivedType) {
+    if (scope->kind() != Scope::Kind::Block && !scope->IsDerivedType()) {
       return *scope;
     }
   }
@@ -1566,7 +1564,7 @@ Scope &ScopeHandler::InclusiveScope() {
 }
 Scope &ScopeHandler::GlobalScope() {
   for (auto *scope = currScope_; scope; scope = &scope->parent()) {
-    if (scope->kind() == Scope::Kind::Global) {
+    if (scope->IsGlobal()) {
       return *scope;
     }
   }
@@ -1581,7 +1579,7 @@ void ScopeHandler::PushScope(Scope &scope) {
   if (kind != Scope::Kind::Block) {
     ImplicitRulesVisitor::BeginScope(scope);
   }
-  if (kind != Scope::Kind::DerivedType) {
+  if (!currScope_->IsDerivedType()) {
     if (auto *symbol{scope.symbol()}) {
       // Create a dummy symbol so we can't create another one with the same
       // name. It might already be there if we previously pushed the scope.
@@ -1665,7 +1663,7 @@ Symbol *ScopeHandler::FindInScope(const Scope &scope, const SourceName &name) {
 
 // Find a component or type parameter by name in a derived type or its parents.
 Symbol *ScopeHandler::FindInTypeOrParents(const Scope &scope, SourceName name) {
-  if (scope.kind() == Scope::Kind::DerivedType) {
+  if (scope.IsDerivedType()) {
     if (Symbol * symbol{FindInScope(scope, name)}) {
       return symbol;
     }
@@ -2542,13 +2540,13 @@ bool DeclarationVisitor::CheckAccessibleComponent(
   }
   // component must be in a module/submodule because of PRIVATE:
   const Scope *moduleScope{&symbol.owner()};
-  CHECK(moduleScope->kind() == Scope::Kind::DerivedType);
-  while (moduleScope->kind() != Scope::Kind::Module &&
-      moduleScope->kind() != Scope::Kind::Global) {
+  CHECK(moduleScope->IsDerivedType());
+  while (
+      moduleScope->kind() != Scope::Kind::Module && !moduleScope->IsGlobal()) {
     moduleScope = &moduleScope->parent();
   }
   if (moduleScope->kind() == Scope::Kind::Module) {
-    for (auto *scope{&currScope()}; scope->kind() != Scope::Kind::Global;
+    for (auto *scope{&currScope()}; !scope->IsGlobal();
          scope = &scope->parent()) {
       if (scope == moduleScope) {
         return true;
@@ -3940,7 +3938,7 @@ Symbol *DeclarationVisitor::MakeTypeSymbol(
 Symbol *DeclarationVisitor::MakeTypeSymbol(
     const SourceName &name, Details &&details) {
   Scope &derivedType{currScope()};
-  CHECK(derivedType.kind() == Scope::Kind::DerivedType);
+  CHECK(derivedType.IsDerivedType());
   if (auto *symbol{FindInScope(derivedType, name)}) {
     Say2(name,
         "Type parameter, component, or procedure binding '%s'"
@@ -3968,7 +3966,7 @@ Symbol *DeclarationVisitor::MakeTypeSymbol(
 bool DeclarationVisitor::OkToAddComponent(
     const parser::Name &name, const Symbol *extends) {
   for (const Scope *scope{&currScope()}; scope != nullptr;) {
-    CHECK(scope->kind() == Scope::Kind::DerivedType);
+    CHECK(scope->IsDerivedType());
     if (auto *prev{FindInScope(*scope, name)}) {
       auto msg{""_en_US};
       if (extends != nullptr) {
@@ -4454,7 +4452,7 @@ bool ResolveNamesVisitor::Pre(const parser::ImportStmt &x) {
     Say("IMPORT is not allowed in a main program scoping unit"_err_en_US);
     return false;
   case Scope::Kind::Subprogram:
-    if (scope.parent().kind() == Scope::Kind::Global) {
+    if (scope.parent().IsGlobal()) {
       Say("IMPORT is not allowed in an external subprogram scoping unit"_err_en_US);
       return false;
     }
@@ -5148,7 +5146,7 @@ void ResolveNamesVisitor::FinishSpecificationParts(const ProgramTree &node) {
     }
   }
   for (Scope &childScope : currScope().children()) {
-    if (childScope.kind() == Scope::Kind::DerivedType && childScope.symbol()) {
+    if (childScope.IsDerivedType() && childScope.symbol()) {
       FinishDerivedType(childScope);
     }
   }
@@ -5169,18 +5167,23 @@ static int FindIndexOfName(
 
 // Perform checks on procedure bindings of this type
 void ResolveNamesVisitor::FinishDerivedType(Scope &scope) {
-  CHECK(scope.kind() == Scope::Kind::DerivedType);
+  CHECK(scope.IsDerivedType());
   for (auto &pair : scope) {
     Symbol &comp{*pair.second};
     std::visit(
         common::visitors{
             [&](ProcEntityDetails &x) {
-              x.set_passArg(
-                  CheckPassArg(comp, x.interface().symbol(), x.passName()));
+              SetPassArg(comp, x.interface().symbol(), x);
             },
-            [&](ProcBindingDetails &x) {
-              x.set_passArg(CheckPassArg(comp, &x.symbol(), x.passName()));
-            },
+            [&](ProcBindingDetails &x) { SetPassArg(comp, &x.symbol(), x); },
+            [](auto &x) {},
+        },
+        comp.details());
+  }
+  for (auto &pair : scope) {
+    Symbol &comp{*pair.second};
+    std::visit(
+        common::visitors{
             [&](GenericBindingDetails &x) {
               CheckSpecificsAreDistinguishable(comp, x.specificProcs());
             },
@@ -5191,19 +5194,20 @@ void ResolveNamesVisitor::FinishDerivedType(Scope &scope) {
 }
 
 // Check C760, constraints on the passed-object dummy argument
-// If they all pass, return the Symbol for that argument.
-const Symbol *ResolveNamesVisitor::CheckPassArg(
-    const Symbol &proc, const Symbol *interface, const SourceName *passName) {
+// If they all pass, set the passIndex in details.
+void ResolveNamesVisitor::SetPassArg(
+    const Symbol &proc, const Symbol *interface, WithPassArg &details) {
   if (proc.attrs().test(Attr::NOPASS)) {
-    return nullptr;
+    return;
   }
   const auto &name{proc.name()};
   if (!interface) {
     Say(name,
         "Procedure component '%s' must have NOPASS attribute or explicit interface"_err_en_US,
         name);
-    return nullptr;
+    return;
   }
+  const SourceName *passName{details.passName()};
   const auto &dummyArgs{interface->get<SubprogramDetails>().dummyArgs()};
   if (!passName && dummyArgs.empty()) {
     Say(name,
@@ -5213,7 +5217,7 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
             : "Procedure binding '%s' with no dummy arguments"
               " must have NOPASS attribute"_err_en_US,
         name);
-    return nullptr;
+    return;
   }
   int passArgIndex{0};
   if (!passName) {
@@ -5224,7 +5228,7 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
       Say(*passName,
           "'%s' is not a dummy argument of procedure interface '%s'"_err_en_US,
           *passName, interface->name());
-      return nullptr;
+      return;
     }
   }
   const Symbol &passArg{*dummyArgs[passArgIndex]};
@@ -5247,11 +5251,11 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
   }
   if (msg) {
     Say(name, std::move(*msg), *passName, name);
-    return nullptr;
+    return;
   }
   const DeclTypeSpec *type{passArg.GetType()};
   if (!type) {
-    return nullptr;  // an error already occurred
+    return;  // an error already occurred
   }
   const Symbol &typeSymbol{*proc.owner().GetSymbol()};
   const DerivedTypeSpec *derived{type->AsDerived()};
@@ -5260,7 +5264,7 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
         "Passed-object dummy argument '%s' of procedure '%s'"
         " must be of type '%s' but is '%s'"_err_en_US,
         *passName, name, typeSymbol.name(), type->AsFortran());
-    return nullptr;
+    return;
   }
   if (IsExtensibleType(derived) != type->IsPolymorphic()) {
     Say(name,
@@ -5270,7 +5274,7 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
             : "Passed-object dummy argument '%s' of procedure '%s'"
               " must polymorphic because '%s' is extensible"_err_en_US,
         *passName, name, typeSymbol.name());
-    return nullptr;
+    return;
   }
   for (const auto &[paramName, paramValue] : derived->parameters()) {
     if (paramValue.isLen() && !paramValue.isAssumed()) {
@@ -5280,7 +5284,7 @@ const Symbol *ResolveNamesVisitor::CheckPassArg(
           *passName, name, paramName);
     }
   }
-  return &passArg;
+  details.set_passIndex(passArgIndex);
 }
 
 // Resolve names in the execution part of this node and its children
