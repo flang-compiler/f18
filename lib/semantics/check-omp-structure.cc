@@ -66,7 +66,28 @@ void OmpStructureChecker::CheckAllowed(const OmpClause &type) {
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPConstruct &x) {
-  // 2.8.1 TODO: Simd Construct with Ordered Construct Nesting check
+  // 2.8.1 Simd Construct Restriction
+  if (CurrentDirectiveIsNested() &&
+      GetContext().directive == OmpDirective::SIMD) {
+    bool hasError{true};
+    if (const auto *block{std::get_if<parser::OpenMPBlockConstruct>(&x.u)}) {
+      const auto &dir{std::get<parser::OmpBlockDirective>(block->t)};
+      const auto &clauses{std::get<parser::OmpClauseList>(block->t)};
+      const auto &list{clauses.v};
+      if (dir.v == parser::OmpBlockDirective::Directive::Ordered &&
+          list.size() == 1 &&
+          std::holds_alternative<parser::OmpClause::Simd>(list.front().u)) {
+        // Simd and Threads clauses cannot be both present
+        hasError = false;
+      }
+    }
+    if (hasError) {
+      context_.Say(GetContext().directiveSource,
+          "An ORDERED construct with the SIMD clause is "
+          "the only OpenMP construct that can be "
+          "encountered during execution of a SIMD region"_err_en_US);
+    }
+  }  // SIMD
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {

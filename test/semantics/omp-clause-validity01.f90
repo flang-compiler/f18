@@ -196,6 +196,18 @@
   enddo
   !$omp end parallel
 
+  !$omp parallel
+  !ERROR: An ORDERED construct with the SIMD clause is the only OpenMP construct that can be encountered during execution of a SIMD region
+  !$omp simd
+  do i = 1, N
+     do j = 1, N
+        !$omp ordered threads
+        a = 3.14
+        !$omp end ordered
+     enddo
+  enddo
+  !$omp end parallel
+
 ! 2.11.1 parallel-do-clause -> parallel-clause |
 !                              do-clause
 
