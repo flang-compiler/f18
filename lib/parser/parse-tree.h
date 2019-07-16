@@ -3693,6 +3693,7 @@ WRAPPER_CLASS(OmpEndDoSimd, std::optional<OmpNowait>);
 WRAPPER_CLASS(OmpEndDo, std::optional<OmpNowait>);
 struct OpenMPEndLoopDirective {
   UNION_CLASS_BOILERPLATE(OpenMPEndLoopDirective);
+  CharBlock source;
   std::variant<OmpEndDoSimd, OmpEndDo, OmpLoopDirective> u;
 };
 

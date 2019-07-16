@@ -55,10 +55,13 @@ class OmpStructureChecker : public virtual BaseChecker {
 public:
   OmpStructureChecker(SemanticsContext &context) : context_{context} {}
 
+  void Enter(const parser::ExecutableConstruct &);
+  void Leave(const parser::ExecutableConstruct &);
+
   void Enter(const parser::OpenMPConstruct &);
   void Enter(const parser::OpenMPLoopConstruct &);
-  void Leave(const parser::OpenMPLoopConstruct &);
   void Enter(const parser::OmpLoopDirective &);
+  void Enter(const parser::OpenMPEndLoopDirective &);
 
   void Enter(const parser::OpenMPBlockConstruct &);
   void Leave(const parser::OpenMPBlockConstruct &);
@@ -118,6 +121,8 @@ private:
 
     const parser::OmpClause *clause{nullptr};
     std::multimap<OmpClause, const parser::OmpClause *> clauseInfo;
+
+    const parser::DoConstruct *doDirective{nullptr};
   };
   // back() is the top of the stack
   const OmpContext &GetContext() const { return ompContext_.back(); }
@@ -140,6 +145,9 @@ private:
   void SetContextClauseInfo(const OmpClause &type) {
     ompContext_.back().clauseInfo.emplace(type, ompContext_.back().clause);
   }
+  void SetContextDo(const parser::DoConstruct &dir) {
+    ompContext_.back().doDirective = &dir;
+  }
   const parser::OmpClause *FindClause(const OmpClause &type) {
     auto it{GetContext().clauseInfo.find(type)};
     if (it != GetContext().clauseInfo.end()) {
@@ -158,6 +166,12 @@ private:
   bool ScheduleModifierHasType(const parser::OmpScheduleClause &,
       const parser::OmpScheduleModifierType::ModType &);
 
+  struct CheckState {
+    bool justSawLoopConstruct{false};
+    bool inOmpLoopRegion{false};
+    bool allowOptionalEndDirective{false};
+    bool inEndDirective{false};
+  } checkState_;
   SemanticsContext &context_;
   std::vector<OmpContext> ompContext_;  // used as a stack
 };

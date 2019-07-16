@@ -206,6 +206,26 @@
   do i = 1, N
      a = 3.14
   enddo
+  !$omp end parallel do
+
+! Loop association check
+
+  a = 0.0
+  !ERROR: The END PARALLEL DO must follow the do-loop associated with the loop construct
+  !$omp end parallel do
+  !$omp parallel do private(c)
+  do i = 1, N
+     do j = 1, N
+        !ERROR: do-loop is expected after the PARALLEL DO directive
+        !$omp parallel do shared(b)
+        a = 3.14
+     enddo
+     !ERROR: The END PARALLEL DO must follow the do-loop associated with the loop construct
+     !$omp end parallel do
+  enddo
+  a = 1.414
+  !ERROR: The END PARALLEL DO must follow the do-loop associated with the loop construct
+  !$omp end parallel do
 
 ! 2.8.3 do-simd-clause -> do-clause |
 !                         simd-clause

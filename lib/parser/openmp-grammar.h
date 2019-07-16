@@ -526,11 +526,13 @@ TYPE_PARSER(startOmpLine >> "END"_tok >>
     construct<OmpEndBlockDirective>(Parser<OmpBlockDirective>{}) / endOmpLine)
 
 // END OMP Loop directives
-TYPE_PARSER(startOmpLine >> "END"_tok >>
-    (construct<OpenMPEndLoopDirective>("DO SIMD" >> Parser<OmpEndDoSimd>{}) ||
-        construct<OpenMPEndLoopDirective>("DO" >> Parser<OmpEndDo>{}) ||
-        construct<OpenMPEndLoopDirective>(Parser<OmpLoopDirective>{}) /
-            endOmpLine))
+TYPE_PARSER(startOmpLine >>
+    sourced("END"_tok >>
+        (construct<OpenMPEndLoopDirective>(
+             "DO SIMD" >> Parser<OmpEndDoSimd>{}) ||
+            construct<OpenMPEndLoopDirective>("DO" >> Parser<OmpEndDo>{}) ||
+            construct<OpenMPEndLoopDirective>(Parser<OmpLoopDirective>{}))) /
+        endOmpLine)
 
 TYPE_PARSER(construct<OpenMPLoopConstruct>(
     Parser<OmpLoopDirective>{}, Parser<OmpClauseList>{} / endOmpLine))

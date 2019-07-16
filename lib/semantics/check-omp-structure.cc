@@ -82,10 +82,55 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
   // push a context even in the error case
   OmpContext ct{dir.source};
   ompContext_.push_back(ct);
+  checkState_.justSawLoopConstruct = true;
 }
 
-void OmpStructureChecker::Leave(const parser::OpenMPLoopConstruct &) {
-  ompContext_.pop_back();
+void OmpStructureChecker::Enter(const parser::ExecutableConstruct &x) {
+  if (checkState_.justSawLoopConstruct) {
+    if (const auto *doDir{
+            std::get_if<common::Indirection<parser::DoConstruct>>(&x.u)}) {
+      // save associated DoConstruct pointer
+      SetContextDo(doDir->value());
+      checkState_.inOmpLoopRegion = true;
+    } else {
+      context_.Say(GetContext().directiveSource,
+          "do-loop is expected after the %s directive"_err_en_US,
+          ContextDirectiveAsFortran());
+      ompContext_.pop_back();
+    }
+    checkState_.justSawLoopConstruct = false;
+  }
+
+  const auto *endDoDir{
+      std::get_if<common::Indirection<parser::OpenMPEndLoopDirective>>(&x.u)};
+  if (!endDoDir && checkState_.allowOptionalEndDirective) {
+    // END directive is not present, loop construct is complete
+    checkState_.allowOptionalEndDirective = false;
+  }
+}
+
+void OmpStructureChecker::Leave(const parser::ExecutableConstruct &x) {
+  if (const auto *doDir{
+          std::get_if<common::Indirection<parser::DoConstruct>>(&x.u)}) {
+    if (checkState_.inOmpLoopRegion) {
+      if (&doDir->value() == GetContext().doDirective) {
+        checkState_.inOmpLoopRegion = false;
+        checkState_.allowOptionalEndDirective = true;
+        // pop at the end of associated do-loop
+        ompContext_.pop_back();
+      }
+    }
+  }
+}
+
+void OmpStructureChecker::Enter(const parser::OpenMPEndLoopDirective &x) {
+  checkState_.inEndDirective = true;
+  if (!checkState_.allowOptionalEndDirective) {
+    context_.Say(x.source,
+        "The %s must follow the do-loop associated with the "
+        "loop construct"_err_en_US,
+        parser::ToUpperCaseLetters(x.source.ToString()));
+  }
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
@@ -127,6 +172,10 @@ void OmpStructureChecker::Enter(const parser::OmpBlockDirective &x) {
 }
 
 void OmpStructureChecker::Enter(const parser::OmpLoopDirective &x) {
+  if (checkState_.inEndDirective) {
+    checkState_.inEndDirective = false;
+    return;
+  }
   switch (x.v) {
   // 2.7.1 do-clause -> private-clause |
   //                    firstprivate-clause |
