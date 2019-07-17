@@ -463,8 +463,9 @@ TYPE_PARSER(construct<OpenMPStandaloneConstruct>(
     Parser<OmpStandaloneDirective>{}, Parser<OmpClauseList>{} / endOmpLine))
 
 // OMP SINGLE
-TYPE_PARSER(startOmpLine >> "END"_tok >>
-    construct<OmpEndSingle>("SINGLE" >> Parser<OmpClauseList>{}) / endOmpLine)
+TYPE_PARSER(startOmpLine >> construct<OmpEndSingle>(verbatim("END SINGLE"_tok),
+                                Parser<OmpClauseList>{}) /
+        endOmpLine)
 
 TYPE_PARSER(construct<OpenMPSingleConstruct>(verbatim("SINGLE"_tok),
     Parser<OmpClauseList>{} / endOmpLine, block, Parser<OmpEndSingle>{}))

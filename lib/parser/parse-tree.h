@@ -3490,7 +3490,10 @@ struct OpenMPWorkshareConstruct {
 };
 
 // SINGLE
-WRAPPER_CLASS(OmpEndSingle, OmpClauseList);
+struct OmpEndSingle {
+  TUPLE_CLASS_BOILERPLATE(OmpEndSingle);
+  std::tuple<Verbatim, OmpClauseList> t;
+};
 struct OpenMPSingleConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPSingleConstruct);
   std::tuple<Verbatim, OmpClauseList, Block, OmpEndSingle> t;

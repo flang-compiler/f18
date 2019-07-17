@@ -26,14 +26,14 @@
 
 namespace Fortran::semantics {
 
-ENUM_CLASS(OmpDirective, PARALLEL, DO, SECTIONS, SECTION, SINGLE, WORKSHARE,
-    SIMD, DECLARE_SIMD, DO_SIMD, TASK, TASKLOOP, TASKLOOP_SIMD, TASKYIELD,
-    TARGET_DATA, TARGET_ENTER_DATA, TARGET_EXIT_DATA, TARGET, TARGET_UPDATE,
-    DECLARE_TARGET, TEAMS, DISTRIBUTE, DISTRIBUTE_SIMD, DISTRIBUTE_PARALLEL_DO,
-    DISTRIBUTE_PARALLEL_DO_SIMD, PARALLEL_DO, PARALLEL_SECTIONS,
-    PARALLEL_WORKSHARE, PARALLEL_DO_SIMD, TARGET_PARALLEL, TARGET_PARALLEL_DO,
-    TARGET_PARALLEL_DO_SIMD, TARGET_SIMD, TARGET_TEAMS, TEAMS_DISTRIBUTE,
-    TEAMS_DISTRIBUTE_SIMD, TARGET_TEAMS_DISTRIBUTE,
+ENUM_CLASS(OmpDirective, PARALLEL, DO, SECTIONS, SECTION, SINGLE, END_SINGLE,
+    WORKSHARE, SIMD, DECLARE_SIMD, DO_SIMD, TASK, TASKLOOP, TASKLOOP_SIMD,
+    TASKYIELD, TARGET_DATA, TARGET_ENTER_DATA, TARGET_EXIT_DATA, TARGET,
+    TARGET_UPDATE, DECLARE_TARGET, TEAMS, DISTRIBUTE, DISTRIBUTE_SIMD,
+    DISTRIBUTE_PARALLEL_DO, DISTRIBUTE_PARALLEL_DO_SIMD, PARALLEL_DO,
+    PARALLEL_SECTIONS, PARALLEL_WORKSHARE, PARALLEL_DO_SIMD, TARGET_PARALLEL,
+    TARGET_PARALLEL_DO, TARGET_PARALLEL_DO_SIMD, TARGET_SIMD, TARGET_TEAMS,
+    TEAMS_DISTRIBUTE, TEAMS_DISTRIBUTE_SIMD, TARGET_TEAMS_DISTRIBUTE,
     TARGET_TEAMS_DISTRIBUTE_SIMD, TEAMS_DISTRIBUTE_PARALLEL_DO,
     TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO, TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD,
     TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD, MASTER, CRITICAL, BARRIER,
@@ -64,8 +64,19 @@ public:
   void Leave(const parser::OpenMPBlockConstruct &);
   void Enter(const parser::OmpBlockDirective &);
 
+  void Enter(const parser::OpenMPSectionsConstruct &);
+  void Leave(const parser::OpenMPSectionsConstruct &);
+  void Enter(const parser::OmpSection &);
+  void Leave(const parser::OmpSection &);
+
+  void Enter(const parser::OpenMPSingleConstruct &x);
+  void Leave(const parser::OpenMPSingleConstruct &x);
+  void Enter(const parser::OmpEndSingle &x);
+  void Leave(const parser::OmpEndSingle &x);
+
   void Leave(const parser::OmpClauseList &);
   void Enter(const parser::OmpClause &);
+  void Enter(const parser::OmpNowait &);
   void Enter(const parser::OmpClause::Defaultmap &);
   void Enter(const parser::OmpClause::Inbranch &);
   void Enter(const parser::OmpClause::Mergeable &);
@@ -121,6 +132,7 @@ private:
   };
   // back() is the top of the stack
   const OmpContext &GetContext() const { return ompContext_.back(); }
+  const OmpContext &GetPrevContext() const { return ompContext_.rbegin()[1]; }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
     ompContext_.back().directiveSource = directive;
   }

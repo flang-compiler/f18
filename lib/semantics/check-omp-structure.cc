@@ -98,6 +98,72 @@ void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &) {
   ompContext_.pop_back();
 }
 
+void OmpStructureChecker::Enter(const parser::OpenMPSectionsConstruct &x) {
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  OmpContext ct{dir.source};
+  ompContext_.push_back(ct);
+  SetContextDirectiveEnum(OmpDirective::SECTIONS);
+  OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE,
+      OmpClause::LASTPRIVATE, OmpClause::REDUCTION};
+  SetContextAllowed(allowed);
+}
+
+void OmpStructureChecker::Leave(const parser::OpenMPSectionsConstruct &x) {
+  ompContext_.pop_back();
+}
+
+void OmpStructureChecker::Enter(const parser::OmpSection &x) {
+  const auto &dir{x.v};  // Verbatim
+  OmpContext ct{dir.source};
+  ompContext_.push_back(ct);
+  SetContextDirectiveEnum(OmpDirective::SECTION);
+
+  if (ompContext_.size() == 1) {
+    context_.Say(
+        dir.source, "Orphaned SECTION directive is prohibited"_err_en_US);
+  } else {
+    if (GetPrevContext().directive != OmpDirective::SECTIONS) {
+      context_.Say(dir.source,
+          "SECTION directive must appear within "
+          "the SECTIONS construct"_err_en_US);
+    }
+  }
+  // TODO: Section-Block association
+}
+
+void OmpStructureChecker::Leave(const parser::OmpSection &x) {
+  ompContext_.pop_back();
+}
+
+void OmpStructureChecker::Enter(const parser::OpenMPSingleConstruct &x) {
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  OmpContext ct{dir.source};
+  ompContext_.push_back(ct);
+  SetContextDirectiveEnum(OmpDirective::SINGLE);
+  OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE};
+  SetContextAllowed(allowed);
+}
+
+void OmpStructureChecker::Leave(const parser::OpenMPSingleConstruct &x) {
+  ompContext_.pop_back();
+}
+
+void OmpStructureChecker::Enter(const parser::OmpEndSingle &x) {
+  // EndSingle is in SingleConstruct context
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  OmpContext ct{dir.source};
+  ompContext_.push_back(ct);
+  SetContextDirectiveEnum(OmpDirective::END_SINGLE);
+  OmpClauseSet allowed{OmpClause::COPYPRIVATE};
+  SetContextAllowed(allowed);
+  OmpClauseSet allowedOnce{OmpClause::NOWAIT};
+  SetContextAllowedOnce(allowedOnce);
+}
+
+void OmpStructureChecker::Leave(const parser::OmpEndSingle &x) {
+  ompContext_.pop_back();
+}
+
 void OmpStructureChecker::Enter(const parser::OmpBlockDirective &x) {
   switch (x.v) {
   // 2.5 parallel-clause -> if-clause |
@@ -291,12 +357,26 @@ void OmpStructureChecker::Leave(const parser::OmpClauseList &) {
 
     // TODO: A list-item cannot appear in more than one aligned clause
   }  // SIMD
+
+  // 2.7.3 Single Construct Restriction
+  if (GetContext().directive == OmpDirective::END_SINGLE) {
+    if (auto *clause{FindClause(OmpClause::COPYPRIVATE)}) {
+      if (FindClause(OmpClause::NOWAIT)) {
+        context_.Say(clause->source,
+            "The COPYPRIVATE clause must not be used with "
+            "the NOWAIT clause"_err_en_US);
+      }
+    }
+  }
 }
 
 void OmpStructureChecker::Enter(const parser::OmpClause &x) {
   SetContextClause(x);
 }
 
+void OmpStructureChecker::Enter(const parser::OmpNowait &) {
+  CheckAllowed(OmpClause::NOWAIT);
+}
 void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &) {
   CheckAllowed(OmpClause::DEFAULTMAP);
 }
