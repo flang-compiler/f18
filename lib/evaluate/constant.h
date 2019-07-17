@@ -55,9 +55,8 @@ bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
 // Validate dimension re-ordering like ORDER in RESHAPE.
 // On success, return a vector that can be used as dimOrder in
 // IncrementSubscripts.
-// If order argument is nullopt, returns Fortran dimension order.
-std::optional<std::vector<int>> IsValidDimensionOrder(
-    int rank, const std::optional<std::vector<int>> &order);
+std::optional<std::vector<int>> ValidateDimensionOrder(
+    int rank, const std::vector<int> &order);
 
 bool IsValidShape(const ConstantSubscripts &);
 

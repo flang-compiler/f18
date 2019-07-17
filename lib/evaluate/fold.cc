@@ -359,40 +359,44 @@ Expr<T> Reshape(FoldingContext &context, FunctionRef<T> &&funcRef) {
   std::optional<std::vector<ConstantSubscript>> shape{
       GetIntegerVector<ConstantSubscript>(args[1])};
   std::optional<std::vector<int>> order{GetIntegerVector<int>(args[3])};
-  if (source && shape && (pad || !args[2].has_value()) &&
-      (order || !args[3].has_value())) {
-    if (IsValidShape(shape.value())) {
-      int rank{GetRank(shape.value())};
-      if (const auto dimOrder{IsValidDimensionOrder(rank, order)}) {
-        std::size_t resultElements{TotalElementCount(shape.value())};
-        if (resultElements <= source->size() || (pad && !pad->empty())) {
-          Constant<T> result{!source->empty()
-                  ? source->Reshape(std::move(shape.value()))
-                  : pad->Reshape(std::move(shape.value()))};
-          ConstantSubscripts subscripts{result.lbounds()};
-          auto copied{result.CopyFrom(
-              *source, source->size(), subscripts, &dimOrder.value())};
-          if (copied < resultElements) {
-            CHECK(pad);
-            copied += result.CopyFrom(
-                *pad, resultElements - copied, subscripts, &dimOrder.value());
-          }
-          CHECK(copied == resultElements);
-          return Expr<T>{std::move(result)};
-        } else {
-          context.messages().Say(
-              "Too few SOURCE elements in RESHAPE and PAD is not present or has null size"_en_US);
-        }
-      } else {
-        context.messages().Say("Invalid ORDER in RESHAPE"_en_US);
-      }
-    } else {
-      context.messages().Say("Invalid SHAPE in RESHAPE"_en_US);
+
+  if (!source || !shape || (args[2].has_value() && !pad) ||
+      (args[3].has_value() && !order)) {
+    return Expr<T>{std::move(funcRef)};  // Non-constant arguments
+  } else if (!IsValidShape(shape.value())) {
+    context.messages().Say("Invalid SHAPE in RESHAPE"_en_US);
+  } else {
+    int rank{GetRank(shape.value())};
+    std::size_t resultElements{TotalElementCount(shape.value())};
+    std::optional<std::vector<int>> dimOrder;
+    if (order.has_value()) {
+      dimOrder = ValidateDimensionOrder(rank, *order);
     }
-    // Invalid, prevent re-folding
-    return MakeInvalidIntrinsic(std::move(funcRef));
-  }  // Non-constant arguments
-  return Expr<T>{std::move(funcRef)};
+    std::vector<int> *dimOrderPtr{
+        dimOrder.has_value() ? &dimOrder.value() : nullptr};
+    if (order.has_value() && !dimOrder.has_value()) {
+      context.messages().Say("Invalid ORDER in RESHAPE"_en_US);
+    } else if (resultElements > source->size() && (!pad || pad->empty())) {
+      context.messages().Say("Too few SOURCE elements in RESHAPE and PAD"
+                             "is not present or has null size"_en_US);
+    } else {
+      Constant<T> result{!source->empty()
+              ? source->Reshape(std::move(shape.value()))
+              : pad->Reshape(std::move(shape.value()))};
+      ConstantSubscripts subscripts{result.lbounds()};
+      auto copied{
+          result.CopyFrom(*source, source->size(), subscripts, dimOrderPtr)};
+      if (copied < resultElements) {
+        CHECK(pad);
+        copied += result.CopyFrom(
+            *pad, resultElements - copied, subscripts, dimOrderPtr);
+      }
+      CHECK(copied == resultElements);
+      return Expr<T>{std::move(result)};
+    }
+  }
+  // Invalid, prevent re-folding
+  return MakeInvalidIntrinsic(std::move(funcRef));
 }
 
 template<typename T>

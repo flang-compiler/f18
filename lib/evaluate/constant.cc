@@ -50,18 +50,13 @@ bool IncrementSubscripts(ConstantSubscripts &indices,
   return false;  // all done
 }
 
-std::optional<std::vector<int>> IsValidDimensionOrder(
-    int rank, const std::optional<std::vector<int>> &order) {
+std::optional<std::vector<int>> ValidateDimensionOrder(
+    int rank, const std::vector<int> &order) {
   std::vector<int> dimOrder(rank);
-  if (!order.has_value()) {
-    for (int j{0}; j < rank; ++j) {
-      dimOrder[j] = j;
-    }
-    return dimOrder;
-  } else if (static_cast<int>(order.value().size()) == rank) {
+  if (static_cast<int>(order.size()) == rank) {
     std::bitset<common::maxRank> seenDimensions;
     for (int j{0}; j < rank; ++j) {
-      int dim{order.value()[j]};
+      int dim{order[j]};
       if (dim < 1 || dim > rank || seenDimensions.test(dim - 1)) {
         return std::nullopt;
       }
