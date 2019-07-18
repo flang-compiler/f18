@@ -165,10 +165,10 @@
   a = 0.0
   !$omp section
   b = 1
-  !$omp end sections
+  !$omp end sections nowait
   !$omp end parallel
 
-  !ERROR: Orphaned SECTION directive is prohibited
+  !ERROR: SECTION directive must appear within the SECTIONS construct
   !$omp section
   a = 0.0
   !$omp parallel
@@ -191,6 +191,14 @@
   !ERROR: At most one NOWAIT clause can appear on the END SINGLE directive
   !$omp end single copyprivate(a) nowait nowait
   c = 2
+  !$omp end parallel
+
+! 2.7.4 workshare
+
+  !$omp parallel
+  !$omp workshare
+  a = 1.0
+  !$omp end workshare nowait
   !$omp end parallel
 
 ! 2.8.1 simd-clause -> safelen-clause |

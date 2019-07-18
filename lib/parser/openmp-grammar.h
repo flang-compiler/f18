@@ -491,10 +491,9 @@ TYPE_PARSER(startOmpLine >> "END SECTIONS"_tok >>
 TYPE_PARSER(construct<OpenMPSectionsConstruct>(verbatim("SECTIONS"_tok),
     Parser<OmpClauseList>{} / endOmpLine, block, Parser<OmpEndSections>{}))
 
-// OMP END PARALLEL SECTIONS [NOWAIT]
-TYPE_PARSER(startOmpLine >> "END PARALLEL SECTIONS"_tok >>
-    construct<OmpEndParallelSections>(
-        maybe("NOWAIT" >> construct<OmpNowait>()) / endOmpLine))
+// OMP END PARALLEL SECTIONS
+TYPE_PARSER(construct<OmpEndParallelSections>(
+    startOmpLine >> "END PARALLEL SECTIONS"_tok / endOmpLine))
 
 // OMP PARALLEL SECTIONS
 TYPE_PARSER(construct<OpenMPParallelSectionsConstruct>(

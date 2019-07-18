@@ -67,12 +67,14 @@ public:
   void Enter(const parser::OpenMPSectionsConstruct &);
   void Leave(const parser::OpenMPSectionsConstruct &);
   void Enter(const parser::OmpSection &);
-  void Leave(const parser::OmpSection &);
 
   void Enter(const parser::OpenMPSingleConstruct &x);
   void Leave(const parser::OpenMPSingleConstruct &x);
   void Enter(const parser::OmpEndSingle &x);
   void Leave(const parser::OmpEndSingle &x);
+
+  void Enter(const parser::OpenMPWorkshareConstruct &x);
+  void Leave(const parser::OpenMPWorkshareConstruct &x);
 
   void Leave(const parser::OmpClauseList &);
   void Enter(const parser::OmpClause &);
@@ -131,8 +133,11 @@ private:
     std::multimap<OmpClause, const parser::OmpClause *> clauseInfo;
   };
   // back() is the top of the stack
-  const OmpContext &GetContext() const { return ompContext_.back(); }
-  const OmpContext &GetPrevContext() const { return ompContext_.rbegin()[1]; }
+  // TODO: remove CHECK after all directives/clauses are checked
+  const OmpContext &GetContext() const {
+    CHECK(!ompContext_.empty());
+    return ompContext_.back();
+  }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
     ompContext_.back().directiveSource = directive;
   }
@@ -158,6 +163,13 @@ private:
       return it->second;
     }
     return nullptr;
+  }
+  void PushContext(const parser::CharBlock &source) {
+    ompContext_.push_back(OmpContext{source});
+  }
+  void PushContext(const parser::CharBlock &source, const OmpDirective &dir) {
+    PushContext(source);
+    SetContextDirectiveEnum(dir);
   }
 
   bool CurrentDirectiveIsNested() { return ompContext_.size() > 0; };

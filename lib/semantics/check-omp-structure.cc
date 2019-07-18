@@ -80,8 +80,7 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
   }
 
   // push a context even in the error case
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
+  PushContext(dir.source);
 }
 
 void OmpStructureChecker::Leave(const parser::OpenMPLoopConstruct &) {
@@ -90,8 +89,7 @@ void OmpStructureChecker::Leave(const parser::OpenMPLoopConstruct &) {
 
 void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
   const auto &dir{std::get<parser::OmpBlockDirective>(x.t)};
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
+  PushContext(dir.source);
 }
 
 void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &) {
@@ -100,9 +98,7 @@ void OmpStructureChecker::Leave(const parser::OpenMPBlockConstruct &) {
 
 void OmpStructureChecker::Enter(const parser::OpenMPSectionsConstruct &x) {
   const auto &dir{std::get<parser::Verbatim>(x.t)};
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
-  SetContextDirectiveEnum(OmpDirective::SECTIONS);
+  PushContext(dir.source, OmpDirective::SECTIONS);
   OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE,
       OmpClause::LASTPRIVATE, OmpClause::REDUCTION};
   SetContextAllowed(allowed);
@@ -114,32 +110,18 @@ void OmpStructureChecker::Leave(const parser::OpenMPSectionsConstruct &x) {
 
 void OmpStructureChecker::Enter(const parser::OmpSection &x) {
   const auto &dir{x.v};  // Verbatim
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
-  SetContextDirectiveEnum(OmpDirective::SECTION);
-
-  if (ompContext_.size() == 1) {
-    context_.Say(
-        dir.source, "Orphaned SECTION directive is prohibited"_err_en_US);
-  } else {
-    if (GetPrevContext().directive != OmpDirective::SECTIONS) {
-      context_.Say(dir.source,
-          "SECTION directive must appear within "
-          "the SECTIONS construct"_err_en_US);
-    }
+  if (!CurrentDirectiveIsNested() ||
+      GetContext().directive != OmpDirective::SECTIONS) {
+    // if not currently nested, SECTION is orphaned
+    context_.Say(dir.source,
+        "SECTION directive must appear within "
+        "the SECTIONS construct"_err_en_US);
   }
-  // TODO: Section-Block association
-}
-
-void OmpStructureChecker::Leave(const parser::OmpSection &x) {
-  ompContext_.pop_back();
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPSingleConstruct &x) {
   const auto &dir{std::get<parser::Verbatim>(x.t)};
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
-  SetContextDirectiveEnum(OmpDirective::SINGLE);
+  PushContext(dir.source, OmpDirective::SINGLE);
   OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE};
   SetContextAllowed(allowed);
 }
@@ -151,9 +133,7 @@ void OmpStructureChecker::Leave(const parser::OpenMPSingleConstruct &x) {
 void OmpStructureChecker::Enter(const parser::OmpEndSingle &x) {
   // EndSingle is in SingleConstruct context
   const auto &dir{std::get<parser::Verbatim>(x.t)};
-  OmpContext ct{dir.source};
-  ompContext_.push_back(ct);
-  SetContextDirectiveEnum(OmpDirective::END_SINGLE);
+  PushContext(dir.source, OmpDirective::END_SINGLE);
   OmpClauseSet allowed{OmpClause::COPYPRIVATE};
   SetContextAllowed(allowed);
   OmpClauseSet allowedOnce{OmpClause::NOWAIT};
@@ -161,6 +141,15 @@ void OmpStructureChecker::Enter(const parser::OmpEndSingle &x) {
 }
 
 void OmpStructureChecker::Leave(const parser::OmpEndSingle &x) {
+  ompContext_.pop_back();
+}
+
+void OmpStructureChecker::Enter(const parser::OpenMPWorkshareConstruct &x) {
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  PushContext(dir.source, OmpDirective::WORKSHARE);
+}
+
+void OmpStructureChecker::Leave(const parser::OpenMPWorkshareConstruct &x) {
   ompContext_.pop_back();
 }
 
@@ -375,7 +364,13 @@ void OmpStructureChecker::Enter(const parser::OmpClause &x) {
 }
 
 void OmpStructureChecker::Enter(const parser::OmpNowait &) {
-  CheckAllowed(OmpClause::NOWAIT);
+  switch (GetContext().directive) {
+  case OmpDirective::SECTIONS:
+  case OmpDirective::WORKSHARE:
+  case OmpDirective::DO_SIMD:
+  case OmpDirective::DO: break;  // NOWAIT is handled by parser
+  default: CheckAllowed(OmpClause::NOWAIT); break;
+  }
 }
 void OmpStructureChecker::Enter(const parser::OmpClause::Defaultmap &) {
   CheckAllowed(OmpClause::DEFAULTMAP);
