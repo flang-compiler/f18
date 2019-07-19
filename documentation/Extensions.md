@@ -19,9 +19,9 @@ Intentional violations of the standard
   `REAL` is of course 32-bit IEEE-754 floating-point today.  This legacy
   rule imposes an artificially small constraint in some cases
   where Fortran mandates that something have the default `INTEGER`
-  type: array bounds, `CHARACTER` length, subscripts, and the results
-  of intrinsic function references that return such things.  We
-  use `INTEGER(KIND=8)` for such things.
+  type: specifically, the results of references to the intrinsic functions
+  `LEN`, `SIZE`, `LBOUND`, `UBOUND`, and `SHAPE`.  We return
+  `INTEGER(KIND=8)` in these cases.
 
 Extensions, deletions, and legacy features supported by default
 ===============================================================
@@ -80,11 +80,20 @@ Extensions, deletions, and legacy features supported by default
 * BOZ literals can be used as INTEGER values in contexts where the type is
   unambiguous: the right hand sides of assigments and initializations
   of INTEGER entities, and as actual arguments to a few intrinsic functions
-  (ACHAR, BTEST, CHAR).
+  (ACHAR, BTEST, CHAR).  But they cannot be used if the type would not
+  be known (e.g., `IAND(X'1',X'2')`).
+* BOZ literals can also be used as REAL values in some contexts where the
+  type is unambiguous, such as initializations of REAL parameters.
 * EQUIVALENCE of numeric and character sequences (a ubiquitous extension)
 * Values for whole anonymous parent components in structure constructors
   (e.g., `EXTENDEDTYPE(PARENTTYPE(1,2,3))` rather than `EXTENDEDTYPE(1,2,3)`
    or `EXTENDEDTYPE(PARENTTYPE=PARENTTYPE(1,2,3))`).
+* Some intrinsic functions are specified in the standard as requiring the
+  same type and kind for their arguments (viz., ATAN with two arguments,
+  ATAN2, DIM, HYPOT, MAX, MIN, MOD, and MODULO);
+  we allow distinct types to be used, promoting
+  the arguments as if they were operands to an intrinsic `+` operator,
+  and defining the result type accordingly.
 
 Extensions supported when enabled by options
 --------------------------------------------
@@ -125,6 +134,11 @@ Extensions and legacy features deliberately not supported
 * Using non-integer expressions for array bounds (e.g., REAL A(3.14159)) (PGI/Intel)
 * Mixing INTEGER types as operands to bit intrinsics (e.g., IAND); only two
   compilers support it, and they disagree on sign extension.
+* Module & program names that conflict with an object inside the unit (PGI only).
+* When the same name is brought into scope via USE association from
+  multiple modules, the name must refer to a generic interface; PGI
+  allows a name to be a procedure from one module and a generic interface
+  from another.
 
 Preprocessing behavior
 ======================
