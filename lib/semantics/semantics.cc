@@ -34,6 +34,7 @@
 #include "scope.h"
 #include "symbol.h"
 #include "../common/default-kinds.h"
+#include "../parser/canonicalize-omp.h"
 #include "../parser/parse-tree-visitor.h"
 
 namespace Fortran::semantics {
@@ -170,6 +171,7 @@ Scope &SemanticsContext::FindScope(parser::CharBlock source) {
 bool Semantics::Perform() {
   return ValidateLabels(context_, program_) &&
       parser::CanonicalizeDo(program_) &&  // force line break
+      parser::CanonicalizeOmp(context_.messages(), program_) &&
       PerformStatementSemantics(context_, program_) &&
       ModFileWriter{context_}.WriteAll();
 }
