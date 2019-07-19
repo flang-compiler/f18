@@ -133,29 +133,28 @@ private:
     std::multimap<OmpClause, const parser::OmpClause *> clauseInfo;
   };
   // back() is the top of the stack
-  // TODO: remove CHECK after all directives/clauses are checked
-  const OmpContext &GetContext() const {
+  OmpContext &GetContext() {
     CHECK(!ompContext_.empty());
     return ompContext_.back();
   }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
-    ompContext_.back().directiveSource = directive;
+    GetContext().directiveSource = directive;
   }
   void SetContextClause(const parser::OmpClause &clause) {
-    ompContext_.back().clauseSource = clause.source;
-    ompContext_.back().clause = &clause;
+    GetContext().clauseSource = clause.source;
+    GetContext().clause = &clause;
   }
   void SetContextDirectiveEnum(const OmpDirective &dir) {
-    ompContext_.back().directive = dir;
+    GetContext().directive = dir;
   }
   void SetContextAllowed(const OmpClauseSet &allowed) {
-    ompContext_.back().allowedClauses = allowed;
+    GetContext().allowedClauses = allowed;
   }
   void SetContextAllowedOnce(const OmpClauseSet &allowedOnce) {
-    ompContext_.back().allowedOnceClauses = allowedOnce;
+    GetContext().allowedOnceClauses = allowedOnce;
   }
   void SetContextClauseInfo(const OmpClause &type) {
-    ompContext_.back().clauseInfo.emplace(type, ompContext_.back().clause);
+    GetContext().clauseInfo.emplace(type, GetContext().clause);
   }
   const parser::OmpClause *FindClause(const OmpClause &type) {
     auto it{GetContext().clauseInfo.find(type)};
