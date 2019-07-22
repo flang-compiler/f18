@@ -21,7 +21,7 @@
   integer, parameter :: num = 16
   N = 1024
 
-! Labeled DO loops are accepted
+! Different DO loops
 
   !$omp parallel
   !$omp do
@@ -35,7 +35,36 @@
      a = 3.14
   END DO
 
+  !$omp parallel do simd
+  outer: DO WHILE (c > 1)
+     inner: do while (b > 100)
+        a = 3.14
+        b = b - 1
+     enddo inner
+     c = c - 1
+  END DO outer
+
+  c = 16
+  !ERROR: DO loop after the PARALLEL DO directive must have loop control
+  !$omp parallel do
+  do
+     a = 3.14
+     c = c - 1
+     if (c < 1) exit
+  enddo
+
 ! Loop association check
+
+  ! If an end do directive follows a do-construct in which several DO
+  ! statements share a DO termination statement, then a do directive
+  ! can only be specified for the outermost of these DO statements.
+  do 100 i=1, N
+     !$omp do
+     do 100 j=1, N
+        a = 3.14
+100     continue
+    !ERROR: The ENDDO must follow the DO loop associated with the loop construct
+    !$omp enddo
 
   !$omp parallel do copyin(a)
   do i = 1, N

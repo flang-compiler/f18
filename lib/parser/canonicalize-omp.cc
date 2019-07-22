@@ -67,6 +67,15 @@ public:
                         &execNext->u)}) {
                   loopMatched = true;
                   matchedLoopConstruct = ompLoop;
+                  // LoopControl check
+                  const auto &loopControl{doCons->value().GetLoopControl()};
+                  if (!loopControl.has_value()) {
+                    messages_.Say(dir.source,
+                        "DO loop after the %s directive "
+                        "must have loop control"_err_en_US,
+                        parser::ToUpperCaseLetters(dir.source.ToString()));
+                  }
+
                   // move DoConstruct
                   std::get<std::optional<DoConstruct>>(ompLoop->t) =
                       std::move(doCons->value());
