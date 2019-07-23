@@ -43,28 +43,47 @@ inline int GetRank(const ConstantSubscripts &s) {
 
 std::size_t TotalElementCount(const ConstantSubscripts &);
 
-// If no optional dimension order argument is passed, increments a vector of
-// subscripts in Fortran array order (first dimension varying most quickly).
-// Otherwise, increments the vector of subscripts according to the given
-// dimension order (dimension dimOrder[0] varying most quickly. Dimensions
-// indexing is zero based here.) Returns false when last element was visited.
-bool IncrementSubscripts(ConstantSubscripts &, const ConstantSubscripts &shape,
-    const ConstantSubscripts &lbound,
-    const std::vector<int> *dimOrder = nullptr);
-
 // Validate dimension re-ordering like ORDER in RESHAPE.
 // On success, return a vector that can be used as dimOrder in
-// IncrementSubscripts.
+// ConstantBound::IncrementSubscripts.
 std::optional<std::vector<int>> ValidateDimensionOrder(
     int rank, const std::vector<int> &order);
 
 bool IsValidShape(const ConstantSubscripts &);
 
+class ConstantBounds {
+public:
+  ConstantBounds() = default;
+  explicit ConstantBounds(const ConstantSubscripts &shape);
+  explicit ConstantBounds(ConstantSubscripts &&shape);
+  ~ConstantBounds();
+  const ConstantSubscripts &shape() const { return shape_; }
+  const ConstantSubscripts &lbounds() const { return lbounds_; }
+  void set_lbounds(ConstantSubscripts &&);
+  int Rank() const { return GetRank(shape_); }
+  Constant<SubscriptInteger> SHAPE() const;
+
+  // If no optional dimension order argument is passed, increments a vector of
+  // subscripts in Fortran array order (first dimension varying most quickly).
+  // Otherwise, increments the vector of subscripts according to the given
+  // dimension order (dimension dimOrder[0] varying most quickly. Dimensions
+  // indexing is zero based here.) Returns false when last element was visited.
+  bool IncrementSubscripts(
+      ConstantSubscripts &, const std::vector<int> *dimOrder = nullptr) const;
+
+protected:
+  ConstantSubscript SubscriptsToOffset(const ConstantSubscripts &) const;
+
+private:
+  ConstantSubscripts shape_;
+  ConstantSubscripts lbounds_;
+};
+
 // Constant<> is specialized for Character kinds and SomeDerived.
 // The non-Character intrinsic types, and SomeDerived, share enough
 // common behavior that they use this common base class.
 template<typename RESULT, typename ELEMENT = Scalar<RESULT>>
-class ConstantBase {
+class ConstantBase : public ConstantBounds {
   static_assert(RESULT::category != TypeCategory::Character);
 
 public:
@@ -82,18 +101,13 @@ public:
   DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(ConstantBase)
   ~ConstantBase();
 
-  int Rank() const { return GetRank(shape_); }
   bool operator==(const ConstantBase &) const;
   bool empty() const { return values_.empty(); }
   std::size_t size() const { return values_.size(); }
   const std::vector<Element> &values() const { return values_; }
-  const ConstantSubscripts &shape() const { return shape_; }
-  const ConstantSubscripts &lbounds() const { return lbounds_; }
-  void set_lbounds(ConstantSubscripts &&);
   constexpr Result result() const { return result_; }
 
   constexpr DynamicType GetType() const { return result_.GetType(); }
-  Constant<SubscriptInteger> SHAPE() const;
   std::ostream &AsFortran(std::ostream &) const;
 
 protected:
@@ -103,8 +117,6 @@ protected:
 
   Result result_;
   std::vector<Element> values_;
-  ConstantSubscripts shape_;
-  ConstantSubscripts lbounds_;
 };
 
 template<typename T> class Constant : public ConstantBase<T> {
@@ -117,7 +129,7 @@ public:
   CLASS_BOILERPLATE(Constant)
 
   std::optional<Scalar<T>> GetScalarValue() const {
-    if (Base::shape_.empty()) {
+    if (ConstantBounds::Rank() == 0) {
       return Base::values_.at(0);
     } else {
       return std::nullopt;
@@ -132,7 +144,8 @@ public:
       ConstantSubscripts &resultSubscripts, const std::vector<int> *dimOrder);
 };
 
-template<int KIND> class Constant<Type<TypeCategory::Character, KIND>> {
+template<int KIND>
+class Constant<Type<TypeCategory::Character, KIND>> : public ConstantBounds {
 public:
   using Result = Type<TypeCategory::Character, KIND>;
   using Element = Scalar<Result>;
@@ -143,20 +156,16 @@ public:
   Constant(ConstantSubscript, std::vector<Element> &&, ConstantSubscripts &&);
   ~Constant();
 
-  int Rank() const { return GetRank(shape_); }
   bool operator==(const Constant &that) const {
-    return shape_ == that.shape_ && values_ == that.values_;
+    return shape() == that.shape() && values_ == that.values_;
   }
   bool empty() const;
   std::size_t size() const;
-  const ConstantSubscripts &shape() const { return shape_; }
-  const ConstantSubscripts &lbounds() const { return lbounds_; }
-  void set_lbounds(ConstantSubscripts &&);
 
   ConstantSubscript LEN() const { return length_; }
 
   std::optional<Scalar<Result>> GetScalarValue() const {
-    if (shape_.empty()) {
+    if (Rank() == 0) {
       return values_;
     } else {
       return std::nullopt;
@@ -167,7 +176,6 @@ public:
   Scalar<Result> At(const ConstantSubscripts &) const;
 
   Constant Reshape(ConstantSubscripts &&) const;
-  Constant<SubscriptInteger> SHAPE() const;
   std::ostream &AsFortran(std::ostream &) const;
   static constexpr DynamicType GetType() {
     return {TypeCategory::Character, KIND};

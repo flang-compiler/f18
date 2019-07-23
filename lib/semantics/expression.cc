@@ -156,6 +156,11 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
   int symbolRank{symbol.Rank()};
   int subscripts{static_cast<int>(ref.size())};
   if (subscripts == 0) {
+    if (semantics::IsAssumedSizeArray(symbol)) {
+      // Don't introduce a triplet that would later be caught
+      // as being invalid.
+      return Designate(DataRef{std::move(ref)});
+    }
     // A -> A(:,:)
     for (; subscripts < symbolRank; ++subscripts) {
       ref.emplace_back(Triplet{});
@@ -448,14 +453,16 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::RealLiteralConstant &x) {
   auto &defaults{context_.defaultKinds()};
   int defaultKind{defaults.GetDefaultKind(TypeCategory::Real)};
   const char *end{x.real.source.end()};
+  char expoLetter{' '};
   std::optional<int> letterKind;
   for (const char *p{x.real.source.begin()}; p < end; ++p) {
     if (parser::IsLetter(*p)) {
-      switch (*p) {
+      expoLetter = *p;
+      switch (expoLetter) {
       case 'e': letterKind = defaults.GetDefaultKind(TypeCategory::Real); break;
       case 'd': letterKind = defaults.doublePrecisionKind(); break;
       case 'q': letterKind = defaults.quadPrecisionKind(); break;
-      default: Say("Unknown exponent letter '%c'"_err_en_US, *p);
+      default: Say("Unknown exponent letter '%c'"_err_en_US, expoLetter);
       }
       break;
     }
@@ -464,9 +471,10 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::RealLiteralConstant &x) {
     defaultKind = *letterKind;
   }
   auto kind{AnalyzeKindParam(x.kind, defaultKind)};
-  if (letterKind.has_value() && kind != *letterKind) {
+  if (letterKind.has_value() && kind != *letterKind && expoLetter != 'e') {
     Say("Explicit kind parameter on real constant disagrees with "
-        "exponent letter"_en_US);
+        "exponent letter '%c'"_en_US,
+        expoLetter);
   }
   auto result{common::SearchTypes(
       RealTypeVisitor{kind, x.real.source, GetFoldingContext()})};
@@ -1354,6 +1362,9 @@ MaybeExpr ExpressionAnalyzer::Analyze(
         } else if (MaybeExpr converted{
                        ConvertToType(*symbol, std::move(*value))}) {
           result.Add(*symbol, std::move(*converted));
+        } else if (IsAllocatable(*symbol) &&
+            std::holds_alternative<NullPointer>(value->u)) {
+          // NULL() with no arguments allowed by 7.5.10 para 6 for ALLOCATABLE
         } else if (auto symType{DynamicType::From(symbol)}) {
           if (valueType.has_value()) {
             if (auto *msg{Say(expr.source,

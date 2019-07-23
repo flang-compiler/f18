@@ -255,8 +255,8 @@ static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
     // Compute all the scalar values of the results
     std::vector<Scalar<TR>> results;
     if (TotalElementCount(shape) > 0) {
-      ConstantSubscripts lbound(rank, 1);
-      ConstantSubscripts index{lbound};
+      ConstantBounds bounds{shape};
+      ConstantSubscripts index(rank, 1);
       do {
         if constexpr (std::is_same_v<WrapperType<TR, TA...>,
                           ScalarFuncWithContext<TR, TA...>>) {
@@ -269,7 +269,7 @@ static inline Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
               (ranks[I] ? std::get<I>(args)->At(index)
                         : std::get<I>(args)->GetScalarValue().value())...));
         }
-      } while (IncrementSubscripts(index, shape, lbound));
+      } while (bounds.IncrementSubscripts(index));
     }
     // Build and return constant result
     if constexpr (TR::category == TypeCategory::Character) {
@@ -641,7 +641,12 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
   } else if (name == "selected_char_kind") {
     if (const auto *chCon{UnwrapExpr<Constant<TypeOf<std::string>>>(args[0])}) {
       if (std::optional<std::string> value{chCon->GetScalarValue()}) {
-        return Expr<T>{SelectedCharKind(*value)};
+        if (*value == "default") {
+          return Expr<T>{
+              context.defaults().GetDefaultKind(TypeCategory::Character)};
+        } else {
+          return Expr<T>{SelectedCharKind(*value)};
+        }
       }
     }
   } else if (name == "selected_int_kind") {
@@ -1166,10 +1171,10 @@ std::optional<Constant<T>> ApplySubscripts(parser::ContextualMessages &messages,
         }
         ++k;
       }
-      if (at[j] < lbounds[j] || at[j] > lbounds[j] + shape[j]) {
-        messages.Say("Subscript value (%jd) is out of range in reference "
-                     "to a constant array value"_err_en_US,
-            static_cast<std::intmax_t>(at[j]));
+      if (at[j] < lbounds[j] || at[j] >= lbounds[j] + shape[j]) {
+        messages.Say("Subscript value (%jd) is out of range on dimension %d "
+                     "in reference to a constant array value"_err_en_US,
+            static_cast<std::intmax_t>(at[j]), j + 1);
         return std::nullopt;
       }
     }
@@ -1240,7 +1245,7 @@ std::optional<Constant<T>> ApplyComponent(FoldingContext &context,
           return std::nullopt;
         }
       }
-    } while (IncrementSubscripts(at, structures.shape(), structures.lbounds()));
+    } while (structures.IncrementSubscripts(at));
     // Fold the ArrayConstructor<> into a Constant<>.
     CHECK(array);
     Expr<T> result{Fold(context, Expr<T>{std::move(*array)})};
@@ -1526,7 +1531,7 @@ std::optional<Expr<T>> AsFlatArrayConstructor(const Expr<T> &expr) {
       ConstantSubscripts at{c->lbounds()};
       do {
         result.Push(Expr<T>{Constant<T>{c->At(at)}});
-      } while (IncrementSubscripts(at, c->shape(), c->lbounds()));
+      } while (c->IncrementSubscripts(at));
     }
     return std::make_optional<Expr<T>>(std::move(result));
   } else if (const auto *a{UnwrapExpr<ArrayConstructor<T>>(expr)}) {
