@@ -17,6 +17,7 @@
 
 #include "constant.h"
 #include "expression.h"
+#include "traversal.h"
 #include "../common/idioms.h"
 #include "../common/unwrap.h"
 #include "../parser/message.h"
@@ -56,27 +57,27 @@ std::optional<Variable<A>> AsVariable(const std::optional<Expr<A>> &expr) {
 }
 
 // Predicate: true when an expression is a variable reference
-template<typename A> bool IsVariable(const A &) { return false; }
-template<typename A> bool IsVariable(const Designator<A> &designator) {
-  if constexpr (common::HasMember<Substring, decltype(Designator<A>::u)>) {
-    if (const auto *substring{std::get_if<Substring>(&designator.u)}) {
-      return substring->GetLastSymbol() != nullptr;
-    }
-  }
-  return true;
-}
-template<typename A> bool IsVariable(const FunctionRef<A> &funcRef) {
-  if (const semantics::Symbol * symbol{funcRef.proc().GetSymbol()}) {
-    return symbol->attrs().test(semantics::Attr::POINTER);
+struct IsVariableVisitor : public virtual VisitorBase<std::optional<bool>> {
+  // std::optional<> is used because it is default-constructible.
+  using Result = std::optional<bool>;
+  explicit IsVariableVisitor(std::nullptr_t);
+  void Handle(const StaticDataObject &);  // constant Substring base -> false
+  void Post(const Substring &);
+  void Pre(const Component &);
+  void Pre(const ArrayRef &);
+  void Pre(const CoarrayRef &);
+  void Pre(const ComplexPart &);
+  void Handle(const ProcedureDesignator &);
+  template<typename A> void Post(const A &) { Return(false); }
+};
+
+template<typename A> bool IsVariable(const A &x) {
+  Visitor<IsVariableVisitor> visitor{nullptr};
+  if (auto optional{visitor.Traverse(x)}) {
+    return *optional;
   } else {
     return false;
   }
-}
-template<typename T> bool IsVariable(const Expr<T> &expr) {
-  return std::visit([](const auto &x) { return IsVariable(x); }, expr.u);
-}
-template<typename A> bool IsVariable(const std::optional<A> &x) {
-  return x.has_value() && IsVariable(*x);
 }
 
 // Predicate: true when an expression is assumed-rank
@@ -607,57 +608,23 @@ struct TypeKindVisitor {
 };
 
 // GetLastSymbol() returns the rightmost symbol in an object or procedure
-// designator (possibly wrapped in an Expr<>), or a null pointer if
-// none is found.
-template<typename A> const semantics::Symbol *GetLastSymbol(const A &) {
-  return nullptr;
-}
-template<typename... A> const semantics::Symbol *GetLastSymbol(const std::variant<A...> &);
-template<typename A> const semantics::Symbol *GetLastSymbol(const std::optional<A> &);
-template<typename A> const semantics::Symbol *GetLastSymbol(const A *);
-inline const semantics::Symbol *GetLastSymbol(const Symbol &x) { return &x; }
-inline const semantics::Symbol *GetLastSymbol(const Component &x) {
-  return &x.GetLastSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const NamedEntity &x) {
-  return &x.GetLastSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const ArrayRef &x) {
-  return &x.GetLastSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const CoarrayRef &x) {
-  return &x.GetLastSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const DataRef &x) {
-  return &x.GetLastSymbol();
-}
-template<typename T>
-const semantics::Symbol *GetLastSymbol(const Designator<T> &x) {
-  return x.GetLastSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const ProcedureDesignator &x) {
-  return x.GetSymbol();
-}
-inline const semantics::Symbol *GetLastSymbol(const ProcedureRef &x) {
-  return GetLastSymbol(x.proc());
-}
-template<typename T> const semantics::Symbol *GetLastSymbol(const Expr<T> &x) {
-  return GetLastSymbol(x.u);
-}
-template<typename... A> const semantics::Symbol *GetLastSymbol(const std::variant<A...> &u) {
-  return std::visit([](const auto &x) { return GetLastSymbol(x); }, u);
-}
-template<typename A>
-const semantics::Symbol *GetLastSymbol(const std::optional<A> &x) {
-  if (x.has_value()) {
-    return GetLastSymbol(*x);
-  } else {
-    return nullptr;
-  }
-}
-template<typename A> const semantics::Symbol *GetLastSymbol(const A *p) {
-  if (p != nullptr) {
-    return GetLastSymbol(*p);
+// designator (which has perhaps been wrapped in an Expr<>), or a null pointer
+// when none is found.
+struct GetLastSymbolVisitor
+  : public virtual VisitorBase<std::optional<const semantics::Symbol *>> {
+  // std::optional<> is used because it is default-constructible.
+  using Result = std::optional<const semantics::Symbol *>;
+  explicit GetLastSymbolVisitor(std::nullptr_t);
+  void Handle(const semantics::Symbol &);
+  void Handle(const Component &);
+  void Handle(const NamedEntity &);
+  void Handle(const ProcedureDesignator &);
+};
+
+template<typename A> const semantics::Symbol *GetLastSymbol(const A &x) {
+  Visitor<GetLastSymbolVisitor> visitor{nullptr};
+  if (auto optional{visitor.Traverse(x)}) {
+    return *optional;
   } else {
     return nullptr;
   }
@@ -710,5 +677,27 @@ inline bool IsProcedurePointer(const Expr<SomeType> &expr) {
 template<typename A> bool IsProcedurePointer(const std::optional<A> &x) {
   return x.has_value() && IsProcedurePointer(*x);
 }
+
+// GetLastTarget() returns the rightmost symbol in an object
+// designator (which has perhaps been wrapped in an Expr<>) that has the
+// POINTER or TARGET attribute, or a null pointer when none is found.
+struct GetLastTargetVisitor
+  : public virtual VisitorBase<std::optional<const semantics::Symbol *>> {
+  // std::optional<> is used because it is default-constructible.
+  using Result = std::optional<const semantics::Symbol *>;
+  explicit GetLastTargetVisitor(std::nullptr_t);
+  void Handle(const semantics::Symbol &);
+  void Pre(const Component &);
+};
+
+template<typename A> const semantics::Symbol *GetLastTarget(const A &x) {
+  Visitor<GetLastTargetVisitor> visitor{nullptr};
+  if (auto optional{visitor.Traverse(x)}) {
+    return *optional;
+  } else {
+    return nullptr;
+  }
+}
+
 }
 #endif  // FORTRAN_EVALUATE_TOOLS_H_

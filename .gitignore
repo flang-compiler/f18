@@ -2,6 +2,7 @@ Debug
 Release
 MinSizeRel
 build
+root
 tags
 TAGS
 *.o
