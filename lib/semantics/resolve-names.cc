@@ -40,7 +40,6 @@
 #include "../parser/tools.h"
 #include <list>
 #include <map>
-#include <memory>
 #include <ostream>
 #include <set>
 #include <stack>
@@ -719,10 +718,10 @@ public:
   bool Pre(const parser::ProcComponentDefStmt &);
   void Post(const parser::ProcComponentDefStmt &);
   bool Pre(const parser::ProcPointerInit &);
-  bool Pre(const parser::ProcInterface &);
   void Post(const parser::ProcInterface &);
   void Post(const parser::ProcDecl &);
   bool Pre(const parser::TypeBoundProcedurePart &);
+  void Post(const parser::TypeBoundProcedurePart &);
   void Post(const parser::ContainsStmt &);
   bool Pre(const parser::TypeBoundProcBinding &) { return BeginAttrs(); }
   void Post(const parser::TypeBoundProcBinding &) { EndAttrs(); }
@@ -775,6 +774,8 @@ protected:
   const parser::Name *ResolveVariable(const parser::Variable &);
   const parser::Name *ResolveName(const parser::Name &);
   bool PassesSharedLocalityChecks(const parser::Name &name, Symbol &symbol);
+  Symbol *NoteInterfaceName(const parser::Name &);
+  void CheckExplicitInterface(Symbol &);
 
 private:
   // The attribute corresponding to the statement containing an ObjectDecl
@@ -810,6 +811,8 @@ private:
   // In a ProcedureDeclarationStmt or ProcComponentDefStmt, this is
   // the interface name, if any.
   const parser::Name *interfaceName_{nullptr};
+  // Map type-bound generic to binding names of its specific bindings
+  std::multimap<Symbol *, const parser::Name *> genericBindings_;
 
   bool HandleAttributeStmt(Attr, const std::list<parser::Name> &);
   Symbol &HandleAttributeStmt(Attr, const parser::Name &);
@@ -818,7 +821,6 @@ private:
   void SetType(const parser::Name &, const DeclTypeSpec &);
   const Symbol *ResolveDerivedType(const parser::Name &);
   bool CanBeTypeBoundProc(const Symbol &);
-  Symbol *FindExplicitInterface(const parser::Name &);
   Symbol *MakeTypeSymbol(const SourceName &, Details &&);
   Symbol *MakeTypeSymbol(const parser::Name &, Details &&);
   bool OkToAddComponent(const parser::Name &, const Symbol * = nullptr);
@@ -1971,6 +1973,7 @@ void ModuleVisitor::BeginModule(const parser::Name &name, bool isSubmodule) {
   auto &details{symbol.get<ModuleDetails>()};
   PushScope(Scope::Kind::Module, &symbol);
   details.set_scope(&currScope());
+  defaultAccess_ = Attr::PUBLIC;
   prevAccessStmt_ = nullptr;
 }
 
@@ -2774,9 +2777,11 @@ Symbol &DeclarationVisitor::DeclareProcEntity(
     if (interface.type()) {
       symbol.set(Symbol::Flag::Function);
     } else if (interface.symbol()) {
-      symbol.set(interface.symbol()->test(Symbol::Flag::Function)
-              ? Symbol::Flag::Function
-              : Symbol::Flag::Subroutine);
+      if (interface.symbol()->test(Symbol::Flag::Function)) {
+        symbol.set(Symbol::Flag::Function);
+      } else if (interface.symbol()->test(Symbol::Flag::Subroutine)) {
+        symbol.set(Symbol::Flag::Subroutine);
+      }
     }
     details->set_interface(interface);
     SetBindNameOn(symbol);
@@ -3094,6 +3099,7 @@ void DeclarationVisitor::Post(const parser::DerivedTypeStmt &x) {
   }
   EndAttrs();
 }
+
 void DeclarationVisitor::Post(const parser::TypeParamDefStmt &x) {
   auto *type{GetDeclTypeSpec()};
   auto attr{std::get<common::TypeParamAttr>(x.t)};
@@ -3187,44 +3193,10 @@ bool DeclarationVisitor::Pre(const parser::ProcPointerInit &x) {
   }
   return true;
 }
-bool DeclarationVisitor::Pre(const parser::ProcInterface &x) {
-  if (auto *name{std::get_if<parser::Name>(&x.u)}) {
-    if (!NameIsKnownOrIntrinsic(*name)) {
-      // Simple names (lacking parameters and size) of intrinsic types re
-      // ambiguous in Fortran when used as instances of proc-interface.
-      // The parser recognizes them as interface-names since they can be
-      // overridden.  If they turn out (here) to not be names of explicit
-      // interfaces, we need to replace their parses.
-      auto &proc{const_cast<parser::ProcInterface &>(x)};
-      if (name->source == "integer") {
-        proc.u =
-            parser::IntrinsicTypeSpec{parser::IntegerTypeSpec{std::nullopt}};
-      } else if (name->source == "real") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::Real{std::nullopt}};
-      } else if (name->source == "doubleprecision") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::DoublePrecision{}};
-      } else if (name->source == "complex") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::Complex{std::nullopt}};
-      } else if (name->source == "character") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::Character{std::nullopt}};
-      } else if (name->source == "logical") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::Logical{std::nullopt}};
-      } else if (name->source == "doublecomplex") {
-        proc.u = parser::IntrinsicTypeSpec{
-            parser::IntrinsicTypeSpec::DoubleComplex{}};
-      }
-    }
-  }
-  return true;
-}
 void DeclarationVisitor::Post(const parser::ProcInterface &x) {
   if (auto *name{std::get_if<parser::Name>(&x.u)}) {
     interfaceName_ = name;
+    NoteInterfaceName(*name);
   }
 }
 
@@ -3232,14 +3204,9 @@ void DeclarationVisitor::Post(const parser::ProcDecl &x) {
   const auto &name{std::get<parser::Name>(x.t)};
   ProcInterface interface;
   if (interfaceName_) {
-    if (const Symbol * symbol{FindExplicitInterface(*interfaceName_)}) {
-      interface.set_symbol(*symbol);
-    }
-  }
-  if (interface.symbol() == nullptr) {
-    if (auto *type{GetDeclTypeSpec()}) {
-      interface.set_type(*type);
-    }
+    interface.set_symbol(*interfaceName_->symbol);
+  } else if (auto *type{GetDeclTypeSpec()}) {
+    interface.set_type(*type);
   }
   auto attrs{HandleSaveName(name.source, GetAttrs())};
   DerivedTypeDetails *dtDetails{nullptr};
@@ -3258,6 +3225,39 @@ void DeclarationVisitor::Post(const parser::ProcDecl &x) {
 bool DeclarationVisitor::Pre(const parser::TypeBoundProcedurePart &x) {
   derivedTypeInfo_.sawContains = true;
   return true;
+}
+
+// Resolve binding names from type-bound generics, saved in genericBindings_.
+void DeclarationVisitor::Post(const parser::TypeBoundProcedurePart &) {
+  // track specifics seen for the current generic to detect duplicates:
+  const Symbol *currGeneric{nullptr};
+  std::set<SourceName> specifics;
+  for (const auto [generic, bindingName] : genericBindings_) {
+    if (generic != currGeneric) {
+      currGeneric = generic;
+      specifics.clear();
+    }
+    auto [it, inserted]{specifics.insert(bindingName->source)};
+    if (!inserted) {
+      Say(*bindingName,  // C773
+          "Binding name '%s' was already specified for generic '%s'"_err_en_US,
+          bindingName->source, generic->name())
+          .Attach(*it, "Previous specification of '%s'"_en_US, *it);
+      continue;
+    }
+    auto *symbol{FindInTypeOrParents(*bindingName)};
+    if (!symbol) {
+      Say(*bindingName,  // C772
+          "Binding name '%s' not found in this derived type"_err_en_US);
+    } else if (!symbol->has<ProcBindingDetails>()) {
+      SayWithDecl(*bindingName, *symbol,  // C772
+          "'%s' is not the name of a specific binding of this type"_err_en_US);
+    } else {
+      auto &details{generic->get<GenericBindingDetails>()};
+      details.add_specificProc(*symbol);
+    }
+  }
+  genericBindings_.clear();
 }
 
 void DeclarationVisitor::Post(const parser::ContainsStmt &) {
@@ -3298,13 +3298,12 @@ void DeclarationVisitor::Post(
   if (!GetAttrs().test(Attr::DEFERRED)) {  // C783
     Say("DEFERRED is required when an interface-name is provided"_err_en_US);
   }
-  Symbol *interface{FindExplicitInterface(x.interfaceName)};
-  if (!interface) {
-    return;
-  }
-  for (auto &bindingName : x.bindingNames) {
-    if (auto *s{MakeTypeSymbol(bindingName, ProcBindingDetails{*interface})}) {
-      SetPassNameOn(*s);
+  if (Symbol * interface{NoteInterfaceName(x.interfaceName)}) {
+    for (auto &bindingName : x.bindingNames) {
+      if (auto *s{
+              MakeTypeSymbol(bindingName, ProcBindingDetails{*interface})}) {
+        SetPassNameOn(*s);
+      }
     }
   }
 }
@@ -3319,19 +3318,6 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   const auto &accessSpec{std::get<std::optional<parser::AccessSpec>>(x.t)};
   const auto &genericSpec{std::get<Indirection<parser::GenericSpec>>(x.t)};
   const auto &bindingNames{std::get<std::list<parser::Name>>(x.t)};
-  SymbolVector specificProcs;
-  for (const auto &bindingName : bindingNames) {
-    auto *symbol{FindInTypeOrParents(bindingName)};
-    if (!symbol) {
-      Say(bindingName,
-          "Binding name '%s' not found in this derived type"_err_en_US);
-    } else if (!symbol->has<ProcBindingDetails>()) {
-      SayWithDecl(bindingName, *symbol,
-          "'%s' is not the name of a specific binding of this type"_err_en_US);
-    } else {
-      specificProcs.push_back(symbol);
-    }
-  }
   auto info{GenericSpecInfo{genericSpec.value()}};
   const SourceName &symbolName{info.symbolName()};
   bool isPrivate{accessSpec ? accessSpec->v == parser::AccessSpec::Kind::Private
@@ -3345,11 +3331,11 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
                  FindInTypeOrParents(currScope(), symbolName)}) {
     // look in parent types:
     if (inheritedSymbol->has<GenericBindingDetails>()) {
-      CheckAccessibility(symbolName, isPrivate, *inheritedSymbol);
+      CheckAccessibility(symbolName, isPrivate, *inheritedSymbol);  // C771
     }
   }
   if (genericSymbol) {
-    CheckAccessibility(symbolName, isPrivate, *genericSymbol);
+    CheckAccessibility(symbolName, isPrivate, *genericSymbol);  // C771
   } else {
     genericSymbol = MakeTypeSymbol(symbolName, GenericBindingDetails{});
     if (!genericSymbol) {
@@ -3359,8 +3345,9 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
       genericSymbol->attrs().set(Attr::PRIVATE);
     }
   }
-  auto &details{genericSymbol->get<GenericBindingDetails>()};
-  details.add_specificProcs(specificProcs);
+  for (const parser::Name &bindingName : bindingNames) {
+    genericBindings_.emplace(genericSymbol, &bindingName);
+  }
   info.Resolve(genericSymbol);
   return false;
 }
@@ -3693,8 +3680,12 @@ Symbol &DeclarationVisitor::MakeCommonBlockSymbol(const parser::Name &name) {
 }
 
 bool DeclarationVisitor::NameIsKnownOrIntrinsic(const parser::Name &name) {
-  return FindSymbol(name) != nullptr ||
-      HandleUnrestrictedSpecificIntrinsicFunction(name);
+  if (Symbol * symbol{FindSymbol(name)}) {
+    Resolve(name, *symbol);
+    return true;
+  } else {
+    return HandleUnrestrictedSpecificIntrinsicFunction(name);
+  }
 }
 
 // Check if this derived type can be in a COMMON block.
@@ -3935,17 +3926,27 @@ bool DeclarationVisitor::CanBeTypeBoundProc(const Symbol &symbol) {
   }
 }
 
-Symbol *DeclarationVisitor::FindExplicitInterface(const parser::Name &name) {
-  auto *symbol{FindSymbol(name)};
-  if (!symbol) {
-    Say(name, "Explicit interface '%s' not found"_err_en_US);
-  } else if (!symbol->HasExplicitInterface()) {
-    SayWithDecl(name, *symbol,
-        "'%s' is not an abstract interface or a procedure with an"
-        " explicit interface"_err_en_US);
-    symbol = nullptr;
+Symbol *DeclarationVisitor::NoteInterfaceName(const parser::Name &name) {
+  // The symbol is checked later by CheckExplicitInterface() to ensure
+  // that it defines an explicit interface.  The name can be a forward
+  // reference.
+  if (!NameIsKnownOrIntrinsic(name)) {
+    Resolve(name, MakeSymbol(InclusiveScope(), name.source, Attrs{}));
   }
-  return symbol;
+  return name.symbol;
+}
+
+void DeclarationVisitor::CheckExplicitInterface(Symbol &symbol) {
+  if (const Symbol * interface{FindInterface(symbol)}) {
+    const Symbol *subp{FindSubprogram(*interface)};
+    if (subp == nullptr || !subp->HasExplicitInterface()) {
+      Say(symbol.name(),
+          "The interface of '%s' ('%s') is not an abstract interface or a "
+          "procedure with an explicit interface"_err_en_US,
+          symbol.name(), interface->name());
+      context().SetError(symbol);
+    }
+  }
 }
 
 // Create a symbol for a type parameter, component, or procedure binding in
@@ -4767,11 +4768,12 @@ void ResolveNamesVisitor::HandleProcedureName(
   CHECK(flag == Symbol::Flag::Function || flag == Symbol::Flag::Subroutine);
   auto *symbol{FindSymbol(name)};
   if (symbol == nullptr) {
-    Attrs attrs;
     if (context().intrinsics().IsIntrinsic(name.source.ToString())) {
-      attrs.set(Attr::INTRINSIC);
+      symbol =
+          &MakeSymbol(InclusiveScope(), name.source, Attrs{Attr::INTRINSIC});
+    } else {
+      symbol = &MakeSymbol(context().globalScope(), name.source, Attrs{});
     }
-    symbol = &MakeSymbol(context().globalScope(), name.source, attrs);
     Resolve(name, *symbol);
     if (symbol->has<ModuleDetails>()) {
       SayWithDecl(name, *symbol,
@@ -5158,10 +5160,12 @@ void ResolveNamesVisitor::FinishSpecificationParts(const ProgramTree &node) {
     return;  // error occurred creating scope
   }
   SetScope(*node.scope());
-  for (const auto &pair : currScope()) {
-    const Symbol &symbol{*pair.second};
+  for (auto &pair : currScope()) {
+    Symbol &symbol{*pair.second};
     if (const auto *details{symbol.detailsIf<GenericDetails>()}) {
       CheckSpecificsAreDistinguishable(symbol, details->specificProcs());
+    } else if (symbol.has<ProcEntityDetails>()) {
+      CheckExplicitInterface(symbol);
     }
   }
   for (Scope &childScope : currScope().children()) {
@@ -5193,22 +5197,21 @@ void ResolveNamesVisitor::FinishDerivedType(Scope &scope) {
         common::visitors{
             [&](ProcEntityDetails &x) {
               SetPassArg(comp, x.interface().symbol(), x);
+              CheckExplicitInterface(comp);
             },
-            [&](ProcBindingDetails &x) { SetPassArg(comp, &x.symbol(), x); },
-            [](auto &x) {},
+            [&](ProcBindingDetails &x) {
+              SetPassArg(comp, &x.symbol(), x);
+              CheckExplicitInterface(comp);
+            },
+            [](auto &) {},
         },
         comp.details());
   }
   for (auto &pair : scope) {
     Symbol &comp{*pair.second};
-    std::visit(
-        common::visitors{
-            [&](GenericBindingDetails &x) {
-              CheckSpecificsAreDistinguishable(comp, x.specificProcs());
-            },
-            [](auto &x) {},
-        },
-        comp.details());
+    if (const auto *details{comp.detailsIf<GenericBindingDetails>()}) {
+      CheckSpecificsAreDistinguishable(comp, details->specificProcs());
+    }
   }
 }
 
