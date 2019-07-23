@@ -22,7 +22,8 @@
 //   1. move structured DoConstruct and OpenMPEndloopdirective into
 //      OpenMPLoopConstruct. Compilation will not proceed in case of errors
 //      after this pass.
-//   2. TBD
+//   2. TODO: Start and End directive pair matching
+//   3. TBD
 namespace Fortran::parser {
 
 class CanonicalizationOfOmp {
@@ -32,89 +33,103 @@ public:
   CanonicalizationOfOmp(Messages &messages) : messages_{messages} {}
 
   void Post(Block &block) {
-    auto nextIt{block.end()};
-    auto expectedEndDirectiveIt{block.end()};
-    bool loopMatched{false};
     OpenMPLoopConstruct *matchedLoopConstruct{nullptr};
 
-    for (auto it{block.begin()}, end{block.end()}; it != end; ++it) {
-      // Original:
-      //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
-      //     OmpLoopDirective
-      //     OmpClauseList
-      //   ExecutableConstruct -> DoConstruct
-      //   ExecutableConstruct -> OpenMPEndLoopDirective (if available)
-      //
-      // After rewriting:
-      //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
-      //     OmpLoopDirective
-      //     OmpClauseList
-      //     DoConstruct
-      //     OpenMPEndLoopDirective (if available)
+    for (auto &it : block) {
       if (auto *exec{std::get_if<ExecutableConstruct>(&it->u)}) {
-        // OpenMPLoopConstruct
         if (auto *ompCons{
                 std::get_if<common::Indirection<OpenMPConstruct>>(&exec->u)}) {
+          // OpenMPLoopConstruct
           if (auto *ompLoop{
                   std::get_if<OpenMPLoopConstruct>(&ompCons->value().u)}) {
-            loopMatched = false;
-            auto &dir{std::get<OmpLoopDirective>(ompLoop->t)};
-            nextIt = it;
-            if (++nextIt != end) {
-              if (auto *execNext{
-                      std::get_if<ExecutableConstruct>(&nextIt->u)}) {
-                if (auto *doCons{std::get_if<common::Indirection<DoConstruct>>(
-                        &execNext->u)}) {
-                  loopMatched = true;
-                  matchedLoopConstruct = ompLoop;
-                  // LoopControl check
-                  const auto &loopControl{doCons->value().GetLoopControl()};
-                  if (!loopControl.has_value()) {
-                    messages_.Say(dir.source,
-                        "DO loop after the %s directive "
-                        "must have loop control"_err_en_US,
-                        parser::ToUpperCaseLetters(dir.source.ToString()));
-                  }
-
-                  // move DoConstruct
-                  std::get<std::optional<DoConstruct>>(ompLoop->t) =
-                      std::move(doCons->value());
-                  nextIt = block.erase(nextIt);
-                  expectedEndDirectiveIt = nextIt;
-                }
-              }
-            }
-            if (!loopMatched) {
-              messages_.Say(dir.source,
-                  "DO loop is expected after the %s directive"_err_en_US,
-                  parser::ToUpperCaseLetters(dir.source.ToString()));
+            if (RewriteOpenMPLoopConstruct(ompLoop, block, it)) {
+              matchedLoopConstruct = ompLoop;
             }
           }
-        }
-
-        // OpenMPEndloopdirective (optional)
-        if (auto *endDir{
-                std::get_if<common::Indirection<OpenMPEndLoopDirective>>(
-                    &exec->u)}) {
-          if (loopMatched && it == expectedEndDirectiveIt) {
-            std::get<std::optional<OpenMPEndLoopDirective>>(
-                matchedLoopConstruct->t) = std::move(endDir->value());
-            it = block.erase(it);
-            --it;
-          } else {
-            messages_.Say(endDir->value().source,
-                "The %s must follow the DO loop associated with the "
-                "loop construct"_err_en_US,
-                parser::ToUpperCaseLetters(endDir->value().source.ToString()));
+        } else if (auto *endDir{
+                       std::get_if<common::Indirection<OpenMPEndLoopDirective>>(
+                           &exec->u)}) {
+          // Unmatched OpenMPEndloopdirective
+          auto &msg{messages_.Say(endDir->value().source,
+              "The %s directive must follow the DO loop associated with the "
+              "loop construct"_err_en_US,
+              parser::ToUpperCaseLetters(endDir->value().source.ToString()))};
+          if (matchedLoopConstruct) {
+            auto &dir{std::get<OmpLoopDirective>(matchedLoopConstruct->t)};
+            msg.Attach(dir.source, "Potential matching directive:"_en_US,
+                parser::ToUpperCaseLetters(dir.source.ToString()));
           }
-          loopMatched = false;
-          expectedEndDirectiveIt = end;
+          matchedLoopConstruct = nullptr;
         }
       }
     }  // Block list
   }
 
 private:
+  bool RewriteOpenMPLoopConstruct(
+      OpenMPLoopConstruct *x, Block &block, Block::iterator it) {
+    // Check the sequence of DoConstruct and OpenMPEndLoopDirective
+    // in the same iteration, return true if DoConstruct is moved
+    //
+    // Original:
+    //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
+    //     OmpLoopDirective
+    //     OmpClauseList
+    //   ExecutableConstruct -> DoConstruct
+    //   ExecutableConstruct -> OpenMPEndLoopDirective (if available)
+    //
+    // After rewriting:
+    //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
+    //     OmpLoopDirective
+    //     OmpClauseList
+    //     DoConstruct
+    //     OpenMPEndLoopDirective (if available)
+    Block::iterator nextIt;
+    OpenMPLoopConstruct *matchedLoopConstruct{nullptr};
+
+    auto &dir{std::get<OmpLoopDirective>(x->t)};
+    nextIt = it;
+    if (++nextIt != block.end()) {
+      if (auto *execNext{std::get_if<ExecutableConstruct>(&nextIt->u)}) {
+        if (auto *doCons{
+                std::get_if<common::Indirection<DoConstruct>>(&execNext->u)}) {
+          const auto &loopControl{doCons->value().GetLoopControl()};
+          if (loopControl.has_value()) {
+            matchedLoopConstruct = x;
+            // move DoConstruct
+            std::get<std::optional<DoConstruct>>(matchedLoopConstruct->t) =
+                std::move(doCons->value());
+            nextIt = block.erase(nextIt);
+
+            // try to match OpenMPEndLoopDirective
+            if (auto *execEnd{std::get_if<ExecutableConstruct>(&nextIt->u)}) {
+              if (auto *endDir{
+                      std::get_if<common::Indirection<OpenMPEndLoopDirective>>(
+                          &execEnd->u)}) {
+                std::get<std::optional<OpenMPEndLoopDirective>>(
+                    matchedLoopConstruct->t) = std::move(endDir->value());
+                nextIt = block.erase(nextIt);
+              }
+            }
+            return true;
+          } else {
+            messages_.Say(dir.source,
+                "DO loop after the %s directive "
+                "must have loop control"_err_en_US,
+                parser::ToUpperCaseLetters(dir.source.ToString()));
+            return false;
+          }
+        }
+      }
+    }
+    if (!matchedLoopConstruct) {
+      messages_.Say(dir.source,
+          "DO loop is expected after the %s directive"_err_en_US,
+          parser::ToUpperCaseLetters(dir.source.ToString()));
+    }
+    return false;
+  }
+
   Messages &messages_;
 };
 
@@ -123,5 +138,4 @@ bool CanonicalizeOmp(Messages &messages, Program &program) {
   Walk(program, omp);
   return !messages.AnyFatalError();
 }
-
 }

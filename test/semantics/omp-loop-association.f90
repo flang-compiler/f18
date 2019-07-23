@@ -63,7 +63,7 @@
      do 100 j=1, N
         a = 3.14
 100     continue
-    !ERROR: The ENDDO must follow the DO loop associated with the loop construct
+    !ERROR: The ENDDO directive must follow the DO loop associated with the loop construct
     !$omp enddo
 
   !$omp parallel do copyin(a)
@@ -80,7 +80,7 @@
   do i = 1, N
   enddo
   !$omp end parallel do
-  !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
 
   !$omp parallel
@@ -96,7 +96,7 @@
   !$omp end parallel
 
   a = 0.0
-  !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
   !$omp parallel do private(c)
   do i = 1, N
@@ -105,11 +105,11 @@
         !$omp parallel do shared(b)
         a = 3.14
      enddo
-     !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+     !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
      !$omp end parallel do
   enddo
   a = 1.414
-  !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
 
   do i = 1, N
@@ -118,7 +118,7 @@
         a = 3.14
      enddo
   enddo
-  !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
 
   !ERROR: DO loop is expected after the PARALLEL DO directive
@@ -127,7 +127,7 @@
   do i=1, N
      a = 3.14
   enddo
-  !ERROR: The END PARALLEL DO must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
 
   !$omp parallel do simd
@@ -135,6 +135,6 @@
      a = 3.14
   enddo
   !$omp end parallel do simd
-  !ERROR: The END PARALLEL DO SIMD must follow the DO loop associated with the loop construct
+  !ERROR: The END PARALLEL DO SIMD directive must follow the DO loop associated with the loop construct
   !$omp end parallel do simd
 end
