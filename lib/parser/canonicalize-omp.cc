@@ -33,43 +33,33 @@ public:
   CanonicalizationOfOmp(Messages &messages) : messages_{messages} {}
 
   void Post(Block &block) {
-    OpenMPLoopConstruct *matchedLoopConstruct{nullptr};
-
-    for (auto &it : block) {
+    for (auto it{block.begin()}; it != block.end(); ++it) {
       if (auto *exec{std::get_if<ExecutableConstruct>(&it->u)}) {
         if (auto *ompCons{
                 std::get_if<common::Indirection<OpenMPConstruct>>(&exec->u)}) {
           // OpenMPLoopConstruct
           if (auto *ompLoop{
                   std::get_if<OpenMPLoopConstruct>(&ompCons->value().u)}) {
-            if (RewriteOpenMPLoopConstruct(ompLoop, block, it)) {
-              matchedLoopConstruct = ompLoop;
-            }
+            RewriteOpenMPLoopConstruct(ompLoop, block, it);
           }
         } else if (auto *endDir{
                        std::get_if<common::Indirection<OpenMPEndLoopDirective>>(
                            &exec->u)}) {
           // Unmatched OpenMPEndloopdirective
-          auto &msg{messages_.Say(endDir->value().source,
+          messages_.Say(endDir->value().source,
               "The %s directive must follow the DO loop associated with the "
               "loop construct"_err_en_US,
-              parser::ToUpperCaseLetters(endDir->value().source.ToString()))};
-          if (matchedLoopConstruct) {
-            auto &dir{std::get<OmpLoopDirective>(matchedLoopConstruct->t)};
-            msg.Attach(dir.source, "Potential matching directive:"_en_US,
-                parser::ToUpperCaseLetters(dir.source.ToString()));
-          }
-          matchedLoopConstruct = nullptr;
+              parser::ToUpperCaseLetters(endDir->value().source.ToString()));
         }
       }
     }  // Block list
   }
 
 private:
-  bool RewriteOpenMPLoopConstruct(
+  void RewriteOpenMPLoopConstruct(
       OpenMPLoopConstruct *x, Block &block, Block::iterator it) {
     // Check the sequence of DoConstruct and OpenMPEndLoopDirective
-    // in the same iteration, return true if DoConstruct is moved
+    // in the same iteration
     //
     // Original:
     //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
@@ -111,13 +101,12 @@ private:
                 nextIt = block.erase(nextIt);
               }
             }
-            return true;
           } else {
             messages_.Say(dir.source,
                 "DO loop after the %s directive "
                 "must have loop control"_err_en_US,
                 parser::ToUpperCaseLetters(dir.source.ToString()));
-            return false;
+            return;
           }
         }
       }
@@ -127,7 +116,6 @@ private:
           "DO loop is expected after the %s directive"_err_en_US,
           parser::ToUpperCaseLetters(dir.source.ToString()));
     }
-    return false;
   }
 
   Messages &messages_;
