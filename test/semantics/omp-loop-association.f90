@@ -101,7 +101,7 @@
   !$omp parallel do private(c)
   do i = 1, N
      do j = 1, N
-        !ERROR: DO loop is expected after the PARALLEL DO directive
+        !ERROR: A DO loop must follow the PARALLEL DO directive
         !$omp parallel do shared(b)
         a = 3.14
      enddo
@@ -121,7 +121,7 @@
   !ERROR: The END PARALLEL DO directive must follow the DO loop associated with the loop construct
   !$omp end parallel do
 
-  !ERROR: DO loop is expected after the PARALLEL DO directive
+  !ERROR: A DO loop must follow the PARALLEL DO directive
   !$omp parallel do private(c)
 5 FORMAT (1PE12.4, I10)
   do i=1, N
