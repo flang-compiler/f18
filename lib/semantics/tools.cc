@@ -69,10 +69,10 @@ const Scope *FindProgramUnitContaining(const Symbol &symbol) {
   return FindProgramUnitContaining(symbol.owner());
 }
 
-const Scope *FindPureFunctionContaining(const Scope *scope) {
+const Scope *FindPureProcedureContaining(const Scope *scope) {
   scope = FindProgramUnitContaining(*scope);
   while (scope != nullptr) {
-    if (IsPureFunction(*scope)) {
+    if (IsPureProcedure(*scope)) {
       return scope;
     }
     scope = FindProgramUnitContaining(scope->parent());
@@ -130,8 +130,11 @@ bool IsPointerDummy(const Symbol &symbol) {
 
 // variable-name
 bool IsVariableName(const Symbol &symbol) {
-  const Symbol &ultimate{symbol.GetUltimate()};
-  return ultimate.has<ObjectEntityDetails>() && !IsParameter(ultimate);
+  if (const Symbol * root{GetAssociationRoot(symbol)}) {
+    return root->has<ObjectEntityDetails>() && !IsParameter(*root);
+  } else {
+    return false;
+  }
 }
 
 // proc-name
@@ -157,13 +160,13 @@ bool IsFunction(const Symbol &symbol) {
       symbol.details());
 }
 
-bool IsPureFunction(const Symbol &symbol) {
-  return symbol.attrs().test(Attr::PURE) && IsFunction(symbol);
+bool IsPureProcedure(const Symbol &symbol) {
+  return symbol.attrs().test(Attr::PURE) && IsProcedure(symbol);
 }
 
-bool IsPureFunction(const Scope &scope) {
+bool IsPureProcedure(const Scope &scope) {
   if (const Symbol * symbol{scope.GetSymbol()}) {
-    return IsPureFunction(*symbol);
+    return IsPureProcedure(*symbol);
   } else {
     return false;
   }
@@ -256,8 +259,8 @@ const Symbol *FindExternallyVisibleObject(
   // TODO: Storage association with any object for which this predicate holds,
   // once EQUIVALENCE is supported.
   if (IsUseAssociated(object, scope) || IsHostAssociated(object, scope) ||
-      (IsPureFunction(scope) && IsPointerDummy(object)) ||
-      (object.attrs().test(Attr::INTENT_IN) && IsDummy(object))) {
+      (IsPureProcedure(scope) && IsPointerDummy(object)) ||
+      (IsIntentIn(object) && IsDummy(object))) {
     return &object;
   } else if (const Symbol * block{FindCommonBlockContaining(object)}) {
     return block;
@@ -326,6 +329,29 @@ const Symbol *FindFunctionResult(const Symbol &symbol) {
     }
   }
   return nullptr;
+}
+
+static const Symbol *GetAssociatedVariable(const AssocEntityDetails &details) {
+  if (const MaybeExpr & expr{details.expr()}) {
+    if (evaluate::IsVariable(*expr)) {
+      if (const Symbol * varSymbol{evaluate::GetLastSymbol(*expr)}) {
+        return GetAssociationRoot(*varSymbol);
+      }
+    }
+  }
+  return nullptr;
+}
+
+// Return the Symbol of the variable of a construct association, if it exists
+// Return nullptr if the name is associated with an expression
+const Symbol *GetAssociationRoot(const Symbol &symbol) {
+  const Symbol &ultimate{symbol.GetUltimate()};
+  if (const auto *details{ultimate.detailsIf<AssocEntityDetails>()}) {
+    // We have a construct association
+    return GetAssociatedVariable(*details);
+  } else {
+    return &ultimate;
+  }
 }
 
 bool IsExtensibleType(const DerivedTypeSpec *derived) {
@@ -399,6 +425,20 @@ const Symbol *HasEventOrLockPotentialComponent(
   return nullptr;
 }
 
+bool IsOrContainsEventOrLockComponent(const Symbol &symbol) {
+  if (const Symbol * root{GetAssociationRoot(symbol)}) {
+    if (const auto *details{root->detailsIf<ObjectEntityDetails>()}) {
+      if (const DeclTypeSpec * type{details->type()}) {
+        if (const DerivedTypeSpec * derived{type->AsDerived()}) {
+          return IsEventTypeOrLockType(derived) ||
+              HasEventOrLockPotentialComponent(*derived);
+        }
+      }
+    }
+  }
+  return false;
+}
+
 const Symbol *FindUltimateComponent(const DerivedTypeSpec &derivedTypeSpec,
     std::function<bool(const Symbol &)> predicate) {
   const auto *scope{derivedTypeSpec.typeSymbol().scope()};
@@ -441,6 +481,45 @@ bool IsCoarray(const Symbol &symbol) { return symbol.Corank() > 0; }
 bool IsAssumedSizeArray(const Symbol &symbol) {
   const auto *details{symbol.detailsIf<ObjectEntityDetails>()};
   return details && details->IsAssumedSize();
+}
+
+bool IsExternalInPureContext(const Symbol &symbol, const Scope &scope) {
+  if (const auto *pureProc{semantics::FindPureProcedureContaining(&scope)}) {
+    if (const Symbol * root{GetAssociationRoot(symbol)}) {
+      if (FindExternallyVisibleObject(*root, *pureProc)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool InProtectedContext(const Symbol &symbol, const Scope &currentScope) {
+  return IsProtected(symbol) && !IsHostAssociated(symbol, currentScope);
+}
+
+// C1101 and C1158
+// TODO Need to check for the case of a variable that has a vector subscript
+// that is construct associated, also need to check for a coindexed object
+std::optional<parser::MessageFixedText> WhyNotModifiable(
+    const Symbol &symbol, const Scope &scope) {
+  const Symbol *root{GetAssociationRoot(symbol)};
+  if (!root) {
+    return "'%s' is construct associated with an expression"_en_US;
+  } else if (InProtectedContext(*root, scope)) {
+    return "'%s' is protected in this scope"_en_US;
+  } else if (IsExternalInPureContext(*root, scope)) {
+    return "'%s' is externally visible and referenced in a PURE"
+           " procedure"_en_US;
+  } else if (IsOrContainsEventOrLockComponent(*root)) {
+    return "'%s' is an entity with either an EVENT_TYPE or LOCK_TYPE"_en_US;
+  } else if (IsIntentIn(*root)) {
+    return "'%s' is an INTENT(IN) dummy argument"_en_US;
+  } else if (!IsVariableName(*root)) {
+    return "'%s' is not a variable"_en_US;
+  } else {
+    return std::nullopt;
+  }
 }
 
 static const DeclTypeSpec &InstantiateIntrinsicType(Scope &scope,
