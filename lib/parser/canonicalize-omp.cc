@@ -34,23 +34,17 @@ public:
 
   void Post(Block &block) {
     for (auto it{block.begin()}; it != block.end(); ++it) {
-      if (auto *exec{std::get_if<ExecutableConstruct>(&it->u)}) {
-        if (auto *ompCons{
-                std::get_if<common::Indirection<OpenMPConstruct>>(&exec->u)}) {
-          // OpenMPLoopConstruct
-          if (auto *ompLoop{
-                  std::get_if<OpenMPLoopConstruct>(&ompCons->value().u)}) {
-            RewriteOpenMPLoopConstruct(ompLoop, block, it);
-          }
-        } else if (auto *endDir{
-                       std::get_if<common::Indirection<OpenMPEndLoopDirective>>(
-                           &exec->u)}) {
-          // Unmatched OpenMPEndloopdirective
-          messages_.Say(endDir->value().source,
-              "The %s directive must follow the DO loop associated with the "
-              "loop construct"_err_en_US,
-              parser::ToUpperCaseLetters(endDir->value().source.ToString()));
+      if (auto *ompCons{GetConstructIf<OpenMPConstruct>(*it)}) {
+        // OpenMPLoopConstruct
+        if (auto *ompLoop{std::get_if<OpenMPLoopConstruct>(&ompCons->u)}) {
+          RewriteOpenMPLoopConstruct(ompLoop, block, it);
         }
+      } else if (auto *endDir{GetConstructIf<OpenMPEndLoopDirective>(*it)}) {
+        // Unmatched OpenMPEndloopdirective
+        messages_.Say(endDir->source,
+            "The %s directive must follow the DO loop associated with the "
+            "loop construct"_err_en_US,
+            parser::ToUpperCaseLetters(endDir->source.ToString()));
       }
     }  // Block list
   }
@@ -89,8 +83,7 @@ private:
     nextIt = it;
     if (++nextIt != block.end()) {
       if (auto *doCons{GetConstructIf<DoConstruct>(*nextIt)}) {
-        const auto &loopControl{doCons->GetLoopControl()};
-        if (loopControl.has_value()) {
+        if (doCons->GetLoopControl().has_value()) {
           // move DoConstruct
           std::get<std::optional<DoConstruct>>(x->t) = std::move(*doCons);
           nextIt = block.erase(nextIt);
@@ -103,8 +96,7 @@ private:
           }
         } else {
           messages_.Say(dir.source,
-              "DO loop after the %s directive "
-              "must have loop control"_err_en_US,
+              "DO loop after the %s directive must have loop control"_err_en_US,
               parser::ToUpperCaseLetters(dir.source.ToString()));
         }
         return;  // found do-loop
