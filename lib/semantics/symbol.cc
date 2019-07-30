@@ -417,6 +417,9 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
           [](const HostAssocDetails &) {},
           [&](const GenericDetails &x) {
             os << ' ' << EnumToString(x.kind());
+            DumpBool(os, "(specific)", x.specific() != nullptr);
+            DumpBool(os, "(derivedType)", x.derivedType() != nullptr);
+            os << " procs:";
             DumpSymbolVector(os, x.specificProcs());
           },
           [&](const ProcBindingDetails &x) {
