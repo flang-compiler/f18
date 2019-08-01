@@ -157,9 +157,11 @@ GenericDetails::GenericDetails(const SymbolVector &specificProcs)
 
 void GenericDetails::set_specific(Symbol &specific) {
   CHECK(!specific_);
+  CHECK(!derivedType_);
   specific_ = &specific;
 }
 void GenericDetails::set_derivedType(Symbol &derivedType) {
+  CHECK(!specific_);
   CHECK(!derivedType_);
   derivedType_ = &derivedType;
 }
@@ -180,8 +182,16 @@ Symbol *GenericDetails::CheckSpecific() {
   }
 }
 
-void GenericDetails::AddSpecificProcsFrom(const Symbol &generic) {
-  const auto &procs{generic.get<GenericDetails>().specificProcs()};
+void GenericDetails::CopyFrom(const GenericDetails &from) {
+  if (from.specific_) {
+    CHECK(!specific_);
+    specific_ = from.specific_;
+  }
+  if (from.derivedType_) {
+    CHECK(!derivedType_);
+    derivedType_ = from.derivedType_;
+  }
+  auto &procs{from.specificProcs_};
   specificProcs_.insert(specificProcs_.end(), procs.begin(), procs.end());
 }
 
@@ -417,6 +427,9 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
           [](const HostAssocDetails &) {},
           [&](const GenericDetails &x) {
             os << ' ' << EnumToString(x.kind());
+            DumpBool(os, "(specific)", x.specific() != nullptr);
+            DumpBool(os, "(derivedType)", x.derivedType() != nullptr);
+            os << " procs:";
             DumpSymbolVector(os, x.specificProcs());
           },
           [&](const ProcBindingDetails &x) {
