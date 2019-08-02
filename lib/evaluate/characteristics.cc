@@ -63,9 +63,15 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
           [&](const semantics::HostAssocDetails &assoc) {
             return Characterize(assoc.symbol());
           },
-          [](const auto &) -> std::optional<TypeAndShape> {
-            return std::nullopt;
+          [](const semantics::AssocEntityDetails &assoc) {
+            if (const semantics::Symbol *
+                nested{UnwrapWholeSymbolDataRef(assoc.expr())}) {
+              return Characterize(*nested);
+            } else {
+              return std::optional<TypeAndShape>{};
+            }
           },
+          [](const auto &) { return std::optional<TypeAndShape>{}; },
       },
       symbol.details());
 }
@@ -432,7 +438,7 @@ std::optional<Procedure> Procedure::Characterize(
           [&](const semantics::HostAssocDetails &assoc) {
             return Characterize(assoc.symbol(), intrinsics);
           },
-          [](const auto &) -> std::optional<Procedure> { return std::nullopt; },
+          [](const auto &) { return std::optional<Procedure>{}; },
       },
       symbol.details());
 }

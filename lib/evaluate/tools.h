@@ -40,7 +40,7 @@ std::optional<Variable<A>> AsVariable(const Expr<A> &expr) {
   return std::visit(
       [](const auto &x) -> std::optional<Variable<A>> {
         if constexpr (common::HasMember<std::decay_t<decltype(x)>, Variant>) {
-          return std::make_optional<Variable<A>>(x);
+          return Variable<A>{x};
         }
         return std::nullopt;
       },
@@ -209,7 +209,7 @@ template<typename A, typename B> A *UnwrapExpr(std::optional<B> &x) {
 // If an expression simply wraps a DataRef, extract and return it.
 template<typename A>
 common::IfNoLvalue<std::optional<DataRef>, A> ExtractDataRef(const A &) {
-  return std::nullopt;  // default base casec
+  return std::nullopt;  // default base case
 }
 template<typename T>
 std::optional<DataRef> ExtractDataRef(const Designator<T> &d) {
@@ -217,8 +217,9 @@ std::optional<DataRef> ExtractDataRef(const Designator<T> &d) {
       [](const auto &x) -> std::optional<DataRef> {
         if constexpr (common::HasMember<decltype(x), decltype(DataRef::u)>) {
           return DataRef{x};
+        } else {
+          return std::nullopt;
         }
-        return std::nullopt;
       },
       d.u);
 }
@@ -230,6 +231,24 @@ template<typename A>
 std::optional<DataRef> ExtractDataRef(const std::optional<A> &x) {
   if (x.has_value()) {
     return ExtractDataRef(*x);
+  } else {
+    return std::nullopt;
+  }
+}
+
+template<typename A> std::optional<NamedEntity> ExtractNamedEntity(const A &x) {
+  if (auto dataRef{ExtractDataRef(x)}) {
+    return std::visit(
+        common::visitors{
+            [](const Symbol *symbol) -> std::optional<NamedEntity> {
+              return NamedEntity{*symbol};
+            },
+            [](Component &&component) -> std::optional<NamedEntity> {
+              return NamedEntity{std::move(component)};
+            },
+            [](auto &&) { return std::optional<NamedEntity>{}; },
+        },
+        std::move(dataRef->u));
   } else {
     return std::nullopt;
   }
@@ -725,6 +744,9 @@ template<typename A> const semantics::Symbol *GetLastTarget(const A &x) {
     return nullptr;
   }
 }
+
+// Resolve any whole ASSOCIATE(B=>A) associations
+const semantics::Symbol &ResolveAssociations(const semantics::Symbol &);
 
 }
 #endif  // FORTRAN_EVALUATE_TOOLS_H_
