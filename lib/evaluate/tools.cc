@@ -489,17 +489,17 @@ std::optional<Expr<LogicalResult>> Relate(parser::ContextualMessages &messages,
                   } else {
                     messages.Say(
                         "CHARACTER operands do not have same KIND"_err_en_US);
-                    return std::optional<Expr<LogicalResult>>{};
+                    return std::nullopt;
                   }
                 },
                 std::move(cx.u), std::move(cy.u));
           },
           // Default case
-          [&](auto &&, auto &&) -> std::optional<Expr<LogicalResult>> {
+          [&](auto &&, auto &&) {
             // TODO: defined operator
             messages.Say(
                 "relational operands do not have comparable types"_err_en_US);
-            return std::nullopt;
+            return std::optional<Expr<LogicalResult>>{};
           },
       },
       std::move(x.u), std::move(y.u));
@@ -622,7 +622,8 @@ std::optional<Expr<SomeType>> ConvertToType(
   }
 }
 
-bool IsAssumedRank(const semantics::Symbol &symbol) {
+bool IsAssumedRank(const semantics::Symbol &symbol0) {
+  const semantics::Symbol &symbol{ResolveAssociations(symbol0)};
   if (const auto *details{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
     return details->IsAssumedRank();
   } else {
@@ -657,6 +658,15 @@ void GetLastTargetVisitor::Pre(const Component &x) {
   } else if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
     Return(nullptr);
   }
+}
+
+const semantics::Symbol &ResolveAssociations(const semantics::Symbol &symbol) {
+  if (const auto *details{symbol.detailsIf<semantics::AssocEntityDetails>()}) {
+    if (const Symbol * nested{UnwrapWholeSymbolDataRef(details->expr())}) {
+      return ResolveAssociations(*nested);
+    }
+  }
+  return symbol;
 }
 
 }
