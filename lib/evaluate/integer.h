@@ -347,8 +347,8 @@ public:
     return result;
   }
 
+  static constexpr int DIGITS{bits - 1};  // don't count the sign bit
   static constexpr Integer HUGE() { return MASKR(bits - 1); }
-
   static constexpr int RANGE{// in the sense of SELECTED_INT_KIND
       // This magic value is LOG10(2.)*1E12.
       static_cast<int>(((bits - 1) * 301029995664) / 1000000000000)};
@@ -774,15 +774,18 @@ public:
     }
   }
 
-  constexpr ValueWithOverflow SIGN(const Integer &sign) const {
-    bool goNegative{sign.IsNegative()};
-    if (goNegative == IsNegative()) {
+  constexpr ValueWithOverflow SIGN(bool toNegative) const {
+    if (toNegative == IsNegative()) {
       return {*this, false};
-    } else if (goNegative) {
+    } else if (toNegative) {
       return Negate();
     } else {
       return ABS();
     }
+  }
+
+  constexpr ValueWithOverflow SIGN(const Integer &sign) const {
+    return SIGN(sign.IsNegative());
   }
 
   constexpr Product MultiplyUnsigned(const Integer &y) const {
