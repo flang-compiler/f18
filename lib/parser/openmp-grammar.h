@@ -311,7 +311,8 @@ TYPE_PARSER(sourced(construct<OpenMPFlushConstruct>(
 // Simple Standalone Directives
 TYPE_PARSER(sourced(construct<OmpSimpleStandaloneDirective>(first(
     "BARRIER" >> pure(OmpSimpleStandaloneDirective::Directive::Barrier),
-    "ORDERED" >> pure(OmpSimpleStandaloneDirective::Directive::Barrier),
+    "ORDERED" >> lookAhead("DEPEND"_tok) >>
+        pure(OmpSimpleStandaloneDirective::Directive::Ordered),
     "TARGET ENTER DATA" >>
         pure(OmpSimpleStandaloneDirective::Directive::TargetEnterData),
     "TARGET EXIT DATA" >>
@@ -337,7 +338,8 @@ TYPE_PARSER(
 // Directives enclosing structured-block
 TYPE_PARSER(sourced(construct<OmpBlockDirective>(
     first("MASTER" >> pure(OmpBlockDirective::Directive::Master),
-        "ORDERED" >> pure(OmpBlockDirective::Directive::Ordered),
+        "ORDERED" >> !lookAhead("DEPEND"_tok) >>
+            pure(OmpBlockDirective::Directive::Ordered),
         "PARALLEL WORKSHARE" >>
             pure(OmpBlockDirective::Directive::ParallelWorkshare),
         "PARALLEL" >> pure(OmpBlockDirective::Directive::Parallel),
