@@ -311,8 +311,7 @@ TYPE_PARSER(sourced(construct<OpenMPFlushConstruct>(
 // Simple Standalone Directives
 TYPE_PARSER(sourced(construct<OmpSimpleStandaloneDirective>(first(
     "BARRIER" >> pure(OmpSimpleStandaloneDirective::Directive::Barrier),
-    "ORDERED" >> lookAhead("DEPEND"_tok) >>
-        pure(OmpSimpleStandaloneDirective::Directive::Ordered),
+    "ORDERED" >> pure(OmpSimpleStandaloneDirective::Directive::Ordered),
     "TARGET ENTER DATA" >>
         pure(OmpSimpleStandaloneDirective::Directive::TargetEnterData),
     "TARGET EXIT DATA" >>
@@ -338,8 +337,7 @@ TYPE_PARSER(
 // Directives enclosing structured-block
 TYPE_PARSER(sourced(construct<OmpBlockDirective>(
     first("MASTER" >> pure(OmpBlockDirective::Directive::Master),
-        "ORDERED" >> !lookAhead("DEPEND"_tok) >>
-            pure(OmpBlockDirective::Directive::Ordered),
+        "ORDERED" >> pure(OmpBlockDirective::Directive::Ordered),
         "PARALLEL WORKSHARE" >>
             pure(OmpBlockDirective::Directive::ParallelWorkshare),
         "PARALLEL" >> pure(OmpBlockDirective::Directive::Parallel),
@@ -515,14 +513,16 @@ TYPE_PARSER(construct<OmpSection>(verbatim("SECTION"_tok) / endOmpLine))
 
 TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
     startOmpLine >>
-        first(construct<OpenMPConstruct>(Parser<OpenMPStandaloneConstruct>{}),
-            construct<OpenMPConstruct>(Parser<OpenMPSingleConstruct>{}),
+        first(construct<OpenMPConstruct>(Parser<OpenMPSingleConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPSectionsConstruct>{}),
             construct<OpenMPConstruct>(
                 Parser<OpenMPParallelSectionsConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPWorkshareConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPLoopConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPBlockConstruct>{}),
+            // OpenMPBlockConstruct is attempted before
+            // OpenMPStandaloneConstruct to resolve !$OMP ORDERED
+            construct<OpenMPConstruct>(Parser<OpenMPStandaloneConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPAtomicConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPCriticalConstruct>{}),
             construct<OpenMPConstruct>(Parser<OmpSection>{})))
