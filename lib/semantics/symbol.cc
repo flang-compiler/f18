@@ -20,10 +20,6 @@
 
 namespace Fortran::semantics {
 
-std::ostream &operator<<(std::ostream &os, const parser::CharBlock &name) {
-  return os << name.ToString();
-}
-
 template<typename T>
 static void DumpOptional(std::ostream &os, const char *label, const T &x) {
   if (x) {
@@ -57,8 +53,7 @@ static void DumpType(std::ostream &os, const DeclTypeSpec *type) {
 }
 
 template<typename T>
-static void DumpList(
-    std::ostream &os, const char *label, const std::list<T> &list) {
+static void DumpList(std::ostream &os, const char *label, const T &list) {
   if (!list.empty()) {
     os << ' ' << label << ':';
     char sep{' '};
