@@ -132,6 +132,7 @@ public:
 private:
   struct OmpContext {
     parser::CharBlock directiveSource{nullptr};
+    parser::CharBlock savedDirectiveSource{nullptr};
     parser::CharBlock clauseSource{nullptr};
     OmpDirective directive;
     OmpClauseSet allowedClauses;
@@ -147,6 +148,13 @@ private:
   }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
     GetContext().directiveSource = directive;
+  }
+  void SaveContextDirectiveSource() {
+    // for temporarily processing END directive
+    GetContext().savedDirectiveSource = GetContext().directiveSource;
+  }
+  void RecoverContextDirectiveSource() {
+    GetContext().directiveSource = GetContext().savedDirectiveSource;
   }
   void SetContextClause(const parser::OmpClause &clause) {
     GetContext().clauseSource = clause.source;

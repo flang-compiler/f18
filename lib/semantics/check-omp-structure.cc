@@ -208,15 +208,14 @@ void OmpStructureChecker::Enter(const parser::OmpBeginBlockDirective &x) {
   } break;
   // 2.7.3 single-clause -> private-clause |
   //                        firstprivate-clause
-  case parser::OmpBlockDirective::Directive::Single: {
+  case parser::OmpBlockDirective::Directive::Single:
     SetContextDirectiveEnum(OmpDirective::SINGLE);
-    OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE};
-    SetContextAllowed(allowed);
-  } break;
+    SetContextAllowed({OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE});
+    break;
   // 2.7.4 workshare (no clauses are allowed)
-  case parser::OmpBlockDirective::Directive::Workshare: {
+  case parser::OmpBlockDirective::Directive::Workshare:
     SetContextDirectiveEnum(OmpDirective::WORKSHARE);
-  } break;
+    break;
   default:
     // TODO others
     break;
@@ -225,7 +224,8 @@ void OmpStructureChecker::Enter(const parser::OmpBeginBlockDirective &x) {
 
 void OmpStructureChecker::Enter(const parser::OmpEndBlockDirective &x) {
   const auto &dir{std::get<parser::OmpBlockDirective>(x.t)};
-  PushContext(dir.source);  // new context is temporarily pushed
+  SaveContextDirectiveSource();
+  SetContextDirectiveSource(dir.source);
   switch (dir.v) {
   // 2.7.3 end-single-clause -> copyprivate-clause |
   //                            nowait-clause
@@ -237,10 +237,10 @@ void OmpStructureChecker::Enter(const parser::OmpEndBlockDirective &x) {
     SetContextAllowedOnce(allowedOnce);
   } break;
   // 2.7.4 end-workshare -> END WORKSHARE [nowait-clause]
-  case parser::OmpBlockDirective::Directive::Workshare: {
+  case parser::OmpBlockDirective::Directive::Workshare:
     SetContextDirectiveEnum(OmpDirective::END_WORKSHARE);
     SetContextAllowed(OmpClauseSet{OmpClause::NOWAIT});
-  } break;
+    break;
   default:
     // no clauses are allowed
     break;
@@ -248,7 +248,7 @@ void OmpStructureChecker::Enter(const parser::OmpEndBlockDirective &x) {
 }
 
 void OmpStructureChecker::Leave(const parser::OmpEndBlockDirective &) {
-  ompContext_.pop_back();
+  RecoverContextDirectiveSource();
 }
 
 void OmpStructureChecker::Enter(const parser::OmpLoopDirective &x) {
