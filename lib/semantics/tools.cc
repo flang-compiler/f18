@@ -700,7 +700,8 @@ void ProcessParameterExpressions(
       if (paramValue != nullptr) {
         paramValue->SetExplicit(std::move(*expr));
       } else {
-        spec.AddParamValue(symbol->name(), ParamValue{std::move(*expr)});
+        spec.AddParamValue(
+            symbol->name(), ParamValue{std::move(*expr), details.attr()});
       }
     }
   }
