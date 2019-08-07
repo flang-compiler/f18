@@ -203,6 +203,11 @@
   !$omp workshare
   a = 1.0
   !$omp end workshare nowait
+  !ERROR: NUM_THREADS clause is not allowed on the WORKSHARE directive
+  !$omp workshare num_threads(4)
+  a = 1.0
+  !ERROR: COPYPRIVATE clause is not allowed on the END WORKSHARE directive
+  !$omp end workshare nowait copyprivate(a)
   !$omp end parallel
 
 ! 2.8.1 simd-clause -> safelen-clause |
