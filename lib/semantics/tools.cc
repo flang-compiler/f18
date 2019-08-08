@@ -380,49 +380,10 @@ bool IsTeamType(const DerivedTypeSpec *derived) {
   return IsDerivedTypeFromModule(derived, "iso_fortran_env", "team_type");
 }
 
-const Symbol *HasCoarrayUltimateComponent(
-    const DerivedTypeSpec &derivedTypeSpec) {
-  return FindUltimateComponent(derivedTypeSpec, IsCoarray);
-}
-
 const bool IsEventTypeOrLockType(const DerivedTypeSpec *derivedTypeSpec) {
   return IsDerivedTypeFromModule(
              derivedTypeSpec, "iso_fortran_env", "event_type") ||
       IsDerivedTypeFromModule(derivedTypeSpec, "iso_fortran_env", "lock_type");
-}
-
-const Symbol *HasEventOrLockPotentialComponent(
-    const DerivedTypeSpec &derivedTypeSpec) {
-
-  const Symbol &symbol{derivedTypeSpec.typeSymbol()};
-  // TODO is it guaranteed that derived type symbol have a scope and is it the
-  // right scope to look into?
-  CHECK(symbol.scope());
-  for (const Symbol *componentSymbol :
-      symbol.get<DerivedTypeDetails>().OrderComponents(*symbol.scope())) {
-    CHECK(componentSymbol);
-    if (!IsPointer(*componentSymbol)) {
-      if (const DeclTypeSpec * declTypeSpec{componentSymbol->GetType()}) {
-        if (const DerivedTypeSpec *
-            componentDerivedTypeSpec{declTypeSpec->AsDerived()}) {
-          // Avoid infinite loop, that may happen if the component
-          // is an allocatable of the same type as the derived type.
-          // TODO: Is it legal to have longer type loops: i.e type B has a
-          // component of type A that has an allocatable component of type B?
-          if (&symbol != &componentDerivedTypeSpec->typeSymbol()) {
-            if (IsEventTypeOrLockType(componentDerivedTypeSpec)) {
-              return componentSymbol;
-            } else if (const Symbol *
-                subcomponent{HasEventOrLockPotentialComponent(
-                    *componentDerivedTypeSpec)}) {
-              return subcomponent;
-            }
-          }
-        }
-      }
-    }
-  }
-  return nullptr;
 }
 
 bool IsOrContainsEventOrLockComponent(const Symbol &symbol) {
@@ -431,33 +392,12 @@ bool IsOrContainsEventOrLockComponent(const Symbol &symbol) {
       if (const DeclTypeSpec * type{details->type()}) {
         if (const DerivedTypeSpec * derived{type->AsDerived()}) {
           return IsEventTypeOrLockType(derived) ||
-              HasEventOrLockPotentialComponent(*derived);
+              FindEventOrLockPotentialComponent(*derived);
         }
       }
     }
   }
   return false;
-}
-
-const Symbol *FindUltimateComponent(const DerivedTypeSpec &derivedTypeSpec,
-    std::function<bool(const Symbol &)> predicate) {
-  const auto *scope{derivedTypeSpec.typeSymbol().scope()};
-  CHECK(scope);
-  for (const auto &pair : *scope) {
-    const Symbol &component{*pair.second};
-    const DeclTypeSpec *type{component.GetType()};
-    if (!type) {
-      continue;
-    }
-    const DerivedTypeSpec *derived{type->AsDerived()};
-    bool isUltimate{IsAllocatableOrPointer(component) || !derived};
-    if (const Symbol *
-        result{!isUltimate ? FindUltimateComponent(*derived, predicate)
-                           : predicate(component) ? &component : nullptr}) {
-      return result;
-    }
-  }
-  return nullptr;
 }
 
 bool IsFinalizable(const Symbol &symbol) {
@@ -788,6 +728,213 @@ static Symbol &InstantiateSymbol(
     }
   }
   return result;
+}
+
+// ComponentIterator implementation
+
+template<ComponentKind componentKind>
+typename ComponentIterator<componentKind>::const_iterator
+ComponentIterator<componentKind>::const_iterator::Create(
+    const DerivedTypeSpec &derived) {
+  const_iterator it{};
+  const std::list<SourceName> &names{
+      derived.typeSymbol().get<DerivedTypeDetails>().componentNames()};
+  if (names.empty()) {
+    return it;  // end iterator
+  } else {
+    it.componentPath_.emplace_back(
+        ComponentPathNode{nullptr, &derived, names.cbegin()});
+    it.Increment();  // search first relevant component (may be the end)
+    return it;
+  }
+}
+
+template<ComponentKind componentKind>
+bool ComponentIterator<componentKind>::const_iterator::PlanComponentTraversal(
+    const Symbol &component) {
+  // only data component can be traversed
+  if (const auto *details{component.detailsIf<ObjectEntityDetails>()}) {
+    const DeclTypeSpec *type{details->type()};
+    if (!type) {
+      return false;  // error recovery
+    } else if (const auto *derived{type->AsDerived()}) {
+      bool traverse{false};
+      if constexpr (componentKind == ComponentKind::Ordered) {
+        // Order Component (only visit parents)
+        traverse = component.test(Symbol::Flag::ParentComp);
+      } else if constexpr (componentKind == ComponentKind::Direct) {
+        traverse = !IsAllocatableOrPointer(component);
+      } else if constexpr (componentKind == ComponentKind::Ultimate) {
+        traverse = !IsAllocatableOrPointer(component);
+      } else if constexpr (componentKind == ComponentKind::Potential) {
+        traverse = !IsPointer(component);
+      }
+      if (traverse) {
+        const Symbol *newTypeSymbol{&derived->typeSymbol()};
+        // Avoid infinite loop if the type is already part of the types
+        // being visited. It is possible to have "loops in type" because
+        // C744 does not forbid to use not yet declared type for
+        // ALLOCATABLE or POINTER components.
+        for (const auto &node : componentPath_) {
+          if (newTypeSymbol == &GetTypeSymbol(node)) {
+            return false;
+          }
+        }
+        componentPath_.emplace_back(ComponentPathNode{nullptr, derived,
+            newTypeSymbol->get<DerivedTypeDetails>()
+                .componentNames()
+                .cbegin()});
+        return true;
+      }
+    }  // intrinsic & unlimited polymorphic not traversable
+  }
+  return false;
+}
+
+template<ComponentKind componentKind>
+static bool StopAtComponentPre(const Symbol &component) {
+  if constexpr (componentKind == ComponentKind::Ordered) {
+    // Parent components need to be iterated upon after their
+    // sub-components in structure constructor analysis.
+    return !component.test(Symbol::Flag::ParentComp);
+  } else if constexpr (componentKind == ComponentKind::Direct) {
+    return true;
+  } else if constexpr (componentKind == ComponentKind::Ultimate) {
+    return component.has<ProcEntityDetails>() ||
+        IsAllocatableOrPointer(component) ||
+        (component.get<ObjectEntityDetails>().type() &&
+            component.get<ObjectEntityDetails>().type()->AsIntrinsic());
+  } else if constexpr (componentKind == ComponentKind::Potential) {
+    return !IsPointer(component);
+  }
+}
+
+template<ComponentKind componentKind>
+static bool StopAtComponentPost(const Symbol &component) {
+  if constexpr (componentKind == ComponentKind::Ordered) {
+    return component.test(Symbol::Flag::ParentComp);
+  } else {
+    return false;
+  }
+}
+
+enum class ComponentVisitState { Resume, Pre, Post };
+
+template<ComponentKind componentKind>
+void ComponentIterator<componentKind>::const_iterator::Increment() {
+  std::int64_t level{static_cast<std::int64_t>(componentPath_.size()) - 1};
+  // Need to know if this is the first incrementation or if the visit is resumed
+  // after a user increment.
+  ComponentVisitState state{
+      level >= 0 && GetComponentSymbol(componentPath_[level])
+          ? ComponentVisitState::Resume
+          : ComponentVisitState::Pre};
+  while (level >= 0) {
+    bool descend{false};
+    const Scope &scope{DEREF(GetScope(componentPath_[level]))};
+    auto &levelIterator{GetIterator(componentPath_[level])};
+    const auto &levelEndIterator{GetTypeSymbol(componentPath_[level])
+                                     .template get<DerivedTypeDetails>()
+                                     .componentNames()
+                                     .cend()};
+
+    while (!descend && levelIterator != levelEndIterator) {
+      const Symbol *component{GetComponentSymbol(componentPath_[level])};
+
+      switch (state) {
+      case ComponentVisitState::Resume:
+        if (StopAtComponentPre<componentKind>(DEREF(component))) {
+          // The symbol was not yet considered for
+          // traversal.
+          descend = PlanComponentTraversal(*component);
+        }
+        break;
+      case ComponentVisitState::Pre:
+        // Search iterator
+        if (auto iter{scope.find(*levelIterator)}; iter != scope.cend()) {
+          const Symbol *newComponent{iter->second};
+          SetComponentSymbol(componentPath_[level], newComponent);
+          if (StopAtComponentPre<componentKind>(*newComponent)) {
+            return;
+          }
+          descend = PlanComponentTraversal(*newComponent);
+          if (!descend && StopAtComponentPost<componentKind>(*newComponent)) {
+            return;
+          }
+        }
+        break;
+      case ComponentVisitState::Post:
+        if (StopAtComponentPost<componentKind>(DEREF(component))) {
+          return;
+        }
+        break;
+      }
+
+      if (descend) {
+        level++;
+      } else {
+        SetComponentSymbol(componentPath_[level], nullptr);  // safety
+        levelIterator++;
+      }
+      state = ComponentVisitState::Pre;
+    }
+
+    if (!descend) {  // Finished level traversal
+      componentPath_.pop_back();
+      --level;
+      state = ComponentVisitState::Post;
+    }
+  }
+  // iterator reached end of components
+}
+
+template<ComponentKind componentKind>
+std::string
+ComponentIterator<componentKind>::const_iterator::BuildResultDesignatorName()
+    const {
+  std::string designator{""};
+  for (const auto &node : componentPath_) {
+    designator += "%" + GetComponentSymbol(node)->name().ToString();
+  }
+  return designator;
+}
+
+template class ComponentIterator<ComponentKind::Ordered>;
+template class ComponentIterator<ComponentKind::Direct>;
+template class ComponentIterator<ComponentKind::Ultimate>;
+template class ComponentIterator<ComponentKind::Potential>;
+
+UltimateComponentIterator::const_iterator FindCoarrayUltimateComponent(
+    const DerivedTypeSpec &derived) {
+  UltimateComponentIterator ultimates{derived};
+  return std::find_if(ultimates.begin(), ultimates.end(),
+      [](const Symbol *component) { return DEREF(component).Corank() > 0; });
+}
+
+PotentialComponentIterator::const_iterator FindEventOrLockPotentialComponent(
+    const DerivedTypeSpec &derived) {
+  PotentialComponentIterator potentials{derived};
+  return std::find_if(
+      potentials.begin(), potentials.end(), [](const Symbol *component) {
+        if (const auto *details{
+                DEREF(component).detailsIf<ObjectEntityDetails>()}) {
+          const DeclTypeSpec *type{details->type()};
+          return type && IsEventTypeOrLockType(type->AsDerived());
+        }
+        return false;
+      });
+}
+
+const Symbol *FindUltimateComponent(const DerivedTypeSpec &derived,
+    std::function<bool(const Symbol &)> predicate) {
+  UltimateComponentIterator ultimates{derived};
+  if (auto it{std::find_if(ultimates.begin(), ultimates.end(),
+          [&predicate](const Symbol *component) -> bool {
+            return predicate(DEREF(component));
+          })}) {
+    return *it;
+  }
+  return nullptr;
 }
 
 }

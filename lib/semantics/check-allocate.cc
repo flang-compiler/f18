@@ -119,13 +119,13 @@ static std::optional<AllocateCheckerInfo> CheckAllocateOptions(
     info.typeSpecLoc = parser::FindSourceLocation(*typeSpec);
     if (const DerivedTypeSpec * derived{info.typeSpec->AsDerived()}) {
       // C937
-      if (const Symbol *
-          coarrayComponent{HasCoarrayUltimateComponent(*derived)}) {
+      if (auto it{FindCoarrayUltimateComponent(*derived)}) {
         context
-            .Say(
-                "Type-spec in ALLOCATE must not specify a type with a coarray ultimate component"_err_en_US)
-            .Attach(coarrayComponent->name(),
-                "Coarray ultimate component declared here"_en_US);
+            .Say("Type-spec in ALLOCATE must not specify a type with a coarray"
+                 " ultimate component"_err_en_US)
+            .Attach((*it)->name(),
+                "Type '%s' has coarray ultimate component '%s' declared here"_en_US,
+                info.typeSpec->AsFortran(), it.BuildResultDesignatorName());
       }
     }
   }
@@ -195,7 +195,8 @@ static std::optional<AllocateCheckerInfo> CheckAllocateOptions(
     if (const auto *expr{GetExpr(DEREF(parserSourceExpr))}) {
       info.sourceExprType = expr->GetType();
       if (!info.sourceExprType.has_value()) {
-        CHECK(context.AnyFatalError());
+        context.Say(parserSourceExpr->source,
+            "Typeless item not allowed as SOURCE or MOLD in ALLOCATE"_err_en_US);
         return std::nullopt;
       }
       info.sourceExprRank = expr->Rank();
@@ -205,26 +206,30 @@ static std::optional<AllocateCheckerInfo> CheckAllocateOptions(
         const DerivedTypeSpec &derived{
             info.sourceExprType.value().GetDerivedTypeSpec()};
         // C949
-        if (const Symbol *
-            coarrayComponent{HasCoarrayUltimateComponent(derived)}) {
+        if (auto it{FindCoarrayUltimateComponent(derived)}) {
           context
               .Say(parserSourceExpr->source,
                   "SOURCE or MOLD expression must not have a type with a coarray ultimate component"_err_en_US)
-              .Attach(coarrayComponent->name(),
-                  "Coarray ultimate component declared here"_en_US);
+              .Attach((*it)->name(),
+                  "Type '%s' has coarray ultimate component '%s' declared here"_en_US,
+                  info.sourceExprType.value().AsFortran(),
+                  it.BuildResultDesignatorName());
         }
         if (info.gotSrc) {
           // C948
           if (IsEventTypeOrLockType(&derived)) {
             context.Say(parserSourceExpr->source,
                 "SOURCE expression type must not be EVENT_TYPE or LOCK_TYPE from ISO_FORTRAN_ENV"_err_en_US);
-          } else if (const Symbol *
-              component{HasEventOrLockPotentialComponent(derived)}) {
+          } else if (auto it{FindEventOrLockPotentialComponent(derived)}) {
             context
                 .Say(parserSourceExpr->source,
-                    "SOURCE expression type must not have potential subobject component of type EVENT_TYPE or LOCK_TYPE from ISO_FORTRAN_ENV"_err_en_US)
-                .Attach(component->name(),
-                    "Potential subobject component of forbidden type declared here"_en_US);
+                    "SOURCE expression type must not have potential subobject "
+                    "component"
+                    " of type EVENT_TYPE or LOCK_TYPE from ISO_FORTRAN_ENV"_err_en_US)
+                .Attach((*it)->name(),
+                    "Type '%s' has potential ultimate component '%s' declared here"_en_US,
+                    info.sourceExprType.value().AsFortran(),
+                    it.BuildResultDesignatorName());
           }
         }
       }
