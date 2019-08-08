@@ -937,4 +937,20 @@ const Symbol *FindUltimateComponent(const DerivedTypeSpec &derived,
   return nullptr;
 }
 
+bool IsFunctionResult(const Symbol &symbol) {
+  return (symbol.has<semantics::ObjectEntityDetails>() &&
+             symbol.get<semantics::ObjectEntityDetails>().isFuncResult()) ||
+      (symbol.has<semantics::ProcEntityDetails>() &&
+          symbol.get<semantics::ProcEntityDetails>().isFuncResult());
+}
+
+bool IsFunctionResultWithSameNameAsFunction(const Symbol &symbol) {
+  if (IsFunctionResult(symbol)) {
+    if (const Symbol * function{symbol.owner().symbol()}) {
+      return symbol.name() == function->name();
+    }
+  }
+  return false;
+}
+
 }
