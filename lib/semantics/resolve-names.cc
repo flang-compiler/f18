@@ -1122,7 +1122,9 @@ bool ImplicitRules::isImplicitNoneExternal() const {
 }
 
 const DeclTypeSpec *ImplicitRules::GetType(char ch) const {
-  if (auto it{map_.find(ch)}; it != map_.end()) {
+  if (isImplicitNoneType()) {
+    return nullptr;
+  } else if (auto it{map_.find(ch)}; it != map_.end()) {
     return it->second;
   } else if (inheritFromParent_) {
     return parent_->GetType(ch);
@@ -1387,6 +1389,8 @@ bool ImplicitRulesVisitor::Pre(const parser::ImplicitStmt &x) {
               Say("IMPLICIT statement after IMPLICIT NONE or "
                   "IMPLICIT NONE(TYPE) statement"_err_en_US);
               return false;
+            } else {
+              implicitRules().set_isImplicitNoneType(false);
             }
             return true;
           },
@@ -1757,7 +1761,10 @@ static bool NeedsType(const Symbol &symbol) {
 }
 void ScopeHandler::ApplyImplicitRules(Symbol &symbol) {
   if (NeedsType(symbol)) {
-    if (isImplicitNoneType()) {
+    if (const auto *type{GetImplicitType(symbol)}) {
+      symbol.set(Symbol::Flag::Implicit);
+      symbol.SetType(*type);
+    } else {
       if (symbol.has<ProcEntityDetails>() &&
           !symbol.attrs().test(Attr::EXTERNAL) &&
           context().intrinsics().IsIntrinsic(symbol.name().ToString())) {
@@ -1766,19 +1773,12 @@ void ScopeHandler::ApplyImplicitRules(Symbol &symbol) {
       } else {
         Say(symbol.name(), "No explicit type declared for '%s'"_err_en_US);
       }
-    } else if (const auto *type{GetImplicitType(symbol)}) {
-      symbol.SetType(*type);
     }
   }
 }
 const DeclTypeSpec *ScopeHandler::GetImplicitType(Symbol &symbol) {
   auto &name{symbol.name()};
   const auto *type{implicitRules().GetType(name.begin()[0])};
-  if (type) {
-    symbol.set(Symbol::Flag::Implicit);
-  } else {
-    Say(name, "No explicit type declared for '%s'"_err_en_US);
-  }
   return type;
 }
 
@@ -3692,8 +3692,8 @@ void DeclarationVisitor::CheckSaveStmts() {
               " a COMMON statement"_err_en_US);
         } else {  // C1108
           Say(name,
-             "SAVE statement in BLOCK construct may not contain a"
-             " common block name '%s'"_err_en_US);
+              "SAVE statement in BLOCK construct may not contain a"
+              " common block name '%s'"_err_en_US);
         }
       } else {
         for (Symbol *object : symbol->get<CommonBlockDetails>().objects()) {
