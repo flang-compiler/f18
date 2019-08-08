@@ -224,7 +224,7 @@ void OmpStructureChecker::Enter(const parser::OmpBeginBlockDirective &x) {
 
 void OmpStructureChecker::Enter(const parser::OmpEndBlockDirective &x) {
   const auto &dir{std::get<parser::OmpBlockDirective>(x.t)};
-  SaveContextDirectiveSource();
+  ClearContext();
   SetContextDirectiveSource(dir.source);
   switch (dir.v) {
   // 2.7.3 end-single-clause -> copyprivate-clause |
@@ -248,7 +248,7 @@ void OmpStructureChecker::Enter(const parser::OmpEndBlockDirective &x) {
 }
 
 void OmpStructureChecker::Leave(const parser::OmpEndBlockDirective &) {
-  RecoverContextDirectiveSource();
+  ClearContext();
 }
 
 void OmpStructureChecker::Enter(const parser::OmpLoopDirective &x) {

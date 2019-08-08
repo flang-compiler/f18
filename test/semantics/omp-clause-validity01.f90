@@ -66,7 +66,8 @@
   do i = 1, N
      a = 3.14
   enddo
-  !$omp end parallel
+  !ERROR: NUM_THREADS clause is not allowed on the END PARALLEL directive
+  !$omp end parallel num_threads(4)
 
   !ERROR: LASTPRIVATE clause is not allowed on the PARALLEL directive
   !ERROR: NUM_TASKS clause is not allowed on the PARALLEL directive
