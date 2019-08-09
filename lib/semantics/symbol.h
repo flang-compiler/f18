@@ -204,8 +204,15 @@ public:
   void set_interface(const ProcInterface &interface) { interface_ = interface; }
   inline bool HasExplicitInterface() const;
 
+  // Be advised: !init().has_value() => uninitialized pointer,
+  // while *init() == nullptr => explicit NULL() initialization.
+  std::optional<const Symbol *> init() const { return init_; }
+  void set_init(const Symbol &symbol) { init_ = &symbol; }
+  void set_init(std::nullptr_t) { init_ = nullptr; }
+
 private:
   ProcInterface interface_;
+  std::optional<const Symbol *> init_;
   friend std::ostream &operator<<(std::ostream &, const ProcEntityDetails &);
 };
 
@@ -258,7 +265,7 @@ public:
   const Symbol &symbol() const { return *symbol_; }
 
 private:
-  const Symbol *symbol_;  // procedure bound to
+  const Symbol *symbol_;  // procedure bound to; may be forward
 };
 
 ENUM_CLASS(GenericKind,  // Kinds of generic-spec
