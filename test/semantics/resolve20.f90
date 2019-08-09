@@ -1,4 +1,4 @@
-! Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+! Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 !
 ! Licensed under the Apache License, Version 2.0 (the "License");
 ! you may not use this file except in compliance with the License.
@@ -22,20 +22,20 @@ module m
   procedure(integer) :: b
   procedure(foo) :: c
   procedure(bar) :: d
-  !ERROR: The interface of 'e' ('missing') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'missing' must be an abstract interface or a procedure with an explicit interface
   procedure(missing) :: e
-  !ERROR: The interface of 'f' ('b') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'b' must be an abstract interface or a procedure with an explicit interface
   procedure(b) :: f
   procedure(c) :: g
   external :: h
-  !ERROR: The interface of 'i' ('h') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'h' must be an abstract interface or a procedure with an explicit interface
   procedure(h) :: i
   procedure(forward) :: j
-  !ERROR: The interface of 'k1' ('bad1') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'bad1' must be an abstract interface or a procedure with an explicit interface
   procedure(bad1) :: k1
-  !ERROR: The interface of 'k2' ('bad2') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'bad2' must be an abstract interface or a procedure with an explicit interface
   procedure(bad2) :: k2
-  !ERROR: The interface of 'k3' ('bad3') is not an abstract interface or a procedure with an explicit interface
+  !ERROR: 'bad3' must be an abstract interface or a procedure with an explicit interface
   procedure(bad3) :: k3
 
   abstract interface

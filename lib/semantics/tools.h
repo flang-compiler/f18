@@ -82,6 +82,9 @@ const Symbol *HasCoarrayUltimateComponent(const DerivedTypeSpec &);
 // Same logic as HasCoarrayUltimateComponent, but looking for
 const Symbol *HasEventOrLockPotentialComponent(const DerivedTypeSpec &);
 bool IsOrContainsEventOrLockComponent(const Symbol &);
+// Has an explicit or implied SAVE attribute
+bool IsSaved(const Symbol &);
+bool CanBeTypeBoundProc(const Symbol *);
 
 // Return an ultimate component of type that matches predicate, or nullptr.
 const Symbol *FindUltimateComponent(
@@ -209,7 +212,7 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   }
 }
 
-// Derived type component iterator that provides a C++ LegacyForwadIterator
+// Derived type component iterator that provides a C++ LegacyForwardIterator
 // iterator over the Ordered, Direct, Ultimate or Potential components of a
 // DerivedTypeSpec. These iterators can be used with STL algorithms
 // accepting LegacyForwadIterator.
@@ -218,7 +221,7 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
 //
 //
 // - Ordered components are the components from the component order defined
-// in 7.5.4.7, except that the parent components IS added between the parent
+// in 7.5.4.7, except that the parent component IS added between the parent
 // component order and the components in order of declaration.
 // This "deviation" is important for structure-constructor analysis.
 // For this kind of iterator, the component tree is recursively visited in the
