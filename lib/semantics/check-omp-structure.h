@@ -59,13 +59,10 @@ public:
   void Enter(const parser::OpenMPConstruct &);
   void Enter(const parser::OpenMPLoopConstruct &);
   void Leave(const parser::OpenMPLoopConstruct &);
-  void Enter(const parser::OmpLoopDirective &);
 
   void Enter(const parser::OpenMPBlockConstruct &);
   void Leave(const parser::OpenMPBlockConstruct &);
-  void Enter(const parser::OmpBeginBlockDirective &);
   void Enter(const parser::OmpEndBlockDirective &);
-  void Leave(const parser::OmpEndBlockDirective &);
 
   void Enter(const parser::OpenMPSectionsConstruct &);
   void Leave(const parser::OpenMPSectionsConstruct &);
@@ -76,7 +73,6 @@ public:
 
   void Enter(const parser::OpenMPSimpleStandaloneConstruct &);
   void Leave(const parser::OpenMPSimpleStandaloneConstruct &);
-  void Enter(const parser::OmpSimpleStandaloneDirective &);
   void Enter(const parser::OpenMPFlushConstruct &);
   void Leave(const parser::OpenMPFlushConstruct &);
   void Enter(const parser::OpenMPCancelConstruct &);
@@ -145,9 +141,14 @@ private:
     CHECK(!ompContext_.empty());
     return ompContext_.back();
   }
-  void ClearContext() {
+  // reset source location, check information, and
+  // collected information for END directive
+  void ResetPartialContext(const parser::CharBlock &source) {
     CHECK(!ompContext_.empty());
-    ompContext_.back() = {};
+    SetContextDirectiveSource(source);
+    GetContext().allowedClauses = {};
+    GetContext().allowedOnceClauses = {};
+    GetContext().clauseInfo = {};
   }
   void SetContextDirectiveSource(const parser::CharBlock &directive) {
     GetContext().directiveSource = directive;
@@ -175,11 +176,8 @@ private:
     }
     return nullptr;
   }
-  void PushContext(const parser::CharBlock &source) {
-    ompContext_.push_back(OmpContext{source});
-  }
   void PushContext(const parser::CharBlock &source, const OmpDirective &dir) {
-    PushContext(source);
+    ompContext_.push_back(OmpContext{source});
     SetContextDirectiveEnum(dir);
   }
 
