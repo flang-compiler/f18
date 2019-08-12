@@ -3470,9 +3470,10 @@ struct OmpClauseList {
 // SECTIONS, PARALLEL SECTIONS
 WRAPPER_CLASS(OmpEndSections, std::optional<OmpNowait>);
 WRAPPER_CLASS(OmpSection, Verbatim);
+WRAPPER_CLASS(OmpSectionBlocks, std::list<Block>);
 struct OpenMPSectionsConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPSectionsConstruct);
-  std::tuple<Verbatim, OmpClauseList, Block, OmpEndSections> t;
+  std::tuple<Verbatim, OmpClauseList, OmpSectionBlocks, OmpEndSections> t;
 };
 
 EMPTY_CLASS(OmpEndParallelSections);
@@ -3730,8 +3731,7 @@ struct OpenMPConstruct {
   UNION_CLASS_BOILERPLATE(OpenMPConstruct);
   std::variant<OpenMPStandaloneConstruct, OpenMPSectionsConstruct,
       OpenMPParallelSectionsConstruct, OpenMPLoopConstruct,
-      OpenMPBlockConstruct, OpenMPAtomicConstruct, OpenMPCriticalConstruct,
-      OmpSection>
+      OpenMPBlockConstruct, OpenMPAtomicConstruct, OpenMPCriticalConstruct>
       u;
 };
 }

@@ -493,9 +493,14 @@ TYPE_PARSER(startOmpLine >> "END SECTIONS"_tok >>
     construct<OmpEndSections>(
         maybe("NOWAIT" >> construct<OmpNowait>()) / endOmpLine))
 
+TYPE_PARSER(maybe(startOmpLine >> "SECTION"_tok / endOmpLine) >>
+    construct<OmpSectionBlocks>(
+        nonemptySeparated(block, startOmpLine >> "SECTION"_id / endOmpLine)))
+
 // OMP SECTIONS
 TYPE_PARSER(construct<OpenMPSectionsConstruct>(verbatim("SECTIONS"_tok),
-    Parser<OmpClauseList>{} / endOmpLine, block, Parser<OmpEndSections>{}))
+    Parser<OmpClauseList>{} / endOmpLine, Parser<OmpSectionBlocks>{},
+    Parser<OmpEndSections>{}))
 
 // OMP END PARALLEL SECTIONS
 TYPE_PARSER(construct<OmpEndParallelSections>(
@@ -506,7 +511,8 @@ TYPE_PARSER(construct<OpenMPParallelSectionsConstruct>(
     verbatim("PARALLEL SECTIONS"_tok), Parser<OmpClauseList>{} / endOmpLine,
     block, Parser<OmpEndParallelSections>{}))
 
-TYPE_PARSER(construct<OmpSection>(verbatim("SECTION"_tok) / endOmpLine))
+// TYPE_PARSER(startOmpLine >> construct<OmpSection>(verbatim("SECTION"_id)) /
+// endOmpLine)
 
 TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
     startOmpLine >>
@@ -519,8 +525,7 @@ TYPE_CONTEXT_PARSER("OpenMP construct"_en_US,
             // OpenMPStandaloneConstruct to resolve !$OMP ORDERED
             construct<OpenMPConstruct>(Parser<OpenMPStandaloneConstruct>{}),
             construct<OpenMPConstruct>(Parser<OpenMPAtomicConstruct>{}),
-            construct<OpenMPConstruct>(Parser<OpenMPCriticalConstruct>{}),
-            construct<OpenMPConstruct>(Parser<OmpSection>{})))
+            construct<OpenMPConstruct>(Parser<OpenMPCriticalConstruct>{})))
 
 // END OMP Block directives
 TYPE_PARSER(

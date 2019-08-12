@@ -30,6 +30,7 @@ using namespace std::string_literals;
 // When SHOW_ALL_SOURCE_MEMBERS is defined, HasSource<T>::value is true if T has
 // a member named source
 template<typename T, typename = int> struct HasSource : std::false_type {};
+#define SHOW_ALL_SOURCE_MEMBERS
 #ifdef SHOW_ALL_SOURCE_MEMBERS
 template<typename T>
 struct HasSource<T, decltype((void)T::source, 0)> : std::true_type {};
@@ -509,6 +510,7 @@ public:
   NODE(parser, OmpScheduleModifierType)
   NODE_ENUM(parser::OmpScheduleModifierType, ModType)
   NODE(parser, OmpSection)
+  NODE(parser, OmpSectionBlocks)
   NODE(parser, OmpSimpleStandaloneDirective)
   NODE_ENUM(parser::OmpSimpleStandaloneDirective, Directive)
   NODE(parser, Only)
