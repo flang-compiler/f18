@@ -50,15 +50,26 @@ set(MODULES
 
 # Create module files directly from the top-level module source directory
 foreach(filename ${MODULES})
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.mod
-    COMMAND f18 -fparse-only -fdebug-semantics ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.fmf
+    COMMAND f18 -fparse-only -fdebug-semantics -module-suffix .fmf ${PROJECT_SOURCE_DIR}/module/${filename}.f90
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include"
     DEPENDS f18 ${PROJECT_SOURCE_DIR}/module/${filename}.f90
   )
-  list(APPEND MODULE_FILES "${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.mod")
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.mod DESTINATION include)
+  list(APPEND MODULE_FILES "${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.fmf")
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/${filename}.fmf DESTINATION include)
 endforeach()
 
 add_custom_target(module_files ALL DEPENDS ${MODULE_FILES})
 
 install(TARGETS f18 f18-parse-demo DESTINATION bin)
+
+file(COPY flang.sh
+  DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/bin"
+  FILE_PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE
+)
+file(RENAME "${CMAKE_CURRENT_BINARY_DIR}/bin/flang.sh" "${CMAKE_CURRENT_BINARY_DIR}/bin/flang")
+
+install(PROGRAMS flang.sh DESTINATION bin RENAME flang)
