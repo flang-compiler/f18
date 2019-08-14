@@ -2340,7 +2340,7 @@ public:
     Put("\n");
     EndOpenMP();
     Walk(std::get<std::optional<DoConstruct>>(x.t));
-    Walk(std::get<std::optional<OpenMPEndLoopDirective>>(x.t));
+    Walk(std::get<std::optional<OmpEndLoopDirective>>(x.t));
   }
   void Unparse(const BasedPointer &x) {
     Put('('), Walk(std::get<0>(x.t)), Put(","), Walk(std::get<1>(x.t));

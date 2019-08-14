@@ -19,11 +19,10 @@
 // After Loop Canonicalization, rewrite OpenMP parse tree to make OpenMP
 // Constructs more structured which provide explicit scopes for later
 // structural checks and semantic analysis.
-//   1. move structured DoConstruct and OpenMPEndloopdirective into
+//   1. move structured DoConstruct and OmpEndLoopDirective into
 //      OpenMPLoopConstruct. Compilation will not proceed in case of errors
 //      after this pass.
-//   2. TODO: Start and End directive pair matching
-//   3. TBD
+//   2. TBD
 namespace Fortran::parser {
 
 class CanonicalizationOfOmp {
@@ -39,12 +38,13 @@ public:
         if (auto *ompLoop{std::get_if<OpenMPLoopConstruct>(&ompCons->u)}) {
           RewriteOpenMPLoopConstruct(ompLoop, block, it);
         }
-      } else if (auto *endDir{GetConstructIf<OpenMPEndLoopDirective>(*it)}) {
-        // Unmatched OpenMPEndloopdirective
-        messages_.Say(endDir->source,
+      } else if (auto *endDir{GetConstructIf<OmpEndLoopDirective>(*it)}) {
+        // Unmatched OmpEndLoopDirective
+        auto &dir{std::get<OmpLoopDirective>(endDir->t)};
+        messages_.Say(dir.source,
             "The %s directive must follow the DO loop associated with the "
             "loop construct"_err_en_US,
-            parser::ToUpperCaseLetters(endDir->source.ToString()));
+            parser::ToUpperCaseLetters(dir.source.ToString()));
       }
     }  // Block list
   }
@@ -61,24 +61,23 @@ private:
 
   void RewriteOpenMPLoopConstruct(
       OpenMPLoopConstruct *x, Block &block, Block::iterator it) {
-    // Check the sequence of DoConstruct and OpenMPEndLoopDirective
+    // Check the sequence of DoConstruct and OmpEndLoopDirective
     // in the same iteration
     //
     // Original:
     //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
-    //     OmpLoopDirective
-    //     OmpClauseList
+    //     OmpBeginLoopDirective
     //   ExecutableConstruct -> DoConstruct
-    //   ExecutableConstruct -> OpenMPEndLoopDirective (if available)
+    //   ExecutableConstruct -> OmpEndLoopDirective (if available)
     //
     // After rewriting:
     //   ExecutableConstruct -> OpenMPConstruct -> OpenMPLoopConstruct
-    //     OmpLoopDirective
-    //     OmpClauseList
+    //     OmpBeginLoopDirective
     //     DoConstruct
-    //     OpenMPEndLoopDirective (if available)
+    //     OmpEndLoopDirective (if available)
     Block::iterator nextIt;
-    auto &dir{std::get<OmpLoopDirective>(x->t)};
+    auto &beginDir{std::get<OmpBeginLoopDirective>(x->t)};
+    auto &dir{std::get<OmpLoopDirective>(beginDir.t)};
 
     nextIt = it;
     if (++nextIt != block.end()) {
@@ -88,9 +87,9 @@ private:
           std::get<std::optional<DoConstruct>>(x->t) = std::move(*doCons);
           nextIt = block.erase(nextIt);
 
-          // try to match OpenMPEndLoopDirective
-          if (auto *endDir{GetConstructIf<OpenMPEndLoopDirective>(*nextIt)}) {
-            std::get<std::optional<OpenMPEndLoopDirective>>(x->t) =
+          // try to match OmpEndLoopDirective
+          if (auto *endDir{GetConstructIf<OmpEndLoopDirective>(*nextIt)}) {
+            std::get<std::optional<OmpEndLoopDirective>>(x->t) =
                 std::move(*endDir);
             nextIt = block.erase(nextIt);
           }
