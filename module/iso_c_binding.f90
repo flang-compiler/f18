@@ -74,6 +74,16 @@ module iso_c_binding
   integer, parameter :: c_bool = 1 ! TODO: or default LOGICAL?
   integer, parameter :: c_char = 1
 
+  ! C characters with special semantics
+  character(kind=c_char, len=1), parameter :: c_null_char = achar(0)
+  character(kind=c_char, len=1), parameter :: c_alert = achar(7)
+  character(kind=c_char, len=1), parameter :: c_backspace = achar(8)
+  character(kind=c_char, len=1), parameter :: c_form_feed = achar(12)
+  character(kind=c_char, len=1), parameter :: c_new_line = achar(10)
+  character(kind=c_char, len=1), parameter :: c_carriage_return = achar(13)
+  character(kind=c_char, len=1), parameter :: c_horizontal_tab = achar(9)
+  character(kind=c_char, len=1), parameter :: c_vertical_tab =  achar(11)
+
  contains
 
   logical function c_associated(c_ptr_1, c_ptr_2)
