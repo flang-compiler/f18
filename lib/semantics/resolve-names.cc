@@ -73,19 +73,22 @@ public:
   void set_inheritFromParent(bool x) { inheritFromParent_ = x; }
   // Get the implicit type for identifiers starting with ch. May be null.
   const DeclTypeSpec *GetType(char ch) const;
-  // Record the implicit type for this range of characters.
-  void SetType(const DeclTypeSpec &type, parser::Location lo, parser::Location,
-      bool isDefault = false);
+  // Record the implicit type for the range of characters [fromLetter,
+  // toLetter].
+  void SetTypeMapping(const DeclTypeSpec &type, parser::Location fromLetter,
+      parser::Location toLetter);
 
 private:
   static char Incr(char ch);
 
   ImplicitRules *parent_;
   SemanticsContext &context_;
-  bool inheritFromParent_;  // look in parent if not specified here
-  std::optional<bool> isImplicitNoneType_;
-  std::optional<bool> isImplicitNoneExternal_;
-  // map initial character of identifier to nullptr or its default type
+  bool inheritFromParent_{false};  // look in parent if not specified here
+  bool isImplicitNoneType_{false};
+  bool isImplicitNoneExternal_{false};
+  // map_ contains the mapping between letters and types that were defined
+  // by the IMPLICIT statements of the related scope. It does not contain
+  // the default Fortran mappings nor the mapping defined in parents.
   std::map<char, const DeclTypeSpec *> map_;
 
   friend std::ostream &operator<<(std::ostream &, const ImplicitRules &);
@@ -1109,9 +1112,9 @@ private:
 // ImplicitRules implementation
 
 bool ImplicitRules::isImplicitNoneType() const {
-  if (isImplicitNoneType_.has_value()) {
-    return isImplicitNoneType_.value();
-  } else if (inheritFromParent_) {
+  if (isImplicitNoneType_) {
+    return true;
+  } else if (map_.empty() && inheritFromParent_) {
     return parent_->isImplicitNoneType();
   } else {
     return false;  // default if not specified
@@ -1119,8 +1122,8 @@ bool ImplicitRules::isImplicitNoneType() const {
 }
 
 bool ImplicitRules::isImplicitNoneExternal() const {
-  if (isImplicitNoneExternal_.has_value()) {
-    return isImplicitNoneExternal_.value();
+  if (isImplicitNoneExternal_) {
+    return true;
   } else if (inheritFromParent_) {
     return parent_->isImplicitNoneExternal();
   } else {
@@ -1129,7 +1132,9 @@ bool ImplicitRules::isImplicitNoneExternal() const {
 }
 
 const DeclTypeSpec *ImplicitRules::GetType(char ch) const {
-  if (auto it{map_.find(ch)}; it != map_.end()) {
+  if (isImplicitNoneType_) {
+    return nullptr;
+  } else if (auto it{map_.find(ch)}; it != map_.end()) {
     return it->second;
   } else if (inheritFromParent_) {
     return parent_->GetType(ch);
@@ -1142,17 +1147,15 @@ const DeclTypeSpec *ImplicitRules::GetType(char ch) const {
   }
 }
 
-// isDefault is set when we are applying the default rules, so it is not
-// an error if the type is already set.
-void ImplicitRules::SetType(const DeclTypeSpec &type, parser::Location lo,
-    parser::Location hi, bool isDefault) {
-  for (char ch = *lo; ch; ch = ImplicitRules::Incr(ch)) {
+void ImplicitRules::SetTypeMapping(const DeclTypeSpec &type,
+    parser::Location fromLetter, parser::Location toLetter) {
+  for (char ch = *fromLetter; ch; ch = ImplicitRules::Incr(ch)) {
     auto res{map_.emplace(ch, &type)};
-    if (!res.second && !isDefault) {
-      context_.Say(parser::CharBlock{lo},
+    if (!res.second) {
+      context_.Say(parser::CharBlock{fromLetter},
           "More than one implicit type specified for '%c'"_err_en_US, ch);
     }
-    if (ch == *hi) {
+    if (ch == *toLetter) {
       break;
     }
   }
@@ -1394,6 +1397,8 @@ bool ImplicitRulesVisitor::Pre(const parser::ImplicitStmt &x) {
               Say("IMPLICIT statement after IMPLICIT NONE or "
                   "IMPLICIT NONE(TYPE) statement"_err_en_US);
               return false;
+            } else {
+              implicitRules().set_isImplicitNoneType(false);
             }
             return true;
           },
@@ -1414,7 +1419,7 @@ bool ImplicitRulesVisitor::Pre(const parser::LetterSpec &x) {
       return false;
     }
   }
-  implicitRules().SetType(*GetDeclTypeSpec(), loLoc, hiLoc);
+  implicitRules().SetTypeMapping(*GetDeclTypeSpec(), loLoc, hiLoc);
   return false;
 }
 
@@ -1765,28 +1770,22 @@ static bool NeedsType(const Symbol &symbol) {
 }
 void ScopeHandler::ApplyImplicitRules(Symbol &symbol) {
   if (NeedsType(symbol)) {
-    if (isImplicitNoneType()) {
-      if (symbol.has<ProcEntityDetails>() &&
-          !symbol.attrs().test(Attr::EXTERNAL) &&
-          context().intrinsics().IsIntrinsic(symbol.name().ToString())) {
-        // type will be determined in expression semantics
-        symbol.attrs().set(Attr::INTRINSIC);
-      } else {
-        Say(symbol.name(), "No explicit type declared for '%s'"_err_en_US);
-      }
-    } else if (const auto *type{GetImplicitType(symbol)}) {
+    if (const DeclTypeSpec * type{GetImplicitType(symbol)}) {
+      symbol.set(Symbol::Flag::Implicit);
       symbol.SetType(*type);
+    } else if (symbol.has<ProcEntityDetails>() &&
+        !symbol.attrs().test(Attr::EXTERNAL) &&
+        context().intrinsics().IsIntrinsic(symbol.name().ToString())) {
+      // type will be determined in expression semantics
+      symbol.attrs().set(Attr::INTRINSIC);
+    } else {
+      Say(symbol.name(), "No explicit type declared for '%s'"_err_en_US);
     }
   }
 }
 const DeclTypeSpec *ScopeHandler::GetImplicitType(Symbol &symbol) {
   auto &name{symbol.name()};
   const auto *type{implicitRules().GetType(name.begin()[0])};
-  if (type) {
-    symbol.set(Symbol::Flag::Implicit);
-  } else {
-    Say(name, "No explicit type declared for '%s'"_err_en_US);
-  }
   return type;
 }
 
