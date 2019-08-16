@@ -13,8 +13,7 @@
 // limitations under the License.
 
 #include "canonicalize-omp.h"
-#include "parse-tree-visitor.h"
-#include "parse-tree.h"
+#include "../parser/parse-tree-visitor.h"
 
 // After Loop Canonicalization, rewrite OpenMP parse tree to make OpenMP
 // Constructs more structured which provide explicit scopes for later

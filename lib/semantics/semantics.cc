@@ -15,6 +15,7 @@
 #include "semantics.h"
 #include "assignment.h"
 #include "canonicalize-do.h"
+#include "canonicalize-omp.h"
 #include "check-allocate.h"
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
@@ -34,7 +35,6 @@
 #include "scope.h"
 #include "symbol.h"
 #include "../common/default-kinds.h"
-#include "../parser/canonicalize-omp.h"
 #include "../parser/parse-tree-visitor.h"
 
 namespace Fortran::semantics {

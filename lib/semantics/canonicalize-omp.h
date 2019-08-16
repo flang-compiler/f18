@@ -15,10 +15,10 @@
 #ifndef FORTRAN_PARSER_CANONICALIZE_OMP_H_
 #define FORTRAN_PARSER_CANONICALIZE_OMP_H_
 
-#include "message.h"
-#include "type-parsers.h"
+#include "../parser/message.h"
 
 namespace Fortran::parser {
+struct Program;
 bool CanonicalizeOmp(Messages &message, Program &program);
 }
 

@@ -29,7 +29,6 @@ add_library(FortranParser
   tools.cc
   unparse.cc
   user-state.cc
-  canonicalize-omp.cc
 )
 
 target_link_libraries(FortranParser
