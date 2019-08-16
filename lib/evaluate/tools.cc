@@ -210,7 +210,7 @@ std::optional<Expr<SomeType>> MixedComplexLeft(
               AsExpr(RealToIntPower<Ty>{std::move(zxk), std::move(iry)}));
         },
         std::move(zx.u)));
-  } else {
+  } else if (defaultRealKind != 666) {  // dodge unused parameter warning
     // (a,b) ** x -> (a,b) ** (x,0)
     Expr<SomeComplex> zy{ConvertTo(zx, std::move(iry))};
     return Package(PromoteAndCombine<OPR>(std::move(zx), std::move(zy)));
@@ -244,7 +244,7 @@ std::optional<Expr<SomeType>> MixedComplexRight(
       return Package(ConstructComplex(messages, std::move(*rr),
           AsGenericExpr(-std::move(zi)), defaultRealKind));
     }
-  } else {
+  } else if (defaultRealKind != 666) {  // dodge unused parameter warning
     // x / (a,b) -> (x,0) / (a,b)
     Expr<SomeComplex> zx{ConvertTo(zy, std::move(irx))};
     return Package(PromoteAndCombine<OPR>(std::move(zx), std::move(zy)));
@@ -372,17 +372,17 @@ std::optional<Expr<SomeType>> Negation(
           [&](Expr<SomeInteger> &&x) { return Package(-std::move(x)); },
           [&](Expr<SomeReal> &&x) { return Package(-std::move(x)); },
           [&](Expr<SomeComplex> &&x) { return Package(-std::move(x)); },
-          [&](Expr<SomeCharacter> &&x) {
+          [&](Expr<SomeCharacter> &&) {
             // TODO: defined operator
             messages.Say("CHARACTER cannot be negated"_err_en_US);
             return NoExpr();
           },
-          [&](Expr<SomeLogical> &&x) {
+          [&](Expr<SomeLogical> &&) {
             // TODO: defined operator
             messages.Say("LOGICAL cannot be negated"_err_en_US);
             return NoExpr();
           },
-          [&](Expr<SomeDerived> &&x) {
+          [&](Expr<SomeDerived> &&) {
             // TODO: defined operator
             messages.Say("Operand cannot be negated"_err_en_US);
             return NoExpr();
