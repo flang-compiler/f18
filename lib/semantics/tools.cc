@@ -146,7 +146,7 @@ bool IsFunction(const Symbol &symbol) {
   return std::visit(
       common::visitors{
           [](const SubprogramDetails &x) { return x.isFunction(); },
-          [&](const SubprogramNameDetails &x) {
+          [&](const SubprogramNameDetails &) {
             return symbol.test(Symbol::Flag::Function);
           },
           [](const ProcEntityDetails &x) {
@@ -380,7 +380,7 @@ bool IsTeamType(const DerivedTypeSpec *derived) {
   return IsDerivedTypeFromModule(derived, "iso_fortran_env", "team_type");
 }
 
-const bool IsEventTypeOrLockType(const DerivedTypeSpec *derivedTypeSpec) {
+bool IsEventTypeOrLockType(const DerivedTypeSpec *derivedTypeSpec) {
   return IsDerivedTypeFromModule(
              derivedTypeSpec, "iso_fortran_env", "event_type") ||
       IsDerivedTypeFromModule(derivedTypeSpec, "iso_fortran_env", "lock_type");

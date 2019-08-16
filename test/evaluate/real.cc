@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -163,7 +163,7 @@ template<typename R> void basicTests(int rm, Rounding rounding) {
       TEST(ivf.flags.empty())(ldesc);
       MATCH(x, ivf.value.ToUInt64())(ldesc);
       std::stringstream ss;
-      vr.value.AsFortran(ss, kind, rounding);
+      vr.value.AsFortran(ss, kind);
       std::string decimal{ss.str()};
       const char *p{decimal.data()};
       MATCH(x, static_cast<std::uint64_t>(std::stold(decimal)))(ldesc);
@@ -268,11 +268,13 @@ enum FlagBits {
   Inexact = 16,
 };
 
-std::uint32_t FlagsToBits(const RealFlags &flags) {
+#ifdef __clang__
+// clang support for fenv.h is broken, so tests of flag settings
+// are disabled.
+inline std::uint32_t FlagsToBits(const RealFlags &) { return 0; }
+#else
+inline std::uint32_t FlagsToBits(const RealFlags &flags) {
   std::uint32_t bits{0};
-#ifndef __clang__
-  // TODO: clang support for fenv.h is broken, so tests of flag settings
-  // are disabled.
   if (flags.test(RealFlag::Overflow)) {
     bits |= Overflow;
   }
@@ -288,9 +290,9 @@ std::uint32_t FlagsToBits(const RealFlags &flags) {
   if (flags.test(RealFlag::Inexact)) {
     bits |= Inexact;
   }
-#endif  // __clang__
   return bits;
 }
+#endif  // __clang__
 
 template<typename UINT = std::uint32_t, typename FLT = float, typename REAL>
 void inttest(std::int64_t x, int pass, Rounding rounding) {
@@ -406,7 +408,7 @@ void subsetTests(int pass, Rounding rounding, std::uint32_t opds) {
 
       static constexpr int kind{REAL::bits / 8};
       std::stringstream ss, css;
-      x.AsFortran(ss, kind, rounding);
+      x.AsFortran(ss, kind);
       std::string s{ss.str()};
       if (IsNaN(rj)) {
         css << "(0._" << kind << "/0.)";
