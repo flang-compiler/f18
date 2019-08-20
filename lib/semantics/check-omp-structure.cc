@@ -285,7 +285,7 @@ void OmpStructureChecker::Enter(const parser::OpenMPDeclareSimdConstruct &x) {
   OmpClauseSet allowed{OmpClause::LINEAR, OmpClause::ALIGNED,
       OmpClause::UNIFORM, OmpClause::INBRANCH, OmpClause::NOTINBRANCH};
   SetContextAllowed(allowed);
-  SetContextAllowedOnce(OmpClauseSet{OmpClause::SIMDLEN});
+  SetContextAllowedOnce({OmpClause::SIMDLEN});
 }
 
 void OmpStructureChecker::Leave(const parser::OpenMPDeclareSimdConstruct &) {
