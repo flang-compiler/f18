@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_PARSER_CANONICALIZE_OMP_H_
-#define FORTRAN_PARSER_CANONICALIZE_OMP_H_
+#ifndef FORTRAN_SEMANTICS_CANONICALIZE_OMP_H_
+#define FORTRAN_SEMANTICS_CANONICALIZE_OMP_H_
 
-#include "../parser/message.h"
+#include "semantics.h"
 
 namespace Fortran::parser {
 struct Program;
-bool CanonicalizeOmp(Messages &message, Program &program);
+class Messages;
 }
 
-#endif  // FORTRAN_PARSER_CANONICALIZE_OMP_H_
+namespace Fortran::semantics {
+bool CanonicalizeOmp(parser::Messages &messages, parser::Program &program);
+}
+
+#endif  // FORTRAN_SEMANTICS_CANONICALIZE_OMP_H_

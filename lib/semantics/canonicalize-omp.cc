@@ -22,24 +22,26 @@
 //      OpenMPLoopConstruct. Compilation will not proceed in case of errors
 //      after this pass.
 //   2. TBD
-namespace Fortran::parser {
+namespace Fortran::semantics {
 
 class CanonicalizationOfOmp {
 public:
   template<typename T> bool Pre(T &) { return true; }
   template<typename T> void Post(T &) {}
-  CanonicalizationOfOmp(Messages &messages) : messages_{messages} {}
+  CanonicalizationOfOmp(parser::Messages &messages) : messages_{messages} {}
 
-  void Post(Block &block) {
+  void Post(parser::Block &block) {
     for (auto it{block.begin()}; it != block.end(); ++it) {
-      if (auto *ompCons{GetConstructIf<OpenMPConstruct>(*it)}) {
+      if (auto *ompCons{GetConstructIf<parser::OpenMPConstruct>(*it)}) {
         // OpenMPLoopConstruct
-        if (auto *ompLoop{std::get_if<OpenMPLoopConstruct>(&ompCons->u)}) {
-          RewriteOpenMPLoopConstruct(ompLoop, block, it);
+        if (auto *ompLoop{
+                std::get_if<parser::OpenMPLoopConstruct>(&ompCons->u)}) {
+          RewriteOpenMPLoopConstruct(*ompLoop, block, it);
         }
-      } else if (auto *endDir{GetConstructIf<OmpEndLoopDirective>(*it)}) {
+      } else if (auto *endDir{
+                     GetConstructIf<parser::OmpEndLoopDirective>(*it)}) {
         // Unmatched OmpEndLoopDirective
-        auto &dir{std::get<OmpLoopDirective>(endDir->t)};
+        auto &dir{std::get<parser::OmpLoopDirective>(endDir->t)};
         messages_.Say(dir.source,
             "The %s directive must follow the DO loop associated with the "
             "loop construct"_err_en_US,
@@ -50,7 +52,7 @@ public:
 
 private:
   template<typename T> T *GetConstructIf(parser::ExecutionPartConstruct &x) {
-    if (auto *y{std::get_if<ExecutableConstruct>(&x.u)}) {
+    if (auto *y{std::get_if<parser::ExecutableConstruct>(&x.u)}) {
       if (auto *z{std::get_if<common::Indirection<T>>(&y->u)}) {
         return &z->value();
       }
@@ -58,8 +60,8 @@ private:
     return nullptr;
   }
 
-  void RewriteOpenMPLoopConstruct(
-      OpenMPLoopConstruct *x, Block &block, Block::iterator it) {
+  void RewriteOpenMPLoopConstruct(parser::OpenMPLoopConstruct &x,
+      parser::Block &block, parser::Block::iterator it) {
     // Check the sequence of DoConstruct and OmpEndLoopDirective
     // in the same iteration
     //
@@ -74,21 +76,23 @@ private:
     //     OmpBeginLoopDirective
     //     DoConstruct
     //     OmpEndLoopDirective (if available)
-    Block::iterator nextIt;
-    auto &beginDir{std::get<OmpBeginLoopDirective>(x->t)};
-    auto &dir{std::get<OmpLoopDirective>(beginDir.t)};
+    parser::Block::iterator nextIt;
+    auto &beginDir{std::get<parser::OmpBeginLoopDirective>(x.t)};
+    auto &dir{std::get<parser::OmpLoopDirective>(beginDir.t)};
 
     nextIt = it;
     if (++nextIt != block.end()) {
-      if (auto *doCons{GetConstructIf<DoConstruct>(*nextIt)}) {
+      if (auto *doCons{GetConstructIf<parser::DoConstruct>(*nextIt)}) {
         if (doCons->GetLoopControl().has_value()) {
           // move DoConstruct
-          std::get<std::optional<DoConstruct>>(x->t) = std::move(*doCons);
+          std::get<std::optional<parser::DoConstruct>>(x.t) =
+              std::move(*doCons);
           nextIt = block.erase(nextIt);
 
           // try to match OmpEndLoopDirective
-          if (auto *endDir{GetConstructIf<OmpEndLoopDirective>(*nextIt)}) {
-            std::get<std::optional<OmpEndLoopDirective>>(x->t) =
+          if (auto *endDir{
+                  GetConstructIf<parser::OmpEndLoopDirective>(*nextIt)}) {
+            std::get<std::optional<parser::OmpEndLoopDirective>>(x.t) =
                 std::move(*endDir);
             nextIt = block.erase(nextIt);
           }
@@ -105,10 +109,10 @@ private:
         parser::ToUpperCaseLetters(dir.source.ToString()));
   }
 
-  Messages &messages_;
+  parser::Messages &messages_;
 };
 
-bool CanonicalizeOmp(Messages &messages, Program &program) {
+bool CanonicalizeOmp(parser::Messages &messages, parser::Program &program) {
   CanonicalizationOfOmp omp{messages};
   Walk(program, omp);
   return !messages.AnyFatalError();
