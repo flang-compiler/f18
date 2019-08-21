@@ -15,8 +15,6 @@
 #ifndef FORTRAN_SEMANTICS_CANONICALIZE_OMP_H_
 #define FORTRAN_SEMANTICS_CANONICALIZE_OMP_H_
 
-#include "semantics.h"
-
 namespace Fortran::parser {
 struct Program;
 class Messages;

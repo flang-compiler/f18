@@ -24,6 +24,8 @@
 //   2. TBD
 namespace Fortran::semantics {
 
+using namespace parser::literals;
+
 class CanonicalizationOfOmp {
 public:
   template<typename T> bool Pre(T &) { return true; }
