@@ -5063,8 +5063,13 @@ void ResolveNamesVisitor::HandleProcedureName(
       return;  // reported error
     }
     if (IsProcedure(*symbol) || symbol->has<DerivedTypeDetails>() ||
-        symbol->has<ObjectEntityDetails>()) {
-      // these are all valid as procedure-designators
+        symbol->has<ObjectEntityDetails>() ||
+        symbol->has<AssocEntityDetails>()) {
+      // Symbols with DerivedTypeDetails, ObjectEntityDetails and
+      // AssocEntityDetails are accepted here as procedure-designators because
+      // this means the related FunctionReference are mis-parsed structure
+      // constructors or array references that will be fixed later when
+      // analyzing expressions.
     } else if (symbol->test(Symbol::Flag::Implicit)) {
       Say(name,
           "Use of '%s' as a procedure conflicts with its implicit definition"_err_en_US);
