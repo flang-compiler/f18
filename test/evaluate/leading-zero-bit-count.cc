@@ -1,4 +1,4 @@
-// Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../../lib/evaluate/leading-zero-bit-count.h"
+#include "../../lib/common/leading-zero-bit-count.h"
 #include "testing.h"
 
-using Fortran::evaluate::LeadingZeroBitCount;
+using Fortran::common::LeadingZeroBitCount;
 
 int main() {
   MATCH(64, LeadingZeroBitCount(std::uint64_t{0}));

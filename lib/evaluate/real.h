@@ -30,6 +30,9 @@
 
 namespace Fortran::evaluate::value {
 
+// LOG10(2.)*1E12
+static constexpr std::int64_t ScaledLogBaseTenOfTwo{301029995664};
+
 // Models IEEE binary floating-point numbers (IEEE 754-2008,
 // ISO/IEC/IEEE 60559.2011).  The first argument to this
 // class template must be (or look like) an instance of Integer<>;
@@ -147,11 +150,6 @@ public:
     return tiny;
   }
 
-private:
-  // LOG10(2.)*1E12
-  static constexpr std::int64_t ScaledLogBaseTenOfTwo{301029995664};
-
-public:
   static constexpr int DIGITS{precision};
   static constexpr int PRECISION{static_cast<int>(
       (precision - 1) * ScaledLogBaseTenOfTwo / 1000000000000)};
@@ -364,7 +362,7 @@ public:
 
   // Emits a character representation for an equivalent Fortran constant
   // or parenthesized constant expression that produces this value.
-  std::ostream &AsFortran(std::ostream &, int kind) const;
+  std::ostream &AsFortran(std::ostream &, int kind, bool minimal = false) const;
 
 private:
   using Significand = Integer<significandBits>;  // no implicit bit
