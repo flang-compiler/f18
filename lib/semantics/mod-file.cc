@@ -86,6 +86,7 @@ private:
   void DoType(const DeclTypeSpec *);
   void DoBound(const Bound &);
   void DoParamValue(const ParamValue &);
+  bool NeedImport(const Symbol &);
 
   struct SymbolVisitor : public virtual evaluate::VisitorBase<SymbolVector> {
     using Result = SymbolVector;
@@ -274,6 +275,10 @@ void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
   decls_ << "end type\n";
 }
 
+// Attributes that may be in a subprogram prefix
+static const Attrs subprogramPrefixAttrs{Attr::ELEMENTAL, Attr::IMPURE,
+    Attr::MODULE, Attr::NON_RECURSIVE, Attr::PURE, Attr::RECURSIVE};
+
 void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   auto attrs{symbol.attrs()};
   auto &details{symbol.get<SubprogramDetails>()};
@@ -283,17 +288,21 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
     bindAttrs.set(Attr::BIND_C, true);
     attrs.set(Attr::BIND_C, false);
   }
-  if (attrs.test(Attr::PRIVATE)) {
-    PutAttr(decls_, Attr::PRIVATE) << "::";
+  Attrs prefixAttrs{subprogramPrefixAttrs & attrs};
+  // emit any non-prefix attributes in an attribute statement
+  attrs &= ~subprogramPrefixAttrs;
+  std::stringstream ss;
+  PutAttrs(ss, attrs);
+  if (!ss.str().empty()) {
+    decls_ << ss.str().substr(1) << "::";
     PutLower(decls_, symbol) << "\n";
-    attrs.set(Attr::PRIVATE, false);
   }
   bool isInterface{details.isInterface()};
   std::ostream &os{isInterface ? decls_ : contains_};
   if (isInterface) {
     os << "interface\n";
   }
-  PutAttrs(os, attrs, std::nullopt, ""s, " "s);
+  PutAttrs(os, prefixAttrs, std::nullopt, ""s, " "s);
   os << (details.isFunction() ? "function " : "subroutine ");
   PutLower(os, symbol) << '(';
   int n = 0;
@@ -334,7 +343,8 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
 }
 
 static std::ostream &PutGenericName(std::ostream &os, const Symbol &symbol) {
-  if (symbol.get<GenericDetails>().kind() == GenericKind::DefinedOp) {
+  const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()};
+  if (details && details->kind() == GenericKind::DefinedOp) {
     return PutLower(os << "operator(", symbol) << ')';
   } else {
     return PutLower(os, symbol);
@@ -357,9 +367,9 @@ void ModFileWriter::PutUse(const Symbol &symbol) {
   auto &details{symbol.get<UseDetails>()};
   auto &use{details.symbol()};
   PutLower(uses_ << "use ", details.module());
-  PutLower(uses_ << ",only:", symbol);
+  PutGenericName(uses_ << ",only:", symbol);
   if (use.name() != symbol.name()) {
-    PutLower(uses_ << "=>", use);
+    PutGenericName(uses_ << "=>", use);
   }
   uses_ << '\n';
   PutUseExtraAttr(Attr::VOLATILE, symbol, use);
@@ -814,7 +824,8 @@ void SubprogramSymbolCollector::DoSymbol(const Symbol &symbol) {
   if (scope != scope_ && !scope.IsDerivedType()) {
     if (scope != scope_.parent()) {
       useSet_.insert(&symbol);
-    } else if (isInterface_) {
+    }
+    if (NeedImport(symbol)) {
       imports_.insert(&symbol);
     }
     return;
@@ -889,6 +900,19 @@ void SubprogramSymbolCollector::DoBound(const Bound &bound) {
 void SubprogramSymbolCollector::DoParamValue(const ParamValue &paramValue) {
   if (const auto &expr{paramValue.GetExplicit()}) {
     DoExpr(*expr);
+  }
+}
+
+// Do we need a IMPORT of this symbol into an interface block?
+bool SubprogramSymbolCollector::NeedImport(const Symbol &symbol) {
+  if (!isInterface_) {
+    return false;
+  } else if (symbol.owner() != scope_.parent()) {
+    // detect import from parent of use-associated symbol
+    const auto *found{scope_.FindSymbol(symbol.name())};
+    return DEREF(found).has<UseDetails>() && found->owner() != scope_;
+  } else {
+    return true;
   }
 }
 
