@@ -89,7 +89,13 @@ public:
   const Symbol *GetSymbol() const;
   const Scope *GetDerivedTypeParent() const;
 
-  const SourceName &name() const { return DEREF(GetSymbol()).name(); }
+  std::optional<SourceName> GetName() const {
+    if (const auto *sym{GetSymbol()}) {
+      return sym->name();
+    } else {
+      return std::nullopt;
+    }
+  }
 
   /// Make a scope nested in this one
   Scope &MakeScope(Kind kind, Symbol *symbol = nullptr);
