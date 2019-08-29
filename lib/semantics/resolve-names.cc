@@ -691,6 +691,8 @@ public:
   bool Pre(const parser::BindEntity &);
   bool Pre(const parser::NamedConstantDef &);
   bool Pre(const parser::NamedConstant &);
+  void Post(const parser::EnumDef &);
+  bool Pre(const parser::Enumerator &);
   bool Pre(const parser::AsynchronousStmt &);
   bool Pre(const parser::ContiguousStmt &);
   bool Pre(const parser::ExternalStmt &);
@@ -844,6 +846,11 @@ private:
   const parser::Name *interfaceName_{nullptr};
   // Map type-bound generic to binding names of its specific bindings
   std::multimap<Symbol *, const parser::Name *> genericBindings_;
+  // Info about current ENUM
+  struct EnumeratorState {
+    // Enum value must hold inside a C_INT (7.6.2).
+    std::optional<int> value{0};
+  } enumerationState_;
 
   bool HandleAttributeStmt(Attr, const std::list<parser::Name> &);
   Symbol &HandleAttributeStmt(Attr, const parser::Name &);
@@ -2704,6 +2711,62 @@ bool DeclarationVisitor::Pre(const parser::NamedConstant &x) {
   }
   return false;
 }
+
+bool DeclarationVisitor::Pre(const parser::Enumerator &enumerator) {
+  const parser::Name &name{std::get<parser::NamedConstant>(enumerator.t).v};
+  Symbol *symbol{FindSymbol(name)};
+  if (symbol) {
+    // Contrary to named constants appearing in a PARAMETER statement,
+    // enumerator names should not have their type, dimension or any other
+    // attributes defined before they are declared in the enumerator statement.
+    // This is not explicitly forbidden by the standard, but they are scalars
+    // which type is left for the compiler to chose, so do not let users try to
+    // tamper with that.
+    SayAlreadyDeclared(name, *symbol);
+    symbol = nullptr;
+  } else {
+    // Enumerators are treated as PARAMETER (section 7.6 paragraph (4))
+    symbol = &MakeSymbol(name, Attrs{Attr::PARAMETER}, ObjectEntityDetails{});
+    symbol->SetType(context().MakeNumericType(
+        TypeCategory::Integer, evaluate::CInteger::kind));
+  }
+
+  if (auto &init{std::get<std::optional<parser::ScalarIntConstantExpr>>(
+          enumerator.t)}) {
+    Walk(*init);  // Resolve names in expression before evaluation.
+    MaybeIntExpr expr{EvaluateIntExpr(*init)};
+    if (auto value{evaluate::ToInt64(expr)}) {
+      // Cast all init expressions to C_INT so that they can then be
+      // safely incremented (see 7.6 Note 2).
+      enumerationState_.value = static_cast<int>(*value);
+    } else {
+      Say(name,
+          "Enumerator value could not be computed "
+          "from the given expression"_err_en_US);
+      // Prevent resolution of next enumerators value
+      enumerationState_.value = std::nullopt;
+    }
+  }
+
+  if (symbol) {
+    if (enumerationState_.value.has_value()) {
+      symbol->get<ObjectEntityDetails>().set_init(SomeExpr{
+          evaluate::Expr<evaluate::CInteger>{*enumerationState_.value}});
+    } else {
+      context().SetError(*symbol);
+    }
+  }
+
+  if (enumerationState_.value) {
+    (*enumerationState_.value)++;
+  }
+  return false;
+}
+
+void DeclarationVisitor::Post(const parser::EnumDef &) {
+  enumerationState_ = EnumeratorState{};
+}
+
 bool DeclarationVisitor::Pre(const parser::AsynchronousStmt &x) {
   return HandleAttributeStmt(Attr::ASYNCHRONOUS, x.v);
 }
@@ -2941,11 +3004,11 @@ bool DeclarationVisitor::CheckArraySpec(const parser::Name &name,
     Say(name, "Assumed-rank array '%s' must be a dummy argument"_err_en_US);
     return false;
   } else if (isImplied) {
-    if (!symbol.attrs().test(Attr::PARAMETER)) {  // C836
+    if (!IsNamedConstant(symbol)) {  // C836
       Say(name, "Implied-shape array '%s' must be a named constant"_err_en_US);
       return false;
     }
-  } else if (symbol.attrs().test(Attr::PARAMETER)) {
+  } else if (IsNamedConstant(symbol)) {
     if (!isExplicit && !isImplied) {
       Say(name,
           "Named constant '%s' array must have explicit or implied shape"_err_en_US);
