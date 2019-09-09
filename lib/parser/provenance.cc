@@ -14,9 +14,50 @@
 
 #include "provenance.h"
 #include "../common/idioms.h"
+#include <algorithm>
 #include <utility>
 
 namespace Fortran::parser {
+
+ProvenanceRangeToOffsetMappings::ProvenanceRangeToOffsetMappings() {}
+ProvenanceRangeToOffsetMappings::~ProvenanceRangeToOffsetMappings() {}
+
+void ProvenanceRangeToOffsetMappings::Put(
+    ProvenanceRange range, std::size_t offset) {
+  auto fromTo{map_.equal_range(range)};
+  for (auto iter{fromTo.first}; iter != fromTo.second; ++iter) {
+    if (range == iter->first) {
+      iter->second = std::min(offset, iter->second);
+      return;
+    }
+  }
+  if (fromTo.second != map_.end()) {
+    map_.emplace_hint(fromTo.second, range, offset);
+  } else {
+    map_.emplace(range, offset);
+  }
+}
+
+std::optional<std::size_t> ProvenanceRangeToOffsetMappings::Map(
+    ProvenanceRange range) const {
+  auto fromTo{map_.equal_range(range)};
+  std::optional<std::size_t> result;
+  for (auto iter{fromTo.first}; iter != fromTo.second; ++iter) {
+    ProvenanceRange that{iter->first};
+    if (that.Contains(range)) {
+      std::size_t offset{iter->second + that.MemberOffset(range.start())};
+      if (!result.has_value() || offset < *result) {
+        result = offset;
+      }
+    }
+  }
+  return result;
+}
+
+bool ProvenanceRangeToOffsetMappings::WhollyPrecedes::operator()(
+    ProvenanceRange before, ProvenanceRange after) const {
+  return before.start() + before.size() <= after.start();
+}
 
 void OffsetToProvenanceMappings::clear() { provenanceMap_.clear(); }
 
@@ -28,12 +69,13 @@ void OffsetToProvenanceMappings::shrink_to_fit() {
   provenanceMap_.shrink_to_fit();
 }
 
-std::size_t OffsetToProvenanceMappings::size() const {
+std::size_t OffsetToProvenanceMappings::SizeInBytes() const {
   if (provenanceMap_.empty()) {
     return 0;
+  } else {
+    const ContiguousProvenanceMapping &last{provenanceMap_.back()};
+    return last.start + last.range.size();
   }
-  const ContiguousProvenanceMapping &last{provenanceMap_.back()};
-  return last.start + last.range.size();
 }
 
 void OffsetToProvenanceMappings::Put(ProvenanceRange range) {
@@ -80,6 +122,29 @@ void OffsetToProvenanceMappings::RemoveLastBytes(std::size_t bytes) {
     }
     bytes -= chunk;
   }
+}
+
+ProvenanceRangeToOffsetMappings OffsetToProvenanceMappings::Invert(
+    const AllSources &allSources) const {
+  ProvenanceRangeToOffsetMappings result;
+  for (const auto &contig : provenanceMap_) {
+    ProvenanceRange range{contig.range};
+    while (!range.empty()) {
+      ProvenanceRange source{allSources.IntersectionWithSourceFiles(range)};
+      if (source.empty()) {
+        break;
+      }
+      result.Put(
+          source, contig.start + contig.range.MemberOffset(source.start()));
+      Provenance after{source.NextAfter()};
+      if (range.Contains(after)) {
+        range = range.Suffix(range.MemberOffset(after));
+      } else {
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 AllSources::AllSources() : range_{1, 1} {
@@ -241,14 +306,6 @@ const SourceFile *AllSources::GetSourceFile(
       origin.u);
 }
 
-ProvenanceRange AllSources::GetContiguousRangeAround(
-    ProvenanceRange range) const {
-  CHECK(IsValid(range));
-  const Origin &origin{MapToOrigin(range.start())};
-  CHECK(origin.covers.Contains(range));
-  return origin.covers;
-}
-
 std::string AllSources::GetPath(Provenance at) const {
   const SourceFile *source{GetSourceFile(at)};
   return source ? source->path() : ""s;
@@ -269,6 +326,22 @@ Provenance AllSources::CompilerInsertionProvenance(char ch) {
   Provenance newCharProvenance{newCharRange.start()};
   compilerInsertionProvenance_.insert(std::make_pair(ch, newCharProvenance));
   return newCharProvenance;
+}
+
+ProvenanceRange AllSources::IntersectionWithSourceFiles(
+    ProvenanceRange range) const {
+  if (range.empty()) {
+    return {};
+  } else {
+    const Origin &origin{MapToOrigin(range.start())};
+    if (std::holds_alternative<Inclusion>(origin.u)) {
+      return range.Intersection(origin.covers);
+    } else {
+      auto skip{
+          origin.covers.size() - origin.covers.MemberOffset(range.start())};
+      return IntersectionWithSourceFiles(range.Suffix(skip));
+    }
+  }
 }
 
 AllSources::Origin::Origin(ProvenanceRange r, const SourceFile &source)
@@ -328,16 +401,43 @@ std::optional<ProvenanceRange> CookedSource::GetProvenanceRange(
   return {ProvenanceRange{first.start(), last.start() - first.start()}};
 }
 
+std::optional<CharBlock> CookedSource::GetCharBlock(
+    ProvenanceRange range) const {
+  CHECK(!invertedMap_.empty() &&
+      "CompileProvenanceRangeToOffsetMappings not called");
+  if (auto to{invertedMap_.Map(range)}) {
+    return CharBlock{data_.c_str() + *to, range.size()};
+  } else {
+    return std::nullopt;
+  }
+}
+
 void CookedSource::Marshal() {
-  CHECK(provenanceMap_.size() == buffer_.size());
+  CHECK(provenanceMap_.SizeInBytes() == buffer_.bytes());
   provenanceMap_.Put(allSources_.AddCompilerInsertion("(after end of source)"));
   data_ = buffer_.Marshal();
   buffer_.clear();
 }
 
+void CookedSource::CompileProvenanceRangeToOffsetMappings() {
+  if (invertedMap_.empty()) {
+    invertedMap_ = provenanceMap_.Invert(allSources_);
+  }
+}
+
 static void DumpRange(std::ostream &o, const ProvenanceRange &r) {
   o << "[" << r.start().offset() << ".." << r.Last().offset() << "] ("
     << r.size() << " bytes)";
+}
+
+std::ostream &ProvenanceRangeToOffsetMappings::Dump(std::ostream &o) const {
+  for (const auto &m : map_) {
+    o << "provenances ";
+    DumpRange(o, m.first);
+    o << " -> offsets [" << m.second << ".." << (m.second + m.first.size() - 1)
+      << "]\n";
+  }
+  return o;
 }
 
 std::ostream &OffsetToProvenanceMappings::Dump(std::ostream &o) const {
@@ -391,6 +491,8 @@ std::ostream &CookedSource::Dump(std::ostream &o) const {
   allSources_.Dump(o);
   o << "CookedSource::provenanceMap_:\n";
   provenanceMap_.Dump(o);
+  o << "CookedSource::invertedMap_:\n";
+  invertedMap_.Dump(o);
   return o;
 }
 }
