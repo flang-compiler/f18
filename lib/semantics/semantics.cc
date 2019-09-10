@@ -57,17 +57,34 @@ public:
     : C{context}..., context_{context} {}
 
   template<typename N> bool Pre(const N &node) {
+    if constexpr (common::HasMember<const N *, ConstructNode>) {
+      context_.PushConstruct(node);
+    }
     Enter(node);
     return true;
   }
-  template<typename N> void Post(const N &node) { Leave(node); }
+  template<typename N> void Post(const N &node) {
+    Leave(node);
+    if constexpr (common::HasMember<const N *, ConstructNode>) {
+      context_.PopConstruct();
+    }
+  }
 
   template<typename T> bool Pre(const parser::Statement<T> &node) {
     context_.set_location(node.source);
     Enter(node);
     return true;
   }
+  template<typename T> bool Pre(const parser::UnlabeledStatement<T> &node) {
+    context_.set_location(node.source);
+    Enter(node);
+    return true;
+  }
   template<typename T> void Post(const parser::Statement<T> &node) {
+    Leave(node);
+    context_.set_location(std::nullopt);
+  }
+  template<typename T> void Post(const parser::UnlabeledStatement<T> &node) {
     Leave(node);
     context_.set_location(std::nullopt);
   }
@@ -166,6 +183,20 @@ Scope &SemanticsContext::FindScope(parser::CharBlock source) {
   } else {
     common::die("invalid source location");
   }
+}
+
+void SemanticsContext::PopConstruct() {
+  CHECK(!constructStack_.empty());
+  constructStack_.pop_back();
+}
+
+bool SemanticsContext::InsideDoConstruct() const {
+  for (const ConstructNode construct : constructStack_) {
+    if (std::holds_alternative<const parser::DoConstruct *>(construct)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool Semantics::Perform() {

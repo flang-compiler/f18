@@ -647,4 +647,20 @@ void DoChecker::Leave(const parser::DoConstruct &x) {
   doContext.Check(x);
 }
 
+// C1134
+void DoChecker::Enter(const parser::CycleStmt &) {
+  if (!context_.InsideDoConstruct()) {
+    context_.Say(
+        *context_.location(), "CYCLE must be within a DO construct"_err_en_US);
+  }
+}
+
+// C1166
+void DoChecker::Enter(const parser::ExitStmt &) {
+  if (!context_.InsideDoConstruct()) {
+    context_.Say(
+        *context_.location(), "EXIT must be within a DO construct"_err_en_US);
+  }
+}
+
 }  // namespace Fortran::semantics
