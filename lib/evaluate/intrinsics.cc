@@ -648,6 +648,9 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
             {"ncopies", AnyInt, Rank::scalar}},
         SameType, Rank::rankPlus1},
     {"sqrt", {{"x", SameFloating}}, SameFloating},
+    {"storage_size",
+        {{"a", Anything, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
+        KINDInt, Rank::scalar},
     {"sum", {{"array", SameNumeric, Rank::array}, OptionalDIM, OptionalMASK},
         SameNumeric, Rank::dimReduced},
     {"tan", {{"x", SameFloating}}, SameFloating},
@@ -690,7 +693,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
 //   NUM_IMAGES, STOPPED_IMAGES, TEAM_NUMBER, THIS_IMAGE,
 //   COSHAPE
 // TODO: Object characteristic inquiry functions
-//   EXTENDS_TYPE_OF, IS_CONTIGUOUS, SAME_TYPE, STORAGE_SIZE
+//   EXTENDS_TYPE_OF, IS_CONTIGUOUS, SAME_TYPE
 // TODO: Type inquiry intrinsic functions - these return constants
 //  DIGITS, NEW_LINE
 // TODO: Non-standard intrinsic functions
