@@ -19,6 +19,8 @@
 
 namespace Fortran::parser {
 struct DoConstruct;
+struct CycleStmt;
+struct ExitStmt;
 }
 
 namespace Fortran::semantics {
@@ -27,6 +29,8 @@ class DoChecker : public virtual BaseChecker {
 public:
   explicit DoChecker(SemanticsContext &context) : context_{context} {}
   void Leave(const parser::DoConstruct &);
+  void Enter(const parser::CycleStmt &);
+  void Enter(const parser::ExitStmt &);
 
 private:
   SemanticsContext &context_;
