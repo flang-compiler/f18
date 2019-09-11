@@ -20,6 +20,7 @@
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
 #include "check-deallocate.h"
+#include "check-declarations.h"
 #include "check-do.h"
 #include "check-if-stmt.h"
 #include "check-io.h"
@@ -100,7 +101,7 @@ private:
 
 using StatementSemanticsPass1 = ExprChecker;
 using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
-    ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
+    ArithmeticIfStmtChecker, AssignmentChecker, CallChecker, CoarrayChecker,
     DeallocateChecker, DoChecker, IfStmtChecker, IoChecker, NullifyChecker,
     OmpStructureChecker, ReturnStmtChecker, StopChecker>;
 
@@ -108,6 +109,7 @@ static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
   ResolveNames(context, program);
   RewriteParseTree(context, program);
+  CheckDeclarations(context);
   StatementSemanticsPass1{context}.Walk(program);
   return StatementSemanticsPass2{context}.Walk(program);
 }
