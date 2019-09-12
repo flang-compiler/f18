@@ -15,5 +15,6 @@
 add_subdirectory(common)
 add_subdirectory(decimal)
 add_subdirectory(evaluate)
+add_subdirectory(frontend)
 add_subdirectory(parser)
 add_subdirectory(semantics)
