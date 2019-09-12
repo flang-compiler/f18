@@ -13,14 +13,14 @@
 // limitations under the License.
 
 #include "fir/Transforms/MemToReg.h"
+#include "fir/Analysis/IteratedDominanceFrontier.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
 #include "mlir/Analysis/Dominance.h"
-#include "mlir/Analysis/IteratedDominanceFrontier.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include <utility>
 #include <vector>
 
@@ -102,7 +102,7 @@ struct RenamePassData {
   using ValVector = std::vector<M::Value *>;
 
   RenamePassData(M::Block *b, M::Block *p, const ValVector &v)
-    : BB(b), Pred(p), Values(v) {}
+      : BB(b), Pred(p), Values(v) {}
   RenamePassData(const RenamePassData &) = delete;
   RenamePassData &operator=(const RenamePassData &) = delete;
   RenamePassData(RenamePassData &&) = default;
@@ -128,7 +128,8 @@ struct LargeBlockInfo {
     return false;
   }
 
-  template<typename A> unsigned getInstructionIndex(A &op) {
+  template <typename A>
+  unsigned getInstructionIndex(A &op) {
     auto *oper = op.getOperation();
 
     // has it already been numbered?
@@ -149,7 +150,8 @@ struct LargeBlockInfo {
     return it->second;
   }
 
-  template<typename A> void deleteValue(A &op) {
+  template <typename A>
+  void deleteValue(A &op) {
     auto *oper = op.getOperation();
     instNumbers.erase(oper);
   }
@@ -177,8 +179,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   llvm::DenseMap<std::pair<M::Block *, M::Operation *>, unsigned> BlockArgs;
   llvm::DenseMap<std::pair<M::Block *, unsigned>, unsigned> argToAllocaMap;
 
-  bool rewriteSingleStoreAlloca(
-      fir::AllocaOp &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
+  bool rewriteSingleStoreAlloca(fir::AllocaOp &AI, AllocaInfo &Info,
+                                LargeBlockInfo &LBI) {
     fir::StoreOp onlyStore(M::cast<fir::StoreOp>(Info.onlyStore));
     M::Block *StoreBB = Info.onlyStore->getBlock();
     int StoreIndex = -1;
@@ -236,7 +238,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
     // Finally, after the scan, check to see if the store is all that is left.
     if (!Info.usingBlocks.empty())
-      return false;  // If not, we'll have to fall back for the remainder.
+      return false; // If not, we'll have to fall back for the remainder.
 
     // Remove the (now dead) store and alloca.
     Info.onlyStore->erase();
@@ -245,8 +247,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     return true;
   }
 
-  bool promoteSingleBlockAlloca(
-      fir::AllocaOp &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
+  bool promoteSingleBlockAlloca(fir::AllocaOp &AI, AllocaInfo &Info,
+                                LargeBlockInfo &LBI) {
     // Walk the use-def list of the alloca, getting the locations of all stores.
     using StoresByIndexTy =
         llvm::SmallVector<std::pair<unsigned, fir::StoreOp *>, 64>;
@@ -275,7 +277,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       unsigned LoadIdx = LBI.getInstructionIndex(LI);
 
       // Find the nearest store that has a lower index than this load.
-      typename StoresByIndexTy::iterator I = llvm::lower_bound(StoresByIndex,
+      typename StoresByIndexTy::iterator I = llvm::lower_bound(
+          StoresByIndex,
           std::make_pair(LoadIdx, static_cast<fir::StoreOp *>(nullptr)),
           llvm::less_first());
       if (I == StoresByIndex.begin()) {
@@ -324,8 +327,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   }
 
   void computeLiveInBlocks(fir::AllocaOp &ae, AllocaInfo &Info,
-      const llvm::SmallPtrSetImpl<M::Block *> &DefBlocks,
-      llvm::SmallPtrSetImpl<M::Block *> &liveInBlks) {
+                           const llvm::SmallPtrSetImpl<M::Block *> &DefBlocks,
+                           llvm::SmallPtrSetImpl<M::Block *> &liveInBlks) {
     auto *AI = ae.getOperation();
     // To determine liveness, we must iterate through the predecessors of blocks
     // where the def is live.  Blocks are added to the worklist if we need to
@@ -395,8 +398,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     }
   }
 
-  bool addBlockArgument(
-      M::Block *BB, fir::AllocaOp &Alloca, unsigned allocaNum) {
+  bool addBlockArgument(M::Block *BB, fir::AllocaOp &Alloca,
+                        unsigned allocaNum) {
     auto *ae = Alloca.getOperation();
     auto key = std::make_pair(BB, ae);
     auto argNoIter = BlockArgs.find(key);
@@ -410,16 +413,18 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     return true;
   }
 
-  template<typename A>
+  template <typename A>
   void initOperands(std::vector<M::Value *> &opers, M::Location &&loc,
-      M::Block *dest, unsigned size, unsigned ai, M::Value *val, A &&oldOpers) {
+                    M::Block *dest, unsigned size, unsigned ai, M::Value *val,
+                    A &&oldOpers) {
     unsigned i = 0;
     for (auto v : oldOpers) {
       opers[i++] = v;
     }
     // we must fill additional args with temporary undef values
     for (; i < size; ++i) {
-      if (i == ai) continue;
+      if (i == ai)
+        continue;
       auto opTy = dest->getArgument(i)->getType();
       auto typedUndef = builder->create<UndefOp>(loc, opTy);
       opers[i] = typedUndef;
@@ -435,7 +440,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
   /// Set the incoming value on the branch side for the `ai`th block argument
   void setParam(M::Block *blk, unsigned ai, M::Value *val, M::Block *target,
-      unsigned size) {
+                unsigned size) {
     auto *term = blk->getTerminator();
     if (auto br = M::dyn_cast<M::BranchOp>(term)) {
       if (br.getNumOperands() <= ai) {
@@ -459,13 +464,13 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
           auto *dest = cond.getTrueDest();
           builder->setInsertionPoint(term);
           initOperands(opers, cond.getLoc(), dest, size, ai, val,
-              cond.getTrueOperands());
+                       cond.getTrueOperands());
           auto *c = cond.getCondition();
           auto *othDest = cond.getFalseDest();
-          std::vector<M::Value *> othOpers(
-              cond.false_operand_begin(), cond.false_operand_end());
-          builder->create<M::CondBranchOp>(
-              cond.getLoc(), c, dest, opers, othDest, othOpers);
+          std::vector<M::Value *> othOpers(cond.false_operand_begin(),
+                                           cond.false_operand_end());
+          builder->create<M::CondBranchOp>(cond.getLoc(), c, dest, opers,
+                                           othDest, othOpers);
           cond.erase();
         } else {
           auto *oldParam = cond.getTrueOperand(ai);
@@ -479,13 +484,13 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
           auto *dest = cond.getFalseDest();
           builder->setInsertionPoint(term);
           initOperands(opers, cond.getLoc(), dest, size, ai, val,
-              cond.getFalseOperands());
+                       cond.getFalseOperands());
           auto *c = cond.getCondition();
           auto *othDest = cond.getTrueDest();
-          std::vector<M::Value *> othOpers(
-              cond.true_operand_begin(), cond.true_operand_end());
-          builder->create<M::CondBranchOp>(
-              cond.getLoc(), c, othDest, othOpers, dest, opers);
+          std::vector<M::Value *> othOpers(cond.true_operand_begin(),
+                                           cond.true_operand_end());
+          builder->create<M::CondBranchOp>(cond.getLoc(), c, othDest, othOpers,
+                                           dest, opers);
           cond.erase();
         } else {
           auto *oldParam = cond.getFalseOperand(ai);
@@ -499,7 +504,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   }
 
   inline static void addValue(RenamePassData::ValVector &vector,
-      RenamePassData::ValVector::size_type size, M::Value *value) {
+                              RenamePassData::ValVector::size_type size,
+                              M::Value *value) {
     if (vector.size() < size + 1) {
       vector.resize(size + 1);
     }
@@ -512,8 +518,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   /// IncomingVals indicates what value each Alloca contains on exit from the
   /// predecessor block Pred.
   void renamePass(M::Block *BB, M::Block *Pred,
-      RenamePassData::ValVector &IncomingVals,
-      std::vector<RenamePassData> &Worklist) {
+                  RenamePassData::ValVector &IncomingVals,
+                  std::vector<RenamePassData> &Worklist) {
   NextIteration:
     // Does this block take arguments?
     if ((!BB->hasNoPredecessors()) && (BB->getNumArguments() > 0)) {
@@ -534,7 +540,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
     M::Block::iterator II = BB->begin();
     while (true) {
-      if (II == BB->end()) break;
+      if (II == BB->end())
+        break;
       M::Operation &opn = *II;
       II++;
 
@@ -613,7 +620,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     std::vector<fir::AllocaOp> aes;
     AllocaInfo info;
     LargeBlockInfo lbi;
-    M::ForwardIDFCalculator IDF(*domTree);
+    ForwardIDFCalculator IDF(*domTree);
 
     assert(!allocas.empty());
 
@@ -653,8 +660,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       // insertion of dead phi nodes.
 
       // Unique the set of defining blocks for efficient lookup.
-      llvm::SmallPtrSet<M::Block *, 32> DefBlocks(
-          info.definingBlocks.begin(), info.definingBlocks.end());
+      llvm::SmallPtrSet<M::Block *, 32> DefBlocks(info.definingBlocks.begin(),
+                                                  info.definingBlocks.end());
 
       // Determine which blocks the value is live in.  These are blocks which
       // lead to uses.
@@ -690,8 +697,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     // has not been stored yet.  In this case, it will get this null value.
     RenamePassData::ValVector Values(allocas.size());
     for (unsigned i = 0, e = allocas.size(); i != e; ++i) {
-      Values[i] = builder->create<UndefOp>(
-          allocas[i].getLoc(), allocas[i].getAllocatedType());
+      Values[i] = builder->create<UndefOp>(allocas[i].getLoc(),
+                                           allocas[i].getAllocatedType());
     }
 
     // Walks all basic blocks in the function performing the SSA rename
@@ -753,7 +760,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   }
 };
 
-}  // namespace
+} // namespace
 
 std::unique_ptr<M::FunctionPassBase> fir::createMemToRegPass() {
   return std::make_unique<MemToReg>();

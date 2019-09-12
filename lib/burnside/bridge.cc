@@ -14,25 +14,18 @@
 
 #include "bridge.h"
 #include "builder.h"
-#include "canonicalize.h"
+#include "convert-expr.h"
 #include "fe-helper.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
 #include "flattened.h"
 #include "runtime.h"
-#include "../evaluate/expression.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../semantics/tools.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/raw_ostream.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Identifier.h"
-#include "mlir/IR/Module.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 
@@ -57,9 +50,11 @@ constexpr bool isStopStmt(Pa::StopStmt::Kind kind) {
   return kind == Pa::StopStmt::Kind::Stop;
 }
 
+constexpr bool firLoopOp{false};
+
 /// Converter from Fortran to FIR
-class MLIRConverter {
-  using LabelMapType = std::map<Fl::LabelRef, M::Block *>;
+class FIRConverter {
+  using LabelMapType = std::map<Fl::LabelMention, M::Block *>;
   using Closure = std::function<void(const LabelMapType &)>;
 
   struct DoBoundsInfo {
@@ -71,24 +66,26 @@ class MLIRConverter {
   };
 
   M::MLIRContext &mlirContext;
-  M::OwningModuleRef module_;
-  std::unique_ptr<M::OpBuilder> builder_;
-  LabelMapType blockMap_;  // map from flattened labels to MLIR blocks
+  const Pa::CookedSource *cooked;
+  M::ModuleOp &module;
+  std::unique_ptr<M::OpBuilder> builder;
+  LabelMapType blockMap;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
   std::map<const Pa::NonLabelDoStmt *, DoBoundsInfo> doMap;
   SymMap symbolMap;
-  Pa::CharBlock lastKnownPos_;
+  Pa::CharBlock lastKnownPos;
   bool noInsPt{false};
 
-  inline M::OpBuilder &build() { return *builder_.get(); }
-  inline M::ModuleOp getMod() { return module_.get(); }
-  inline LabelMapType &blkMap() { return blockMap_; }
+  inline M::OpBuilder &build() { return *builder.get(); }
+  inline M::ModuleOp &getMod() { return module; }
+  inline LabelMapType &blkMap() { return blockMap; }
+  void setCurrentPos(const Pa::CharBlock &pos) { lastKnownPos = pos; }
 
   /// Convert a parser CharBlock to a Location
   M::Location toLocation(const Pa::CharBlock &cb) {
-    return parserPosToLoc(mlirContext, cb);
+    return parserPosToLoc(mlirContext, cooked, cb);
   }
-  M::Location toLocation() { return toLocation(lastKnownPos_); }
+  M::Location toLocation() { return toLocation(lastKnownPos); }
 
   /// Construct the type of an Expr<A> expression
   M::Type exprType(const SomeExpr *expr) {
@@ -122,7 +119,7 @@ class MLIRConverter {
     return createTemporary(toLocation(), build(), symbolMap, type, symbol);
   }
 
-  M::FuncOp genFunctionMLIR(llvm::StringRef callee, M::FunctionType funcTy) {
+  M::FuncOp genFunctionFIR(llvm::StringRef callee, M::FunctionType funcTy) {
     if (auto func{getNamedFunction(callee)}) {
       return func;
     }
@@ -130,13 +127,13 @@ class MLIRConverter {
   }
 
   M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
-    return genFunctionMLIR(
+    return genFunctionFIR(
         getRuntimeEntryName(rec), getRuntimeEntryType(rec, mlirContext, kind));
   }
 
   template<typename T> DoBoundsInfo *getBoundsInfo(const T &linearOp) {
     auto &st{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(linearOp.v->t)};
-    lastKnownPos_ = st.source;
+    setCurrentPos(st.source);
     auto *s{&st.statement};
     auto iter{doMap.find(s)};
     if (iter != doMap.end()) {
@@ -178,10 +175,10 @@ class MLIRConverter {
     return build().create<M::AndOp>(lhs->getLoc(), lhs, rhs);
   }
 
-  void genMLIR(AnalysisData &ad, std::list<Fl::Op> &operations);
+  void genFIR(AnalysisData &ad, std::list<Fl::Op> &operations);
 
   // Control flow destination
-  void genMLIR(bool lastWasLabel, const Fl::LabelOp &op) {
+  void genFIR(bool lastWasLabel, const Fl::LabelOp &op) {
     if (lastWasLabel) {
       blkMap().insert({op.get(), build().getInsertionBlock()});
     } else {
@@ -197,14 +194,14 @@ class MLIRConverter {
   }
 
   // Goto statements
-  void genMLIR(const Fl::GotoOp &op) {
+  void genFIR(const Fl::GotoOp &op) {
     auto iter{blkMap().find(op.target)};
     if (iter != blkMap().end()) {
       build().create<M::BranchOp>(toLocation(), iter->second);
     } else {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
-          [](M::OpBuilder *builder, M::Block *block, Fl::LabelRef dest,
+          [](M::OpBuilder *builder, M::Block *block, Fl::LabelMention dest,
               M::Location location, const LabelMapType &map) {
             builder->setInsertionPointToEnd(block);
             assert(map.find(dest) != map.end() && "no destination");
@@ -214,33 +211,33 @@ class MLIRConverter {
     }
     noInsPt = true;
   }
-  void genMLIR(const Fl::ReturnOp &op) {
-    std::visit([&](const auto *stmt) { genMLIR(*stmt); }, op.u);
+  void genFIR(const Fl::ReturnOp &op) {
+    std::visit([&](const auto *stmt) { genFIR(*stmt); }, op.u);
     noInsPt = true;
   }
-  void genMLIR(const Fl::ConditionalGotoOp &op) {
+  void genFIR(const Fl::ConditionalGotoOp &op) {
     std::visit(
-        [&](const auto *stmt) { genMLIR(*stmt, op.trueLabel, op.falseLabel); },
+        [&](const auto *stmt) { genFIR(*stmt, op.trueLabel, op.falseLabel); },
         op.u);
     noInsPt = true;
   }
 
-  void genMLIR(const Fl::SwitchIOOp &op);
+  void genFIR(const Fl::SwitchIOOp &op);
 
   // CALL with alt-return value returned
-  void genMLIR(const Fl::SwitchOp &op, const Pa::CallStmt &stmt) {
+  void genFIR(const Fl::SwitchOp &op, const Pa::CallStmt &stmt) {
     auto loc{toLocation(op.source)};
     // FIXME
     (void)loc;
   }
-  void genMLIR(const Fl::SwitchOp &op, const Pa::ComputedGotoStmt &stmt) {
+  void genFIR(const Fl::SwitchOp &op, const Pa::ComputedGotoStmt &stmt) {
     auto loc{toLocation(op.source)};
     auto *exp{Se::GetExpr(std::get<Pa::ScalarIntExpr>(stmt.t))};
     auto *e1{createFIRExpr(loc, exp)};
     // FIXME
     (void)e1;
   }
-  void genMLIR(const Fl::SwitchOp &op, const Pa::ArithmeticIfStmt &stmt) {
+  void genFIR(const Fl::SwitchOp &op, const Pa::ArithmeticIfStmt &stmt) {
     auto loc{toLocation(op.source)};
     auto *exp{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *e1{createFIRExpr(loc, exp)};
@@ -250,15 +247,15 @@ class MLIRConverter {
   M::Value *fromCaseValue(const M::Location &locs, const Pa::CaseValue &val) {
     return createFIRExpr(locs, Se::GetExpr(val));
   }
-  void genMLIR(const Fl::SwitchOp &op, const Pa::CaseConstruct &stmt);
-  void genMLIR(const Fl::SwitchOp &op, const Pa::SelectRankConstruct &stmt);
-  void genMLIR(const Fl::SwitchOp &op, const Pa::SelectTypeConstruct &stmt);
-  void genMLIR(const Fl::SwitchOp &op) {
-    std::visit([&](auto *construct) { genMLIR(op, *construct); }, op.u);
+  void genFIR(const Fl::SwitchOp &op, const Pa::CaseConstruct &stmt);
+  void genFIR(const Fl::SwitchOp &op, const Pa::SelectRankConstruct &stmt);
+  void genFIR(const Fl::SwitchOp &op, const Pa::SelectTypeConstruct &stmt);
+  void genFIR(const Fl::SwitchOp &op) {
+    std::visit([&](auto *construct) { genFIR(op, *construct); }, op.u);
     noInsPt = true;
   }
 
-  void genMLIR(AnalysisData &ad, const Fl::ActionOp &op);
+  void genFIR(AnalysisData &ad, const Fl::ActionOp &op);
 
   void pushDoContext(const Pa::NonLabelDoStmt *doStmt,
       M::Value *doVar = nullptr, M::Value *counter = nullptr,
@@ -266,16 +263,23 @@ class MLIRConverter {
     doMap.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExpr});
   }
 
-  void genLoopEnterMLIR(const Pa::LoopControl::Bounds &bounds,
+  void genLoopEnterFIR(const Pa::LoopControl::Bounds &bounds,
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     auto loc{toLocation(source)};
+    // evaluate e1, e2 [, e3] ...
+    auto *e1{createFIRExpr(loc, Se::GetExpr(bounds.lower))};
+    auto *e2{createFIRExpr(loc, Se::GetExpr(bounds.upper))};
+    if (firLoopOp) {
+      std::vector<M::Value *> step;
+      if (bounds.step.has_value())
+        step.push_back(createFIRExpr(loc, Se::GetExpr(bounds.step)));
+      auto loopOp{build().create<fir::LoopOp>(loc, e1, e2, step)};
+      auto *block = createBlock(&build(), &loopOp.getOperation()->getRegion(0));
+      block->addArgument(M::IndexType::get(build().getContext()));
+      return;
+    }
     auto *nameExpr{bounds.name.thing.symbol};
     auto *name{createTemp(getDefaultIntegerType(), nameExpr)};
-    // evaluate e1, e2 [, e3] ...
-    auto *lowerExpr{Se::GetExpr(bounds.lower)};
-    auto *e1{createFIRExpr(loc, lowerExpr)};
-    auto *upperExpr{Se::GetExpr(bounds.upper)};
-    auto *e2{createFIRExpr(loc, upperExpr)};
     M::Value *e3;
     if (bounds.step.has_value()) {
       auto *stepExpr{Se::GetExpr(bounds.step)};
@@ -298,40 +302,47 @@ class MLIRConverter {
     pushDoContext(stmt, name, tripCounter, e3);
   }
 
-  void genLoopEnterMLIR(const Pa::ScalarLogicalExpr &logicalExpr,
+  void genLoopEnterFIR(const Pa::ScalarLogicalExpr &logicalExpr,
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     // See 11.1.7.4.1, para. 2
     // See BuildLoopLatchExpression()
     pushDoContext(stmt);
   }
-  void genLoopEnterMLIR(const Pa::LoopControl::Concurrent &concurrent,
+
+  void genLoopEnterFIR(const Pa::LoopControl::Concurrent &concurrent,
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     // See 11.1.7.4.2
     // FIXME
   }
-  void genEnterMLIR(const Pa::DoConstruct &construct) {
+
+  void genEnterFIR(const Pa::DoConstruct &construct) {
     auto &stmt{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(construct.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     const Pa::NonLabelDoStmt &ss{stmt.statement};
     auto &ctrl{std::get<std::optional<Pa::LoopControl>>(ss.t)};
     if (ctrl.has_value()) {
-      std::visit([&](const auto &x) { genLoopEnterMLIR(x, &ss, stmt.source); },
+      std::visit([&](const auto &x) { genLoopEnterFIR(x, &ss, stmt.source); },
           ctrl->u);
     } else {
       // loop forever (See 11.1.7.4.1, para. 2)
       pushDoContext(&ss);
     }
   }
-  template<typename A> void genEnterMLIR(const A &construct) {
-    // FIXME: add other genEnterMLIR() members
+  template<typename A> void genEnterFIR(const A &construct) {
+    // FIXME: add other genEnterFIR() members
   }
-  void genMLIR(const Fl::BeginOp &op) {
-    std::visit([&](auto *construct) { genEnterMLIR(*construct); }, op.u);
+  void genFIR(const Fl::BeginOp &op) {
+    std::visit([&](auto *construct) { genEnterFIR(*construct); }, op.u);
   }
 
-  void genExitMLIR(const Pa::DoConstruct &construct) {
+  void genExitFIR(const Pa::DoConstruct &construct) {
+    if (firLoopOp) {
+      build().setInsertionPointAfter(
+          build().getBlock()->getParent()->getParentOp());
+      return;
+    }
     auto &stmt{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(construct.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     const Pa::NonLabelDoStmt &ss{stmt.statement};
     auto &ctrl{std::get<std::optional<parser::LoopControl>>(ss.t)};
     if (ctrl.has_value() &&
@@ -340,13 +351,18 @@ class MLIRConverter {
     }
     noInsPt = true;  // backedge already processed
   }
-  void genMLIR(const Fl::EndOp &op) {
+
+  void genFIR(const Fl::EndOp &op) {
     if (auto *construct{std::get_if<const Pa::DoConstruct *>(&op.u)})
-      genExitMLIR(**construct);
+      genExitFIR(**construct);
   }
 
-  void genMLIR(AnalysisData &ad, const Fl::IndirectGotoOp &op);
-  void genMLIR(const Fl::DoIncrementOp &op) {
+  void genFIR(AnalysisData &ad, const Fl::IndirectGotoOp &op);
+
+  void genFIR(const Fl::DoIncrementOp &op) {
+    if (firLoopOp) {
+      return;
+    }
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: do_var = do_var + e3
@@ -356,8 +372,8 @@ class MLIRConverter {
           load.getLoc(), load.getResult(), info->stepExpr)};
       build().create<fir::StoreOp>(load.getLoc(), incremented, info->doVar);
       // add: counter--
-      auto loadCtr{build().create<fir::LoadOp>(
-          info->counter->getLoc(), info->counter)};
+      auto loadCtr{
+          build().create<fir::LoadOp>(info->counter->getLoc(), info->counter)};
       auto one{build().create<M::ConstantOp>(
           loadCtr.getLoc(), build().getIntegerAttr(loadCtr.getType(), 1))};
       auto decremented{build().create<M::SubIOp>(
@@ -366,12 +382,16 @@ class MLIRConverter {
           loadCtr.getLoc(), decremented, info->counter);
     }
   }
-  void genMLIR(const Fl::DoCompareOp &op) {
+
+  void genFIR(const Fl::DoCompareOp &op) {
+    if (firLoopOp) {
+      return;
+    }
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: cond = counter > 0 (signed)
-      auto load{build().create<fir::LoadOp>(
-          info->counter->getLoc(), info->counter)};
+      auto load{
+          build().create<fir::LoadOp>(info->counter->getLoc(), info->counter)};
       auto zero{build().create<M::ConstantOp>(
           load.getLoc(), build().getIntegerAttr(load.getType(), 0))};
       auto cond{build().create<M::CmpIOp>(
@@ -379,16 +399,17 @@ class MLIRConverter {
       info->condition = cond;
     }
   }
-  void genMLIR(const Pa::FailImageStmt &stmt) {
+
+  void genFIR(const Pa::FailImageStmt &stmt) {
     auto callee{genRuntimeFunction(FIRT_FAIL_IMAGE, 0)};
     llvm::SmallVector<M::Value *, 1> operands;  // FAIL IMAGE has no args
     build().create<M::CallOp>(toLocation(), callee, operands);
     build().create<fir::UnreachableOp>(toLocation());
   }
-  void genMLIR(const Pa::ReturnStmt &stmt) {
+  void genFIR(const Pa::ReturnStmt &stmt) {
     build().create<M::ReturnOp>(toLocation());  // FIXME: argument(s)?
   }
-  void genMLIR(const Pa::StopStmt &stmt) {
+  void genFIR(const Pa::StopStmt &stmt) {
     auto callee{genRuntimeFunction(
         isStopStmt(std::get<Pa::StopStmt::Kind>(stmt.t)) ? FIRT_STOP
                                                          : FIRT_ERROR_STOP,
@@ -401,26 +422,26 @@ class MLIRConverter {
 
   // Conditional branch-like statements
   template<typename A>
-  void genMLIR(
-      const A &tuple, Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
+  void genFIR(
+      const A &tuple, Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
     auto *exprRef{Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(tuple))};
     assert(exprRef && "condition expression missing");
     auto *cond{createFIRExpr(toLocation(), exprRef)};
     genCondBranch(cond, trueLabel, falseLabel);
   }
-  void genMLIR(const Pa::Statement<Pa::IfThenStmt> &stmt,
-      Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
-    genMLIR(stmt.statement.t, trueLabel, falseLabel);
+  void genFIR(const Pa::Statement<Pa::IfThenStmt> &stmt,
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
+    setCurrentPos(stmt.source);
+    genFIR(stmt.statement.t, trueLabel, falseLabel);
   }
-  void genMLIR(const Pa::Statement<Pa::ElseIfStmt> &stmt,
-      Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
-    genMLIR(stmt.statement.t, trueLabel, falseLabel);
+  void genFIR(const Pa::Statement<Pa::ElseIfStmt> &stmt,
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
+    setCurrentPos(stmt.source);
+    genFIR(stmt.statement.t, trueLabel, falseLabel);
   }
-  void genMLIR(
-      const Pa::IfStmt &stmt, Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    genMLIR(stmt.t, trueLabel, falseLabel);
+  void genFIR(const Pa::IfStmt &stmt, Fl::LabelMention trueLabel,
+      Fl::LabelMention falseLabel) {
+    genFIR(stmt.t, trueLabel, falseLabel);
   }
 
   M::Value *getTrueConstant() {
@@ -429,29 +450,40 @@ class MLIRConverter {
   }
 
   // Conditional branch to enter loop body or exit
-  void genMLIR(const Pa::Statement<Pa::NonLabelDoStmt> &stmt,
-      Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
+  void genFIR(const Pa::Statement<Pa::NonLabelDoStmt> &stmt,
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
+    setCurrentPos(stmt.source);
     auto &loopCtrl{std::get<std::optional<Pa::LoopControl>>(stmt.statement.t)};
     M::Value *condition{nullptr};
+    bool exitNow{false};
     if (loopCtrl.has_value()) {
-      std::visit(Co::visitors{
-                     [&](const parser::LoopControl::Bounds &) {
-                       auto iter{doMap.find(&stmt.statement)};
-                       assert(iter != doMap.end());
-                       condition = iter->second.condition->getResult(0);
-                     },
-                     [&](const parser::ScalarLogicalExpr &logical) {
-                       auto loc{toLocation(stmt.source)};
-                       auto *exp{Se::GetExpr(logical)};
-                       condition = createFIRExpr(loc, exp);
-                     },
-                     [&](const parser::LoopControl::Concurrent &concurrent) {
-                       // FIXME: incorrectly lowering DO CONCURRENT
-                       condition = getTrueConstant();
-                     },
-                 },
+      exitNow = std::visit(
+          Co::visitors{
+              [&](const parser::LoopControl::Bounds &) {
+                if (firLoopOp) {
+                  return true;
+                }
+                auto iter{doMap.find(&stmt.statement)};
+                assert(iter != doMap.end());
+                condition = iter->second.condition->getResult(0);
+                return false;
+              },
+              [&](const parser::ScalarLogicalExpr &logical) {
+                auto loc{toLocation(stmt.source)};
+                auto *exp{Se::GetExpr(logical)};
+                condition = createFIRExpr(loc, exp);
+                return false;
+              },
+              [&](const parser::LoopControl::Concurrent &concurrent) {
+                // FIXME: incorrectly lowering DO CONCURRENT
+                condition = getTrueConstant();
+                return false;
+              },
+          },
           loopCtrl->u);
+      if (firLoopOp && exitNow) {
+        return;
+      }
     } else {
       condition = getTrueConstant();
     }
@@ -460,49 +492,49 @@ class MLIRConverter {
   }
 
   // Action statements
-  void genMLIR(const Pa::AllocateStmt &stmt);
-  void genMLIR(const Pa::AssignmentStmt &stmt) {
+  void genFIR(const Pa::AllocateStmt &stmt);
+  void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
     auto loc{toLocation()};
     build().create<fir::StoreOp>(
         loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
   }
-  void genMLIR(const Pa::BackspaceStmt &stmt);
-  void genMLIR(const Pa::CallStmt &stmt);
-  void genMLIR(const Pa::CloseStmt &stmt);
-  void genMLIR(const Pa::DeallocateStmt &stmt);
-  void genMLIR(const Pa::EndfileStmt &stmt);
-  void genMLIR(const Pa::EventPostStmt &stmt);
-  void genMLIR(const Pa::EventWaitStmt &stmt);
-  void genMLIR(const Pa::FlushStmt &stmt);
-  void genMLIR(const Pa::FormTeamStmt &stmt);
-  void genMLIR(const Pa::InquireStmt &stmt);
-  void genMLIR(const Pa::LockStmt &stmt);
-  void genMLIR(const Pa::NullifyStmt &stmt);
-  void genMLIR(const Pa::OpenStmt &stmt);
-  void genMLIR(const Pa::PointerAssignmentStmt &stmt);
-  void genMLIR(const Pa::PrintStmt &stmt);
-  void genMLIR(const Pa::ReadStmt &stmt);
-  void genMLIR(const Pa::RewindStmt &stmt);
-  void genMLIR(const Pa::SyncAllStmt &stmt);
-  void genMLIR(const Pa::SyncImagesStmt &stmt);
-  void genMLIR(const Pa::SyncMemoryStmt &stmt);
-  void genMLIR(const Pa::SyncTeamStmt &stmt);
-  void genMLIR(const Pa::UnlockStmt &stmt);
-  void genMLIR(const Pa::WaitStmt &stmt);
-  void genMLIR(const Pa::WhereStmt &stmt);
-  void genMLIR(const Pa::WriteStmt &stmt);
-  void genMLIR(const Pa::ForallStmt &stmt);
-  void genMLIR(AnalysisData &ad, const Pa::AssignStmt &stmt);
-  void genMLIR(const Pa::PauseStmt &stmt);
+  void genFIR(const Pa::BackspaceStmt &stmt);
+  void genFIR(const Pa::CallStmt &stmt);
+  void genFIR(const Pa::CloseStmt &stmt);
+  void genFIR(const Pa::DeallocateStmt &stmt);
+  void genFIR(const Pa::EndfileStmt &stmt);
+  void genFIR(const Pa::EventPostStmt &stmt);
+  void genFIR(const Pa::EventWaitStmt &stmt);
+  void genFIR(const Pa::FlushStmt &stmt);
+  void genFIR(const Pa::FormTeamStmt &stmt);
+  void genFIR(const Pa::InquireStmt &stmt);
+  void genFIR(const Pa::LockStmt &stmt);
+  void genFIR(const Pa::NullifyStmt &stmt);
+  void genFIR(const Pa::OpenStmt &stmt);
+  void genFIR(const Pa::PointerAssignmentStmt &stmt);
+  void genFIR(const Pa::PrintStmt &stmt);
+  void genFIR(const Pa::ReadStmt &stmt);
+  void genFIR(const Pa::RewindStmt &stmt);
+  void genFIR(const Pa::SyncAllStmt &stmt);
+  void genFIR(const Pa::SyncImagesStmt &stmt);
+  void genFIR(const Pa::SyncMemoryStmt &stmt);
+  void genFIR(const Pa::SyncTeamStmt &stmt);
+  void genFIR(const Pa::UnlockStmt &stmt);
+  void genFIR(const Pa::WaitStmt &stmt);
+  void genFIR(const Pa::WhereStmt &stmt);
+  void genFIR(const Pa::WriteStmt &stmt);
+  void genFIR(const Pa::ForallStmt &stmt);
+  void genFIR(AnalysisData &ad, const Pa::AssignStmt &stmt);
+  void genFIR(const Pa::PauseStmt &stmt);
 
   template<typename A>
   void translateRoutine(
-      const A &routine, const std::string &name, const Se::Symbol *funcSym);
+      const A &routine, llvm::StringRef name, const Se::Symbol *funcSym);
 
   void genCondBranch(
-      M::Value *cond, Fl::LabelRef trueBlock, Fl::LabelRef falseBlock) {
+      M::Value *cond, Fl::LabelMention trueBlock, Fl::LabelMention falseBlock) {
     auto trueIter{blkMap().find(trueBlock)};
     auto falseIter{blkMap().find(falseBlock)};
     if (trueIter != blkMap().end() && falseIter != blkMap().end()) {
@@ -513,7 +545,7 @@ class MLIRConverter {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
           [](M::OpBuilder *builder, M::Block *block, M::Value *cnd,
-              Fl::LabelRef trueDest, Fl::LabelRef falseDest,
+              Fl::LabelMention trueDest, Fl::LabelMention falseDest,
               M::Location location, const LabelMapType &map) {
             llvm::SmallVector<M::Value *, 2> blk;
             builder->setInsertionPointToEnd(block);
@@ -531,7 +563,7 @@ class MLIRConverter {
   template<typename A>
   void genSwitchBranch(const M::Location &loc, M::Value *selector,
       std::list<typename A::Conditions> &&conditions,
-      const std::vector<Fl::LabelRef> &labels) {
+      const std::vector<Fl::LabelMention> &labels) {
     assert(conditions.size() == labels.size());
     bool haveAllLabels{true};
     std::size_t u{0};
@@ -559,7 +591,7 @@ class MLIRConverter {
       edgeQ.emplace_back(std::bind(
           [](M::OpBuilder *builder, M::Block *block, M::Value *sel,
               const std::list<typename A::Conditions> &conditions,
-              const std::vector<Fl::LabelRef> &labels, M::Location location,
+              const std::vector<Fl::LabelMention> &labels, M::Location location,
               const LabelMapType &map) {
             std::size_t u{0};
             std::vector<M::Value *> conds;
@@ -588,11 +620,10 @@ class MLIRConverter {
   }
 
 public:
-  MLIRConverter(BurnsideBridge &bridge)
-    : mlirContext{bridge.getMLIRContext()}, module_{bridge.getModule()} {}
-  MLIRConverter() = delete;
-
-  M::ModuleOp getModule() { return getMod(); }
+  FIRConverter(BurnsideBridge &bridge)
+    : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
+      module{bridge.getModule()} {}
+  FIRConverter() = delete;
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
   template<typename A> constexpr void Post(const A &) {}
@@ -603,19 +634,19 @@ public:
     if (auto &ps{
             std::get<std::optional<Pa::Statement<Pa::ProgramStmt>>>(mainp.t)}) {
       mainName = ps->statement.v.ToString();
-      lastKnownPos_ = ps->source;
+      setCurrentPos(ps->source);
     }
     translateRoutine(mainp, mainName, nullptr);
   }
   void Post(const Pa::FunctionSubprogram &subp) {
     auto &stmt{std::get<Pa::Statement<Pa::FunctionStmt>>(subp.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     auto &name{std::get<Pa::Name>(stmt.statement.t)};
     translateRoutine(subp, name.ToString(), name.symbol);
   }
   void Post(const Pa::SubroutineSubprogram &subp) {
     auto &stmt{std::get<Pa::Statement<Pa::SubroutineStmt>>(subp.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     auto &name{std::get<Pa::Name>(stmt.statement.t)};
     translateRoutine(subp, name.ToString(), name.symbol);
   }
@@ -623,7 +654,7 @@ public:
 
 /// SELECT CASE
 /// Build a switch-like structure for a SELECT CASE
-void MLIRConverter::genMLIR(
+void FIRConverter::genFIR(
     const Fl::SwitchOp &op, const Pa::CaseConstruct &stmt) {
   auto loc{toLocation(op.source)};
   auto &cstm{std::get<Pa::Statement<Pa::SelectCaseStmt>>(stmt.t)};
@@ -681,7 +712,7 @@ void MLIRConverter::genMLIR(
 
 /// SELECT RANK
 /// Build a switch-like structure for a SELECT RANK
-void MLIRConverter::genMLIR(
+void FIRConverter::genFIR(
     const Fl::SwitchOp &op, const Pa::SelectRankConstruct &stmt) {
   auto loc{toLocation(op.source)};
   auto &rstm{std::get<Pa::Statement<Pa::SelectRankStmt>>(stmt.t)};
@@ -719,7 +750,7 @@ void MLIRConverter::genMLIR(
 
 /// SELECT TYPE
 /// Build a switch-like structure for a SELECT TYPE
-void MLIRConverter::genMLIR(
+void FIRConverter::genFIR(
     const Fl::SwitchOp &op, const Pa::SelectTypeConstruct &stmt) {
   auto loc{toLocation(op.source)};
   auto &tstm{std::get<Pa::Statement<Pa::SelectTypeStmt>>(stmt.t)};
@@ -758,43 +789,43 @@ void MLIRConverter::genMLIR(
       loc, e3.getResult(0), std::move(conds), op.refs);
 }
 
-void MLIRConverter::genMLIR(const Fl::SwitchIOOp &op) {}
+void FIRConverter::genFIR(const Fl::SwitchIOOp &op) {}
 
-void MLIRConverter::genMLIR(const Pa::AllocateStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::BackspaceStmt &stmt) {
+void FIRConverter::genFIR(const Pa::AllocateStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::BackspaceStmt &stmt) {
   // builder->create<IOCallOp>(stmt.v);
 }
-void MLIRConverter::genMLIR(const Pa::CallStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::CloseStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::DeallocateStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::EndfileStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::EventPostStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::EventWaitStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::FlushStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::FormTeamStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::InquireStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::LockStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::NullifyStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::OpenStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::PointerAssignmentStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::PrintStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::ReadStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::RewindStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::SyncAllStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::SyncImagesStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::SyncMemoryStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::SyncTeamStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::UnlockStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::WaitStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::WhereStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::WriteStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::ForallStmt &stmt) {}
-void MLIRConverter::genMLIR(AnalysisData &ad, const Pa::AssignStmt &stmt) {}
-void MLIRConverter::genMLIR(const Pa::PauseStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::CallStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::CloseStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::DeallocateStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::EndfileStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::EventPostStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::EventWaitStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::FlushStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::FormTeamStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::InquireStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::LockStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::NullifyStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::OpenStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::PointerAssignmentStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::PrintStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::ReadStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::RewindStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::SyncAllStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::SyncImagesStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::SyncMemoryStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::SyncTeamStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::UnlockStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::WaitStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::WhereStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::WriteStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::ForallStmt &stmt) {}
+void FIRConverter::genFIR(AnalysisData &ad, const Pa::AssignStmt &stmt) {}
+void FIRConverter::genFIR(const Pa::PauseStmt &stmt) {}
 
 /// translate action statements
-void MLIRConverter::genMLIR(AnalysisData &ad, const Fl::ActionOp &op) {
-  lastKnownPos_ = op.v->source;
+void FIRConverter::genFIR(AnalysisData &ad, const Fl::ActionOp &op) {
+  setCurrentPos(op.v->source);
   std::visit(
       Co::visitors{
           [](const Pa::ContinueStmt &) { assert(false); },
@@ -809,42 +840,42 @@ void MLIRConverter::genMLIR(AnalysisData &ad, const Fl::ActionOp &op) {
           [](const Co::Indirection<Pa::ReturnStmt> &) { assert(false); },
           [](const Co::Indirection<Pa::StopStmt> &) { assert(false); },
           [&](const Co::Indirection<Pa::AssignStmt> &assign) {
-            genMLIR(ad, assign.value());
+            genFIR(ad, assign.value());
           },
-          [&](const auto &stmt) { genMLIR(stmt.value()); },
+          [&](const auto &stmt) { genFIR(stmt.value()); },
       },
       op.v->statement.u);
 }
 
-void MLIRConverter::genMLIR(AnalysisData &ad, const Fl::IndirectGotoOp &op) {
+void FIRConverter::genFIR(AnalysisData &ad, const Fl::IndirectGotoOp &op) {
   // add or queue an igoto
 }
 
-void MLIRConverter::genMLIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
+void FIRConverter::genFIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
   bool lastWasLabel{false};
   for (auto &op : operations) {
     std::visit(Co::visitors{
                    [&](const Fl::IndirectGotoOp &oper) {
-                     genMLIR(ad, oper);
+                     genFIR(ad, oper);
                      lastWasLabel = false;
                    },
                    [&](const Fl::ActionOp &oper) {
                      noInsPt = false;
-                     genMLIR(ad, oper);
+                     genFIR(ad, oper);
                      lastWasLabel = false;
                    },
                    [&](const Fl::LabelOp &oper) {
-                     genMLIR(lastWasLabel, oper);
+                     genFIR(lastWasLabel, oper);
                      lastWasLabel = true;
                    },
                    [&](const Fl::BeginOp &oper) {
                      noInsPt = false;
-                     genMLIR(oper);
+                     genFIR(oper);
                      lastWasLabel = true;
                    },
                    [&](const auto &oper) {
                      noInsPt = false;
-                     genMLIR(oper);
+                     genFIR(oper);
                      lastWasLabel = false;
                    },
                },
@@ -858,8 +889,8 @@ void MLIRConverter::genMLIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
 
 /// Translate the routine to MLIR
 template<typename A>
-void MLIRConverter::translateRoutine(
-    const A &routine, const std::string &name, const Se::Symbol *funcSym) {
+void FIRConverter::translateRoutine(
+    const A &routine, llvm::StringRef name, const Se::Symbol *funcSym) {
   M::FuncOp func{getNamedFunction(name)};
   if (!func) {
     // get arguments and return type if any, otherwise just use empty vectors
@@ -886,7 +917,7 @@ void MLIRConverter::translateRoutine(
     func = createFunction(getMod(), name, funcTy);
   }
   func.addEntryBlock();
-  builder_ = std::make_unique<M::OpBuilder>(func);
+  builder = std::make_unique<M::OpBuilder>(func);
   build().setInsertionPointToStart(&func.front());
   if (funcSym) {
     auto *entryBlock{&func.front()};
@@ -904,7 +935,7 @@ void MLIRConverter::translateRoutine(
   AnalysisData ad;
   std::list<Fl::Op> operations;
   CreateFlatIR(routine, operations, ad);
-  genMLIR(ad, operations);
+  genFIR(ad, operations);
   finalizeQueued();
 }
 
@@ -913,7 +944,7 @@ M::DialectRegistration<fir::FIROpsDialect> FIROps;
 }  // namespace
 
 void Br::crossBurnsideBridge(BurnsideBridge &bridge, const Pa::Program &prg) {
-  MLIRConverter converter{bridge};
+  FIRConverter converter{bridge};
   Walk(prg, converter);
 }
 
@@ -922,25 +953,29 @@ std::unique_ptr<llvm::Module> Br::LLVMBridge(M::ModuleOp &module) {
 }
 
 void Br::BurnsideBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
-  module_ = M::parseSourceFile(srcMgr, context_.get());
+  auto owningRef = M::parseSourceFile(srcMgr, context.get());
+  module.reset(new M::ModuleOp(owningRef.get().getOperation()));
+  owningRef.release();
   if (validModule()) {
     // symbols are added by ModuleManager ctor
-    manager_.reset(new M::ModuleManager(getModule()));
+    manager.reset(new M::ModuleManager(getModule()));
   }
 }
 
 Br::BurnsideBridge::BurnsideBridge(
-    const Co::IntrinsicTypeDefaultKinds &defaultKinds)
-  : defaultKinds_{defaultKinds} {
-  context_ = std::make_unique<M::MLIRContext>();
-  module_ = M::OwningModuleRef{
-      M::ModuleOp::create(M::UnknownLoc::get(context_.get()))};
-  manager_ = std::make_unique<M::ModuleManager>(getModule());
+    const Co::IntrinsicTypeDefaultKinds &defaultKinds,
+    const Pa::CookedSource *cooked)
+  : defaultKinds{defaultKinds}, cooked{cooked} {
+  context = std::make_unique<M::MLIRContext>();
+  module = std::make_unique<M::ModuleOp>(
+      M::ModuleOp::create(M::UnknownLoc::get(context.get())));
+  manager = std::make_unique<M::ModuleManager>(getModule());
 }
 
 void Br::instantiateBurnsideBridge(
-    const Co::IntrinsicTypeDefaultKinds &defaultKinds) {
-  auto p{BurnsideBridge::create(defaultKinds)};
+    const Co::IntrinsicTypeDefaultKinds &defaultKinds,
+    const Pa::CookedSource *cooked) {
+  auto p{BurnsideBridge::create(defaultKinds, cooked)};
   bridgeInstance.swap(p);
 }
 

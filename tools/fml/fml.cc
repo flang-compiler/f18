@@ -14,6 +14,12 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
+#include "fir/Dialect.h"
+#include "fir/Tilikum/LLVMConverter.h"
+#include "fir/Tilikum/StdConverter.h"
+#include "fir/Transforms/MemToReg.h"
+#include "../../lib/burnside/bridge.h"
+#include "../../lib/burnside/convert-expr.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
@@ -37,12 +43,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "fir/Dialect.h"
-#include "fir/Tilikum/LLVMConverter.h"
-#include "fir/Tilikum/StdConverter.h"
-#include "fir/Transforms/MemToReg.h"
-#include "../../lib/burnside/bridge.h"
-#include "../../lib/burnside/canonicalize.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -267,12 +267,13 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
 
   // MLIR+FIR
-  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
+  Br::instantiateBurnsideBridge(
+      semanticsContext.defaultKinds(), &parsing.cooked());
   Br::crossBurnsideBridge(Br::getBridge(), parseTree);
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
-    llvm::outs() << ";== 1 ==\n";
+    llvm::errs() << ";== 1 ==\n";
     mlirModule.dump();
   }
   pm.addPass(fir::createMemToRegPass());
@@ -289,7 +290,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
   auto result{pm.run(mlirModule)};
   if (driver.dumpFIR) {
-    llvm::outs() << ";== 2 ==\n";
+    llvm::errs() << ";== 2 ==\n";
     mlirModule.dump();
   }
   return {};
@@ -323,7 +324,7 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     std::exit(4);
   }
 
-  llvm::outs() << ";== 3 ==\n";
+  llvm::errs() << ";== 3 ==\n";
   mlirModule.dump();
 
   // run passes
@@ -340,10 +341,10 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createLLVMDialectToLLVMPass());
   }
   auto result{pm.run(mlirModule)};
-  llvm::outs() << ";== 4 ==\n";
+  llvm::errs() << ";== 4 ==\n";
   mlirModule.dump();
   if (mlir::succeeded(result)) {
-    llvm::outs() << "a.ll written\n";
+    llvm::errs() << "a.ll written\n";
   } else {
     llvm::errs() << "FAILED\n";
     std::exit(5);
@@ -427,7 +428,7 @@ int main(int argc, char *const argv[]) {
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
             suffix == "F18" || suffix == "ff18") {
           fortranSources.push_back(arg);
-        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir")  {
+        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir") {
           firSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
           relocatables.push_back(arg);

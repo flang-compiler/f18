@@ -13,10 +13,10 @@
 // limitations under the License.
 
 #include "fir/Dialect.h"
+#include "../evaluate/expression.h"
 #include "fir/Attribute.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
-#include "../evaluate/expression.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
 
@@ -26,9 +26,10 @@ using namespace fir;
 
 namespace {
 
-template<typename A>
+template <typename A>
 void selectBuild(M::OpBuilder *builder, M::OperationState *result,
-    M::Value *condition, llvm::ArrayRef<typename A::BranchTuple> tuples) {
+                 M::Value *condition,
+                 llvm::ArrayRef<typename A::BranchTuple> tuples) {
   result->addOperands(condition);
   for (auto &tup : tuples) {
     auto *cond{std::get<typename A::Conditions>(tup)};
@@ -42,34 +43,34 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
     result->addSuccessor(block, blkArgs);
   }
 }
-}  // namespace
+} // namespace
 
 fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
-  : M::Dialect("fir", ctx) {
+    : M::Dialect("fir", ctx) {
   addTypes<BoxType, BoxCharType, BoxProcType, CharacterType, CplxType, DimsType,
-      FieldType, HeapType, IntType, LogicalType, PointerType, RealType,
-      RecordType, ReferenceType, SequenceType, TypeDescType>();
+           FieldType, HeapType, IntType, LogicalType, PointerType, RealType,
+           RecordType, ReferenceType, SequenceType, TypeDescType>();
   addAttributes<ClosedIntervalAttr, ExactTypeAttr, LowerBoundAttr,
-      PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
+                PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,
 #define GET_OP_LIST
 #include "fir/FIROps.cpp.inc"
-      >();
+                >();
 }
 
 // anchor the class vtable
 fir::FIROpsDialect::~FIROpsDialect() {}
 
-M::Type fir::FIROpsDialect::parseType(
-    llvm::StringRef rawData, M::Location loc) const {
+M::Type fir::FIROpsDialect::parseType(llvm::StringRef rawData,
+                                      M::Location loc) const {
   return parseFirType(const_cast<FIROpsDialect *>(this), rawData, loc);
 }
 
 void printBounds(llvm::raw_ostream &os, const SequenceType::Bounds &bounds) {
   char ch = '<';
   for (auto &b : bounds) {
-    if (b.known) {
-      os << ch << b.bound;
+    if (b.hasValue()) {
+      os << ch << *b;
     } else {
       os << ch << '?';
     }
@@ -110,8 +111,8 @@ void fir::FIROpsDialect::printType(M::Type ty, llvm::raw_ostream &os) const {
   } else if (auto type = ty.dyn_cast<fir::SequenceType>()) {
     os << "array";
     auto shape = type.getShape();
-    if (shape.known) {
-      printBounds(os, shape.bounds);
+    if (shape.hasValue()) {
+      printBounds(os, *shape);
     } else {
       os << "<*";
     }
@@ -156,14 +157,15 @@ void fir::FIROpsDialect::printType(M::Type ty, llvm::raw_ostream &os) const {
   }
 }
 
-M::Attribute fir::FIROpsDialect::parseAttribute(
-    llvm::StringRef rawText, M::Type type, M::Location loc) const {
-  return parseFirAttribute(
-      const_cast<FIROpsDialect *>(this), rawText, type, loc);
+M::Attribute fir::FIROpsDialect::parseAttribute(llvm::StringRef rawText,
+                                                M::Type type,
+                                                M::Location loc) const {
+  return parseFirAttribute(const_cast<FIROpsDialect *>(this), rawText, type,
+                           loc);
 }
 
-void fir::FIROpsDialect::printAttribute(
-    M::Attribute attr, llvm::raw_ostream &os) const {
+void fir::FIROpsDialect::printAttribute(M::Attribute attr,
+                                        llvm::raw_ostream &os) const {
   if (auto exact = attr.dyn_cast<fir::ExactTypeAttr>()) {
     os << fir::ExactTypeAttr::getAttrName() << '<' << exact.getType() << '>';
   } else if (auto sub = attr.dyn_cast<fir::SubclassAttr>()) {

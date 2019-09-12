@@ -14,12 +14,13 @@
 
 #include "fir/Type.h"
 #include "fir/Dialect.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/Twine.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -68,27 +69,88 @@ public:
   // the token.
   Token lexToken();
 
+  int nextNonWSChar() {
+    skipWhitespace();
+    if (atEnd())
+      return -1;
+    return *srcPtr++;
+  }
+
   // peek ahead to the next non-whitespace character, leaving it on the input
   // stream
   char nextChar() {
     skipWhitespace();
-    if (atEnd()) {
+    if (atEnd())
       return '\0';
-    }
     return *srcPtr;
   }
 
   // advance the input stream `count` characters
   void advance(unsigned count = 1) {
     while (count--) {
-      if (atEnd()) {
+      if (atEnd())
         break;
-      }
       ++srcPtr;
     }
   }
 
   const char *getMarker() { return srcPtr; }
+
+  L::StringRef getNextType() {
+    char const *const marker = srcPtr;
+    L::SmallVector<char, 8> nestedPunc;
+    for (bool scanning = true; scanning && !atEnd(); ++srcPtr) {
+      char c = *srcPtr;
+      switch (c) {
+      case '<':
+      case '[':
+      case '(':
+      case '{':
+        nestedPunc.push_back(c);
+        break;
+      case '>':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '<') {
+          goto done;
+        }
+        continue;
+      case ']':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '[') {
+          goto done;
+        }
+        continue;
+      case ')':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '(') {
+          goto done;
+        }
+        continue;
+      case '}':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '{') {
+          goto done;
+        }
+        continue;
+      case ',':
+        if (nestedPunc.empty()) {
+          goto done;
+        }
+        continue;
+      case '-':
+        if ((srcPtr + 1 != srcBuff.end()) && *(srcPtr + 1) == '>') {
+          ++srcPtr;
+        }
+        continue;
+      done:
+        --srcPtr;
+        [[fallthrough]];
+      case '\0': {
+        scanning = false;
+      } break;
+      default:
+        break;
+      }
+    }
+    std::size_t count = srcPtr - marker;
+    return {marker, count};
+  }
 
 private:
   void skipWhitespace() {
@@ -99,8 +161,11 @@ private:
       case '\n':
       case '\r':
       case '\t':
-      case '\v': ++srcPtr; continue;
-      default: break;
+      case '\v':
+        ++srcPtr;
+        continue;
+      default:
+        break;
       }
       break;
     }
@@ -132,28 +197,44 @@ Token Lexer::lexToken() {
 
   const char *tokStart = srcPtr;
   switch (*srcPtr++) {
-  case '<': return formToken(TokenKind::leftang, tokStart);
-  case '>': return formToken(TokenKind::rightang, tokStart);
-  case '{': return formToken(TokenKind::leftbrace, tokStart);
-  case '}': return formToken(TokenKind::rightbrace, tokStart);
-  case '[': return formToken(TokenKind::leftbracket, tokStart);
-  case ']': return formToken(TokenKind::rightbracket, tokStart);
-  case '(': return formToken(TokenKind::leftparen, tokStart);
-  case ')': return formToken(TokenKind::rightparen, tokStart);
-  case ':': return formToken(TokenKind::colon, tokStart);
-  case ',': return formToken(TokenKind::comma, tokStart);
-  case '"': return lexString(tokStart + 1);
+  case '<':
+    return formToken(TokenKind::leftang, tokStart);
+  case '>':
+    return formToken(TokenKind::rightang, tokStart);
+  case '{':
+    return formToken(TokenKind::leftbrace, tokStart);
+  case '}':
+    return formToken(TokenKind::rightbrace, tokStart);
+  case '[':
+    return formToken(TokenKind::leftbracket, tokStart);
+  case ']':
+    return formToken(TokenKind::rightbracket, tokStart);
+  case '(':
+    return formToken(TokenKind::leftparen, tokStart);
+  case ')':
+    return formToken(TokenKind::rightparen, tokStart);
+  case ':':
+    return formToken(TokenKind::colon, tokStart);
+  case ',':
+    return formToken(TokenKind::comma, tokStart);
+  case '"':
+    return lexString(tokStart + 1);
   case '-':
     if (*srcPtr == '>') {
       srcPtr++;
       return formToken(TokenKind::arrow, tokStart);
     }
     return lexNumber(tokStart);
-  case '+': return lexNumber(tokStart + 1);
-  case '!': return formToken(TokenKind::ecphoneme, tokStart);
-  case '?': return formToken(TokenKind::eroteme, tokStart);
-  case '*': return formToken(TokenKind::star, tokStart);
-  case '.': return formToken(TokenKind::period, tokStart);
+  case '+':
+    return lexNumber(tokStart + 1);
+  case '!':
+    return formToken(TokenKind::ecphoneme, tokStart);
+  case '?':
+    return formToken(TokenKind::eroteme, tokStart);
+  case '*':
+    return formToken(TokenKind::star, tokStart);
+  case '.':
+    return formToken(TokenKind::period, tokStart);
   default:
     if (std::isalpha(*tokStart)) {
       return lexIdent(tokStart);
@@ -204,7 +285,7 @@ private:
 class FIRTypeParser {
 public:
   FIRTypeParser(FIROpsDialect *dialect, L::StringRef rawData, M::Location loc)
-    : context{dialect->getContext()}, lexer{rawData}, loc{loc} {}
+      : context{dialect->getContext()}, lexer{rawData}, loc{loc} {}
 
   M::Type parseType();
 
@@ -217,7 +298,7 @@ protected:
     auto token = lexer.lexToken();
     if (token.kind != tk) {
       emitError(loc, msg);
-      return true;  // error!
+      return true; // error!
     }
     return false;
   }
@@ -226,13 +307,14 @@ protected:
     auto lexCh = lexer.nextChar();
     if (lexCh != ch) {
       emitError(loc, msg);
-      return true;  // error!
+      return true; // error!
     }
     lexer.advance();
     return false;
   }
 
-  template<typename A> A parseIntLitSingleton(const char *msg) {
+  template <typename A>
+  A parseIntLitSingleton(const char *msg) {
     if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
       return {};
     }
@@ -249,22 +331,26 @@ protected:
     if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
       return {};
     }
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return A::get(getContext(), kind);
   }
 
   // `<` kind `>`
-  template<typename A> A parseKindSingleton() {
+  template <typename A>
+  A parseKindSingleton() {
     return parseIntLitSingleton<A>("expected kind parameter");
   }
 
   // `<` rank `>`
-  template<typename A> A parseRankSingleton() {
+  template <typename A>
+  A parseRankSingleton() {
     return parseIntLitSingleton<A>("expected rank parameter");
   }
 
   // '<' type '>'
-  template<typename A> A parseTypeSingleton() {
+  template <typename A>
+  A parseTypeSingleton() {
     if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
       return {};
     }
@@ -276,12 +362,11 @@ protected:
     if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
       return {};
     }
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return A::get(ofTy);
   }
 
-  const char *advanceFuncType();
-  std::pair<bool, M::Type> advanceNonFuncType(const Token &lastTkn);
   M::Type parseNextType();
 
   bool checkAtEnd() {
@@ -295,8 +380,29 @@ protected:
     return false;
   }
 
-  // `box` `<` type `>`
-  BoxType parseBox() { return parseTypeSingleton<BoxType>(); }
+  // `box` `<` type (',' affine-map)? `>`
+  BoxType parseBox() { 
+    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
+      return {};
+    }
+    auto ofTy = parseNextType();
+    if (!ofTy) {
+      emitError(loc, "expected type parameter");
+      return {};
+    }
+    auto token = lexer.lexToken();
+    if (token.kind == TokenKind::comma) {
+      // TODO: parse AffineMapAttr
+      token = lexer.lexToken();
+    }
+    if (token.kind != TokenKind::rightang) {
+      emitError(loc, "expected '>' in type");
+      return {};
+    }
+    if (checkAtEnd())
+      return {};
+    return BoxType::get(ofTy);
+  }
 
   // `boxchar` `<` kind `>`
   BoxCharType parseBoxChar() { return parseKindSingleton<BoxCharType>(); }
@@ -312,7 +418,8 @@ protected:
 
   // `field`
   FieldType parseField() {
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return FieldType::get(getContext());
   }
 
@@ -349,7 +456,8 @@ protected:
 
   // `void`
   M::Type parseVoid() {
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return M::TupleType::get(getContext());
   }
 
@@ -362,108 +470,10 @@ private:
   int recursiveCall{-1};
 };
 
-const char *FIRTypeParser::advanceFuncType() {
-  Token token;
-  int lparen = 0;
-  while (true) {
-    token = lexer.lexToken();
-    if (token.kind == TokenKind::leftparen) {
-      lparen++;
-    } else if (token.kind == TokenKind::rightparen) {
-      if (lparen == 0) break;
-      lparen--;
-    }
-  }
-  token = lexer.lexToken();
-  if (token.kind != TokenKind::arrow) {
-    return lexer.getMarker();
-  }
-  advanceNonFuncType(lexer.lexToken());
-  return lexer.getMarker();
-}
-
-std::pair<bool, M::Type> FIRTypeParser::advanceNonFuncType(
-    const Token &lastTkn) {
-  if (lastTkn.kind == TokenKind::ecphoneme) {  // `!`
-    auto token = lexer.lexToken();
-    if (token.kind == TokenKind::ident) {  // `!` ident
-      if (token.text == "fir") {
-        token = lexer.lexToken();
-        if (token.kind == TokenKind::period) {  // `!fir.`
-          return {true, parseType()};
-        }
-      }
-      char nextCh = lexer.nextChar();
-      if (nextCh == '.') {  // `!` ident `.`
-        lexer.lexToken();  // `.`
-        lexer.lexToken();  // ident
-        nextCh = lexer.nextChar();
-      }
-      if (nextCh == '<') {  // `!` ... `<` ... `>`
-        token = lexer.lexToken();
-        int lang = 0;
-        while (true) {
-          token = lexer.lexToken();
-          if (token.kind == TokenKind::leftang) {
-            lang++;
-          } else if (token.kind == TokenKind::rightang) {
-            if (lang == 0) break;
-            lang--;
-          }
-        }
-      }
-    }
-  } else if (lastTkn.kind == TokenKind::ident) {  // ident
-    char nextCh = lexer.nextChar();
-    if (nextCh == '<') {  // ident `<` ... `>`
-      auto token = lexer.lexToken();
-      int lang = 0;
-      while (true) {
-        token = lexer.lexToken();
-        if (token.kind == TokenKind::leftang) {
-          lang++;
-        } else if (token.kind == TokenKind::rightang) {
-          if (lang == 0) break;
-          lang--;
-        }
-      }
-    }
-  } else if (lastTkn.kind == TokenKind::leftparen) {  // `(` ... `)`
-    int lparen = 0;
-    while (true) {
-      auto token = lexer.lexToken();
-      if (token.kind == TokenKind::leftparen) {
-        lparen++;
-      } else if (token.kind == TokenKind::rightparen) {
-        if (lparen == 0) break;
-        lparen--;
-      }
-    }
-  } else {
-    // This doesn't really look like a valid type. Let the standard type parser
-    // deal with it.
-  }
-  return {false, {}};
-}
-
 // If this is a `!fir.x` type then recursively parse it now, otherwise figure
 // out its extent and call into the standard type parser.
-// FIXME: advance by tracking matching pairs as in Parser.cpp
 M::Type FIRTypeParser::parseNextType() {
-  const char *marker = lexer.getMarker();
-  Token token = lexer.lexToken();
-  if (token.kind == TokenKind::leftparen) {
-    auto count = advanceFuncType() - marker;
-    assert(count > 0);
-    return M::parseType(L::StringRef(marker, count), getContext());
-  }
-  auto pair = advanceNonFuncType(token);
-  if (pair.first) {
-    return pair.second;
-  }
-  auto count = lexer.getMarker() - marker;
-  assert(count > 0);
-  return M::parseType(L::StringRef(marker, count), getContext());
+  return M::parseType(lexer.getNextType(), getContext());
 }
 
 // Parses either `*` `:`
@@ -471,6 +481,7 @@ M::Type FIRTypeParser::parseNextType() {
 SequenceType::Shape FIRTypeParser::parseShape() {
   SequenceType::Bounds bounds;
   int extent;
+  int nextChar;
   Token token = lexer.lexToken();
   if (token.kind == TokenKind::star) {
     token = lexer.lexToken();
@@ -484,7 +495,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
     if (token.kind != TokenKind::eroteme) {
       goto shape_spec;
     }
-    bounds.emplace_back(false, 0);
+    bounds.emplace_back(SequenceType::Extent());
     goto check_xchar;
   shape_spec:
     if (token.kind != TokenKind::intlit) {
@@ -492,13 +503,13 @@ SequenceType::Shape FIRTypeParser::parseShape() {
       return {};
     }
     token.text.getAsInteger(10, extent);
-    bounds.emplace_back(true, extent);
+    bounds.emplace_back(extent);
   check_xchar:
-    token = lexer.lexToken();
-    if (token.kind == TokenKind::colon) {
+    nextChar = lexer.nextNonWSChar();
+    if (nextChar == ':') {
       return SequenceType::Shape(bounds);
     }
-    if ((token.kind != TokenKind::ident) || (token.text != std::string("x"))) {
+    if (nextChar != 'x') {
       emitError(loc, "expected an 'x' or ':' after integer");
       return {};
     }
@@ -507,7 +518,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
 }
 
 // bounds ::= lo extent stride | `?`
-// `array` `<` bounds (`,` bounds)* `:` type `>`
+// `array` `<` bounds (`,` bounds)* `:` type (',' affine-map)? `>`
 SequenceType FIRTypeParser::parseSequence() {
   if (consumeToken(TokenKind::leftang, "expected '<' in array type")) {
     return {};
@@ -518,7 +529,13 @@ SequenceType FIRTypeParser::parseSequence() {
     emitError(loc, "invalid element type");
     return {};
   }
-  if (consumeToken(TokenKind::rightang, "expected '>' in array type")) {
+  auto token = lexer.lexToken();
+  if (token.kind == TokenKind::comma) {
+    // TODO: parse AffineMapAttr
+    token = lexer.lexToken();
+  }
+  if (token.kind != TokenKind::rightang) {
+    emitError(loc, "expected '>' in array type");
     return {};
   }
   if (checkAtEnd()) {
@@ -623,23 +640,40 @@ M::Type FIRTypeParser::parseType() {
   auto_counter c{recursiveCall};
   auto token = lexer.lexToken();
   if (token.kind == TokenKind::ident) {
-    if (token.text == "ref") return parseReference();
-    if (token.text == "array") return parseSequence();
-    if (token.text == "char") return parseCharacter();
-    if (token.text == "logical") return parseLogical();
-    if (token.text == "real") return parseReal();
-    if (token.text == "type") return parseDerived();
-    if (token.text == "box") return parseBox();
-    if (token.text == "boxchar") return parseBoxChar();
-    if (token.text == "boxproc") return parseBoxProc();
-    if (token.text == "ptr") return parsePointer();
-    if (token.text == "heap") return parseHeap();
-    if (token.text == "dims") return parseDims();
-    if (token.text == "tdesc") return parseTypeDesc();
-    if (token.text == "field") return parseField();
-    if (token.text == "int") return parseInteger();
-    if (token.text == "complex") return parseComplex();
-    if (token.text == "void") return parseVoid();
+    if (token.text == "ref")
+      return parseReference();
+    if (token.text == "array")
+      return parseSequence();
+    if (token.text == "char")
+      return parseCharacter();
+    if (token.text == "logical")
+      return parseLogical();
+    if (token.text == "real")
+      return parseReal();
+    if (token.text == "type")
+      return parseDerived();
+    if (token.text == "box")
+      return parseBox();
+    if (token.text == "boxchar")
+      return parseBoxChar();
+    if (token.text == "boxproc")
+      return parseBoxProc();
+    if (token.text == "ptr")
+      return parsePointer();
+    if (token.text == "heap")
+      return parseHeap();
+    if (token.text == "dims")
+      return parseDims();
+    if (token.text == "tdesc")
+      return parseTypeDesc();
+    if (token.text == "field")
+      return parseField();
+    if (token.text == "int")
+      return parseInteger();
+    if (token.text == "complex")
+      return parseComplex();
+    if (token.text == "void")
+      return parseVoid();
     emitError(loc, "not a known fir type");
     return {};
   }
@@ -651,10 +685,10 @@ M::Type FIRTypeParser::parseType() {
 // is undefined and disallowed.
 bool singleIndirectionLevel(M::Type ty) {
   return !(ty.dyn_cast<ReferenceType>() || ty.dyn_cast<PointerType>() ||
-      ty.dyn_cast<HeapType>());
+           ty.dyn_cast<HeapType>());
 }
 
-}  // anonymous
+} // namespace
 
 namespace fir::detail {
 
@@ -668,8 +702,8 @@ struct CharacterTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CharacterTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static CharacterTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                         KindTy kind) {
     auto *storage = allocator.allocate<CharacterTypeStorage>();
     return new (storage) CharacterTypeStorage{kind};
   }
@@ -693,8 +727,8 @@ struct DimsTypeStorage : public M::TypeStorage {
     return key == static_cast<unsigned>(getRank());
   }
 
-  static DimsTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, int rank) {
+  static DimsTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    int rank) {
     auto *storage = allocator.allocate<DimsTypeStorage>();
     return new (storage) DimsTypeStorage{rank};
   }
@@ -717,8 +751,8 @@ struct FieldTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &) const { return true; }
 
-  static FieldTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy) {
+  static FieldTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                     KindTy) {
     auto *storage = allocator.allocate<FieldTypeStorage>();
     return new (storage) FieldTypeStorage{0};
   }
@@ -736,8 +770,8 @@ struct LogicalTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static LogicalTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static LogicalTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       KindTy kind) {
     auto *storage = allocator.allocate<LogicalTypeStorage>();
     return new (storage) LogicalTypeStorage{kind};
   }
@@ -760,8 +794,8 @@ struct IntTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static IntTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static IntTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                   KindTy kind) {
     auto *storage = allocator.allocate<IntTypeStorage>();
     return new (storage) IntTypeStorage{kind};
   }
@@ -784,8 +818,8 @@ struct CplxTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CplxTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static CplxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    KindTy kind) {
     auto *storage = allocator.allocate<CplxTypeStorage>();
     return new (storage) CplxTypeStorage{kind};
   }
@@ -808,8 +842,8 @@ struct RealTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static RealTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static RealTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    KindTy kind) {
     auto *storage = allocator.allocate<RealTypeStorage>();
     return new (storage) RealTypeStorage{kind};
   }
@@ -826,27 +860,37 @@ private:
 
 /// Boxed object (a Fortran descriptor)
 struct BoxTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+  using KeyTy = std::tuple<M::Type, M::AffineMapAttr>;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) {
+    auto hashVal{L::hash_combine(std::get<M::Type>(key))};
+    return L::hash_combine(hashVal,
+                           L::hash_combine(std::get<M::AffineMapAttr>(key)));
+  }
 
-  bool operator==(const KeyTy &key) const { return key == getElementType(); }
+  bool operator==(const KeyTy &key) const {
+    return std::get<M::Type>(key) == getElementType() &&
+           std::get<M::AffineMapAttr>(key) == getLayoutMap();
+  }
 
-  static BoxTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
-    assert(eleTy && "element type is null");
+  static BoxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                   const KeyTy &key) {
     auto *storage = allocator.allocate<BoxTypeStorage>();
-    return new (storage) BoxTypeStorage{eleTy};
+    return new (storage)
+        BoxTypeStorage{std::get<M::Type>(key), std::get<M::AffineMapAttr>(key)};
   }
 
   M::Type getElementType() const { return eleTy; }
+  M::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
   M::Type eleTy;
+  M::AffineMapAttr map;
 
 private:
   BoxTypeStorage() = delete;
-  explicit BoxTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit BoxTypeStorage(M::Type eleTy, M::AffineMapAttr map)
+      : eleTy{eleTy}, map{map} {}
 };
 
 /// Boxed CHARACTER object type
@@ -857,13 +901,13 @@ struct BoxCharTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static BoxCharTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static BoxCharTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       KindTy kind) {
     auto *storage = allocator.allocate<BoxCharTypeStorage>();
     return new (storage) BoxCharTypeStorage{kind};
   }
 
-  KindTy getFKind() const { return kind / 8; }
+  KindTy getFKind() const { return kind; }
 
   // a !fir.boxchar<k> always wraps a !fir.char<k>
   CharacterType getElementType(M::MLIRContext *ctxt) const {
@@ -886,8 +930,8 @@ struct BoxProcTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static BoxProcTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static BoxProcTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<BoxProcTypeStorage>();
     return new (storage) BoxProcTypeStorage{eleTy};
@@ -911,8 +955,8 @@ struct ReferenceTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static ReferenceTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static ReferenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                         M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<ReferenceTypeStorage>();
     return new (storage) ReferenceTypeStorage{eleTy};
@@ -936,8 +980,8 @@ struct PointerTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static PointerTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static PointerTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<PointerTypeStorage>();
     return new (storage) PointerTypeStorage{eleTy};
@@ -961,8 +1005,8 @@ struct HeapTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static HeapTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static HeapTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<HeapTypeStorage>();
     return new (storage) HeapTypeStorage{eleTy};
@@ -980,41 +1024,46 @@ private:
 
 /// Sequence-like object storage
 struct SequenceTypeStorage : public M::TypeStorage {
-  using KeyTy = std::pair<SequenceType::Shape, M::Type>;
+  using KeyTy = std::tuple<SequenceType::Shape, M::Type, M::AffineMapAttr>;
 
   static unsigned hashKey(const KeyTy &key) {
     auto shapeHash{hash_value(std::get<SequenceType::Shape>(key))};
-    return L::hash_combine(shapeHash, std::get<M::Type>(key));
+    shapeHash = L::hash_combine(shapeHash, std::get<M::Type>(key));
+    return L::hash_combine(shapeHash, std::get<M::AffineMapAttr>(key));
   }
 
   bool operator==(const KeyTy &key) const {
-    return key == KeyTy{getShape(), getElementType()};
+    return key == KeyTy{getShape(), getElementType(), getLayoutMap()};
   }
 
-  static SequenceTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, const KeyTy &key) {
+  static SequenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                        const KeyTy &key) {
     auto *storage = allocator.allocate<SequenceTypeStorage>();
-    return new (storage) SequenceTypeStorage{key.first, key.second};
+    return new (storage) SequenceTypeStorage{std::get<SequenceType::Shape>(key),
+                                             std::get<M::Type>(key),
+                                             std::get<M::AffineMapAttr>(key)};
   }
 
   SequenceType::Shape getShape() const { return shape; }
   M::Type getElementType() const { return eleTy; }
+  M::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
   SequenceType::Shape shape;
   M::Type eleTy;
+  M::AffineMapAttr map;
 
 private:
   SequenceTypeStorage() = delete;
-  explicit SequenceTypeStorage(
-      const SequenceType::Shape &shape, M::Type eleTy)
-    : shape{shape}, eleTy{eleTy} {}
+  explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy,
+                               M::AffineMapAttr map)
+      : shape{shape}, eleTy{eleTy}, map{map} {}
 };
 
 /// Derived type storage
 struct RecordTypeStorage : public M::TypeStorage {
   using KeyTy = std::tuple<L::StringRef, L::ArrayRef<RecordType::TypePair>,
-      L::ArrayRef<RecordType::TypePair>>;
+                           L::ArrayRef<RecordType::TypePair>>;
 
   static unsigned hashKey(const KeyTy &key) {
     return L::hash_combine(std::get<0>(key).str());
@@ -1024,8 +1073,8 @@ struct RecordTypeStorage : public M::TypeStorage {
     return std::get<0>(key) == getName();
   }
 
-  static RecordTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, const KeyTy &key) {
+  static RecordTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                      const KeyTy &key) {
     auto *storage = allocator.allocate<RecordTypeStorage>();
     auto &name = std::get<0>(key);
     auto &lens = std::get<1>(key);
@@ -1049,9 +1098,9 @@ protected:
 private:
   RecordTypeStorage() = delete;
   explicit RecordTypeStorage(L::StringRef name,
-      L::ArrayRef<RecordType::TypePair> lens,
-      L::ArrayRef<RecordType::TypePair> types)
-    : name{name}, lens{lens}, types{types} {}
+                             L::ArrayRef<RecordType::TypePair> lens,
+                             L::ArrayRef<RecordType::TypePair> types)
+      : name{name}, lens{lens}, types{types} {}
 };
 
 /// Type descriptor type storage
@@ -1062,8 +1111,8 @@ struct TypeDescTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getOfType(); }
 
-  static TypeDescTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type ofTy) {
+  static TypeDescTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                        M::Type ofTy) {
     assert(ofTy && "descriptor type is null");
     auto *storage = allocator.allocate<TypeDescTypeStorage>();
     return new (storage) TypeDescTypeStorage{ofTy};
@@ -1080,9 +1129,10 @@ private:
   explicit TypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
 };
 
-}  // detail
+} // namespace fir::detail
 
-template<typename A, typename B> bool inbounds(A v, B lb, B ub) {
+template <typename A, typename B>
+bool inbounds(A v, B lb, B ub) {
   return v >= lb && v < ub;
 }
 
@@ -1091,8 +1141,8 @@ bool fir::isa_fir_type(mlir::Type t) {
 }
 
 bool fir::isa_std_type(mlir::Type t) {
-  return inbounds(
-      t.getKind(), M::Type::FIRST_STANDARD_TYPE, M::Type::LAST_STANDARD_TYPE);
+  return inbounds(t.getKind(), M::Type::FIRST_STANDARD_TYPE,
+                  M::Type::LAST_STANDARD_TYPE);
 }
 
 bool fir::isa_fir_or_std_type(mlir::Type t) {
@@ -1156,11 +1206,23 @@ int fir::RealType::getSizeInBits() const { return getImpl()->getFKind(); }
 
 // Box<T>
 
-BoxType fir::BoxType::get(M::Type elementType) {
-  return Base::get(elementType.getContext(), FIR_BOX, elementType);
+BoxType fir::BoxType::get(M::Type elementType, M::AffineMapAttr map) {
+  return Base::get(elementType.getContext(), FIR_BOX, elementType, map);
 }
 
 M::Type fir::BoxType::getEleTy() const { return getImpl()->getElementType(); }
+
+M::AffineMapAttr fir::BoxType::getLayoutMap() const {
+  return getImpl()->getLayoutMap();
+}
+
+M::LogicalResult
+fir::BoxType::verifyConstructionInvariants(L::Optional<M::Location>,
+                                           M::MLIRContext *ctx, M::Type eleTy,
+                                           mlir::AffineMapAttr map) {
+  // TODO
+  return M::success();
+}
 
 // BoxChar<C>
 
@@ -1182,6 +1244,13 @@ M::Type fir::BoxProcType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+M::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<M::FunctionType>() || eleTy.dyn_cast<ReferenceType>())
+    return M::success();
+  return M::failure();
+}
+
 // Reference<T>
 
 ReferenceType fir::ReferenceType::get(M::Type elementType) {
@@ -1190,6 +1259,14 @@ ReferenceType fir::ReferenceType::get(M::Type elementType) {
 
 M::Type fir::ReferenceType::getEleTy() const {
   return getImpl()->getElementType();
+}
+
+M::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
 }
 
 // Pointer<T>
@@ -1206,6 +1283,17 @@ M::Type fir::PointerType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+M::LogicalResult fir::PointerType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
+
 // Heap<T>
 
 HeapType fir::HeapType::get(M::Type elementType) {
@@ -1218,40 +1306,69 @@ HeapType fir::HeapType::get(M::Type elementType) {
 
 M::Type fir::HeapType::getEleTy() const { return getImpl()->getElementType(); }
 
+M::LogicalResult fir::HeapType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
+
 // Sequence<T>
 
-SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType) {
+SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType,
+                                    M::AffineMapAttr map) {
   auto *ctxt = elementType.getContext();
-  return Base::get(ctxt, FIR_SEQUENCE, shape, elementType);
+  return Base::get(ctxt, FIR_SEQUENCE, shape, elementType, map);
 }
 
 M::Type fir::SequenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+M::AffineMapAttr fir::SequenceType::getLayoutMap() const {
+  return getImpl()->getLayoutMap();
+}
+
 SequenceType::Shape fir::SequenceType::getShape() const {
   return getImpl()->getShape();
 }
 
+M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
+    L::Optional<mlir::Location> loc, M::MLIRContext *context,
+    const SequenceType::Shape &shape, M::Type eleTy, M::AffineMapAttr map) {
+  // DIMENSION attribute can only be applied to an intrinsic or record type
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>() || eleTy.dyn_cast<SequenceType>())
+    return M::failure();
+  return M::success();
+}
+
 // compare if two shapes are equivalent
-bool fir::operator==(
-    const SequenceType::Shape &sh_1, const SequenceType::Shape &sh_2) {
-  if (sh_1.known != sh_2.known) {
+bool fir::operator==(const SequenceType::Shape &sh_1,
+                     const SequenceType::Shape &sh_2) {
+  if (sh_1.hasValue() != sh_2.hasValue()) {
     return false;
   }
-  if (!sh_1.known) {
+  if (!sh_1.hasValue()) {
     return true;
   }
-  auto &bnd_1 = sh_1.bounds;
-  auto &bnd_2 = sh_2.bounds;
+  auto &bnd_1 = *sh_1;
+  auto &bnd_2 = *sh_2;
   if (bnd_1.size() != bnd_2.size()) {
     return false;
   }
   for (std::size_t i = 0, end = bnd_1.size(); i != end; ++i) {
-    if (bnd_1[i].known != bnd_2[i].known) {
+    if (bnd_1[i].hasValue() != bnd_2[i].hasValue()) {
       return false;
     }
-    if (bnd_1[i].known && bnd_1[i].bound != bnd_2[i].bound) {
+    if (bnd_1[i].hasValue() && *bnd_1[i] != *bnd_2[i]) {
       return false;
     }
   }
@@ -1260,21 +1377,24 @@ bool fir::operator==(
 
 // compute the hash of an Extent
 L::hash_code fir::hash_value(const SequenceType::Extent &ext) {
-  return L::hash_combine(ext.known ? ext.bound : 0);
+  return L::hash_combine(ext.hasValue() ? *ext : 0);
 }
 
 // compute the hash of a Shape
 L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
-  if (sh.known) {
-    return L::hash_combine_range(sh.bounds.begin(), sh.bounds.end());
+  if (sh.hasValue()) {
+    return L::hash_combine_range(sh->begin(), sh->end());
   }
   return L::hash_combine(0);
 }
 
-// Derived<Ts...>
+/// RecordType
+///
+/// This type captures a Fortran "derived type"
 
 RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name,
-    L::ArrayRef<TypePair> lenPList, L::ArrayRef<TypePair> typeList) {
+                                L::ArrayRef<TypePair> lenPList,
+                                L::ArrayRef<TypePair> typeList) {
   return Base::get(ctxt, FIR_DERIVED, name, lenPList, typeList);
 }
 
@@ -1288,7 +1408,42 @@ RecordType::TypeList fir::RecordType::getLenParamList() {
   return getImpl()->getLenParamList();
 }
 
-// Type descriptor
+inline static bool verifyIntegerType(M::Type ty) {
+  return ty.dyn_cast<M::IntegerType>() || ty.dyn_cast<IntType>();
+}
+
+inline static bool verifyRecordMemberType(M::Type ty) {
+  return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
+           ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
+           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
+           ty.dyn_cast<TypeDescType>());
+}
+
+M::LogicalResult fir::RecordType::verifyConstructionInvariants(
+    L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name,
+    L::ArrayRef<RecordType::TypePair> lenPList,
+    L::ArrayRef<RecordType::TypePair> typeList) {
+  if (name.size() == 0)
+    return M::failure();
+  llvm::StringSet uniq;
+  for (auto &p : lenPList)
+    if (!uniq.insert(p.first).second)
+      return M::failure();
+  for (auto &p : typeList)
+    if (!uniq.insert(p.first).second)
+      return M::failure();
+  for (auto &p : lenPList)
+    if (!verifyIntegerType(p.second))
+      return M::failure();
+  for (auto &p : typeList)
+    if (!verifyRecordMemberType(p.second))
+      return M::failure();
+  return M::success();
+}
+
+/// Type descriptor type
+///
+/// This is the type of a type descriptor object (similar to a class instance)
 
 TypeDescType fir::TypeDescType::get(M::Type ofType) {
   assert(!ofType.dyn_cast<ReferenceType>());
@@ -1297,10 +1452,20 @@ TypeDescType fir::TypeDescType::get(M::Type ofType) {
 
 M::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
+M::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
+
 // Implementation of the thin interface from dialect to type parser
 
-M::Type fir::parseFirType(
-    FIROpsDialect *dialect, L::StringRef rawData, M::Location loc) {
+M::Type fir::parseFirType(FIROpsDialect *dialect, L::StringRef rawData,
+                          M::Location loc) {
   FIRTypeParser parser{dialect, rawData, loc};
   return parser.parseType();
 }

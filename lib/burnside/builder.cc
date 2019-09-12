@@ -19,38 +19,34 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 
-namespace Br = Fortran::burnside;
-namespace M = mlir;
-namespace Se = Fortran::semantics;
+namespace B = Fortran::burnside;
 
 using namespace Fortran;
-using namespace Fortran::burnside;
+using namespace B;
 
 // This will need to be extended to consider the type of what is being mangled
-std::string Br::applyNameMangling(llvm::StringRef parserName) {
+std::string B::applyNameMangling(llvm::StringRef parserName) {
   // FIXME: this is fake for now, add type info, etc.
   return "_Qp_"s + parserName.str();
 }
 
-M::FuncOp Br::createFunction(
-    M::ModuleOp module, const std::string &name, M::FunctionType funcTy) {
-  M::MLIRContext *ctxt{module.getContext()};
-  auto func{M::FuncOp::create(dummyLoc(ctxt), name, funcTy)};
+mlir::FuncOp B::createFunction(
+    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy) {
+  mlir::MLIRContext *ctxt{module.getContext()};
+  auto func{mlir::FuncOp::create(dummyLoc(ctxt), name, funcTy)};
   module.push_back(func);
   return func;
 }
 
-M::FuncOp Br::getNamedFunction(llvm::StringRef name) {
-  return getBridge().getManager().lookupSymbol<M::FuncOp>(name);
+mlir::FuncOp B::getNamedFunction(llvm::StringRef name) {
+  return getBridge().getManager().lookupSymbol<mlir::FuncOp>(name);
 }
 
-// symbol map: {Symbol* -> Value*}
-
-void Br::SymMap::addSymbol(const Se::Symbol *symbol, M::Value *value) {
-  sMap.try_emplace(symbol, value);
+void B::SymMap::addSymbol(const semantics::Symbol *symbol, mlir::Value *value) {
+  symbolMap.try_emplace(symbol, value);
 }
 
-M::Value *Br::SymMap::lookupSymbol(const Se::Symbol *symbol) {
-  auto iter{sMap.find(symbol)};
-  return (iter == sMap.end()) ? nullptr : iter->second;
+mlir::Value *B::SymMap::lookupSymbol(const semantics::Symbol *symbol) {
+  auto iter{symbolMap.find(symbol)};
+  return (iter == symbolMap.end()) ? nullptr : iter->second;
 }

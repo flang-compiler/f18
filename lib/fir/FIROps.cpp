@@ -27,51 +27,62 @@ namespace fir {
 // AllocaOp
 
 M::Type AllocaOp::getAllocatedType() {
+  // return getAttrOfType<M::TypeAttr>("in_type").getType();
   return getType().cast<ReferenceType>().getEleTy();
 }
+
+M::Type AllocaOp::getRefTy(M::Type ty) { return ReferenceType::get(ty); }
+
+// AllocMemOp
+
+M::Type AllocMemOp::getAllocatedType() {
+  // return getAttrOfType<M::TypeAttr>("in_type").getType();
+  return getType().cast<HeapType>().getEleTy();
+}
+
+M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
 // DispatchTableOp
 
 void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
-    L::StringRef name, M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
-  result->addAttribute(
-      M::SymbolTable::getSymbolAttrName(), builder->getStringAttr(name));
+                            L::StringRef name, M::Type type,
+                            L::ArrayRef<M::NamedAttribute> attrs) {
+  result->addAttribute("method", builder->getStringAttr(name));
   for (const auto &pair : attrs) {
     result->addAttribute(pair.first, pair.second);
   }
 }
 
-M::ParseResult DispatchTableOp::parse(
-    M::OpAsmParser *parser, M::OperationState *result) {
+M::ParseResult DispatchTableOp::parse(M::OpAsmParser &parser,
+                                      M::OperationState &result) {
   // Parse the name as a symbol reference attribute.
   SymbolRefAttr nameAttr;
-  if (parser->parseAttribute(
-          nameAttr, M::SymbolTable::getSymbolAttrName(), result->attributes))
+  if (parser.parseAttribute(nameAttr, "method", result.attributes))
     return failure();
 
   // Convert the parsed name attr into a string attr.
-  result->attributes.back().second =
-      parser->getBuilder().getStringAttr(nameAttr.getValue());
+  result.attributes.back().second =
+      parser.getBuilder().getStringAttr(nameAttr.getValue());
 
   // Parse the optional table body.
-  M::Region *body = result->addRegion();
-  if (parser->parseOptionalRegion(*body,
-          L::ArrayRef<M::OpAsmParser::OperandType>{}, L::ArrayRef<M::Type>{}))
+  M::Region *body = result.addRegion();
+  if (parser.parseOptionalRegion(*body,
+                                 L::ArrayRef<M::OpAsmParser::OperandType>{},
+                                 L::ArrayRef<M::Type>{}))
     return M::failure();
 
-  ensureTerminator(*body, parser->getBuilder(), result->location);
+  ensureTerminator(*body, parser.getBuilder(), result.location);
   return M::success();
 }
 
-void DispatchTableOp::print(M::OpAsmPrinter *p) {
-  auto tableName =
-      getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
-  *p << getOperationName() << " @" << tableName;
+void DispatchTableOp::print(M::OpAsmPrinter &p) {
+  auto tableName = getAttrOfType<StringAttr>("method").getValue();
+  p << getOperationName() << " @" << tableName;
 
   Region &body = getOperation()->getRegion(0);
   if (!body.empty())
-    p->printRegion(body, /*printEntryBlockArgs=*/false,
-        /*printBlockTerminators=*/false);
+    p.printRegion(body, /*printEntryBlockArgs=*/false,
+                  /*printBlockTerminators=*/false);
 }
 
 M::LogicalResult DispatchTableOp::verify() { return M::success(); }
@@ -85,102 +96,66 @@ void DispatchTableOp::appendTableEntry(M::Operation *op) {
   front().front().push_back(op);
 }
 
-M::ParseResult parseCallOp(M::OpAsmParser *parser, M::OperationState *result) {
-  M::FunctionType calleeType;
-  L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-  M::OpAsmParser::OperandType callee;
-  auto calleeLoc = parser->getNameLoc();
-  if (parser->parseOperand(callee)) {
-    M::SymbolRefAttr calleeAttr;
-    if (parser->parseAttribute(calleeAttr, "proc", result->attributes) ||
-        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser->parseOptionalAttributeDict(result->attributes) ||
-        parser->parseColonType(calleeType) ||
-        parser->addTypesToList(calleeType.getResults(), result->types) ||
-        parser->resolveOperands(
-            operands, calleeType.getInputs(), calleeLoc, result->operands))
-      return M::failure();
-  } else {
-    result->attributes.push_back(parser->getBuilder().getNamedAttr(
-        "proc", parser->getBuilder().getSymbolRefAttr("")));
-    if (parser->getCurrentLocation(&calleeLoc) ||
-        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser->parseOptionalAttributeDict(result->attributes) ||
-        parser->parseColonType(calleeType) ||
-        parser->resolveOperand(callee, calleeType, result->operands) ||
-        parser->resolveOperands(
-            operands, calleeType.getInputs(), calleeLoc, result->operands) ||
-        parser->addTypesToList(calleeType.getResults(), result->types))
-      return M::failure();
-  }
-  return M::success();
-}
-
-mlir::ParseResult parseDispatchOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result) {
-  M::FunctionType calleeType;
-  L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-  auto calleeLoc = parser->getNameLoc();
-  M::StringAttr calleeAttr;
-  if (parser->parseAttribute(calleeAttr, "proc", result->attributes) ||
-      parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-      parser->parseOptionalAttributeDict(result->attributes) ||
-      parser->parseColonType(calleeType) ||
-      parser->addTypesToList(calleeType.getResults(), result->types) ||
-      parser->resolveOperands(
-          operands, calleeType.getInputs(), calleeLoc, result->operands))
-    return M::failure();
-  return M::success();
-}
-
 // GlobalOp
 
 void GlobalOp::build(M::Builder *builder, M::OperationState *result,
-    L::StringRef name, M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
+                     L::StringRef name, M::Type type,
+                     L::ArrayRef<M::NamedAttribute> attrs) {
   result->addAttribute(getTypeAttrName(), builder->getTypeAttr(type));
-  result->addAttribute(
-      M::SymbolTable::getSymbolAttrName(), builder->getStringAttr(name));
+  result->addAttribute(M::SymbolTable::getSymbolAttrName(),
+                       builder->getStringAttr(name));
   for (const auto &pair : attrs) {
     result->addAttribute(pair.first, pair.second);
   }
 }
 
-M::ParseResult GlobalOp::parse(
-    M::OpAsmParser *parser, M::OperationState *result) {
+M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
+                               M::OperationState &result) {
   // Parse the name as a symbol reference attribute.
   SymbolRefAttr nameAttr;
-  if (parser->parseAttribute(
-          nameAttr, M::SymbolTable::getSymbolAttrName(), result->attributes))
+  if (parser.parseAttribute(nameAttr, M::SymbolTable::getSymbolAttrName(),
+                            result.attributes))
     return failure();
 
-  auto &builder = parser->getBuilder();
-  result->attributes.back().second = builder.getStringAttr(nameAttr.getValue());
+  auto &builder = parser.getBuilder();
+  result.attributes.back().second = builder.getStringAttr(nameAttr.getValue());
+
+  if (parser.parseOptionalKeyword("constant")) {
+    result.addAttribute("constant", builder.getBoolAttr(false));
+  } else {
+    // if "constant" keyword then mark this as a constant, not a variable
+    result.addAttribute("constant", builder.getBoolAttr(true));
+  }
 
   M::Type globalType;
-  if (parser->parseColonType(globalType)) {
+  if (parser.parseColonType(globalType)) {
     return M::failure();
   }
-  result->addAttribute(getTypeAttrName(), builder.getTypeAttr(globalType));
+  result.addAttribute(getTypeAttrName(), builder.getTypeAttr(globalType));
 
   // Parse the optional initializer body.
-  M::Region *body = result->addRegion();
-  if (parser->parseOptionalRegion(*body,
-          L::ArrayRef<M::OpAsmParser::OperandType>{}, L::ArrayRef<M::Type>{}))
+  M::Region *body = result.addRegion();
+  if (parser.parseOptionalRegion(*body,
+                                 L::ArrayRef<M::OpAsmParser::OperandType>{},
+                                 L::ArrayRef<M::Type>{}))
     return M::failure();
 
-  ensureTerminator(*body, builder, result->location);
+  ensureTerminator(*body, builder, result.location);
   return M::success();
 }
 
-void GlobalOp::print(M::OpAsmPrinter *p) {
+void GlobalOp::print(M::OpAsmPrinter &p) {
   auto varName =
       getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
-  *p << getOperationName() << " @" << varName << " : ";
-  p->printType(getType());
+  p << getOperationName() << " @" << varName;
+  if (getAttr("constant").cast<M::BoolAttr>().getValue())
+    p << " constant";
+  p << " : ";
+  p.printType(getType());
   Region &body = getOperation()->getRegion(0);
   if (!body.empty())
-    p->printRegion(body, /*printEntryBlockArgs=*/false,
-        /*printBlockTerminators=*/false);
+    p.printRegion(body, /*printEntryBlockArgs=*/false,
+                  /*printBlockTerminators=*/false);
 }
 
 M::LogicalResult GlobalOp::verify() { return M::success(); }
@@ -217,54 +192,54 @@ M::ParseResult LoadOp::getElementOf(M::Type &ele, M::Type ref) {
 
 // LoopOp
 
-void LoopOp::build(M::Builder *builder, M::OperationState *result, M::Value *lb,
-    M::Value *ub, L::ArrayRef<M::Value *> step) {
+void LoopOp::build(M::Builder *builder, M::OperationState &result, M::Value *lb,
+                   M::Value *ub, L::ArrayRef<M::Value *> step) {
   if (step.empty())
-    result->addOperands({lb, ub});
+    result.addOperands({lb, ub});
   else
-    result->addOperands({lb, ub, step[0]});
-  M::Region *bodyRegion = result->addRegion();
-  LoopOp::ensureTerminator(*bodyRegion, *builder, result->location);
+    result.addOperands({lb, ub, step[0]});
+  M::Region *bodyRegion = result.addRegion();
+  LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
   bodyRegion->front().addArgument(builder->getIndexType());
 }
 
-M::ParseResult parseLoopOp(M::OpAsmParser *parser, M::OperationState *result) {
-  auto &builder = parser->getBuilder();
+M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
+  auto &builder = parser.getBuilder();
   M::OpAsmParser::OperandType inductionVariable, lb, ub, step;
   // Parse the induction variable followed by '='.
-  if (parser->parseRegionArgument(inductionVariable) || parser->parseEqual())
+  if (parser.parseRegionArgument(inductionVariable) || parser.parseEqual())
     return M::failure();
 
   // Parse loop bounds.
   M::Type indexType = builder.getIndexType();
-  if (parser->parseOperand(lb) ||
-      parser->resolveOperand(lb, indexType, result->operands) ||
-      parser->parseKeyword("to") || parser->parseOperand(ub) ||
-      parser->resolveOperand(ub, indexType, result->operands))
+  if (parser.parseOperand(lb) ||
+      parser.resolveOperand(lb, indexType, result.operands) ||
+      parser.parseKeyword("to") || parser.parseOperand(ub) ||
+      parser.resolveOperand(ub, indexType, result.operands))
     return M::failure();
-  if (parser->parseOptionalKeyword(LoopOp::getStepKeyword())) {
-    result->addAttribute(LoopOp::getStepKeyword(),
-        builder.getIntegerAttr(builder.getIndexType(), 1));
-  } else if (parser->parseOperand(step) ||
-      parser->resolveOperand(step, indexType, result->operands)) {
+  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword())) {
+    result.addAttribute(LoopOp::getStepKeyword(),
+                        builder.getIntegerAttr(builder.getIndexType(), 1));
+  } else if (parser.parseOperand(step) ||
+             parser.resolveOperand(step, indexType, result.operands)) {
     return M::failure();
   }
 
-  if (parser->parseOptionalKeyword("unordered")) {
+  if (parser.parseOptionalKeyword("unordered")) {
     // ok
   } else {
-    result->addAttribute("unordered", builder.getBoolAttr(true));
+    result.addAttribute("unordered", builder.getBoolAttr(true));
   }
 
   // Parse the body region.
-  M::Region *body = result->addRegion();
-  if (parser->parseRegion(*body, inductionVariable, indexType))
+  M::Region *body = result.addRegion();
+  if (parser.parseRegion(*body, inductionVariable, indexType))
     return M::failure();
 
-  fir::LoopOp::ensureTerminator(*body, builder, result->location);
+  fir::LoopOp::ensureTerminator(*body, builder, result.location);
 
   // Parse the optional attribute list.
-  if (parser->parseOptionalAttributeDict(result->attributes)) {
+  if (parser.parseOptionalAttributeDict(result.attributes)) {
     return M::failure();
   }
   return M::success();
@@ -283,53 +258,55 @@ fir::LoopOp getForInductionVarOwner(M::Value *val) {
 // StoreOp
 
 M::Type StoreOp::elementType(M::Type refType) {
-  if (auto ref = refType.dyn_cast<ReferenceType>()) return ref.getEleTy();
-  if (auto ref = refType.dyn_cast<PointerType>()) return ref.getEleTy();
-  if (auto ref = refType.dyn_cast<HeapType>()) return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<ReferenceType>())
+    return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<PointerType>())
+    return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<HeapType>())
+    return ref.getEleTy();
   return {};
 }
 
 // WhereOp
 
-void WhereOp::build(M::Builder *builder, M::OperationState *result,
-    M::Value *cond, bool withElseRegion) {
-  result->addOperands(cond);
-  M::Region *thenRegion = result->addRegion();
-  M::Region *elseRegion = result->addRegion();
-  WhereOp::ensureTerminator(*thenRegion, *builder, result->location);
+void WhereOp::build(M::Builder *builder, M::OperationState &result,
+                    M::Value *cond, bool withElseRegion) {
+  result.addOperands(cond);
+  M::Region *thenRegion = result.addRegion();
+  M::Region *elseRegion = result.addRegion();
+  WhereOp::ensureTerminator(*thenRegion, *builder, result.location);
   if (withElseRegion)
-    WhereOp::ensureTerminator(*elseRegion, *builder, result->location);
+    WhereOp::ensureTerminator(*elseRegion, *builder, result.location);
 }
 
-M::ParseResult parseWhereOp(M::OpAsmParser *parser, M::OperationState *result) {
+M::ParseResult parseWhereOp(M::OpAsmParser &parser, M::OperationState &result) {
   // Create the regions for 'then'.
-  result->regions.reserve(2);
-  M::Region *thenRegion = result->addRegion();
-  M::Region *elseRegion = result->addRegion();
+  result.regions.reserve(2);
+  M::Region *thenRegion = result.addRegion();
+  M::Region *elseRegion = result.addRegion();
 
-  auto &builder = parser->getBuilder();
+  auto &builder = parser.getBuilder();
   M::OpAsmParser::OperandType cond;
   M::Type i1Type = builder.getIntegerType(1);
-  if (parser->parseOperand(cond) ||
-      parser->resolveOperand(cond, i1Type, result->operands))
+  if (parser.parseOperand(cond) ||
+      parser.resolveOperand(cond, i1Type, result.operands))
     return M::failure();
 
-  if (parser->parseRegion(*thenRegion, {}, {})) {
+  if (parser.parseRegion(*thenRegion, {}, {})) {
     return M::failure();
   }
-  WhereOp::ensureTerminator(
-      *thenRegion, parser->getBuilder(), result->location);
+  WhereOp::ensureTerminator(*thenRegion, parser.getBuilder(), result.location);
 
-  if (!parser->parseOptionalKeyword("otherwise")) {
-    if (parser->parseRegion(*elseRegion, {}, {})) {
+  if (!parser.parseOptionalKeyword("otherwise")) {
+    if (parser.parseRegion(*elseRegion, {}, {})) {
       return M::failure();
     }
-    WhereOp::ensureTerminator(
-        *elseRegion, parser->getBuilder(), result->location);
+    WhereOp::ensureTerminator(*elseRegion, parser.getBuilder(),
+                              result.location);
   }
 
   // Parse the optional attribute list.
-  if (parser->parseOptionalAttributeDict(result->attributes)) {
+  if (parser.parseOptionalAttributeDict(result.attributes)) {
     return M::failure();
   }
 
@@ -360,14 +337,14 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
   return o;
 }
 
-mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
-    mlir::OperationState *result, mlir::OpAsmParser::OperandType &selector,
-    mlir::Type &type) {
-  if (parser->parseOperand(selector) || parser->parseColonType(type) ||
-      parser->resolveOperand(selector, type, result->operands) ||
-      parser->parseLSquare())
-    return mlir::failure();
-  return mlir::success();
+M::ParseResult parseSelector(M::OpAsmParser &parser, M::OperationState &result,
+                             M::OpAsmParser::OperandType &selector,
+                             M::Type &type) {
+  if (parser.parseOperand(selector) || parser.parseColonType(type) ||
+      parser.resolveOperand(selector, type, result.operands) ||
+      parser.parseLSquare())
+    return M::failure();
+  return M::success();
 }
 
 // Tablegen operators
@@ -375,4 +352,4 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
 #define GET_OP_CLASSES
 #include "fir/FIROps.cpp.inc"
 
-}  // fir
+} // namespace fir

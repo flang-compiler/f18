@@ -15,9 +15,9 @@
 #ifndef FORTRAN_BURNSIDE_FLATTENED_H_
 #define FORTRAN_BURNSIDE_FLATTENED_H_
 
-#include "common.h"
 #include "mixin.h"
 #include "../parser/parse-tree.h"
+#include "llvm/ADT/BitVector.h"
 #include <cstdint>
 #include <list>
 #include <map>
@@ -30,12 +30,14 @@ struct AnalysisData;
 
 namespace flat {
 
-// This is a flattened, linearized representation of the parse tree. It captures
-// the executable specification of the input program. The flattened IR can be
-// used to construct the Fortran IR.
+/// This is a flattened, linearized representation of the parse
+/// tree. It captures the executable specification of the input
+/// program. The flattened IR can be used to construct FIR.
+///
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-using LabelRef = unsigned;
-constexpr LabelRef unspecifiedLabel{UINT_MAX};
+using LabelMention = unsigned;
+constexpr LabelMention UnspecifiedLabel{UINT_MAX};
 
 using Location = parser::CharBlock;
 struct LabelBuilder;
@@ -47,12 +49,12 @@ struct LabelOp {
   LabelOp &operator=(const LabelOp &that);
   void setReferenced() const;
   bool isReferenced() const;
-  LabelRef get() const { return label_; }
-  operator LabelRef() const { return get(); }
+  LabelMention get() const { return label; }
+  operator LabelMention() const { return get(); }
 
 private:
-  LabelBuilder &builder_;
-  LabelRef label_;
+  LabelBuilder &builder;
+  LabelMention label;
 };
 
 struct ArtificialJump {};
@@ -62,12 +64,12 @@ struct GotoOp
   : public SumTypeCopyMixin<const parser::CycleStmt *, const parser::ExitStmt *,
         const parser::GotoStmt *, ArtificialJump> {
   template<typename A>
-  explicit GotoOp(const A &stmt, LabelRef dest, const Location &source)
+  explicit GotoOp(const A &stmt, LabelMention dest, const Location &source)
     : SumTypeCopyMixin{&stmt}, target{dest}, source{source} {}
-  explicit GotoOp(LabelRef dest)
+  explicit GotoOp(LabelMention dest)
     : SumTypeCopyMixin{ArtificialJump{}}, target{dest} {}
 
-  LabelRef target;
+  LabelMention target;
   Location source;
 };
 
@@ -87,21 +89,21 @@ struct ConditionalGotoOp
         const parser::Statement<parser::ElseIfStmt> *, const parser::IfStmt *,
         const parser::Statement<parser::NonLabelDoStmt> *> {
   template<typename A>
-  explicit ConditionalGotoOp(const A &cond, LabelRef tb, LabelRef fb)
+  explicit ConditionalGotoOp(const A &cond, LabelMention tb, LabelMention fb)
     : SumTypeCopyMixin{&cond}, trueLabel{tb}, falseLabel{fb} {}
 
-  LabelRef trueLabel;
-  LabelRef falseLabel;
+  LabelMention trueLabel;
+  LabelMention falseLabel;
 };
 
 // multi-way branch based on a target-value of a variable
 struct IndirectGotoOp {
   explicit IndirectGotoOp(
-      const semantics::Symbol *symbol, std::vector<LabelRef> &&labelRefs)
-    : symbol{symbol}, labelRefs{labelRefs} {}
+      const semantics::Symbol *symbol, std::vector<LabelMention> &&labelRefs)
+    : labelRefs{labelRefs}, symbol{symbol} {}
 
+  std::vector<LabelMention> labelRefs;
   const semantics::Symbol *symbol;
-  std::vector<LabelRef> labelRefs;
 };
 
 // intrinsic IO operations can return with an implied multi-way branch
@@ -112,18 +114,17 @@ struct SwitchIOOp
         const parser::EndfileStmt *, const parser::RewindStmt *,
         const parser::FlushStmt *, const parser::InquireStmt *> {
   template<typename A>
-  explicit SwitchIOOp(const A &io, LabelRef next, const Location &source,
-      std::optional<LabelRef> errLab,
-      std::optional<LabelRef> eorLab = std::nullopt,
-      std::optional<LabelRef> endLab = std::nullopt)
+  explicit SwitchIOOp(const A &io, LabelMention next, const Location &source,
+      std::optional<LabelMention> errLab,
+      std::optional<LabelMention> eorLab = std::nullopt,
+      std::optional<LabelMention> endLab = std::nullopt)
     : SumTypeCopyMixin{&io}, next{next}, source{source}, errLabel{errLab},
       eorLabel{eorLab}, endLabel{endLab} {}
-
-  LabelRef next;
+  LabelMention next;
   Location source;
-  std::optional<LabelRef> errLabel;
-  std::optional<LabelRef> eorLabel;
-  std::optional<LabelRef> endLabel;
+  std::optional<LabelMention> errLabel;
+  std::optional<LabelMention> eorLabel;
+  std::optional<LabelMention> endLabel;
 };
 
 // multi-way branch based on conditions
@@ -133,11 +134,11 @@ struct SwitchOp
         const parser::CaseConstruct *, const parser::SelectRankConstruct *,
         const parser::SelectTypeConstruct *> {
   template<typename A>
-  explicit SwitchOp(
-      const A &sw, const std::vector<LabelRef> &refs, const Location &source)
+  explicit SwitchOp(const A &sw, const std::vector<LabelMention> &refs,
+      const Location &source)
     : SumTypeCopyMixin{&sw}, refs{refs}, source{source} {}
 
-  const std::vector<LabelRef> refs;
+  const std::vector<LabelMention> refs;
   Location source;
 };
 
@@ -197,24 +198,26 @@ struct Op : public SumTypeMixin<LabelOp, GotoOp, ReturnOp, ConditionalGotoOp,
 // helper to build unique labels
 struct LabelBuilder {
   LabelBuilder();
-  LabelRef getNext();
-  void setReferenced(LabelRef label);
-  bool isReferenced(LabelRef label) const;
-  std::vector<bool> referenced;
+  LabelMention getNext();
+  void setReferenced(LabelMention label);
+  bool isReferenced(LabelMention label) const;
+  llvm::BitVector referenced;
   unsigned counter;
 };
 
 LabelOp FetchLabel(AnalysisData &ad, const parser::Label &label);
 
-std::vector<LabelRef> GetAssign(
+std::vector<LabelMention> GetAssign(
     AnalysisData &ad, const semantics::Symbol *symbol);
 
 }  // namespace flat
 
+// Collection of data maintained internally by the flattening algorithm
 struct AnalysisData {
   std::map<parser::Label, flat::LabelOp> labelMap;
-  std::vector<std::tuple<const parser::Name *, flat::LabelRef, flat::LabelRef>>
-      nameStack;
+  std::vector<
+      std::tuple<const parser::Name *, flat::LabelMention, flat::LabelMention>>
+      constructContextStack;
   flat::LabelBuilder labelBuilder;
   std::map<const semantics::Symbol *, std::set<parser::Label>> assignMap;
 };

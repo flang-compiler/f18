@@ -15,12 +15,12 @@
 #include "fir/Attribute.h"
 #include "fir/Dialect.h"
 #include "fir/Type.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
 #include "mlir/IR/AttributeSupport.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Parser.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -34,7 +34,7 @@ namespace {
 class AttributeParser {
 public:
   AttributeParser(L::StringRef rawText)
-    : srcBuff{rawText}, srcPtr{rawText.begin()} {}
+      : srcBuff{rawText}, srcPtr{rawText.begin()} {}
 
   M::Attribute parseAttribute(FIROpsDialect *dialect, M::Location loc) {
     skipWhitespace();
@@ -87,8 +87,11 @@ private:
       case '\n':
       case '\r':
       case '\t':
-      case '\v': ++srcPtr; continue;
-      default: break;
+      case '\v':
+        ++srcPtr;
+        continue;
+      default:
+        break;
       }
       break;
     }
@@ -117,7 +120,7 @@ private:
   const char *srcPtr;
 };
 
-}  // namespace
+} // namespace
 
 namespace fir {
 namespace detail {
@@ -132,15 +135,15 @@ struct TypeAttributeStorage : public M::AttributeStorage {
   bool operator==(const KeyTy &key) const { return key == value; }
 
   /// Construct a new storage instance.
-  static TypeAttributeStorage *construct(
-      M::AttributeStorageAllocator &allocator, KeyTy key) {
+  static TypeAttributeStorage *
+  construct(M::AttributeStorageAllocator &allocator, KeyTy key) {
     return new (allocator.allocate<TypeAttributeStorage>())
         TypeAttributeStorage(key);
   }
 
   M::Type value;
 };
-}  // detail
+} // namespace detail
 
 ExactTypeAttr ExactTypeAttr::get(M::Type value) {
   return Base::get(value.getContext(), FIR_EXACTTYPE, value);
@@ -170,9 +173,9 @@ PointIntervalAttr PointIntervalAttr::get(mlir::MLIRContext *ctxt) {
 }
 
 M::Attribute parseFirAttribute(FIROpsDialect *dialect, L::StringRef rawText,
-    M::Type type, M::Location loc) {
+                               M::Type type, M::Location loc) {
   AttributeParser parser{rawText};
   return parser.parseAttribute(dialect, loc);
 }
 
-}  // fir
+} // namespace fir

@@ -16,13 +16,6 @@
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/Config/abi-breaking.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -33,6 +26,13 @@
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/LowerAffine.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Config/abi-breaking.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
 // This module performs the conversion of FIR operations to MLIR standard and/or
 // LLVM-IR dialects.
@@ -57,10 +57,14 @@ public:
   // convert a front-end kind value to either a std dialect type
   static M::Type kindToRealType(M::MLIRContext *ctx, KindTy kind) {
     switch (kind) {
-    case 2: return M::FloatType::getF16(ctx);
-    case 3: return M::FloatType::getBF16(ctx);
-    case 4: return M::FloatType::getF32(ctx);
-    case 8: return M::FloatType::getF64(ctx);
+    case 2:
+      return M::FloatType::getF16(ctx);
+    case 3:
+      return M::FloatType::getBF16(ctx);
+    case 4:
+      return M::FloatType::getF32(ctx);
+    case 8:
+      return M::FloatType::getF64(ctx);
     }
     return fir::RealType::get(ctx, kind);
   }
@@ -84,8 +88,9 @@ public:
 // Lower a SELECT operation into a cascade of conditional branches. The last
 // case must be the `true` condition.
 inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
-    L::ArrayRef<M::Block *> dests, L::ArrayRef<OperandTy> destOperands,
-    M::OpBuilder &rewriter) {
+                                   L::ArrayRef<M::Block *> dests,
+                                   L::ArrayRef<OperandTy> destOperands,
+                                   M::OpBuilder &rewriter) {
   L::SmallVector<M::Value *, 1> noargs;
   L::SmallVector<M::Block *, 8> blocks;
   auto loc{op->getLoc()};
@@ -97,12 +102,12 @@ inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
     rewriter.create<M::BranchOp>(loc, dests[0], destOperands[0]);
     return;
   }
-  rewriter.create<M::CondBranchOp>(
-      loc, operands[1], dests[0], destOperands[0], blocks[1], noargs);
+  rewriter.create<M::CondBranchOp>(loc, operands[1], dests[0], destOperands[0],
+                                   blocks[1], noargs);
   for (std::size_t i = 1; i < dests.size() - 1; ++i) {
     rewriter.setInsertionPointToEnd(blocks[i]);
-    rewriter.create<M::CondBranchOp>(
-        loc, operands[i + 1], dests[i], destOperands[i], blocks[i + 1], noargs);
+    rewriter.create<M::CondBranchOp>(loc, operands[i + 1], dests[i],
+                                     destOperands[i], blocks[i + 1], noargs);
   }
   std::size_t last{dests.size() - 1};
   rewriter.setInsertionPointToEnd(blocks[last]);
@@ -117,8 +122,8 @@ class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
     if (M::dyn_cast<SelectCaseOp>(op) || M::dyn_cast<SelectRankOp>(op) ||
         M::dyn_cast<SelectTypeOp>(op)) {
       // build the lists of operands and successors
-      L::SmallVector<M::Value *, 4> operands{
-          op->operand_begin(), op->operand_end()};
+      L::SmallVector<M::Value *, 4> operands{op->operand_begin(),
+                                             op->operand_end()};
       L::SmallVector<M::Block *, 2> destinations;
       destinations.reserve(op->getNumSuccessors());
       L::SmallVector<OperandTy, 2> destOperands;
@@ -131,8 +136,8 @@ class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
         seen += n;
       }
       // do the rewrite
-      rewriteSelectConstruct(op,
-          L::makeArrayRef(operands.data(), operands.data() + firstSuccOpd),
+      rewriteSelectConstruct(
+          op, L::makeArrayRef(operands.data(), operands.data() + firstSuccOpd),
           destinations, destOperands, *builder);
     }
   }
@@ -162,13 +167,13 @@ public:
     if (M::failed(M::applyPartialConversion(
             getModule(), target, std::move(patterns), &typeConverter))) {
       M::emitError(M::UnknownLoc::get(&context),
-          "error in converting to standard dialect\n");
+                   "error in converting to standard dialect\n");
       signalPassFailure();
     }
   }
 };
 
-}  // namespace
+} // namespace
 
 std::unique_ptr<M::Pass> fir::createFIRToStdPass() {
   return std::make_unique<FIRToStdLoweringPass>();

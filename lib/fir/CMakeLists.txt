@@ -16,6 +16,7 @@ add_library(FIR
   Attribute.cpp
   Dialect.cpp
   FIROps.cpp
+  IteratedDominanceFrontier.cpp
   LLVMConverter.cpp
   MemToReg.cpp
   StdConverter.cpp

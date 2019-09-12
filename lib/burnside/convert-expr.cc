@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "canonicalize.h"
+#include "convert-expr.h"
 #include "builder.h"
 #include "fe-helper.h"
 #include "fir/Dialect.h"
@@ -488,12 +488,12 @@ class ExprLowering {
     auto unwrapTy{arrTy.cast<fir::ReferenceType>().getEleTy()};
     auto seqTy{unwrapTy.cast<fir::SequenceType>()};
     auto shape = seqTy.getShape();
-    if (shape.known) {
-      if (dims < shape.bounds.size()) {
+    if (shape.hasValue()) {
+      if (dims < shape->size()) {
         fir::SequenceType::Bounds newBnds;
         // follow Fortran semantics and remove columns
         for (unsigned i = 0; i < dims; ++i) {
-          newBnds.push_back(shape.bounds[i]);
+          newBnds.push_back((*shape)[i]);
         }
         return fir::SequenceType::get({newBnds}, seqTy.getEleTy());
       }
@@ -607,7 +607,6 @@ M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
   builder.setInsertionPointToStart(getEntryBlock(&builder));
   fir::AllocaOp ae;
   assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
-  type = fir::ReferenceType::get(type);
   if (symbol) {
     ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
     symMap.addSymbol(symbol, ae);

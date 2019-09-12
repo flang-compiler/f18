@@ -26,6 +26,6 @@ namespace fir {
 /// Convert FIR to the standard dialect
 std::unique_ptr<mlir::Pass> createFIRToStdPass();
 
-}  // fir
+} // namespace fir
 
-#endif  // FIR_STD_CONVERSION_H
+#endif // FIR_STD_CONVERSION_H

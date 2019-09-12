@@ -32,6 +32,6 @@ std::unique_ptr<mlir::Pass> createStdToLLVMPass();
 /// Convert the LLVM IR dialect to LLVM-IR proper
 std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass();
 
-}  // fir
+} // namespace fir
 
-#endif  // FIR_LLVM_CONVERTER_H
+#endif // FIR_LLVM_CONVERTER_H

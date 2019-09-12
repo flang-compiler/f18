@@ -27,8 +27,7 @@ class MLIRContext;
 
 namespace Fortran::burnside {
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 #define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
 enum RuntimeEntryCode {

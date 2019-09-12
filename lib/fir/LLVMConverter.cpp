@@ -16,13 +16,6 @@
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/Config/abi-breaking.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -32,6 +25,13 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Config/abi-breaking.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
 // This module performs the conversion of FIR operations to MLIR standard and/or
 // LLVM-IR dialects.
@@ -54,17 +54,23 @@ public:
   using LLVMTypeConverter::LLVMTypeConverter;
 
   // convert a front-end kind value to either a std or LLVM IR dialect type
-  static M::Type kindToRealType(
-      M::MLIRContext *ctx, L::LLVMContext &llvmCtx, KindTy kind) {
+  static M::Type kindToRealType(M::MLIRContext *ctx, L::LLVMContext &llvmCtx,
+                                KindTy kind) {
     switch (kind) {
-    case 0: return M::FloatType::getF32(ctx);  // FIXME: use defaulted kind
-    case 2: return M::FloatType::getF16(ctx);
-    case 3: return M::FloatType::getBF16(ctx);
-    case 4: return M::FloatType::getF32(ctx);
-    case 8: return M::FloatType::getF64(ctx);
+    case 0:
+      return M::FloatType::getF32(ctx); // FIXME: use defaulted kind
+    case 2:
+      return M::FloatType::getF16(ctx);
+    case 3:
+      return M::FloatType::getBF16(ctx);
+    case 4:
+      return M::FloatType::getF32(ctx);
+    case 8:
+      return M::FloatType::getF64(ctx);
     case 10:
       return M::LLVM::LLVMType::get(ctx, L::Type::getX86_FP80Ty(llvmCtx));
-    case 16: return M::LLVM::LLVMType::get(ctx, L::Type::getFP128Ty(llvmCtx));
+    case 16:
+      return M::LLVM::LLVMType::get(ctx, L::Type::getFP128Ty(llvmCtx));
     }
     assert(!kind && "unhandled kind");
     return {};
@@ -77,7 +83,8 @@ public:
     return M::LLVM::LLVMType::get(ctx, i64->getPointerTo());
   }
 
-  template<typename A> M::Type convertPointerLike(A &ty) {
+  template <typename A>
+  M::Type convertPointerLike(A &ty) {
     M::Type ele = ty.getEleTy();
     auto eleTy = convertType(ele);
     if (ele.dyn_cast<SequenceType>()) {
@@ -120,16 +127,16 @@ public:
       // (buffer*, buffer-size)
       L::SmallVector<M::Type, 2> parts;
       // buffer*
-      parts.push_back(M::LLVM::LLVMType::get(
-          boxchar.getContext(), L::Type::getIntNTy(llvmCtx, 64)));
+      parts.push_back(M::LLVM::LLVMType::get(boxchar.getContext(),
+                                             L::Type::getIntNTy(llvmCtx, 64)));
       // ...
       assert(false);
-      return t;  // fixme
+      return t; // fixme
     }
     if (auto boxproc = t.dyn_cast<BoxProcType>()) {
       // (function*, host-context*)
       assert(false);
-      return t;  // fixme
+      return t; // fixme
     }
     if (auto chr = t.dyn_cast<CharacterType>()) {
       L::Type *llTy = L::Type::getIntNTy(llvmCtx, chr.getSizeInBits());
@@ -142,21 +149,22 @@ public:
     }
     if (auto derived = t.dyn_cast<RecordType>()) {
       assert(false);
-      return t;  // fixme
+      return t; // fixme
     }
     if (auto dims = t.dyn_cast<DimsType>()) {
       // [rank x <lower, extent, stride:index>]
       L::Type *i64 = L::Type::getIntNTy(llvmCtx, 64);
       if (auto rank = dims.getRank()) {
-        return M::LLVM::LLVMType::get(dims.getContext(),
+        return M::LLVM::LLVMType::get(
+            dims.getContext(),
             L::ArrayType::get(L::VectorType::get(i64, 3), rank));
       }
-      return M::LLVM::LLVMType::get(
-          dims.getContext(), L::VectorType::get(i64, 3)->getPointerTo());
+      return M::LLVM::LLVMType::get(dims.getContext(),
+                                    L::VectorType::get(i64, 3)->getPointerTo());
     }
     if (auto field = t.dyn_cast<FieldType>()) {
-      return M::LLVM::LLVMType::get(
-          field.getContext(), L::Type::getIntNTy(llvmCtx, 64));
+      return M::LLVM::LLVMType::get(field.getContext(),
+                                    L::Type::getIntNTy(llvmCtx, 64));
     }
     if (auto heap = t.dyn_cast<HeapType>()) {
       return convertPointerLike(heap);
@@ -184,10 +192,10 @@ public:
       M::Type eleTy = convertType(seq.getEleTy());
       auto shape = seq.getShape();
       L::SmallVector<int64_t, 4> memshape;
-      if (shape.known) {
-        for (auto bi : shape.bounds) {
-          if (bi.known) {
-            memshape.push_back(bi.bound);
+      if (shape.hasValue()) {
+        for (auto bi : *shape) {
+          if (bi.hasValue()) {
+            memshape.push_back(*bi);
           } else {
             memshape.push_back(-1); // unknown shape
           }
@@ -205,12 +213,13 @@ public:
 };
 
 /// FIR conversion pattern template
-template<typename FromOp> class FIROpConversion : public M::ConversionPattern {
+template <typename FromOp>
+class FIROpConversion : public M::ConversionPattern {
 public:
-  explicit FIROpConversion(
-      M::MLIRContext *ctx, FIRToLLVMTypeConverter &lowering)
-    : ConversionPattern(FromOp::getOperationName(), 1, ctx),
-      lowering(lowering) {}
+  explicit FIROpConversion(M::MLIRContext *ctx,
+                           FIRToLLVMTypeConverter &lowering)
+      : ConversionPattern(FromOp::getOperationName(), 1, ctx),
+        lowering(lowering) {}
 
 protected:
   L::LLVMContext &getLLVMContext() const { return lowering.getLLVMContext(); }
@@ -223,8 +232,9 @@ protected:
 struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto alloc = M::cast<fir::AllocaOp>(op);
     rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(
         op, lowering.convertType(alloc.getType()), operands, alloc.getAttrs());
@@ -236,8 +246,9 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
 struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto heap = M::cast<AllocMemOp>(op);
     // FIXME: should be a call to malloc
     rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(
@@ -250,8 +261,9 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
 struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto convert = M::cast<ConvertOp>(op);
     M::Type fromTy = lowering.convertType(convert.value()->getType());
     M::Type toTy = lowering.convertType(convert.res()->getType());
@@ -320,8 +332,9 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
 struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto coor = M::cast<CoordinateOp>(op);
     auto baseOp = coor.ref()->getDefiningOp();
     auto loc = coor.getLoc();
@@ -332,7 +345,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
       rewriter.replaceOp(op, v);
       return matchSuccess();
     }
-    assert(false);  // FIXME
+    assert(false); // FIXME
     return matchSuccess();
   }
 };
@@ -342,16 +355,17 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   using FIROpConversion::FIROpConversion;
 
   M::Value *insertValue(M::Location loc, int index, M::Value *aggr,
-      M::Value *op, M::Type partTy,
-      M::ConversionPatternRewriter &rewriter) const {
+                        M::Value *op, M::Type partTy,
+                        M::ConversionPatternRewriter &rewriter) const {
     L::SmallVector<M::Attribute, 1> attrs;
     attrs.push_back(rewriter.getI64IntegerAttr(index));
     return rewriter.create<M::LLVM::InsertValueOp>(
         loc, partTy, aggr, op, rewriter.getArrayAttr(attrs));
   }
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto embox = M::cast<EmboxOp>(op);
     auto *ctx = embox.getContext();
     M::Type convTy =
@@ -366,8 +380,8 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     L::Type *boxLLVMType = L::StructType::get(getLLVMContext(), members);
     M::Type boxTy = M::LLVM::LLVMType::get(ctx, boxLLVMType);
     auto loc = embox.getLoc();
-    M::Value *u = rewriter.create<M::LLVM::UndefOp>(
-        loc, boxTy, L::ArrayRef<M::Value *>{});
+    M::Value *u = rewriter.create<M::LLVM::UndefOp>(loc, boxTy,
+                                                    L::ArrayRef<M::Value *>{});
     auto *v = insertValue(loc, 0, u, operands[0], boxTy, rewriter);
     M::Type dimTy = M::LLVM::LLVMType::get(ctx, dimLLVMType);
     auto *w = insertValue(loc, 1, v, operands[1], dimTy, rewriter);
@@ -379,8 +393,9 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
 struct ExtractValueOpConversion : public FIROpConversion<ExtractValueOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto extractVal = M::cast<ExtractValueOp>(op);
     // FIXME
     assert(false);
@@ -395,8 +410,8 @@ struct FreeMemOpConversion : public FIROpConversion<FreeMemOp> {
     return M::LLVM::LLVMType::getInt8PtrTy(getDialect());
   }
 
-  M::FuncOp genFreeFunc(
-      M::Operation *op, M::ConversionPatternRewriter &rewriter) const {
+  M::FuncOp genFreeFunc(M::Operation *op,
+                        M::ConversionPatternRewriter &rewriter) const {
     M::FuncOp freeFunc =
         op->getParentOfType<M::ModuleOp>().lookupSymbol<M::FuncOp>("free");
     if (!freeFunc) {
@@ -407,14 +422,16 @@ struct FreeMemOpConversion : public FIROpConversion<FreeMemOp> {
     return freeFunc;
   }
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto freemem = M::cast<FreeMemOp>(op);
     M::FuncOp freeFunc = genFreeFunc(op, rewriter);
     M::Value *casted = rewriter.create<M::LLVM::BitcastOp>(
         op->getLoc(), getVoidPtrType(), operands[0]);
-    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(op, llvm::ArrayRef<M::Type>(),
-        rewriter.getSymbolRefAttr(freeFunc), casted);
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
+        op, llvm::ArrayRef<M::Type>(), rewriter.getSymbolRefAttr(freeFunc),
+        casted);
     return matchSuccess();
   }
 };
@@ -423,8 +440,9 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   using FIROpConversion::FIROpConversion;
 
   // gendims(args:index, ...) ==> %v = ... : [size x <3 x index>]
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto argsize = operands.size();
     assert(argsize % 3 == 0 && "must be a multiple of 3");
     auto loc = op->getLoc();
@@ -436,8 +454,8 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
     L::Type *av3i64 = L::ArrayType::get(v3i64, argsize / 3);
     M::Type arrvec3 = M::LLVM::LLVMType::get(ctx, av3i64);
     auto i32Type = M::LLVM::LLVMType::get(ctx, L::Type::getIntNTy(llvmCtx, 32));
-    M::Value *v = rewriter.create<M::LLVM::UndefOp>(
-        loc, arrvec3, L::ArrayRef<M::Value *>{});
+    M::Value *v = rewriter.create<M::LLVM::UndefOp>(loc, arrvec3,
+                                                    L::ArrayRef<M::Value *>{});
     // BUG? insertelement requires an i32 for 3rd argument
     M::Value *zero = rewriter.create<M::LLVM::ConstantOp>(
         loc, i32Type, rewriter.getI64IntegerAttr(0));
@@ -448,16 +466,16 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
     unsigned rank = 0;
     for (std::size_t i = 0; i < argsize;) {
       auto a1 = rewriter.create<M::LLVM::UndefOp>(loc, vec3);
-      auto a2 = rewriter.create<M::LLVM::InsertElementOp>(
-          loc, vec3, a1, operands[i++], zero);
-      auto a3 = rewriter.create<M::LLVM::InsertElementOp>(
-          loc, vec3, a2, operands[i++], one);
-      auto a4 = rewriter.create<M::LLVM::InsertElementOp>(
-          loc, vec3, a3, operands[i++], two);
+      auto a2 = rewriter.create<M::LLVM::InsertElementOp>(loc, vec3, a1,
+                                                          operands[i++], zero);
+      auto a3 = rewriter.create<M::LLVM::InsertElementOp>(loc, vec3, a2,
+                                                          operands[i++], one);
+      auto a4 = rewriter.create<M::LLVM::InsertElementOp>(loc, vec3, a3,
+                                                          operands[i++], two);
       L::SmallVector<M::Attribute, 1> attrs;
       attrs.push_back(rewriter.getI64IntegerAttr(rank++));
-      v = rewriter.create<M::LLVM::InsertValueOp>(
-          loc, arrvec3, v, a4, rewriter.getArrayAttr(attrs));
+      v = rewriter.create<M::LLVM::InsertValueOp>(loc, arrvec3, v, a4,
+                                                  rewriter.getArrayAttr(attrs));
     }
     rewriter.replaceOp(op, v);
     return matchSuccess();
@@ -481,8 +499,9 @@ public:
 struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto insertVal = cast<InsertValueOp>(op);
     // FIXME
     assert(false);
@@ -494,11 +513,13 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
 struct LoadExprConversion : public FIROpConversion<fir::LoadOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto load = M::cast<fir::LoadOp>(op);
-    auto newLoad = rewriter.create<M::LLVM::LoadOp>(load.getLoc(),
-        lowering.convertType(load.getType()), operands, load.getAttrs());
+    auto newLoad = rewriter.create<M::LLVM::LoadOp>(
+        load.getLoc(), lowering.convertType(load.getType()), operands,
+        load.getAttrs());
     // ???: the next line works around a bug [do we still need this?]
     load.replaceAllUsesWith(newLoad.getResult());
     rewriter.replaceOp(op, newLoad.getResult());
@@ -509,8 +530,9 @@ struct LoadExprConversion : public FIROpConversion<fir::LoadOp> {
 struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
     return matchSuccess();
@@ -521,9 +543,11 @@ struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
 struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  L::ArrayRef<M::Block *> destinations,
+                  L::ArrayRef<OperandTy> destOperands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
     return matchSuccess();
@@ -533,9 +557,11 @@ struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
 struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  L::ArrayRef<M::Block *> destinations,
+                  L::ArrayRef<OperandTy> destOperands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
     return matchSuccess();
@@ -545,9 +571,11 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
 struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  L::ArrayRef<M::Block *> destinations,
+                  L::ArrayRef<OperandTy> destOperands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
     return matchSuccess();
@@ -557,9 +585,11 @@ struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
 struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  L::ArrayRef<M::Block *> destinations,
+                  L::ArrayRef<OperandTy> destOperands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
     return matchSuccess();
@@ -570,8 +600,9 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
 struct StoreExprConversion : public FIROpConversion<fir::StoreOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<M::LLVM::StoreOp>(op, operands[0], operands[1]);
     return matchSuccess();
   }
@@ -581,8 +612,9 @@ struct StoreExprConversion : public FIROpConversion<fir::StoreOp> {
 struct UndefOpConversion : public FIROpConversion<UndefOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
     auto undef = M::cast<UndefOp>(op);
     M::Value *v{rewriter.create<M::LLVM::UndefOp>(
         undef.getLoc(), lowering.convertType(undef.getType()))};
@@ -595,9 +627,10 @@ struct UndefOpConversion : public FIROpConversion<UndefOp> {
 struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      M::ConversionPatternRewriter &rewriter) const override {
-    L::SmallVector<M::Block *, 1> destinations;  // none
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    L::SmallVector<M::Block *, 1> destinations; // none
     L::SmallVector<OperandTy, 1> destOperands;  // none
     rewriter.create<M::LLVM::UnreachableOp>(
         op->getLoc(), operands, destinations, destOperands, op->getAttrs());
@@ -608,8 +641,9 @@ struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
 // Lower a SELECT operation into a cascade of conditional branches. The last
 // case must be the `true` condition.
 inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
-    L::ArrayRef<M::Block *> dests, L::ArrayRef<OperandTy> destOperands,
-    M::OpBuilder &rewriter) {
+                                   L::ArrayRef<M::Block *> dests,
+                                   L::ArrayRef<OperandTy> destOperands,
+                                   M::OpBuilder &rewriter) {
   L::SmallVector<M::Value *, 1> noargs;
   L::SmallVector<M::Block *, 8> blocks;
   auto loc{op->getLoc()};
@@ -621,12 +655,12 @@ inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
     rewriter.create<M::BranchOp>(loc, dests[0], destOperands[0]);
     return;
   }
-  rewriter.create<M::CondBranchOp>(
-      loc, operands[1], dests[0], destOperands[0], blocks[1], noargs);
+  rewriter.create<M::CondBranchOp>(loc, operands[1], dests[0], destOperands[0],
+                                   blocks[1], noargs);
   for (std::size_t i = 1; i < dests.size() - 1; ++i) {
     rewriter.setInsertionPointToEnd(blocks[i]);
-    rewriter.create<M::CondBranchOp>(
-        loc, operands[i + 1], dests[i], destOperands[i], blocks[i + 1], noargs);
+    rewriter.create<M::CondBranchOp>(loc, operands[i + 1], dests[i],
+                                     destOperands[i], blocks[i + 1], noargs);
   }
   std::size_t last{dests.size() - 1};
   rewriter.setInsertionPointToEnd(blocks[last]);
@@ -638,8 +672,6 @@ inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 class FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
-  M::OpBuilder *builder;
-
 public:
   void runOnModule() override {
     auto &context{getContext()};
@@ -647,10 +679,10 @@ public:
     M::OwningRewritePatternList patterns;
     patterns
         .insert<AllocaOpConversion, AllocMemOpConversion, ConvertOpConversion,
-            CoordinateOpConversion, EmboxOpConversion, FreeMemOpConversion,
-            GenDimsOpConversion, LoadExprConversion, NoReassocOpConversion,
-            StoreExprConversion, UndefOpConversion, UnreachableOpConversion>(
-            &context, typeConverter);
+                CoordinateOpConversion, EmboxOpConversion, FreeMemOpConversion,
+                GenDimsOpConversion, LoadExprConversion, NoReassocOpConversion,
+                StoreExprConversion, UndefOpConversion,
+                UnreachableOpConversion>(&context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::populateFuncOpTypeConversionPattern(patterns, &context, typeConverter);
     M::ConversionTarget target{context};
@@ -668,7 +700,7 @@ public:
     if (M::failed(M::applyFullConversion(
             getModule(), target, std::move(patterns), &typeConverter))) {
       M::emitError(M::UnknownLoc::get(&context),
-          "error in converting to LLVM-IR dialect\n");
+                   "error in converting to LLVM-IR dialect\n");
       signalPassFailure();
     }
   }
@@ -689,7 +721,7 @@ struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
   }
 };
 
-}  // namespace
+} // namespace
 
 std::unique_ptr<M::Pass> fir::createFIRToLLVMPass() {
   return std::make_unique<FIRToLLVMLoweringPass>();

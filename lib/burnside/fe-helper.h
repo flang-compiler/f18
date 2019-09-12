@@ -15,9 +15,10 @@
 #ifndef FORTRAN_BURNSIDE_FE_HELPER_H_
 #define FORTRAN_BURNSIDE_FE_HELPER_H_
 
-/// Traversal and coversion of various Fortran::parser data structures into the
-/// FIR dialect of MLIR. These traversals are isolated in this file to hopefully
-/// make maintenance easier.
+/// Traversal and conversion of Fortran type data structures into the FIR
+/// dialect of MLIR.
+///
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 #include "../common/Fortran.h"
 #include "mlir/IR/Types.h"
@@ -39,6 +40,7 @@ template<common::TypeCategory, int> class Type;
 
 namespace Fortran::parser {
 class CharBlock;
+class CookedSource;
 }
 
 namespace Fortran::semantics {
@@ -56,14 +58,11 @@ constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
 constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
 constexpr common::TypeCategory DerivedCat{common::TypeCategory::Derived};
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
-
 mlir::Location dummyLoc(mlir::MLIRContext *ctxt);
 
 /// Translate a CharBlock position to (source-file, line, column)
-mlir::Location parserPosToLoc(
-    mlir::MLIRContext &context, const parser::CharBlock &position);
+mlir::Location parserPosToLoc(mlir::MLIRContext &context,
+    const parser::CookedSource *cooked, const parser::CharBlock &position);
 
 mlir::Type genTypeFromCategoryAndKind(
     mlir::MLIRContext *ctxt, common::TypeCategory tc, int kind);

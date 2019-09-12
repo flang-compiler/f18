@@ -17,7 +17,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
 add_library(FortranBurnside
   bridge.cc
   builder.cc
-  canonicalize.cc
+  convert-expr.cc
   fe-helper.cc
   flattened.cc
   runtime.cc

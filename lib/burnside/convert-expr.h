@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_CANONICALIZE_H_
-#define FORTRAN_BURNSIDE_CANONICALIZE_H_
+#ifndef FORTRAN_BURNSIDE_CONVERT_EXPR_H_
+#define FORTRAN_BURNSIDE_CONVERT_EXPR_H_
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace mlir {
 class Location;
@@ -55,4 +54,4 @@ mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
 }  // burnside
 }  // Fortran
 
-#endif  // FORTRAN_BURNSIDE_CANONICALIZE_H_
+#endif  // FORTRAN_BURNSIDE_CONVERT_EXPR_H_
