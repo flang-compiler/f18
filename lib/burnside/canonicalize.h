@@ -32,7 +32,7 @@ class AllocaExpr;
 namespace Fortran {
 namespace evaluate {
 template<typename> class Expr;
-class SomeType;
+struct SomeType;
 }  // evaluate
 namespace semantics {
 class Symbol;
