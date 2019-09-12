@@ -10,10 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "flang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Frontend/TextDiagnostic.h"
+#include "flang/Frontend/TextDiagnostic.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ErrorHandling.h"

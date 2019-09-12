@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Frontend/TextDiagnosticBuffer.h"
+#include "flang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/SmallString.h"

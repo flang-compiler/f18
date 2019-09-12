@@ -14,21 +14,20 @@
 
 #include "clang/Basic/Stack.h"
 #include "clang/Basic/TargetOptions.h"
-#include "clang/CodeGen/ObjectFilePCHContainerOperations.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
-#include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/CompilerInvocation.h"
-#include "clang/Frontend/FrontendDiagnostic.h"
-#include "clang/Frontend/TextDiagnosticBuffer.h"
-#include "clang/Frontend/TextDiagnosticPrinter.h"
-#include "clang/Frontend/Utils.h"
+#include "flang/Frontend/CompilerInstance.h"
+#include "flang/Frontend/CompilerInvocation.h"
+#include "flang/Frontend/FrontendDiagnostic.h"
+#include "flang/Frontend/TextDiagnosticBuffer.h"
+#include "flang/Frontend/TextDiagnosticPrinter.h"
+#include "flang/Frontend/Utils.h"
 #include "clang/FrontendTool/Utils.h"
 
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Config/llvm-config.h"
-#include "llvm/LinkAllPasses.h"
+// #include "llvm/LinkAllPasses.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
@@ -194,16 +193,11 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 
-  // Register the support for object-file-wrapped Clang modules.
-  auto PCHOps = Clang->getPCHContainerOperations();
-  PCHOps->registerWriter(std::make_unique<ObjectFilePCHContainerWriter>());
-  PCHOps->registerReader(std::make_unique<ObjectFilePCHContainerReader>());
-
   // Initialize targets first, so that --version shows registered targets.
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
+  // llvm::InitializeAllTargets();
+  // llvm::InitializeAllTargetMCs();
+  // llvm::InitializeAllAsmPrinters();
+  // llvm::InitializeAllAsmParsers();
 
 #ifdef LINK_POLLY_INTO_TOOLS
   llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
@@ -218,19 +212,15 @@ int cc1_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   bool Success =
       CompilerInvocation::CreateFromArgs(Clang->getInvocation(), Argv, Diags);
 
-  if (Clang->getFrontendOpts().TimeTrace) {
-    llvm::timeTraceProfilerInitialize(
-        Clang->getFrontendOpts().TimeTraceGranularity);
-  }
   // --print-supported-cpus takes priority over the actual compilation.
   if (Clang->getFrontendOpts().PrintSupportedCPUs)
     return PrintSupportedCPUs(Clang->getTargetOpts().Triple);
 
   // Infer the builtin include path if unspecified.
-  if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
-      Clang->getHeaderSearchOpts().ResourceDir.empty())
-    Clang->getHeaderSearchOpts().ResourceDir =
-      CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
+  // if (Clang->getHeaderSearchOpts().UseBuiltinIncludes &&
+  //     Clang->getHeaderSearchOpts().ResourceDir.empty())
+  //   Clang->getHeaderSearchOpts().ResourceDir =
+  //     CompilerInvocation::GetResourcesPath(Argv0, MainAddr);
 
   // Create the actual diagnostics engine.
   Clang->createDiagnostics();

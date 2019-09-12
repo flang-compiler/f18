@@ -9,7 +9,7 @@
 #ifndef LLVM_CLANG_FRONTEND_FRONTENDACTIONS_H
 #define LLVM_CLANG_FRONTEND_FRONTENDACTIONS_H
 
-#include "clang/Frontend/FrontendAction.h"
+#include "flang/Frontend/FrontendAction.h"
 #include <string>
 #include <vector>
 

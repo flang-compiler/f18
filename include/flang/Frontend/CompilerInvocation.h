@@ -9,19 +9,16 @@
 #ifndef LLVM_CLANG_FRONTEND_COMPILERINVOCATION_H
 #define LLVM_CLANG_FRONTEND_COMPILERINVOCATION_H
 
+#include "flang/Frontend/FrontendOptions.h"
+
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileSystemOptions.h"
 #include "clang/Basic/LLVM.h"
-#include "clang/Basic/LangOptions.h"
-#include "clang/Basic/LangStandard.h"
-#include "clang/Frontend/DependencyOutputOptions.h"
-#include "clang/Frontend/FrontendOptions.h"
-#include "clang/Frontend/MigratorOptions.h"
-#include "clang/Frontend/PreprocessorOutputOptions.h"
-#include "clang/StaticAnalyzer/Core/AnalyzerOptions.h"
+
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/ArrayRef.h"
+
 #include <memory>
 #include <string>
 
@@ -46,8 +43,6 @@ class FileSystem;
 namespace clang {
 
 class DiagnosticsEngine;
-class HeaderSearchOptions;
-class PreprocessorOptions;
 class TargetOptions;
 
 /// Fill out Opts based on the options given in Args.
@@ -64,53 +59,22 @@ bool ParseDiagnosticArgs(DiagnosticOptions &Opts, llvm::opt::ArgList &Args,
 
 class CompilerInvocationBase {
 public:
-  /// Options controlling the language variant.
-  std::shared_ptr<LangOptions> LangOpts;
-
   /// Options controlling the target.
   std::shared_ptr<TargetOptions> TargetOpts;
 
   /// Options controlling the diagnostic engine.
   IntrusiveRefCntPtr<DiagnosticOptions> DiagnosticOpts;
 
-  /// Options controlling the \#include directive.
-  std::shared_ptr<HeaderSearchOptions> HeaderSearchOpts;
-
-  /// Options controlling the preprocessor (aside from \#include handling).
-  std::shared_ptr<PreprocessorOptions> PreprocessorOpts;
-
   CompilerInvocationBase();
   CompilerInvocationBase(const CompilerInvocationBase &X);
   CompilerInvocationBase &operator=(const CompilerInvocationBase &) = delete;
   ~CompilerInvocationBase();
 
-  LangOptions *getLangOpts() { return LangOpts.get(); }
-  const LangOptions *getLangOpts() const { return LangOpts.get(); }
+  DiagnosticOptions &getDiagnosticOpts() { return *DiagnosticOpts.get(); }
+  const DiagnosticOptions &getDiagnosticOpts() const { return *DiagnosticOpts.get(); }
 
   TargetOptions &getTargetOpts() { return *TargetOpts.get(); }
   const TargetOptions &getTargetOpts() const { return *TargetOpts.get(); }
-
-  DiagnosticOptions &getDiagnosticOpts() const { return *DiagnosticOpts; }
-
-  HeaderSearchOptions &getHeaderSearchOpts() { return *HeaderSearchOpts; }
-
-  const HeaderSearchOptions &getHeaderSearchOpts() const {
-    return *HeaderSearchOpts;
-  }
-
-  std::shared_ptr<HeaderSearchOptions> getHeaderSearchOptsPtr() const {
-    return HeaderSearchOpts;
-  }
-
-  std::shared_ptr<PreprocessorOptions> getPreprocessorOptsPtr() {
-    return PreprocessorOpts;
-  }
-
-  PreprocessorOptions &getPreprocessorOpts() { return *PreprocessorOpts; }
-
-  const PreprocessorOptions &getPreprocessorOpts() const {
-    return *PreprocessorOpts;
-  }
 };
 
 /// Helper class for holding the data necessary to invoke the compiler.
@@ -119,28 +83,14 @@ public:
 /// compiler, including data such as the include paths, the code generation
 /// options, the warning flags, and so on.
 class CompilerInvocation : public CompilerInvocationBase {
-  /// Options controlling the static analyzer.
-  AnalyzerOptionsRef AnalyzerOpts;
-
-  MigratorOptions MigratorOpts;
-
-  /// Options controlling IRgen and the backend.
-  CodeGenOptions CodeGenOpts;
-
-  /// Options controlling dependency output.
-  DependencyOutputOptions DependencyOutputOpts;
-
   /// Options controlling file system operations.
   FileSystemOptions FileSystemOpts;
 
   /// Options controlling the frontend itself.
   FrontendOptions FrontendOpts;
 
-  /// Options controlling preprocessed output.
-  PreprocessorOutputOptions PreprocessorOutputOpts;
-
 public:
-  CompilerInvocation() : AnalyzerOpts(new AnalyzerOptions()) {}
+  CompilerInvocation() {}
 
   /// @name Utility Methods
   /// @{
@@ -168,41 +118,9 @@ public:
   /// executable), for finding the builtin compiler path.
   static std::string GetResourcesPath(const char *Argv0, void *MainAddr);
 
-  /// Set language defaults for the given input language and
-  /// language standard in the given LangOptions object.
-  ///
-  /// \param Opts - The LangOptions object to set up.
-  /// \param IK - The input language.
-  /// \param T - The target triple.
-  /// \param PPOpts - The PreprocessorOptions affected.
-  /// \param LangStd - The input language standard.
-  static void setLangDefaults(LangOptions &Opts, InputKind IK,
-                   const llvm::Triple &T, PreprocessorOptions &PPOpts,
-                   LangStandard::Kind LangStd = LangStandard::lang_unspecified);
-
-  /// Retrieve a module hash string that is suitable for uniquely
-  /// identifying the conditions under which the module was built.
-  std::string getModuleHash() const;
-
   /// @}
   /// @name Option Subgroups
   /// @{
-
-  AnalyzerOptionsRef getAnalyzerOpts() const { return AnalyzerOpts; }
-
-  MigratorOptions &getMigratorOpts() { return MigratorOpts; }
-  const MigratorOptions &getMigratorOpts() const { return MigratorOpts; }
-
-  CodeGenOptions &getCodeGenOpts() { return CodeGenOpts; }
-  const CodeGenOptions &getCodeGenOpts() const { return CodeGenOpts; }
-
-  DependencyOutputOptions &getDependencyOutputOpts() {
-    return DependencyOutputOpts;
-  }
-
-  const DependencyOutputOptions &getDependencyOutputOpts() const {
-    return DependencyOutputOpts;
-  }
 
   FileSystemOptions &getFileSystemOpts() { return FileSystemOpts; }
 
@@ -212,14 +130,6 @@ public:
 
   FrontendOptions &getFrontendOpts() { return FrontendOpts; }
   const FrontendOptions &getFrontendOpts() const { return FrontendOpts; }
-
-  PreprocessorOutputOptions &getPreprocessorOutputOpts() {
-    return PreprocessorOutputOpts;
-  }
-
-  const PreprocessorOutputOptions &getPreprocessorOutputOpts() const {
-    return PreprocessorOutputOpts;
-  }
 
   /// @}
 };

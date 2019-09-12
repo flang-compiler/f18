@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Frontend/TextDiagnostic.h"
+#include "flang/Frontend/TextDiagnostic.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileManager.h"

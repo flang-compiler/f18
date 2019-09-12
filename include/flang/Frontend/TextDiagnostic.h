@@ -15,7 +15,7 @@
 #ifndef LLVM_CLANG_FRONTEND_TEXTDIAGNOSTIC_H
 #define LLVM_CLANG_FRONTEND_TEXTDIAGNOSTIC_H
 
-#include "clang/Frontend/DiagnosticRenderer.h"
+#include "flang/Frontend/DiagnosticRenderer.h"
 
 namespace clang {
 

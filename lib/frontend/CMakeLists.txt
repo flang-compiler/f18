@@ -1,5 +1,3 @@
-add_subdirectory(Rewrite)
-
 set(LLVM_LINK_COMPONENTS
   BitReader
   BitstreamReader
@@ -8,48 +6,18 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
-set(optional_deps intrinsics_gen)
-if (CLANG_BUILT_STANDALONE)
-  set(optional_deps)
-endif()
-
-add_clang_library(clangFrontend
-  ASTConsumers.cpp
-  ASTMerge.cpp
-  ASTUnit.cpp
-  ChainedDiagnosticConsumer.cpp
-  ChainedIncludesSource.cpp
+llvm_add_library(flangFrontend
   CompilerInstance.cpp
   CompilerInvocation.cpp
-  CreateInvocationFromCommandLine.cpp
-  DependencyFile.cpp
-  DependencyGraph.cpp
   DiagnosticRenderer.cpp
-  FrontendAction.cpp
-  FrontendActions.cpp
   FrontendOptions.cpp
-  FrontendTiming.cpp
-  HeaderIncludeGen.cpp
-  InitHeaderSearch.cpp
-  InitPreprocessor.cpp
-  LayoutOverrideSource.cpp
   LogDiagnosticPrinter.cpp
-  ModuleDependencyCollector.cpp
-  MultiplexConsumer.cpp
-  PrecompiledPreamble.cpp
-  PrintPreprocessedOutput.cpp
-  SerializedDiagnosticPrinter.cpp
-  SerializedDiagnosticReader.cpp
-  TestModuleFileExtension.cpp
   TextDiagnostic.cpp
   TextDiagnosticBuffer.cpp
   TextDiagnosticPrinter.cpp
-  VerifyDiagnosticConsumer.cpp
-  InterfaceStubFunctionsConsumer.cpp
 
-  DEPENDS
-  ClangDriverOptions
-  ${optional_deps}
+  # DEPENDS
+  # ClangDriverOptions
 
   LINK_LIBS
   clangAST
@@ -59,5 +27,12 @@ add_clang_library(clangFrontend
   clangLex
   clangParse
   clangSema
-  clangSerialization
   )
+
+target_link_directories(flangFrontend
+  PUBLIC
+  ${LLVM_DIR}/../..)
+
+set_target_properties(flangFrontend
+  PROPERTIES
+  COMPILE_FLAGS -Wno-unused-parameter)

@@ -17,7 +17,11 @@ add_executable(flang-fc1
   main_fc1.cc
 )
 
-set_target_properties(flang-fc1 PROPERTIES COMPILE_FLAGS -Wno-unused-parameter)
+set_target_properties(flang-fc1
+  PROPERTIES
+    COMPILE_FLAGS
+      -Wno-unused-parameter
+)
 
 set(COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
@@ -25,33 +29,30 @@ set(COMPONENTS
   CodeGen
   Core
   IPO
-  AggressiveInstCombine
+  # AggressiveInstCombine
   InstCombine
   Instrumentation
   MC
-  MCParser
+  # MCParser
   ObjCARCOpts
   Option
   ScalarOpts
   Support
   TransformUtils
-  Vectorize)
-
-llvm_map_components_to_libnames(FLANG_FC1_LIBS ${COMPONENTS})
+  Vectorize
+)
 
 target_link_directories(flang-fc1
   PUBLIC
   ${LLVM_DIR}/../..)
 
+llvm_map_components_to_libnames(FLANG_FC1_LLVM_LIBS ${COMPONENTS})
+
 target_link_libraries(flang-fc1
   PRIVATE
-  ${FLANG_FC1_LIBS}
+  ${FLANG_FC1_LLVM_LIBS}
   clangBasic
-  clangCodeGen
   clangDriver
-  clangFrontend
-  clangFrontendTool
-  clangSerialization
+  flangFrontend
+  flangFrontendTool
   )
-
-message("Flang link libraries: ${FLANG_FC1_LIBS}")
