@@ -119,7 +119,7 @@ subroutine s6
  integer :: a(5) = 1
  !DEF: /s6/Block1/i ObjectEntity INTEGER(4)
  !DEF: /s6/Block1/j (local) ObjectEntity INTEGER(8)
- !DEF: /s6/Block1/k (implicit) (local_init) ObjectEntity INTEGER(4)
+ !DEF: /s6/Block1/k (implicit, local_init) ObjectEntity INTEGER(4)
   !DEF: /s6/Block1/a (shared) HostAssoc INTEGER(4)
  do concurrent(integer::i=1:5)local(j)local_init(k)shared(a)
   !REF: /s6/Block1/a

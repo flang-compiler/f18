@@ -17,6 +17,7 @@
 #include "../common/idioms.h"
 #include <ostream>
 #include <string>
+#include <unordered_map>
 
 namespace Fortran::semantics {
 
@@ -530,6 +531,33 @@ static void DumpUniqueName(std::ostream &os, const Scope &scope) {
   }
 }
 
+// Dump flag list for a symbol in Unparse
+static void DumpFlagsForUnparse(std::ostream &os, const Symbol::Flags &flags) {
+  static std::unordered_map<Symbol::Flag, const std::string> flagMap{
+      {Symbol::Flag::Implicit, "implicit"},
+      {Symbol::Flag::LocalityLocal, "local"},
+      {Symbol::Flag::LocalityLocalInit, "local_init"},
+      {Symbol::Flag::LocalityShared, "shared"}};
+  std::size_t seen{0};
+
+  flags.IterateOverMembers([&](Symbol::Flag flag) {
+    if (flags.test(flag)) {
+      auto search{flagMap.find(flag)};
+      if (search != flagMap.end()) {  // only dump the flag(s) in flagMap
+        if (seen++ > 0) {
+          os << ", ";
+        } else {
+          os << " (";
+        }
+        os << search->second;
+      }
+    }
+  });
+  if (seen > 0) {
+    os << ')';
+  }
+}
+
 // Dump a symbol for UnparseWithSymbols. This will be used for tests so the
 // format should be reasonably stable.
 std::ostream &DumpForUnparse(
@@ -540,10 +568,9 @@ std::ostream &DumpForUnparse(
     if (!symbol.attrs().empty()) {
       os << ' ' << symbol.attrs();
     }
-    DumpBool(os, "(implicit)", symbol.test(Symbol::Flag::Implicit));
-    DumpBool(os, "(local)", symbol.test(Symbol::Flag::LocalityLocal));
-    DumpBool(os, "(local_init)", symbol.test(Symbol::Flag::LocalityLocalInit));
-    DumpBool(os, "(shared)", symbol.test(Symbol::Flag::LocalityShared));
+    if (!symbol.flags().empty()) {
+      DumpFlagsForUnparse(os, symbol.flags());
+    }
     os << ' ' << symbol.GetDetailsName();
     DumpType(os, symbol.GetType());
   }
