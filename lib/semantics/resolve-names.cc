@@ -2100,7 +2100,7 @@ Scope *ModuleVisitor::FindModule(const parser::Name &name, Scope *ancestor) {
     return nullptr;
   }
   if (DoesScopeContain(scope, currScope())) {  // 14.2.2(1)
-    Say(name, "Module '%s' cannot USE itself."_err_en_US);
+    Say(name, "Module '%s' cannot USE itself"_err_en_US);
   }
   Resolve(name, scope->symbol());
   return scope;
@@ -4058,8 +4058,8 @@ bool DeclarationVisitor::HandleUnrestrictedSpecificIntrinsicFunction(
           .has_value()) {
     // Unrestricted specific intrinsic function names (e.g., "cos")
     // are acceptable as procedure interfaces.
-    Symbol &symbol{
-        MakeSymbol(InclusiveScope(), name.source, Attrs{Attr::INTRINSIC})};
+    Symbol &symbol{MakeSymbol(InclusiveScope(), name.source,
+        Attrs{Attr::INTRINSIC, Attr::ELEMENTAL})};
     symbol.set_details(ProcEntityDetails{});
     Resolve(name, symbol);
     return true;
