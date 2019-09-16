@@ -73,14 +73,6 @@ bool IsTeamType(const DerivedTypeSpec *);
 // Is this derived type either C_PTR or C_FUNPTR from module ISO_C_BINDING
 bool IsIsoCType(const DerivedTypeSpec *);
 bool IsEventTypeOrLockType(const DerivedTypeSpec *);
-// Returns an ultimate component symbol that is a
-// coarray or nullptr if there are no such component.
-// There is no guarantee regarding which ultimate coarray
-// component is returned in case there are several because this
-// does not really matter for the checks where it is needed.
-const Symbol *HasCoarrayUltimateComponent(const DerivedTypeSpec &);
-// Same logic as HasCoarrayUltimateComponent, but looking for
-const Symbol *HasEventOrLockPotentialComponent(const DerivedTypeSpec &);
 bool IsOrContainsEventOrLockComponent(const Symbol &);
 // Has an explicit or implied SAVE attribute
 bool IsSaved(const Symbol &);
@@ -111,12 +103,14 @@ inline bool IsIntentIn(const Symbol &symbol) {
 inline bool IsProtected(const Symbol &symbol) {
   return symbol.attrs().test(Attr::PROTECTED);
 }
-bool IsFinalizable(const Symbol &symbol);
-bool IsCoarray(const Symbol &symbol);
+bool IsFinalizable(const Symbol &);
+bool IsCoarray(const Symbol &);
 inline bool IsAssumedSizeArray(const Symbol &symbol) {
   const auto *details{symbol.detailsIf<ObjectEntityDetails>()};
   return details && details->IsAssumedSize();
 }
+bool IsAssumedLengthCharacter(const Symbol &);
+bool IsAssumedLengthCharacterFunction(const Symbol &);
 std::optional<parser::MessageFixedText> WhyNotModifiable(
     const Symbol &symbol, const Scope &scope);
 // Is the symbol modifiable in this scope
@@ -366,6 +360,8 @@ using PotentialComponentIterator = ComponentIterator<ComponentKind::Potential>;
 PotentialComponentIterator::const_iterator FindEventOrLockPotentialComponent(
     const DerivedTypeSpec &);
 UltimateComponentIterator::const_iterator FindCoarrayUltimateComponent(
+    const DerivedTypeSpec &);
+UltimateComponentIterator::const_iterator FindPointerUltimateComponent(
     const DerivedTypeSpec &);
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_

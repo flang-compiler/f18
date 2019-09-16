@@ -173,6 +173,8 @@ public:
       const std::string &message, bool echoSourceLine = false) const;
   const SourceFile *GetSourceFile(
       Provenance, std::size_t *offset = nullptr) const;
+  std::optional<SourcePosition> GetSourcePosition(Provenance) const;
+  std::optional<ProvenanceRange> GetFirstFileProvenance() const;
   std::string GetPath(Provenance) const;  // __FILE__
   int GetLineNumber(Provenance) const;  // __LINE__
   Provenance CompilerInsertionProvenance(char ch);
@@ -236,6 +238,10 @@ public:
   bool IsValid(ProvenanceRange r) const { return allSources_.IsValid(r); }
 
   std::optional<ProvenanceRange> GetProvenanceRange(CharBlock) const;
+  std::optional<CharBlock> GetCharBlockFromLineAndColumns(
+      int line, int startColumn, int endColumn) const;
+  std::optional<std::pair<SourcePosition, SourcePosition>>
+      GetSourcePositionRange(CharBlock) const;
   std::optional<CharBlock> GetCharBlock(ProvenanceRange) const;
 
   // The result of a Put() is the offset that the new data

@@ -20,6 +20,7 @@
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
 #include "check-deallocate.h"
+#include "check-declarations.h"
 #include "check-do.h"
 #include "check-if-stmt.h"
 #include "check-io.h"
@@ -39,8 +40,22 @@
 
 namespace Fortran::semantics {
 
+using NameToSymbolMap = std::map<const char *, const Symbol *>;
 static void DoDumpSymbols(std::ostream &, const Scope &, int indent = 0);
 static void PutIndent(std::ostream &, int indent);
+
+static void GetSymbolNames(const Scope &scope, NameToSymbolMap &symbols) {
+  // Finds all symbol names in the scope without collecting duplicates.
+  for (const auto &pair : scope) {
+    symbols.emplace(pair.second->name().begin(), pair.second);
+  }
+  for (const auto &pair : scope.commonBlocks()) {
+    symbols.emplace(pair.second->name().begin(), pair.second);
+  }
+  for (const auto &child : scope.children()) {
+    GetSymbolNames(child, symbols);
+  }
+}
 
 // A parse tree visitor that calls Enter/Leave functions from each checker
 // class C supplied as template parameters. Enter is called before the node's
@@ -108,6 +123,7 @@ static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
   ResolveNames(context, program);
   RewriteParseTree(context, program);
+  CheckDeclarations(context);
   StatementSemanticsPass1{context}.Walk(program);
   return StatementSemanticsPass2{context}.Walk(program);
 }
@@ -213,6 +229,22 @@ void Semantics::EmitMessages(std::ostream &os) const {
 
 void Semantics::DumpSymbols(std::ostream &os) {
   DoDumpSymbols(os, context_.globalScope());
+}
+
+void Semantics::DumpSymbolsSources(std::ostream &os) const {
+  NameToSymbolMap symbols;
+  GetSymbolNames(context_.globalScope(), symbols);
+  for (const auto pair : symbols) {
+    const Symbol &symbol{*pair.second};
+    if (auto sourceInfo{cooked_.GetSourcePositionRange(symbol.name())}) {
+      os << symbol.name().ToString() << ": " << sourceInfo->first.file.path()
+         << ", " << sourceInfo->first.line << ", " << sourceInfo->first.column
+         << "-" << sourceInfo->second.column << "\n";
+    } else if (symbol.has<semantics::UseDetails>()) {
+      os << symbol.name().ToString() << ": "
+         << symbol.GetUltimate().owner().symbol()->name().ToString() << "\n";
+    }
+  }
 }
 
 void DoDumpSymbols(std::ostream &os, const Scope &scope, int indent) {

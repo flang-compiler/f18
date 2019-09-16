@@ -910,8 +910,57 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::StructureComponent &sc) {
   return std::nullopt;
 }
 
-MaybeExpr ExpressionAnalyzer::Analyze(const parser::CoindexedNamedObject &) {
-  Say("TODO: CoindexedNamedObject unimplemented"_err_en_US);
+MaybeExpr ExpressionAnalyzer::Analyze(const parser::CoindexedNamedObject &x) {
+  if (auto dataRef{ExtractDataRef(Analyze(x.base))}) {
+    std::vector<Subscript> subscripts;
+    std::vector<const Symbol *> reversed;
+    if (auto *aRef{std::get_if<ArrayRef>(&dataRef->u)}) {
+      subscripts = std::move(aRef->subscript());
+      reversed.push_back(&aRef->GetLastSymbol());
+      if (Component * component{aRef->base().UnwrapComponent()}) {
+        *dataRef = std::move(component->base());
+      } else {
+        dataRef.reset();
+      }
+    }
+    if (dataRef.has_value()) {
+      while (auto *component{std::get_if<Component>(&dataRef->u)}) {
+        reversed.push_back(&component->GetLastSymbol());
+        *dataRef = std::move(component->base());
+      }
+      if (auto *baseSym{std::get_if<const Symbol *>(&dataRef->u)}) {
+        reversed.push_back(*baseSym);
+      } else {
+        Say("Base of coindexed named object has subscripts or cosubscripts"_err_en_US);
+      }
+    }
+    std::vector<Expr<SubscriptInteger>> cosubscripts;
+    bool cosubsOk{true};
+    for (const auto &cosub :
+        std::get<std::list<parser::Cosubscript>>(x.imageSelector.t)) {
+      MaybeExpr coex{Analyze(cosub)};
+      if (auto *intExpr{UnwrapExpr<Expr<SomeInteger>>(coex)}) {
+        cosubscripts.push_back(
+            ConvertToType<SubscriptInteger>(std::move(*intExpr)));
+      } else {
+        cosubsOk = false;
+      }
+    }
+    if (cosubsOk && !reversed.empty()) {
+      int numCosubscripts{static_cast<int>(cosubscripts.size())};
+      const Symbol &symbol{*reversed.front()};
+      if (numCosubscripts != symbol.Corank()) {
+        Say("'%s' has corank %d, but coindexed reference has %d cosubscripts"_err_en_US,
+            symbol.name(), symbol.Corank(), numCosubscripts);
+      }
+    }
+    // TODO: stat=/team=/team_number=
+    // Reverse the chain of symbols so that the base is first and coarray
+    // ultimate component is last.
+    return Designate(DataRef{CoarrayRef{
+        std::vector<const Symbol *>{reversed.crbegin(), reversed.crend()},
+        std::move(subscripts), std::move(cosubscripts)}});
+  }
   return std::nullopt;
 }
 
@@ -1448,6 +1497,27 @@ auto ExpressionAnalyzer::Procedure(const parser::ProcedureDesignator &pd,
                 return std::nullopt;
               }
             }
+            if (const auto *scope{symbol.scope()}) {
+              if (scope->sourceRange().Contains(n.source)) {
+                if (symbol.attrs().test(
+                        semantics::Attr::NON_RECURSIVE)) {  // 15.6.2.1(3)
+                  if (auto *msg{Say(
+                          "NON_RECURSIVE procedure '%s' cannot call itself"_err_en_US,
+                          n.source)}) {
+                    msg->Attach(
+                        symbol.name(), "definition of '%s'"_en_US, n.source);
+                  }
+                } else if (IsAssumedLengthCharacterFunction(
+                               symbol)) {  // 15.6.2.1(3)
+                  if (auto *msg{Say(
+                          "Assumed-length CHARACTER(*) function '%s' cannot call itself"_err_en_US,
+                          n.source)}) {
+                    msg->Attach(
+                        symbol.name(), "definition of '%s'"_en_US, n.source);
+                  }
+                }
+              }
+            }
             if (symbol.HasExplicitInterface()) {
               // TODO: check actual arguments vs. interface
             } else {
@@ -1495,18 +1565,31 @@ std::optional<ActualArgument> ExpressionAnalyzer::AnalyzeActualArgument(
   if (const Symbol * assumedTypeDummy{AssumedTypeDummy(expr)}) {
     return ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
   } else if (MaybeExpr argExpr{Analyze(expr)}) {
-    return ActualArgument{Fold(GetFoldingContext(), std::move(*argExpr))};
-  } else {
-    return std::nullopt;
-  }
-}
-
-std::optional<ActualArgument> ExpressionAnalyzer::AnalyzeActualArgument(
-    const parser::Variable &var) {
-  if (const Symbol * assumedTypeDummy{AssumedTypeDummy(var)}) {
-    return ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
-  } else if (MaybeExpr argExpr{Analyze(var)}) {
-    return ActualArgument{std::move(*argExpr)};
+    Expr<SomeType> x{Fold(GetFoldingContext(), std::move(*argExpr))};
+    if (const auto *proc{std::get_if<ProcedureDesignator>(&x.u)}) {
+      if (!std::holds_alternative<SpecificIntrinsic>(proc->u) &&
+          proc->IsElemental()) {  // C1533
+        Say(expr.source,
+            "Non-intrinsic ELEMENTAL procedure cannot be passed as argument"_err_en_US);
+      }
+    }
+    if (auto coarrayRef{ExtractCoarrayRef(x)}) {
+      const Symbol &coarray{coarrayRef->GetLastSymbol()};
+      if (const semantics::DeclTypeSpec * type{coarray.GetType()}) {
+        if (const semantics::DerivedTypeSpec * derived{type->AsDerived()}) {
+          if (auto ptr{semantics::FindPointerUltimateComponent(*derived)}) {
+            if (auto *msg{Say(expr.source,
+                    "Coindexed object '%s' with POINTER ultimate component '%s' cannot be passed as argument"_err_en_US,
+                    coarray.name(), (*ptr)->name())}) {
+              msg->Attach((*ptr)->name(),
+                  "Declaration of POINTER '%s' component of %s"_en_US,
+                  (*ptr)->name(), type->AsFortran());
+            }
+          }
+        }
+      }
+    }
+    return ActualArgument{std::move(x)};
   } else {
     return std::nullopt;
   }
@@ -1514,17 +1597,42 @@ std::optional<ActualArgument> ExpressionAnalyzer::AnalyzeActualArgument(
 
 MaybeExpr ExpressionAnalyzer::Analyze(
     const parser::FunctionReference &funcRef) {
+  return AnalyzeCall(funcRef.v, false);
+}
+
+void ExpressionAnalyzer::Analyze(const parser::CallStmt &call) {
+  AnalyzeCall(call.v, true);
+}
+
+MaybeExpr ExpressionAnalyzer::AnalyzeCall(
+    const parser::Call &call, bool isSubroutine) {
+  auto save{GetContextualMessages().SetLocation(call.source)};
+  if (auto arguments{AnalyzeArguments(call, isSubroutine)}) {
+    // TODO: map non-intrinsic generic procedure to specific procedure
+    if (std::optional<CalleeAndArguments> callee{Procedure(
+            std::get<parser::ProcedureDesignator>(call.t), *arguments)}) {
+      if (isSubroutine) {
+        // TODO
+      } else {
+        return MakeFunctionRef(std::move(*callee));
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<ActualArguments> ExpressionAnalyzer::AnalyzeArguments(
+    const parser::Call &call, bool isSubroutine) {
+  evaluate::ActualArguments arguments;
   // TODO: C1002: Allow a whole assumed-size array to appear if the dummy
   // argument would accept it.  Handle by special-casing the context
   // ActualArg -> Variable -> Designator.
   // TODO: Actual arguments that are procedures and procedure pointers need to
   // be detected and represented (they're not expressions).
   // TODO: C1534: Don't allow a "restricted" specific intrinsic to be passed.
-  auto save{GetContextualMessages().SetLocation(funcRef.v.source)};
-  ActualArguments arguments;
-  for (const auto &arg :
-      std::get<std::list<parser::ActualArgSpec>>(funcRef.v.t)) {
-    std::optional<ActualArgument> actual;
+  // TODO: map non-intrinsic generic procedure to specific procedure
+  for (const auto &arg : std::get<std::list<parser::ActualArgSpec>>(call.t)) {
+    std::optional<evaluate::ActualArgument> actual;
     std::visit(
         common::visitors{
             [&](const common::Indirection<parser::Expr> &x) {
@@ -1533,7 +1641,9 @@ MaybeExpr ExpressionAnalyzer::Analyze(
               actual = AnalyzeActualArgument(x.value());
             },
             [&](const parser::AltReturnSpec &) {
-              Say("alternate return specification may not appear on function reference"_err_en_US);
+              if (!isSubroutine) {
+                Say("alternate return specification may not appear on function reference"_err_en_US);
+              }
             },
             [&](const parser::ActualArg::PercentRef &) {
               Say("TODO: %REF() argument"_err_en_US);
@@ -1552,15 +1662,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(
       return std::nullopt;
     }
   }
-
-  // TODO: map non-intrinsic generic procedure to specific procedure
-  if (std::optional<CalleeAndArguments> callee{Procedure(
-          std::get<parser::ProcedureDesignator>(funcRef.v.t), arguments)}) {
-    if (MaybeExpr funcRef{MakeFunctionRef(std::move(*callee))}) {
-      return funcRef;
-    }
-  }
-  return std::nullopt;
+  return arguments;
 }
 
 // Unary operations
@@ -1571,7 +1673,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::Parentheses &x) {
       if (const semantics::Symbol * result{FindFunctionResult(*symbol)}) {
         if (semantics::IsProcedurePointer(*result)) {
           Say("A function reference that returns a procedure "
-              "pointer may not be parenthesized."_err_en_US);  // C1003
+              "pointer may not be parenthesized"_err_en_US);  // C1003
         }
       }
     }
@@ -1647,15 +1749,19 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::PercentLoc &x) {
   // Represent %LOC() exactly as if it had been a call to the LOC() extension
   // intrinsic function.
   // Use the actual source for the name of the call for error reporting.
-  if (std::optional<ActualArgument> arg{AnalyzeActualArgument(x.v.value())}) {
-    parser::CharBlock at{GetContextualMessages().at()};
-    CHECK(at.size() >= 4);
-    parser::CharBlock loc{at.begin() + 1, 3};
-    CHECK(loc == "loc");
-    return MakeFunctionRef(loc, ActualArguments{std::move(*arg)});
+  std::optional<ActualArgument> arg;
+  if (const Symbol * assumedTypeDummy{AssumedTypeDummy(x.v.value())}) {
+    arg = ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
+  } else if (MaybeExpr argExpr{Analyze(x.v.value())}) {
+    arg = ActualArgument{std::move(*argExpr)};
   } else {
     return std::nullopt;
   }
+  parser::CharBlock at{GetContextualMessages().at()};
+  CHECK(at.size() >= 4);
+  parser::CharBlock loc{at.begin() + 1, 3};
+  CHECK(loc == "loc");
+  return MakeFunctionRef(loc, ActualArguments{std::move(*arg)});
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::DefinedUnary &) {
@@ -2152,6 +2258,12 @@ evaluate::Expr<evaluate::SubscriptInteger> AnalyzeKindSelector(
       analyzer.GetContextualMessages().SetLocation(context.location().value())};
   return analyzer.AnalyzeKindSelector(category, selector);
 }
+
+void AnalyzeCallStmt(SemanticsContext &context, const parser::CallStmt &call) {
+  evaluate::ExpressionAnalyzer{context}.Analyze(call);
+}
+
+ExprChecker::ExprChecker(SemanticsContext &context) : context_{context} {}
 
 bool ExprChecker::Walk(const parser::Program &program) {
   parser::Walk(program, *this);

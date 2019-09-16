@@ -37,6 +37,7 @@ class Component;
 class IntrinsicProcTable;
 }
 namespace Fortran::evaluate::characteristics {
+struct DummyArgument;
 struct Procedure;
 }
 
@@ -106,6 +107,8 @@ public:
   std::optional<parser::CharBlock> keyword;
   bool isAlternateReturn{false};  // when true, "value" is a label number
 
+  bool Matches(const characteristics::DummyArgument &) const;
+
   // TODO: Mark legacy %VAL and %REF arguments
 
 private:
@@ -147,6 +150,8 @@ struct ProcedureDesignator {
 
   // Always null if the procedure is intrinsic.
   const Component *GetComponent() const;
+
+  const semantics::Symbol *GetInterfaceSymbol() const;
 
   std::string GetName() const;
   std::optional<DynamicType> GetType() const;
