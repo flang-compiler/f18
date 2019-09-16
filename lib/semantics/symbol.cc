@@ -179,15 +179,19 @@ Symbol *GenericDetails::CheckSpecific() {
 
 void GenericDetails::CopyFrom(const GenericDetails &from) {
   if (from.specific_) {
-    CHECK(!specific_);
+    CHECK(!specific_ || specific_ == from.specific_);
     specific_ = from.specific_;
   }
   if (from.derivedType_) {
-    CHECK(!derivedType_);
+    CHECK(!derivedType_ || derivedType_ == from.derivedType_);
     derivedType_ = from.derivedType_;
   }
-  auto &procs{from.specificProcs_};
-  specificProcs_.insert(specificProcs_.end(), procs.begin(), procs.end());
+  for (const Symbol *symbol : from.specificProcs_) {
+    if (std::find(specificProcs_.begin(), specificProcs_.end(), symbol) ==
+        specificProcs_.end()) {
+      specificProcs_.push_back(symbol);
+    }
+  }
 }
 
 // The name of the kind of details for this symbol.
@@ -540,10 +544,9 @@ std::ostream &DumpForUnparse(
     if (!symbol.attrs().empty()) {
       os << ' ' << symbol.attrs();
     }
-    DumpBool(os, "(implicit)", symbol.test(Symbol::Flag::Implicit));
-    DumpBool(os, "(local)", symbol.test(Symbol::Flag::LocalityLocal));
-    DumpBool(os, "(local_init)", symbol.test(Symbol::Flag::LocalityLocalInit));
-    DumpBool(os, "(shared)", symbol.test(Symbol::Flag::LocalityShared));
+    if (!symbol.flags().empty()) {
+      os << " (" << symbol.flags() << ')';
+    }
     os << ' ' << symbol.GetDetailsName();
     DumpType(os, symbol.GetType());
   }

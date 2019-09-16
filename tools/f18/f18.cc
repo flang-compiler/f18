@@ -76,6 +76,10 @@ void CleanUpAtExit() {
   }
 }
 
+struct GetDefinitionArgs {
+  int line, startColumn, endColumn;
+};
+
 struct DriverOptions {
   DriverOptions() {}
   bool verbose{false};  // -v
@@ -101,6 +105,9 @@ struct DriverOptions {
   bool unparseTypedExprsToPGF90{false};
   std::vector<std::string> pgf90Args;
   const char *prefix{nullptr};
+  bool getDefinition{false};
+  GetDefinitionArgs getDefinitionArgs{0, 0, 0};
+  bool getSymbolsSources{false};
 };
 
 bool ParentProcess() {
@@ -226,7 +233,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
   // TODO: Change this predicate to just "if (!driver.debugNoSemantics)"
   if (driver.debugSemantics || driver.debugResolveNames || driver.dumpSymbols ||
-      driver.dumpUnparseWithSymbols) {
+      driver.dumpUnparseWithSymbols || driver.getDefinition ||
+      driver.getSymbolsSources) {
     Fortran::semantics::Semantics semantics{
         semanticsContext, parseTree, parsing.cooked()};
     semantics.Perform();
@@ -245,6 +253,35 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     if (driver.dumpUnparseWithSymbols) {
       Fortran::semantics::UnparseWithSymbols(
           std::cout, parseTree, driver.encoding);
+      return {};
+    }
+    if (driver.getSymbolsSources) {
+      semantics.DumpSymbolsSources(std::cout);
+      return {};
+    }
+    if (driver.getDefinition) {
+      if (auto cb{parsing.cooked().GetCharBlockFromLineAndColumns(
+              driver.getDefinitionArgs.line,
+              driver.getDefinitionArgs.startColumn,
+              driver.getDefinitionArgs.endColumn)}) {
+        std::cerr << "String range: >" << cb->ToString() << "<\n";
+        if (auto symbol{semanticsContext.FindScope(*cb).FindSymbol(*cb)}) {
+          std::cerr << "Found symbol name: " << symbol->name().ToString()
+                    << "\n";
+          if (auto sourceInfo{
+                  parsing.cooked().GetSourcePositionRange(symbol->name())}) {
+            std::cout << symbol->name().ToString() << ": "
+                      << sourceInfo->first.file.path() << ", "
+                      << sourceInfo->first.line << ", "
+                      << sourceInfo->first.column << "-"
+                      << sourceInfo->second.column << "\n";
+            exitStatus = EXIT_SUCCESS;
+            return {};
+          }
+        }
+      }
+      std::cerr << "Symbol not found.\n";
+      exitStatus = EXIT_FAILURE;
       return {};
     }
   }
@@ -479,6 +516,28 @@ int main(int argc, char *const argv[]) {
       driver.encoding = Fortran::parser::Encoding::UTF_8;
     } else if (arg == "-flatin") {
       driver.encoding = Fortran::parser::Encoding::LATIN_1;
+    } else if (arg == "-fget-definition") {
+      // Receives 3 arguments: line, startColumn, endColumn.
+      options.needProvenanceRangeToCharBlockMappings = true;
+      driver.getDefinition = true;
+      char *endptr;
+      int arguments[3];
+      for (int i = 0; i < 3; i++) {
+        if (args.empty()) {
+          std::cerr << "Must provide 3 arguments for -fget-definitions.\n";
+          return EXIT_FAILURE;
+        }
+        arguments[i] = std::strtol(args.front().c_str(), &endptr, 10);
+        if (*endptr != '\0') {
+          std::cerr << "Invalid argument to -fget-definitions: " << args.front()
+                    << '\n';
+          return EXIT_FAILURE;
+        }
+        args.pop_front();
+      }
+      driver.getDefinitionArgs = {arguments[0], arguments[1], arguments[2]};
+    } else if (arg == "-fget-symbols-sources") {
+      driver.getSymbolsSources = true;
     } else if (arg == "-help" || arg == "--help" || arg == "-?") {
       std::cerr
           << "f18 options:\n"
@@ -506,6 +565,8 @@ int main(int argc, char *const argv[]) {
           << "  -fdebug-resolve-names\n"
           << "  -fdebug-instrumented-parse\n"
           << "  -fdebug-semantics    perform semantic checks\n"
+          << "  -fget-definition\n"
+          << "  -fget-symbols-sources\n"
           << "  -v -c -o -I -D -U    have their usual meanings\n"
           << "  -help                print this again\n"
           << "Other options are passed through to the compiler.\n";

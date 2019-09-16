@@ -84,7 +84,7 @@ bool OmpStructureChecker::HasInvalidWorksharingNesting(
     context_.Say(source,
         "A worksharing region may not be closely nested inside a "
         "worksharing, explicit task, taskloop, critical, ordered, atomic, or "
-        "master region."_err_en_US);
+        "master region"_err_en_US);
     return true;
   }
   return false;
@@ -383,6 +383,25 @@ void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
     SetContextAllowed(allowed);
     OmpClauseSet allowedOnce{
         OmpClause::IF, OmpClause::FINAL, OmpClause::PRIORITY};
+    SetContextAllowedOnce(allowedOnce);
+  } break;
+  // 2.10.4 target-clause -> if-clause |
+  //                         device-clause |
+  //                         private-clause |
+  //                         firstprivate-clause |
+  //                         map-clause |
+  //                         is-device-ptr-clause |
+  //                         defaultmap-clause |
+  //                         nowait-clause |
+  //                         depend-clause
+  case parser::OmpBlockDirective::Directive::Target: {
+    PushContext(beginDir.source, OmpDirective::TARGET);
+    OmpClauseSet allowed{OmpClause::IF, OmpClause::PRIVATE,
+        OmpClause::FIRSTPRIVATE, OmpClause::MAP, OmpClause::IS_DEVICE_PTR,
+        OmpClause::DEPEND};
+    SetContextAllowed(allowed);
+    OmpClauseSet allowedOnce{
+        OmpClause::DEVICE, OmpClause::DEFAULTMAP, OmpClause::NOWAIT};
     SetContextAllowedOnce(allowedOnce);
   } break;
   default:
@@ -807,8 +826,14 @@ void OmpStructureChecker::Enter(const parser::OmpAlignedClause &x) {
 void OmpStructureChecker::Enter(const parser::OmpDefaultClause &) {
   CheckAllowed(OmpClause::DEFAULT);
 }
-void OmpStructureChecker::Enter(const parser::OmpDefaultmapClause &) {
+void OmpStructureChecker::Enter(const parser::OmpDefaultmapClause &x) {
   CheckAllowed(OmpClause::DEFAULTMAP);
+  using VariableCategory = parser::OmpDefaultmapClause::VariableCategory;
+  if (!std::get<std::optional<VariableCategory>>(x.t)) {
+    context_.Say(GetContext().clauseSource,
+        "The argument TOFROM:SCALAR must be specified on the DEFAULTMAP "
+        "clause"_err_en_US);
+  }
 }
 void OmpStructureChecker::Enter(const parser::OmpDependClause &) {
   CheckAllowed(OmpClause::DEPEND);

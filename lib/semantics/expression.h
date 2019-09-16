@@ -235,6 +235,8 @@ public:
   }
   MaybeExpr Analyze(const parser::StructureComponent &);
 
+  void Analyze(const parser::CallStmt &);
+
 protected:
   int IntegerTypeSpecKind(const parser::IntegerTypeSpec &);
 
@@ -311,12 +313,15 @@ private:
   std::optional<ProcedureDesignator> AnalyzeProcedureComponentRef(
       const parser::ProcComponentRef &);
   std::optional<ActualArgument> AnalyzeActualArgument(const parser::Expr &);
-  std::optional<ActualArgument> AnalyzeActualArgument(const parser::Variable &);
 
   struct CalleeAndArguments {
     ProcedureDesignator procedureDesignator;
     ActualArguments arguments;
   };
+
+  MaybeExpr AnalyzeCall(const parser::Call &, bool isSubroutine);
+  std::optional<ActualArguments> AnalyzeArguments(
+      const parser::Call &, bool isSubroutine);
   std::optional<CalleeAndArguments> Procedure(
       const parser::ProcedureDesignator &, ActualArguments &);
   bool EnforceTypeConstraint(parser::CharBlock, const MaybeExpr &, TypeCategory,
@@ -369,11 +374,13 @@ evaluate::Expr<evaluate::SubscriptInteger> AnalyzeKindSelector(
     SemanticsContext &, common::TypeCategory,
     const std::optional<parser::KindSelector> &);
 
+void AnalyzeCallStmt(SemanticsContext &, const parser::CallStmt &);
+
 // Semantic analysis of all expressions in a parse tree, which becomes
 // decorated with typed representations for top-level expressions.
 class ExprChecker {
 public:
-  explicit ExprChecker(SemanticsContext &context) : context_{context} {}
+  explicit ExprChecker(SemanticsContext &);
 
   template<typename A> bool Pre(const A &) { return true; }
   template<typename A> void Post(const A &) {}
@@ -385,6 +392,10 @@ public:
   }
   bool Pre(const parser::Variable &x) {
     AnalyzeExpr(context_, x);
+    return false;
+  }
+  bool Pre(const parser::CallStmt &x) {
+    AnalyzeCallStmt(context_, x);
     return false;
   }
 

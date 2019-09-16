@@ -1655,7 +1655,12 @@ void ScopeHandler::PushScope(Scope &scope) {
   if (kind != Scope::Kind::Block) {
     ImplicitRulesVisitor::BeginScope(scope);
   }
-  if (!currScope_->IsDerivedType()) {
+  // The name of a module or submodule cannot be "used" in its scope,
+  // as we read 19.3.1(2), so we allow the name to be used as a local
+  // identifier in the module or submodule too.  Same with programs
+  // (14.1(3)).
+  if (!currScope_->IsDerivedType() && kind != Scope::Kind::Module &&
+      kind != Scope::Kind::MainProgram) {
     if (auto *symbol{scope.symbol()}) {
       // Create a dummy symbol so we can't create another one with the same
       // name. It might already be there if we previously pushed the scope.
@@ -2020,12 +2025,29 @@ void ModuleVisitor::AddUse(
         useSymbol.has<GenericDetails>()) {
       // use-associating generics with the same names: merge them into a
       // new generic in this scope
-      auto genericDetails{ultimate.get<GenericDetails>()};
-      genericDetails.set_useDetails(*useDetails);
-      genericDetails.CopyFrom(useSymbol.get<GenericDetails>());
+      auto generic1{ultimate.get<GenericDetails>()};
+      generic1.set_useDetails(*useDetails);
+      // useSymbol has specific g and so does generic1
+      auto &generic2{useSymbol.get<GenericDetails>()};
+      if (generic1.specific() && generic2.specific() &&
+          generic1.specific() != generic2.specific()) {
+        Say(location,
+            "Generic interface '%s' has ambiguous specific procedures"
+            " from modules '%s' and '%s'"_err_en_US,
+            localSymbol.name(), useDetails->module().name(),
+            useSymbol.owner().GetName().value());
+      } else if (generic1.derivedType() && generic2.derivedType() &&
+          generic1.derivedType() != generic2.derivedType()) {
+        Say(location,
+            "Generic interface '%s' has ambiguous derived types"
+            " from modules '%s' and '%s'"_err_en_US,
+            localSymbol.name(), useDetails->module().name(),
+            useSymbol.owner().GetName().value());
+      } else {
+        generic1.CopyFrom(generic2);
+      }
       EraseSymbol(localSymbol);
-      MakeSymbol(
-          localSymbol.name(), ultimate.attrs(), std::move(genericDetails));
+      MakeSymbol(localSymbol.name(), ultimate.attrs(), std::move(generic1));
     } else {
       ConvertToUseError(localSymbol, location, *useModuleScope_);
     }
@@ -2088,13 +2110,16 @@ void ModuleVisitor::BeginModule(const parser::Name &name, bool isSubmodule) {
 // If an error occurs, report it and return nullptr.
 Scope *ModuleVisitor::FindModule(const parser::Name &name, Scope *ancestor) {
   ModFileReader reader{context()};
-  auto *scope{reader.Read(name.source, ancestor)};
+  Scope *scope{reader.Read(name.source, ancestor)};
   if (!scope) {
     return nullptr;
   }
   if (scope->kind() != Scope::Kind::Module) {
     Say(name, "'%s' is not a module"_err_en_US);
     return nullptr;
+  }
+  if (DoesScopeContain(scope, currScope())) {  // 14.2.2(1)
+    Say(name, "Module '%s' cannot USE itself"_err_en_US);
   }
   Resolve(name, scope->symbol());
   return scope;
@@ -4048,8 +4073,8 @@ bool DeclarationVisitor::HandleUnrestrictedSpecificIntrinsicFunction(
           .has_value()) {
     // Unrestricted specific intrinsic function names (e.g., "cos")
     // are acceptable as procedure interfaces.
-    Symbol &symbol{
-        MakeSymbol(InclusiveScope(), name.source, Attrs{Attr::INTRINSIC})};
+    Symbol &symbol{MakeSymbol(InclusiveScope(), name.source,
+        Attrs{Attr::INTRINSIC, Attr::ELEMENTAL})};
     symbol.set_details(ProcEntityDetails{});
     Resolve(name, symbol);
     return true;
@@ -5261,14 +5286,17 @@ void ResolveNamesVisitor::HandleProcedureName(
 }
 
 // Variant of HandleProcedureName() for use while skimming the executable
-// part of a subprogram to catch calls that might be part of the subprogram's
-// interface, and to mark as procedures any symbols that might otherwise be
-// miscategorized as objects.
+// part of a subprogram to catch calls to dummy procedures that are part
+// of the subprogram's interface, and to mark as procedures any symbols
+// that might otherwise have been miscategorized as objects.
 void ResolveNamesVisitor::NoteExecutablePartCall(
     Symbol::Flag flag, const parser::Call &call) {
   auto &designator{std::get<parser::ProcedureDesignator>(call.t)};
   if (const auto *name{std::get_if<parser::Name>(&designator.u)}) {
-    if (Symbol * symbol{FindSymbol(*name)}) {
+    // Subtlety: The symbol pointers in the parse tree are not set, because
+    // they might end up resolving elsewhere (e.g., construct entities in
+    // SELECT TYPE).
+    if (Symbol * symbol{currScope().FindSymbol(name->source)}) {
       Symbol::Flag other{flag == Symbol::Flag::Subroutine
               ? Symbol::Flag::Function
               : Symbol::Flag::Subroutine};
