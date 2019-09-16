@@ -53,8 +53,7 @@ static std::ostream &PutAttrs(std::ostream &, Attrs,
     const MaybeExpr & = std::nullopt, std::string before = ","s,
     std::string after = ""s);
 static std::ostream &PutAttr(std::ostream &, Attr);
-static std::ostream &PutLower(std::ostream &, const Symbol &);
-static std::ostream &PutLower(std::ostream &, const DeclTypeSpec &);
+static std::ostream &PutType(std::ostream &, const DeclTypeSpec &);
 static std::ostream &PutLower(std::ostream &, const std::string &);
 static bool WriteFile(const std::string &, std::string &&);
 static bool FileContentsMatch(
@@ -69,8 +68,8 @@ public:
 
   SubprogramSymbolCollector(const Symbol &symbol)
     : symbol_{symbol}, scope_{*symbol.scope()} {}
-  SymbolVector symbols() const { return need_; }
-  SymbolSet imports() const { return imports_; }
+  const SymbolVector &symbols() const { return need_; }
+  const std::set<SourceName> &imports() const { return imports_; }
   void Collect();
 
 private:
@@ -80,13 +79,14 @@ private:
   SymbolVector need_;  // symbols that are needed
   SymbolSet needSet_;  // symbols already in need_
   SymbolSet useSet_;  // use-associations that might be needed
-  SymbolSet imports_;  // imports from host that are needed
+  std::set<SourceName> imports_;  // imports from host that are needed
 
   void DoSymbol(const Symbol &);
+  void DoSymbol(const SourceName &, const Symbol &);
   void DoType(const DeclTypeSpec *);
   void DoBound(const Bound &);
   void DoParamValue(const ParamValue &);
-  bool NeedImport(const Symbol &);
+  bool NeedImport(const SourceName &, const Symbol &);
 
   struct SymbolVisitor : public virtual evaluate::VisitorBase<SymbolVector> {
     using Result = SymbolVector;
@@ -142,15 +142,15 @@ std::string ModFileWriter::GetAsString(const Symbol &symbol) {
   std::stringstream all;
   auto &details{symbol.get<ModuleDetails>()};
   if (!details.isSubmodule()) {
-    PutLower(all << "module ", symbol);
+    all << "module " << symbol.name();
   } else {
     auto *parent{details.parent()->symbol()};
     auto *ancestor{details.ancestor()->symbol()};
-    PutLower(all << "submodule(", *ancestor);
+    all << "submodule(" << ancestor->name();
     if (parent != ancestor) {
-      PutLower(all << ':', *parent);
+      all << ':' << parent->name();
     }
-    PutLower(all << ") ", symbol);
+    all << ") " << symbol.name();
   }
   all << '\n' << uses_.str();
   uses_.str(""s);
@@ -202,46 +202,46 @@ void ModFileWriter::PutSymbol(
             bool deferred{symbol->attrs().test(Attr::DEFERRED)};
             typeBindings << "procedure";
             if (deferred) {
-              PutLower(typeBindings << '(', x.symbol()) << ')';
+              typeBindings << '(' << x.symbol().name() << ')';
             }
             PutPassName(typeBindings, x.passName());
             PutAttrs(typeBindings, symbol->attrs());
-            PutLower(typeBindings << "::", *symbol);
+            typeBindings << "::" << symbol->name();
             if (!deferred && x.symbol().name() != symbol->name()) {
-              PutLower(typeBindings << "=>", x.symbol());
+              typeBindings << "=>" << x.symbol().name();
             }
             typeBindings << '\n';
           },
           [&](const GenericBindingDetails &x) {
             for (const auto *proc : x.specificProcs()) {
-              PutLower(typeBindings << "generic::", *symbol);
-              PutLower(typeBindings << "=>", *proc) << '\n';
+              typeBindings << "generic::" << symbol->name() << "=>"
+                           << proc->name() << '\n';
             }
           },
           [&](const NamelistDetails &x) {
-            PutLower(decls_ << "namelist/", *symbol);
+            decls_ << "namelist/" << symbol->name();
             char sep{'/'};
             for (const auto *object : x.objects()) {
-              PutLower(decls_ << sep, *object);
+              decls_ << sep << object->name();
               sep = ',';
             }
             decls_ << '\n';
           },
           [&](const CommonBlockDetails &x) {
-            PutLower(decls_ << "common/", *symbol);
+            decls_ << "common/" << symbol->name();
             char sep = '/';
             for (const auto *object : x.objects()) {
-              PutLower(decls_ << sep, *object);
+              decls_ << sep << object->name();
               sep = ',';
             }
             decls_ << '\n';
             if (symbol->attrs().test(Attr::BIND_C)) {
               PutAttrs(decls_, symbol->attrs(), x.bindName(), ""s);
-              PutLower(decls_ << "::/", *symbol) << "/\n";
+              decls_ << "::/" << symbol->name() << "/\n";
             }
           },
           [&](const FinalProcDetails &) {
-            PutLower(typeBindings << "final::", *symbol) << '\n';
+            typeBindings << "final::" << symbol->name() << '\n';
           },
           [](const HostAssocDetails &) {},
           [](const MiscDetails &) {},
@@ -254,16 +254,15 @@ void ModFileWriter::PutDerivedType(const Symbol &typeSymbol) {
   auto &details{typeSymbol.get<DerivedTypeDetails>()};
   PutAttrs(decls_ << "type", typeSymbol.attrs());
   if (const DerivedTypeSpec * extends{typeSymbol.GetParentTypeSpec()}) {
-    PutLower(decls_ << ",extends(", extends->typeSymbol()) << ')';
+    decls_ << ",extends(" << extends->name() << ')';
   }
-  PutLower(decls_ << "::", typeSymbol);
+  decls_ << "::" << typeSymbol.name();
   auto &typeScope{*typeSymbol.scope()};
   if (!details.paramNames().empty()) {
-    bool first{true};
-    decls_ << '(';
+    char sep{'('};
     for (const auto &name : details.paramNames()) {
-      PutLower(first ? decls_ : decls_ << ',', name.ToString());
-      first = false;
+      decls_ << sep << name;
+      sep = ',';
     }
     decls_ << ')';
   }
@@ -294,8 +293,7 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   std::stringstream ss;
   PutAttrs(ss, attrs);
   if (!ss.str().empty()) {
-    decls_ << ss.str().substr(1) << "::";
-    PutLower(decls_, symbol) << "\n";
+    decls_ << ss.str().substr(1) << "::" << symbol.name() << '\n';
   }
   bool isInterface{details.isInterface()};
   std::ostream &os{isInterface ? decls_ : contains_};
@@ -304,20 +302,20 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   }
   PutAttrs(os, prefixAttrs, std::nullopt, ""s, " "s);
   os << (details.isFunction() ? "function " : "subroutine ");
-  PutLower(os, symbol) << '(';
+  os << symbol.name() << '(';
   int n = 0;
   for (const auto &dummy : details.dummyArgs()) {
     if (n++ > 0) {
       os << ',';
     }
-    PutLower(os, *dummy);
+    os << dummy->name();
   }
   os << ')';
   PutAttrs(os, bindAttrs, details.bindName(), " "s, ""s);
   if (details.isFunction()) {
     const Symbol &result{details.result()};
     if (result.name() != symbol.name()) {
-      PutLower(os << " result(", result) << ')';
+      os << " result(" << result.name() << ')';
     }
   }
   os << '\n';
@@ -332,8 +330,8 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   }
   CHECK(typeBindings.str().empty());
   os << writer.uses_.str();
-  for (const Symbol *import : collector.imports()) {
-    decls_ << "import::" << import->name().ToString() << "\n";
+  for (const SourceName &import : collector.imports()) {
+    decls_ << "import::" << import << "\n";
   }
   os << writer.decls_.str();
   os << "end\n";
@@ -345,9 +343,9 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
 static std::ostream &PutGenericName(std::ostream &os, const Symbol &symbol) {
   const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()};
   if (details && details->kind() == GenericKind::DefinedOp) {
-    return PutLower(os << "operator(", symbol) << ')';
+    return os << "operator(" << symbol.name() << ')';
   } else {
-    return PutLower(os, symbol);
+    return os << symbol.name();
   }
 }
 
@@ -355,7 +353,7 @@ void ModFileWriter::PutGeneric(const Symbol &symbol) {
   auto &details{symbol.get<GenericDetails>()};
   PutGenericName(decls_ << "interface ", symbol) << '\n';
   for (auto *specific : details.specificProcs()) {
-    PutLower(decls_ << "procedure::", DEREF(specific)) << '\n';
+    decls_ << "procedure::" << specific->name() << '\n';
   }
   decls_ << "end interface\n";
   if (symbol.attrs().test(Attr::PRIVATE)) {
@@ -366,7 +364,7 @@ void ModFileWriter::PutGeneric(const Symbol &symbol) {
 void ModFileWriter::PutUse(const Symbol &symbol) {
   auto &details{symbol.get<UseDetails>()};
   auto &use{details.symbol()};
-  PutLower(uses_ << "use ", details.module());
+  uses_ << "use " << details.module().name();
   PutGenericName(uses_ << ",only:", symbol);
   if (use.name() != symbol.name()) {
     PutGenericName(uses_ << "=>", use);
@@ -382,7 +380,7 @@ void ModFileWriter::PutUseExtraAttr(
     Attr attr, const Symbol &local, const Symbol &use) {
   if (local.attrs().test(attr) && !use.attrs().test(attr)) {
     PutAttr(useExtraAttrs_, attr) << "::";
-    PutLower(useExtraAttrs_, local) << '\n';
+    useExtraAttrs_ << local.name() << '\n';
   }
 }
 
@@ -472,7 +470,7 @@ void PutShape(std::ostream &os, const ArraySpec &shape, char open, char close) {
 
 void PutObjectEntity(std::ostream &os, const Symbol &symbol) {
   auto &details{symbol.get<ObjectEntityDetails>()};
-  PutEntity(os, symbol, [&]() { PutLower(os, DEREF(symbol.GetType())); });
+  PutEntity(os, symbol, [&]() { PutType(os, DEREF(symbol.GetType())); });
   PutShape(os, details.shape(), '(', ')');
   PutShape(os, details.coshape(), '[', ']');
   PutInit(os, symbol, details.init());
@@ -488,9 +486,9 @@ void PutProcEntity(std::ostream &os, const Symbol &symbol) {
   PutEntity(os, symbol, [&]() {
     os << "procedure(";
     if (interface.symbol()) {
-      PutLower(os, *interface.symbol());
+      os << interface.symbol()->name();
     } else if (interface.type()) {
-      PutLower(os, *interface.type());
+      PutType(os, *interface.type());
     }
     os << ')';
     PutPassName(os, details.passName());
@@ -500,14 +498,14 @@ void PutProcEntity(std::ostream &os, const Symbol &symbol) {
 
 void PutPassName(std::ostream &os, const std::optional<SourceName> &passName) {
   if (passName) {
-    PutLower(os << ",pass(", passName->ToString()) << ')';
+    os << ",pass(" << *passName << ')';
   }
 }
 
 void PutTypeParam(std::ostream &os, const Symbol &symbol) {
   auto &details{symbol.get<TypeParamDetails>()};
   PutEntity(os, symbol, [&]() {
-    PutLower(os, DEREF(symbol.GetType()));
+    PutType(os, DEREF(symbol.GetType()));
     PutLower(os << ',', common::EnumToString(details.attr()));
   });
   PutInit(os, details.init());
@@ -555,7 +553,7 @@ void PutEntity(
       },
       symbol.details());
   PutAttrs(os, symbol.attrs(), bindName);
-  PutLower(os << "::", symbol);
+  os << "::" << symbol.name();
 }
 
 // Put out each attribute to os, surrounded by `before` and `after` and
@@ -581,11 +579,7 @@ std::ostream &PutAttr(std::ostream &os, Attr attr) {
   return PutLower(os, AttrToString(attr));
 }
 
-std::ostream &PutLower(std::ostream &os, const Symbol &symbol) {
-  return PutLower(os, symbol.name().ToString());
-}
-
-std::ostream &PutLower(std::ostream &os, const DeclTypeSpec &type) {
+std::ostream &PutType(std::ostream &os, const DeclTypeSpec &type) {
   return PutLower(os, type.AsFortran());
 }
 
@@ -793,9 +787,9 @@ static std::string ModFilePath(const std::string &dir, const SourceName &name,
     path << dir << '/';
   }
   if (!ancestorName.empty()) {
-    PutLower(path, ancestorName) << '-';
+    path << ancestorName << '-';
   }
-  PutLower(path, name.ToString()) << suffix;
+  path << name << suffix;
   return path.str();
 }
 
@@ -818,15 +812,20 @@ void SubprogramSymbolCollector::Collect() {
   }
 }
 
-// Do symbols this one depends on; then add to need_
 void SubprogramSymbolCollector::DoSymbol(const Symbol &symbol) {
+  DoSymbol(symbol.name(), symbol);
+}
+
+// Do symbols this one depends on; then add to need_
+void SubprogramSymbolCollector::DoSymbol(
+    const SourceName &name, const Symbol &symbol) {
   const auto &scope{symbol.owner()};
   if (scope != scope_ && !scope.IsDerivedType()) {
     if (scope != scope_.parent()) {
       useSet_.insert(&symbol);
     }
-    if (NeedImport(symbol)) {
-      imports_.insert(&symbol);
+    if (NeedImport(name, symbol)) {
+      imports_.insert(name);
     }
     return;
   }
@@ -878,7 +877,7 @@ void SubprogramSymbolCollector::DoType(const DeclTypeSpec *type) {
     if (const DerivedTypeSpec * derived{type->AsDerived()}) {
       const auto &typeSymbol{derived->typeSymbol()};
       if (const DerivedTypeSpec * extends{typeSymbol.GetParentTypeSpec()}) {
-        DoSymbol(extends->typeSymbol());
+        DoSymbol(extends->name(), extends->typeSymbol());
       }
       for (const auto pair : derived->parameters()) {
         DoParamValue(pair.second);
@@ -887,7 +886,7 @@ void SubprogramSymbolCollector::DoType(const DeclTypeSpec *type) {
         const auto &comp{*pair.second};
         DoSymbol(comp);
       }
-      DoSymbol(typeSymbol);
+      DoSymbol(derived->name(), derived->typeSymbol());
     }
   }
 }
@@ -904,12 +903,13 @@ void SubprogramSymbolCollector::DoParamValue(const ParamValue &paramValue) {
 }
 
 // Do we need a IMPORT of this symbol into an interface block?
-bool SubprogramSymbolCollector::NeedImport(const Symbol &symbol) {
+bool SubprogramSymbolCollector::NeedImport(
+    const SourceName &name, const Symbol &symbol) {
   if (!isInterface_) {
     return false;
   } else if (symbol.owner() != scope_.parent()) {
     // detect import from parent of use-associated symbol
-    const auto *found{scope_.FindSymbol(symbol.name())};
+    const auto *found{scope_.FindSymbol(name)};
     return DEREF(found).has<UseDetails>() && found->owner() != scope_;
   } else {
     return true;
