@@ -17,14 +17,17 @@
 
 #include "constant.h"
 #include "expression.h"
-#include "traversal.h"
+#include "traverse.h"
 #include "../common/idioms.h"
+#include "../common/template.h"
 #include "../common/unwrap.h"
 #include "../parser/message.h"
 #include "../semantics/attr.h"
 #include "../semantics/symbol.h"
 #include <array>
 #include <optional>
+#include <set>
+#include <type_traits>
 #include <utility>
 
 namespace Fortran::evaluate {
@@ -60,37 +63,39 @@ std::optional<Variable<A>> AsVariable(const std::optional<Expr<A>> &expr) {
 // operation.  Be advised: a call to a function that returns an object
 // pointer is a "variable" in Fortran (it can be the left-hand side of
 // an assignment).
-struct IsVariableVisitor : public virtual VisitorBase<std::optional<bool>> {
-  // std::optional<> is used because it is default-constructible.
-  using Result = std::optional<bool>;
-  explicit IsVariableVisitor(std::nullptr_t) {}
-  void Handle(const StaticDataObject &) { Return(false); }
-  void Handle(const Symbol &) { Return(true); }
-  void Pre(const Component &) { Return(true); }
-  void Pre(const ArrayRef &) { Return(true); }
-  void Pre(const CoarrayRef &) { Return(true); }
-  void Pre(const ComplexPart &) { Return(true); }
-  void Handle(const ProcedureDesignator &);
-  template<TypeCategory CAT, int KIND>
-  void Pre(const Expr<Type<CAT, KIND>> &x) {
-    if (!std::holds_alternative<Designator<Type<CAT, KIND>>>(x.u) &&
-        !std::holds_alternative<FunctionRef<Type<CAT, KIND>>>(x.u)) {
-      Return(false);
+struct IsVariableHelper
+  : public AnyTraverse<IsVariableHelper, std::optional<bool>> {
+  using Result = std::optional<bool>;  // effectively tri-state
+  using Base = AnyTraverse<IsVariableHelper, Result>;
+  IsVariableHelper() : Base{*this} {}
+  using Base::operator();
+  Result operator()(const StaticDataObject &) const { return false; }
+  Result operator()(const Symbol &) const { return true; }
+  Result operator()(const Component &) const { return true; }
+  Result operator()(const ArrayRef &) const { return true; }
+  Result operator()(const CoarrayRef &) const { return true; }
+  Result operator()(const ComplexPart &) const { return true; }
+  Result operator()(const ProcedureDesignator &) const;
+  template<typename T> Result operator()(const Expr<T> &x) const {
+    if constexpr (common::HasMember<T, AllIntrinsicTypes> ||
+        std::is_same_v<T, SomeDerived>) {
+      // Expression with a specific type
+      if (std::holds_alternative<Designator<T>>(x.u) ||
+          std::holds_alternative<FunctionRef<T>>(x.u)) {
+        if (auto known{(*this)(x.u)}) {
+          return known;
+        }
+      }
+      return false;
+    } else {
+      return (*this)(x.u);
     }
   }
-  void Pre(const Expr<SomeDerived> &x) {
-    if (!std::holds_alternative<Designator<SomeDerived>>(x.u) &&
-        !std::holds_alternative<FunctionRef<SomeDerived>>(x.u)) {
-      Return(false);
-    }
-  }
-  template<typename A> void Post(const A &) { Return(false); }
 };
 
 template<typename A> bool IsVariable(const A &x) {
-  Visitor<IsVariableVisitor> visitor{nullptr};
-  if (auto optional{visitor.Traverse(x)}) {
-    return *optional;
+  if (auto known{IsVariableHelper{}(x)}) {
+    return *known;
   } else {
     return false;
   }
@@ -678,32 +683,36 @@ struct TypeKindVisitor {
 // GetLastSymbol() returns the rightmost symbol in an object or procedure
 // designator (which has perhaps been wrapped in an Expr<>), or a null pointer
 // when none is found.
-struct GetLastSymbolVisitor
-  : public virtual VisitorBase<std::optional<const semantics::Symbol *>> {
-  // std::optional<> is used because it is default-constructible.
+struct GetLastSymbolHelper : public AnyTraverse<GetLastSymbolHelper,
+                                 std::optional<const semantics::Symbol *>> {
   using Result = std::optional<const semantics::Symbol *>;
-  explicit GetLastSymbolVisitor(std::nullptr_t) {}
-  void Handle(const semantics::Symbol &x) { Return(&x); }
-  void Handle(const Component &x) { Return(&x.GetLastSymbol()); }
-  void Handle(const NamedEntity &x) { Return(&x.GetLastSymbol()); }
-  void Handle(const ProcedureDesignator &x) { Return(x.GetSymbol()); }
-  template<TypeCategory CAT, int KIND>
-  void Pre(const Expr<Type<CAT, KIND>> &x) {
-    if (!std::holds_alternative<Designator<Type<CAT, KIND>>>(x.u)) {
-      Return(nullptr);
-    }
+  using Base = AnyTraverse<GetLastSymbolHelper, Result>;
+  GetLastSymbolHelper() : Base{*this} {}
+  using Base::operator();
+  Result operator()(const semantics::Symbol &x) const { return &x; }
+  Result operator()(const Component &x) const { return &x.GetLastSymbol(); }
+  Result operator()(const NamedEntity &x) const { return &x.GetLastSymbol(); }
+  Result operator()(const ProcedureDesignator &x) const {
+    return x.GetSymbol();
   }
-  void Pre(const Expr<SomeDerived> &x) {
-    if (!std::holds_alternative<Designator<SomeDerived>>(x.u)) {
-      Return(nullptr);
+  template<typename T> Result operator()(const Expr<T> &x) const {
+    if constexpr (common::HasMember<T, AllIntrinsicTypes> ||
+        std::is_same_v<T, SomeDerived>) {
+      if (const auto *designator{std::get_if<Designator<T>>(&x.u)}) {
+        if (auto known{(*this)(*designator)}) {
+          return known;
+        }
+      }
+      return nullptr;
+    } else {
+      return (*this)(x.u);
     }
   }
 };
 
 template<typename A> const semantics::Symbol *GetLastSymbol(const A &x) {
-  Visitor<GetLastSymbolVisitor> visitor{nullptr};
-  if (auto optional{visitor.Traverse(x)}) {
-    return *optional;
+  if (auto known{GetLastSymbolHelper{}(x)}) {
+    return *known;
   } else {
     return nullptr;
   }
@@ -760,26 +769,32 @@ template<typename A> bool IsProcedurePointer(const std::optional<A> &x) {
 // GetLastTarget() returns the rightmost symbol in an object
 // designator (which has perhaps been wrapped in an Expr<>) that has the
 // POINTER or TARGET attribute, or a null pointer when none is found.
-struct GetLastTargetVisitor
-  : public virtual VisitorBase<std::optional<const semantics::Symbol *>> {
-  // std::optional<> is used because it is default-constructible.
+struct GetLastTargetHelper : public AnyTraverse<GetLastTargetHelper,
+                                 std::optional<const semantics::Symbol *>> {
   using Result = std::optional<const semantics::Symbol *>;
-  explicit GetLastTargetVisitor(std::nullptr_t);
-  void Handle(const semantics::Symbol &);
-  void Pre(const Component &);
+  using Base = AnyTraverse<GetLastTargetHelper, Result>;
+  GetLastTargetHelper() : Base{*this} {}
+  using Base::operator();
+  Result operator()(const semantics::Symbol &) const;
+  Result operator()(const Component &) const;
 };
 
 template<typename A> const semantics::Symbol *GetLastTarget(const A &x) {
-  Visitor<GetLastTargetVisitor> visitor{nullptr};
-  if (auto optional{visitor.Traverse(x)}) {
-    return *optional;
+  if (auto known{GetLastTargetHelper{}(x)}) {
+    return *known;
   } else {
     return nullptr;
   }
 }
 
-// Resolve any whole ASSOCIATE(B=>A) associations
+// Resolves any whole ASSOCIATE(B=>A) associations
 const semantics::Symbol &ResolveAssociations(const semantics::Symbol &);
 
+// Collects all of the Symbols in an expression
+using SetOfSymbols = std::set<const semantics::Symbol *>;
+template<typename A> SetOfSymbols CollectSymbols(const A &);
+extern template SetOfSymbols CollectSymbols(const Expr<SomeType> &);
+extern template SetOfSymbols CollectSymbols(const Expr<SomeInteger> &);
+extern template SetOfSymbols CollectSymbols(const Expr<SubscriptInteger> &);
 }
 #endif  // FORTRAN_EVALUATE_TOOLS_H_
