@@ -137,6 +137,8 @@ set(ERROR_TESTS
   allocate12.f90
   allocate13.f90
   doconcurrent01.f90
+  doconcurrent05.f90
+  doconcurrent06.f90
   dosemantics01.f90
   dosemantics02.f90
   dosemantics03.f90
@@ -147,6 +149,7 @@ set(ERROR_TESTS
   dosemantics08.f90
   dosemantics09.f90
   dosemantics10.f90
+  dosemantics11.f90
   expr-errors01.f90
   null01.f90
   omp-clause-validity01.f90
@@ -232,8 +235,6 @@ set(DOCONCURRENT_TESTS
   doconcurrent02.f90
   doconcurrent03.f90
   doconcurrent04.f90
-  doconcurrent05.f90
-  doconcurrent06.f90
   doconcurrent07.f90
   doconcurrent08.f90
 )
