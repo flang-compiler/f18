@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "tools.h"
-#include "traversal.h"
+#include "traverse.h"
 #include "../common/idioms.h"
 #include "../parser/message.h"
 #include <algorithm>
@@ -24,12 +24,10 @@ using namespace Fortran::parser::literals;
 namespace Fortran::evaluate {
 
 // IsVariable()
-void IsVariableVisitor::Handle(const ProcedureDesignator &x) {
-  if (const semantics::Symbol * symbol{x.GetSymbol()}) {
-    Return(symbol->attrs().test(semantics::Attr::POINTER));
-  } else {
-    Return(false);
-  }
+auto IsVariableHelper::operator()(const ProcedureDesignator &x) const
+    -> Result {
+  const semantics::Symbol *symbol{x.GetSymbol()};
+  return symbol && symbol->attrs().test(semantics::Attr::POINTER);
 }
 
 // Conversions of complex component expressions to REAL.
@@ -650,21 +648,23 @@ bool IsAssumedRank(const ActualArgument &arg) {
 }
 
 // GetLastTarget()
-GetLastTargetVisitor::GetLastTargetVisitor(std::nullptr_t) {}
-void GetLastTargetVisitor::Handle(const semantics::Symbol &x) {
+auto GetLastTargetHelper::operator()(const semantics::Symbol &x) const
+    -> Result {
   if (x.attrs().HasAny({semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    Return(&x);
+    return &x;
   } else {
-    Return(nullptr);
+    return nullptr;
   }
 }
-void GetLastTargetVisitor::Pre(const Component &x) {
+auto GetLastTargetHelper::operator()(const Component &x) const -> Result {
   const semantics::Symbol &symbol{x.GetLastSymbol()};
   if (symbol.attrs().HasAny(
           {semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    Return(&symbol);
+    return &symbol;
   } else if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
-    Return(nullptr);
+    return nullptr;
+  } else {
+    return std::nullopt;
   }
 }
 
@@ -676,5 +676,21 @@ const semantics::Symbol &ResolveAssociations(const semantics::Symbol &symbol) {
   }
   return symbol;
 }
+
+struct CollectSymbolsHelper
+  : public SetTraverse<CollectSymbolsHelper, SetOfSymbols> {
+  using Base = SetTraverse<CollectSymbolsHelper, SetOfSymbols>;
+  CollectSymbolsHelper() : Base{*this} {}
+  using Base::operator();
+  SetOfSymbols operator()(const semantics::Symbol &symbol) const {
+    return {&symbol};
+  }
+};
+template<typename A> SetOfSymbols CollectSymbols(const A &x) {
+  return CollectSymbolsHelper{}(x);
+}
+template SetOfSymbols CollectSymbols(const Expr<SomeType> &);
+template SetOfSymbols CollectSymbols(const Expr<SomeInteger> &);
+template SetOfSymbols CollectSymbols(const Expr<SubscriptInteger> &);
 
 }

@@ -17,7 +17,7 @@
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
-#include "../evaluate/traversal.h"
+#include "../evaluate/tools.h"
 #include "../parser/message.h"
 #include "../parser/parsing.h"
 #include <algorithm>
@@ -99,15 +99,8 @@ private:
   void DoParamValue(const ParamValue &);
   bool NeedImport(const SourceName &, const Symbol &);
 
-  struct SymbolVisitor : public virtual evaluate::VisitorBase<SymbolVector> {
-    using Result = SymbolVector;
-    explicit SymbolVisitor(int) {}
-    void Handle(const Symbol *symbol) { result().push_back(symbol); }
-  };
-
   template<typename T> void DoExpr(evaluate::Expr<T> expr) {
-    evaluate::Visitor<SymbolVisitor> visitor{0};
-    for (const Symbol *symbol : visitor.Traverse(expr)) {
+    for (const Symbol *symbol : evaluate::CollectSymbols(expr)) {
       DoSymbol(DEREF(symbol));
     }
   }
@@ -358,9 +351,22 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   }
 }
 
-static std::ostream &PutGenericName(std::ostream &os, const Symbol &symbol) {
+static bool IsDefinedOp(const Symbol &symbol) {
   const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()};
-  if (details && details->kind() == GenericKind::DefinedOp) {
+  return details && details->kind() == GenericKind::DefinedOp;
+}
+
+static bool IsIntrinsicOp(const Symbol &symbol) {
+  if (const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()}) {
+    GenericKind kind{details->kind()};
+    return kind >= GenericKind::OpPower && kind <= GenericKind::OpNEQV;
+  } else {
+    return false;
+  }
+}
+
+static std::ostream &PutGenericName(std::ostream &os, const Symbol &symbol) {
+  if (IsDefinedOp(symbol)) {
     return os << "operator(" << symbol.name() << ')';
   } else {
     return os << symbol.name();
@@ -384,7 +390,9 @@ void ModFileWriter::PutUse(const Symbol &symbol) {
   auto &use{details.symbol()};
   uses_ << "use " << details.module().name();
   PutGenericName(uses_ << ",only:", symbol);
-  if (use.name() != symbol.name()) {
+  // Can have intrinsic op with different local-name and use-name
+  // (e.g. `operator(<)` and `operator(.lt.)`) but rename is not allowed
+  if (!IsIntrinsicOp(symbol) && use.name() != symbol.name()) {
     PutGenericName(uses_ << "=>", use);
   }
   uses_ << '\n';
