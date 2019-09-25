@@ -404,6 +404,22 @@ void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
         OmpClause::DEVICE, OmpClause::DEFAULTMAP, OmpClause::NOWAIT};
     SetContextAllowedOnce(allowedOnce);
   } break;
+  // 2.10.7 teams-clause -> num-teams-clause |
+  //                        thread-limit-clause |
+  //                        default-clause |
+  //                        private-clause |
+  //                        firstprivate-clause |
+  //                        shared-clause |
+  //                        reduction-clause
+  case parser::OmpBlockDirective::Directive::Teams: {
+    PushContext(beginDir.source, OmpDirective::TEAMS);
+    OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE,
+        OmpClause::SHARED, OmpClause::REDUCTION};
+    SetContextAllowed(allowed);
+    OmpClauseSet allowedOnce{
+        OmpClause::NUM_TEAMS, OmpClause::THREAD_LIMIT, OmpClause::DEFAULT};
+    SetContextAllowedOnce(allowedOnce);
+  } break;
   default:
     // TODO others
     break;
@@ -747,8 +763,9 @@ void OmpStructureChecker::Enter(const parser::OmpClause::NumTasks &x) {
   CheckAllowed(OmpClause::NUM_TASKS);
   RequiresPositiveParameter(OmpClause::NUM_TASKS, x.v);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::NumTeams &) {
+void OmpStructureChecker::Enter(const parser::OmpClause::NumTeams &x) {
   CheckAllowed(OmpClause::NUM_TEAMS);
+  RequiresPositiveParameter(OmpClause::NUM_TEAMS, x.v);
 }
 void OmpStructureChecker::Enter(const parser::OmpClause::NumThreads &x) {
   CheckAllowed(OmpClause::NUM_THREADS);
@@ -789,8 +806,9 @@ void OmpStructureChecker::Enter(const parser::OmpClause::Simdlen &x) {
   CheckAllowed(OmpClause::SIMDLEN);
   RequiresConstantPositiveParameter(OmpClause::SIMDLEN, x.v);
 }
-void OmpStructureChecker::Enter(const parser::OmpClause::ThreadLimit &) {
+void OmpStructureChecker::Enter(const parser::OmpClause::ThreadLimit &x) {
   CheckAllowed(OmpClause::THREAD_LIMIT);
+  RequiresPositiveParameter(OmpClause::THREAD_LIMIT, x.v);
 }
 void OmpStructureChecker::Enter(const parser::OmpClause::To &) {
   CheckAllowed(OmpClause::TO);
