@@ -156,6 +156,7 @@ void ParamValue::SetExplicit(SomeIntExpr &&x) {
 
 std::string ParamValue::AsFortran() const {
   switch (category_) {
+    SWITCH_COVERS_ALL_CASES
   case Category::Assumed: return "*";
   case Category::Deferred: return ":";
   case Category::Explicit:
@@ -166,7 +167,6 @@ std::string ParamValue::AsFortran() const {
     } else {
       return "";
     }
-  default: CRASH_NO_CASE;
   }
 }
 
@@ -246,6 +246,7 @@ bool DeclTypeSpec::operator==(const DeclTypeSpec &that) const {
 
 std::string DeclTypeSpec::AsFortran() const {
   switch (category_) {
+    SWITCH_COVERS_ALL_CASES
   case Numeric: return numericTypeSpec().AsFortran();
   case Logical: return logicalTypeSpec().AsFortran();
   case Character: return characterTypeSpec().AsFortran();
@@ -253,7 +254,6 @@ std::string DeclTypeSpec::AsFortran() const {
   case ClassDerived: return "CLASS(" + derivedTypeSpec().AsFortran() + ')';
   case TypeStar: return "TYPE(*)";
   case ClassStar: return "CLASS(*)";
-  default: CRASH_NO_CASE;
   }
 }
 

@@ -910,7 +910,7 @@ private:
             "Declaration of '%s' conflicts with its use as internal procedure"_err_en_US,
             symbol, "Internal procedure definition"_en_US);
       } else {
-        CHECK(!"unexpected kind");
+        DIE("unexpected kind");
       }
     } else if (std::is_same_v<ObjectEntityDetails, T> &&
         symbol.has<ProcEntityDetails>()) {
@@ -4805,6 +4805,7 @@ void ConstructVisitor::PopAssociation() {
 const DeclTypeSpec &ConstructVisitor::ToDeclTypeSpec(
     evaluate::DynamicType &&type) {
   switch (type.category()) {
+    SWITCH_COVERS_ALL_CASES
   case common::TypeCategory::Integer:
   case common::TypeCategory::Real:
   case common::TypeCategory::Complex:
@@ -4824,8 +4825,7 @@ const DeclTypeSpec &ConstructVisitor::ToDeclTypeSpec(
 
       );
     }
-  case common::TypeCategory::Character:
-  default: CRASH_NO_CASE;
+  case common::TypeCategory::Character: CRASH_NO_CASE;
   }
 }
 
@@ -5272,7 +5272,7 @@ void ResolveNamesVisitor::HandleProcedureName(
     ConvertToProcEntity(*symbol);
     SetProcFlag(name, *symbol, flag);
   } else if (symbol->has<UnknownDetails>()) {
-    CHECK(!"unexpected UnknownDetails");
+    DIE("unexpected UnknownDetails");
   } else if (CheckUseError(name)) {
     // error was reported
   } else {
@@ -5719,6 +5719,7 @@ void ResolveNamesVisitor::AddSubpNames(const ProgramTree &node) {
 // Push a new scope for this node or return false on error.
 bool ResolveNamesVisitor::BeginScope(const ProgramTree &node) {
   switch (node.GetKind()) {
+    SWITCH_COVERS_ALL_CASES
   case ProgramTree::Kind::Program:
     PushScope(Scope::Kind::MainProgram,
         &MakeSymbol(node.name(), MainProgramDetails{}));
@@ -5731,7 +5732,6 @@ bool ResolveNamesVisitor::BeginScope(const ProgramTree &node) {
   case ProgramTree::Kind::Module: BeginModule(node.name(), false); return true;
   case ProgramTree::Kind::Submodule:
     return BeginSubmodule(node.name(), node.GetParentId());
-  default: CRASH_NO_CASE;
   }
 }
 
