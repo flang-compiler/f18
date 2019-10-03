@@ -18,7 +18,9 @@
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
+#include "intrinsics.h"
 #include "runtime.h"
+#include "../common/unwrap.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/real.h"
 #include "../semantics/expression.h"
@@ -66,6 +68,7 @@ class ExprLowering {
   M::OpBuilder &builder;
   const SomeExpr &expr;
   SymMap &symMap;
+  const IntrinsicLibrary &intrinsics;
 
   M::Location getLoc() { return location; }
 
@@ -143,13 +146,17 @@ class ExprLowering {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
   }
 
-  M::FuncOp getFunction(RuntimeEntryCode callee, M::FunctionType funTy) {
-    auto name{getRuntimeEntryName(callee)};
+  M::FuncOp getFunction(const std::string &name, M::FunctionType funTy) {
     auto module{getModule(&builder)};
     if (M::FuncOp func{getNamedFunction(name)}) {
       return func;
     }
     return createFunction(module, name, funTy);
+  }
+
+  M::FuncOp getRTFunction(RuntimeEntryCode callee, M::FunctionType funTy) {
+    auto name{getRuntimeEntryName(callee)};
+    return getFunction(name, funTy);
   }
 
   // FIXME binary operation :: ('a, 'a) -> 'a
@@ -179,7 +186,7 @@ class ExprLowering {
     operands.push_back(genval(ex.left()));
     operands.push_back(genval(ex.right()));
     M::FunctionType funTy = createFunctionType<TC, KIND>();
-    auto func{getFunction(callee, funTy)};
+    auto func{getRTFunction(callee, funTy)};
     auto x{builder.create<M::CallOp>(getLoc(), func, operands)};
     return x.getResult(0);  // FIXME
   }
@@ -551,7 +558,32 @@ class ExprLowering {
     return gen(funRef);
   }
   template<typename A> M::Value *genval(const Ev::FunctionRef<A> &funRef) {
-    TODO();
+    TODO();  // Derived type functions (user + intrinsics)
+  }
+  template<Co::TypeCategory TC, int KIND>
+  M::Value *genval(const Ev::FunctionRef<Ev::Type<TC, KIND>> &funRef) {
+    if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
+      std::string name{intrinsic->name};
+      M::Type ty{genTypeFromCategoryAndKind(builder.getContext(), TC, KIND)};
+      // Probe the intrinsic library
+      if (std::optional<M::FuncOp> func{
+              intrinsics.getFunction(name, ty, builder)}) {
+        L::SmallVector<M::Value *, 2> operands;
+        for (const auto &arg : funRef.arguments()) {
+          if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
+            operands.push_back(genval(*expr));
+          } else {
+            TODO();  // Weird arguments, can it happen at that stage ?
+          }
+        }
+        auto x{builder.create<M::CallOp>(getLoc(), *func, operands)};
+        return x.getResult(0);  // FIXME
+      } else {
+        TODO();  // No runtime function for this intrinsic.
+      }
+    } else {
+      TODO();  // User defined function.
+    }
   }
 
   template<typename A> M::Value *gen(const Ev::Expr<A> &exp) {
@@ -571,9 +603,9 @@ class ExprLowering {
   }
 
 public:
-  explicit ExprLowering(
-      M::Location loc, M::OpBuilder &bldr, const SomeExpr &vop, SymMap &map)
-    : location{loc}, builder{bldr}, expr{vop}, symMap{map} {}
+  explicit ExprLowering(M::Location loc, M::OpBuilder &bldr,
+      const SomeExpr &vop, SymMap &map, const IntrinsicLibrary &intr)
+    : location{loc}, builder{bldr}, expr{vop}, symMap{map}, intrinsics{intr} {}
 
   /// Lower the expression `expr` into MLIR standard dialect
   M::Value *gen() { return gen(expr); }
@@ -583,14 +615,16 @@ public:
 }  // namespace
 
 M::Value *Br::createSomeExpression(M::Location loc, M::OpBuilder &builder,
-    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap) {
-  ExprLowering lower{loc, builder, expr, symMap};
+    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap,
+    const IntrinsicLibrary &intrinsics) {
+  ExprLowering lower{loc, builder, expr, symMap, intrinsics};
   return lower.genval();
 }
 
 M::Value *Br::createSomeAddress(M::Location loc, M::OpBuilder &builder,
-    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap) {
-  ExprLowering lower{loc, builder, expr, symMap};
+    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap,
+    const IntrinsicLibrary &intrinsics) {
+  ExprLowering lower{loc, builder, expr, symMap, intrinsics};
   return lower.gen();
 }
 

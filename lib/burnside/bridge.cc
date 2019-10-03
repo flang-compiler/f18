@@ -20,6 +20,7 @@
 #include "fir/FIROps.h"
 #include "fir/Type.h"
 #include "flattened.h"
+#include "intrinsics.h"
 #include "runtime.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../semantics/tools.h"
@@ -73,6 +74,7 @@ class FIRConverter {
   std::list<Closure> edgeQ;
   std::map<const Pa::NonLabelDoStmt *, DoBoundsInfo> doMap;
   SymMap symbolMap;
+  IntrinsicLibrary intrinsics;
   Pa::CharBlock lastKnownPos;
   bool noInsPt{false};
 
@@ -110,10 +112,10 @@ class FIRConverter {
   }
 
   M::Value *createFIRAddr(M::Location loc, const SomeExpr *expr) {
-    return createSomeAddress(loc, build(), *expr, symbolMap);
+    return createSomeAddress(loc, build(), *expr, symbolMap, intrinsics);
   }
   M::Value *createFIRExpr(M::Location loc, const SomeExpr *expr) {
-    return createSomeExpression(loc, build(), *expr, symbolMap);
+    return createSomeExpression(loc, build(), *expr, symbolMap, intrinsics);
   }
   M::Value *createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
     return createTemporary(toLocation(), build(), symbolMap, type, symbol);
@@ -622,7 +624,9 @@ class FIRConverter {
 public:
   FIRConverter(BurnsideBridge &bridge)
     : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
-      module{bridge.getModule()} {}
+      module{bridge.getModule()}, intrinsics{IntrinsicLibrary::create(
+                                      IntrinsicLibrary::Version::LLVM,
+                                      mlirContext)} {}
   FIRConverter() = delete;
 
   template<typename A> constexpr bool Pre(const A &) { return true; }

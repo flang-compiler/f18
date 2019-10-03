@@ -15,6 +15,8 @@
 #ifndef FORTRAN_BURNSIDE_CONVERT_EXPR_H_
 #define FORTRAN_BURNSIDE_CONVERT_EXPR_H_
 
+#include "intrinsics.h"
+
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace mlir {
@@ -43,10 +45,10 @@ class SymMap;
 
 mlir::Value *createSomeExpression(mlir::Location loc, mlir::OpBuilder &builder,
     const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    SymMap &symMap);
+    SymMap &symMap, const IntrinsicLibrary &);
 mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
     const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    SymMap &symMap);
+    SymMap &symMap, const IntrinsicLibrary &);
 
 mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);

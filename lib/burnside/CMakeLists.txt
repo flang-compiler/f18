@@ -20,6 +20,7 @@ add_library(FortranBurnside
   convert-expr.cc
   fe-helper.cc
   flattened.cc
+  intrinsics.cc
   runtime.cc
 )
 
