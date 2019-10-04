@@ -289,8 +289,8 @@ public:
   TypeList getLenParamList();
 
   static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
-  RecordType finalize(llvm::ArrayRef<TypePair> lenPList,
-                      llvm::ArrayRef<TypePair> typeList);
+  void finalize(llvm::ArrayRef<TypePair> lenPList,
+                llvm::ArrayRef<TypePair> typeList);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return TypeKind::FIR_DERIVED; }
 

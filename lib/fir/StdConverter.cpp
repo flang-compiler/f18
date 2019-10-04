@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/Tilikum/StdConverter.h"
+#include "fir/Transforms/StdConverter.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"

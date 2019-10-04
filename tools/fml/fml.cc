@@ -16,8 +16,8 @@
 
 #include "fir/Dialect.h"
 #include "fir/Tilikum/LLVMConverter.h"
-#include "fir/Tilikum/StdConverter.h"
 #include "fir/Transforms/MemToReg.h"
+#include "fir/Transforms/StdConverter.h"
 #include "../../lib/burnside/bridge.h"
 #include "../../lib/burnside/convert-expr.h"
 #include "../../lib/common/default-kinds.h"

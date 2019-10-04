@@ -835,7 +835,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
 
 def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
     Results<(outs fir_BoxCharType)>,
-    Arguments<(ins fir_CharacterType:$memref, AnyIntegerLike:$len)> {
+    Arguments<(ins AnyReferenceLike:$memref, AnyIntegerLike:$len)> {
   let summary = "boxes a given CHARACTER reference and its LEN parameter";
 
   let description = [{
@@ -865,6 +865,13 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
     p.printOperand(len());
     p << " : ";
     p.printFunctionalType(getOperation());
+  }];
+
+  let verifier = [{
+    auto eleTy = elementTypeOf(memref()->getType());
+    if (!eleTy.dyn_cast<CharacterType>())
+      return M::failure();
+    return M::success();
   }];
 }
 

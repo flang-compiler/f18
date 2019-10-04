@@ -99,7 +99,7 @@ func @boxing_match() {
   %c8 = constant 8 : i32
   %3 = fir.alloca !fir.char<1> : !fir.ref<!fir.char<1>>
   %b3 = fir.undefined !fir.char<1>
-  %4 = fir.emboxchar %b3, %c8 : (!fir.char<1>, i32) -> !fir.boxchar<1>
+  %4 = fir.emboxchar %3, %c8 : (!fir.ref<!fir.char<1>>, i32) -> !fir.boxchar<1>
   %5:2 = fir.unboxchar %4 : (!fir.boxchar<1>) -> (!fir.ref<!fir.char<1>>, i32)
   %6 = fir.alloca tuple<i32, f64> : !fir.ref<tuple<i32, f64>>
   %a1 = fir.undefined tuple<i32, f64>

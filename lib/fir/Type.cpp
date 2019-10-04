@@ -453,6 +453,9 @@ protected:
   RecordType::TypeList parseTypeList();
   RecordType::TypeList parseLenParamList();
   RecordType parseDerived();
+  RecordType verifyDerived(RecordType derivedTy,
+                           llvm::ArrayRef<RecordType::TypePair> lenPList,
+                           llvm::ArrayRef<RecordType::TypePair> typeList);
 
   // `tdesc` `<` type `>`
   TypeDescType parseTypeDesc() { return parseTypeSingleton<TypeDescType>(); }
@@ -605,6 +608,63 @@ RecordType::TypeList FIRTypeParser::parseLenParamList() {
   }
 }
 
+bool verifyIntegerType(M::Type ty) {
+  return ty.dyn_cast<M::IntegerType>() || ty.dyn_cast<IntType>();
+}
+
+bool verifyRecordMemberType(M::Type ty) {
+  return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
+           ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
+           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
+           ty.dyn_cast<TypeDescType>());
+}
+
+bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
+                     L::ArrayRef<RecordType::TypePair> a2) {
+  if (a1.size() != a2.size())
+    return false;
+  auto iter = a1.begin();
+  for (auto lp : a2) {
+    if (!((iter->first == lp.first) && (iter->second == lp.second)))
+      return false;
+    ++iter;
+  }
+  return true;
+}
+
+RecordType
+FIRTypeParser::verifyDerived(RecordType derivedTy,
+                             L::ArrayRef<RecordType::TypePair> lenPList,
+                             L::ArrayRef<RecordType::TypePair> typeList) {
+  if (!verifySameLists(derivedTy.getLenParamList(), lenPList) ||
+      !verifySameLists(derivedTy.getTypeList(), typeList)) {
+    emitError(loc, "cannot redefine record type members");
+    return {};
+  }
+  for (auto &p : lenPList)
+    if (!verifyIntegerType(p.second)) {
+      emitError(loc, "LEN parameter must be integral type");
+      return {};
+    }
+  for (auto &p : typeList)
+    if (!verifyRecordMemberType(p.second)) {
+      emitError(loc, "field parameter has invalid type");
+      return {};
+    }
+  llvm::StringSet uniq;
+  for (auto &p : lenPList)
+    if (!uniq.insert(p.first).second) {
+      emitError(loc, "LEN parameter cannot have duplicate name");
+      return {};
+    }
+  for (auto &p : typeList)
+    if (!uniq.insert(p.first).second) {
+      emitError(loc, "field cannot have duplicate name");
+      return {};
+    }
+  return derivedTy;
+}
+
 // Fortran derived type
 // `type` `<` name
 //           (`(` id `:` type (`,` id `:` type)* `)`)?
@@ -647,7 +707,8 @@ check_close:
   }
   if (lenParamList.empty() && typeList.empty())
     return result;
-  return result.finalize(lenParamList, typeList);
+  result.finalize(lenParamList, typeList);
+  return verifyDerived(result, lenParamList, typeList);
 }
 
 M::Type FIRTypeParser::parseType() {
@@ -1101,7 +1162,8 @@ struct RecordTypeStorage : public M::TypeStorage {
 
   void finalize(L::ArrayRef<RecordType::TypePair> lenParamList,
                 L::ArrayRef<RecordType::TypePair> typeList) {
-    assert(!finalized && "record type already finalized");
+    if (finalized)
+      return;
     finalized = true;
     setLenParamList(lenParamList);
     setTypeList(typeList);
@@ -1413,34 +1475,9 @@ RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name) {
   return Base::get(ctxt, FIR_DERIVED, name);
 }
 
-inline static bool verifyIntegerType(M::Type ty) {
-  return ty.dyn_cast<M::IntegerType>() || ty.dyn_cast<IntType>();
-}
-
-inline static bool verifyRecordMemberType(M::Type ty) {
-  return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
-           ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
-           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
-           ty.dyn_cast<TypeDescType>());
-}
-
-RecordType fir::RecordType::finalize(L::ArrayRef<TypePair> lenPList,
-                                     L::ArrayRef<TypePair> typeList) {
+void fir::RecordType::finalize(L::ArrayRef<TypePair> lenPList,
+                               L::ArrayRef<TypePair> typeList) {
   getImpl()->finalize(lenPList, typeList);
-  llvm::StringSet uniq;
-  for (auto &p : lenPList)
-    if (!uniq.insert(p.first).second)
-      return {};
-  for (auto &p : typeList)
-    if (!uniq.insert(p.first).second)
-      return {};
-  for (auto &p : lenPList)
-    if (!verifyIntegerType(p.second))
-      return {};
-  for (auto &p : typeList)
-    if (!verifyRecordMemberType(p.second))
-      return {};
-  return *this;
 }
 
 L::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
