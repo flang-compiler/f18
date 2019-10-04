@@ -146,7 +146,7 @@ class ExprLowering {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
   }
 
-  M::FuncOp getFunction(const std::string &name, M::FunctionType funTy) {
+  M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
     auto module{getModule(&builder)};
     if (M::FuncOp func{getNamedFunction(name)}) {
       return func;
@@ -154,7 +154,7 @@ class ExprLowering {
     return createFunction(module, name, funTy);
   }
 
-  M::FuncOp getRTFunction(RuntimeEntryCode callee, M::FunctionType funTy) {
+  M::FuncOp getRuntimeFunction(RuntimeEntryCode callee, M::FunctionType funTy) {
     auto name{getRuntimeEntryName(callee)};
     return getFunction(name, funTy);
   }
@@ -186,7 +186,7 @@ class ExprLowering {
     operands.push_back(genval(ex.left()));
     operands.push_back(genval(ex.right()));
     M::FunctionType funTy = createFunctionType<TC, KIND>();
-    auto func{getRTFunction(callee, funTy)};
+    auto func{getRuntimeFunction(callee, funTy)};
     auto x{builder.create<M::CallOp>(getLoc(), func, operands)};
     return x.getResult(0);  // FIXME
   }
@@ -563,7 +563,7 @@ class ExprLowering {
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(const Ev::FunctionRef<Ev::Type<TC, KIND>> &funRef) {
     if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
-      std::string name{intrinsic->name};
+      L::StringRef name{intrinsic->name};
       M::Type ty{genTypeFromCategoryAndKind(builder.getContext(), TC, KIND)};
       // Probe the intrinsic library
       if (std::optional<M::FuncOp> func{
@@ -573,7 +573,11 @@ class ExprLowering {
           if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
             operands.push_back(genval(*expr));
           } else {
-            TODO();  // Weird arguments, can it happen at that stage ?
+            // Some intrinsics have optional arguments (inquiry,
+            // transformational). These kind of intrinsics cannot be blindly
+            // mapped 1 to 1 to a runtime signature and will require a more
+            // ad-hoc handling.
+            TODO();
           }
         }
         auto x{builder.create<M::CallOp>(getLoc(), *func, operands)};

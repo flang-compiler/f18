@@ -15,6 +15,7 @@
 #ifndef FORTRAN_BURNSIDE_INTRINSICS_H_
 #define FORTRAN_BURNSIDE_INTRINSICS_H_
 
+#include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include <optional>
 #include <unordered_map>
@@ -33,7 +34,7 @@ class IntrinsicLibrary {
 public:
   /// Available intrinsic library versions.
   enum class Version { PgmathFast, PgmathRelaxed, PgmathPrecise, LLVM };
-  using Key = std::pair<std::string, mlir::Type>;
+  using Key = std::pair<llvm::StringRef, mlir::Type>;
   // Need a custom hash for this kind of keys. LLVM provides it.
   struct Hash {
     size_t operator()(const Key &k) const { return llvm::hash_value(k); }
@@ -43,9 +44,9 @@ public:
   /// This is to avoid polluting the LLVM IR with useless declarations.
   /// This structure allows generating mlir::FuncOp on the fly.
   struct IntrinsicImplementation {
-    IntrinsicImplementation(const std::string &n, mlir::FunctionType t)
+    IntrinsicImplementation(llvm::StringRef n, mlir::FunctionType t)
       : symbol{n}, type{t} {};
-    std::string symbol;
+    llvm::StringRef symbol;
     mlir::FunctionType type;
   };
   using Map = std::unordered_map<Key, IntrinsicImplementation, Hash>;
@@ -55,7 +56,7 @@ public:
   /// Also add an unit attribute "fir.intrinsic" to the function so that later
   /// it is possible to quickly know what function are intrinsics vs users.
   std::optional<mlir::FuncOp> getFunction(
-      const std::string &, const mlir::Type &, mlir::OpBuilder &) const;
+      llvm::StringRef, mlir::Type, mlir::OpBuilder &) const;
 
   /// Create the runtime description for the targeted library version.
   static IntrinsicLibrary create(Version, mlir::MLIRContext &);

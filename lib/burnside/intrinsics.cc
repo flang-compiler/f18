@@ -67,8 +67,7 @@ mlir::FunctionType toMLIRFunctionType(
 }  // runtime
 
 std::optional<mlir::FuncOp> IntrinsicLibrary::getFunction(
-    const std::string &name, const mlir::Type &type,
-    mlir::OpBuilder &builder) const {
+    llvm::StringRef name, mlir::Type type, mlir::OpBuilder &builder) const {
   auto module{getModule(&builder)};
   if (const auto &it{lib.find({name, type})}; it != lib.end()) {
     const IntrinsicImplementation &impl{it->second};
