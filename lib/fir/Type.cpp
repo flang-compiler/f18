@@ -18,9 +18,11 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -381,7 +383,7 @@ protected:
   }
 
   // `box` `<` type (',' affine-map)? `>`
-  BoxType parseBox() { 
+  BoxType parseBox() {
     if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
       return {};
     }
@@ -391,8 +393,9 @@ protected:
       return {};
     }
     auto token = lexer.lexToken();
+    M::AffineMapAttr map;
     if (token.kind == TokenKind::comma) {
-      // TODO: parse AffineMapAttr
+      map = parseAffineMapAttr();
       token = lexer.lexToken();
     }
     if (token.kind != TokenKind::rightang) {
@@ -401,7 +404,7 @@ protected:
     }
     if (checkAtEnd())
       return {};
-    return BoxType::get(ofTy);
+    return BoxType::get(ofTy, map);
   }
 
   // `boxchar` `<` kind `>`
@@ -463,6 +466,8 @@ protected:
 
   M::MLIRContext *getContext() const { return context; }
 
+  M::AffineMapAttr parseAffineMapAttr();
+
 private:
   M::MLIRContext *context;
   Lexer lexer;
@@ -517,6 +522,11 @@ SequenceType::Shape FIRTypeParser::parseShape() {
   }
 }
 
+// affine-map ::= `#` ident
+M::AffineMapAttr FIRTypeParser::parseAffineMapAttr() {
+  return {}; // FIXME opParser->parseAttr();
+}
+
 // bounds ::= lo extent stride | `?`
 // `array` `<` bounds (`,` bounds)* `:` type (',' affine-map)? `>`
 SequenceType FIRTypeParser::parseSequence() {
@@ -530,8 +540,9 @@ SequenceType FIRTypeParser::parseSequence() {
     return {};
   }
   auto token = lexer.lexToken();
+  M::AffineMapAttr map;
   if (token.kind == TokenKind::comma) {
-    // TODO: parse AffineMapAttr
+    map = parseAffineMapAttr();
     token = lexer.lexToken();
   }
   if (token.kind != TokenKind::rightang) {
@@ -541,7 +552,7 @@ SequenceType FIRTypeParser::parseSequence() {
   if (checkAtEnd()) {
     return {};
   }
-  return SequenceType::get(shape, eleTy);
+  return SequenceType::get(shape, eleTy, map);
 }
 
 // Parses: string `:` type (',' string `:` type)* '}'
@@ -607,8 +618,9 @@ RecordType FIRTypeParser::parseDerived() {
     emitError(loc, "expected a identifier as name of derived type");
     return {};
   }
+  RecordType result = RecordType::get(getContext(), name.text);
   auto token = lexer.lexToken();
-  RecordType::TypeList kindList;
+  RecordType::TypeList lenParamList;
   RecordType::TypeList typeList;
   if (token.kind == TokenKind::leftbrace) {
     goto parse_fields;
@@ -616,7 +628,7 @@ RecordType FIRTypeParser::parseDerived() {
     // degenerate case?
     goto check_close;
   }
-  kindList = parseLenParamList();
+  lenParamList = parseLenParamList();
   token = lexer.lexToken();
   if (token.kind != TokenKind::leftbrace) {
     // no fields?
@@ -633,7 +645,9 @@ check_close:
   if (checkAtEnd()) {
     return {};
   }
-  return RecordType::get(getContext(), name.text, kindList, typeList);
+  if (lenParamList.empty() && typeList.empty())
+    return result;
+  return result.finalize(lenParamList, typeList);
 }
 
 M::Type FIRTypeParser::parseType() {
@@ -690,7 +704,8 @@ bool singleIndirectionLevel(M::Type ty) {
 
 } // namespace
 
-namespace fir::detail {
+namespace fir {
+namespace detail {
 
 // Type storage classes
 
@@ -1062,45 +1077,46 @@ private:
 
 /// Derived type storage
 struct RecordTypeStorage : public M::TypeStorage {
-  using KeyTy = std::tuple<L::StringRef, L::ArrayRef<RecordType::TypePair>,
-                           L::ArrayRef<RecordType::TypePair>>;
+  using KeyTy = L::StringRef;
 
   static unsigned hashKey(const KeyTy &key) {
-    return L::hash_combine(std::get<0>(key).str());
+    return L::hash_combine(key.str());
   }
 
-  bool operator==(const KeyTy &key) const {
-    return std::get<0>(key) == getName();
-  }
+  bool operator==(const KeyTy &key) const { return key == getName(); }
 
   static RecordTypeStorage *construct(M::TypeStorageAllocator &allocator,
                                       const KeyTy &key) {
     auto *storage = allocator.allocate<RecordTypeStorage>();
-    auto &name = std::get<0>(key);
-    auto &lens = std::get<1>(key);
-    auto &members = std::get<2>(key);
-    return new (storage) RecordTypeStorage{name, lens, members};
+    return new (storage) RecordTypeStorage{key};
   }
 
   L::StringRef getName() const { return name; }
 
-  // The KindList must be provided at construction for correct hash-consing
+  void setLenParamList(L::ArrayRef<RecordType::TypePair> list) { lens = list; }
   L::ArrayRef<RecordType::TypePair> getLenParamList() const { return lens; }
 
   void setTypeList(L::ArrayRef<RecordType::TypePair> list) { types = list; }
   L::ArrayRef<RecordType::TypePair> getTypeList() const { return types; }
 
+  void finalize(L::ArrayRef<RecordType::TypePair> lenParamList,
+                L::ArrayRef<RecordType::TypePair> typeList) {
+    assert(!finalized && "record type already finalized");
+    finalized = true;
+    setLenParamList(lenParamList);
+    setTypeList(typeList);
+  }
+
 protected:
   std::string name;
+  bool finalized;
   std::vector<RecordType::TypePair> lens;
   std::vector<RecordType::TypePair> types;
 
 private:
   RecordTypeStorage() = delete;
-  explicit RecordTypeStorage(L::StringRef name,
-                             L::ArrayRef<RecordType::TypePair> lens,
-                             L::ArrayRef<RecordType::TypePair> types)
-      : name{name}, lens{lens}, types{types} {}
+  explicit RecordTypeStorage(L::StringRef name)
+      : name{name}, finalized{false} {}
 };
 
 /// Type descriptor type storage
@@ -1129,7 +1145,8 @@ private:
   explicit TypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
 };
 
-} // namespace fir::detail
+} // namespace detail
+} // namespace fir
 
 template <typename A, typename B>
 bool inbounds(A v, B lb, B ub) {
@@ -1392,20 +1409,8 @@ L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
 ///
 /// This type captures a Fortran "derived type"
 
-RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name,
-                                L::ArrayRef<TypePair> lenPList,
-                                L::ArrayRef<TypePair> typeList) {
-  return Base::get(ctxt, FIR_DERIVED, name, lenPList, typeList);
-}
-
-L::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
-
-RecordType::TypeList fir::RecordType::getTypeList() {
-  return getImpl()->getTypeList();
-}
-
-RecordType::TypeList fir::RecordType::getLenParamList() {
-  return getImpl()->getLenParamList();
+RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name) {
+  return Base::get(ctxt, FIR_DERIVED, name);
 }
 
 inline static bool verifyIntegerType(M::Type ty) {
@@ -1419,25 +1424,43 @@ inline static bool verifyRecordMemberType(M::Type ty) {
            ty.dyn_cast<TypeDescType>());
 }
 
-M::LogicalResult fir::RecordType::verifyConstructionInvariants(
-    L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name,
-    L::ArrayRef<RecordType::TypePair> lenPList,
-    L::ArrayRef<RecordType::TypePair> typeList) {
-  if (name.size() == 0)
-    return M::failure();
+RecordType fir::RecordType::finalize(L::ArrayRef<TypePair> lenPList,
+                                     L::ArrayRef<TypePair> typeList) {
+  getImpl()->finalize(lenPList, typeList);
   llvm::StringSet uniq;
   for (auto &p : lenPList)
     if (!uniq.insert(p.first).second)
-      return M::failure();
+      return {};
   for (auto &p : typeList)
     if (!uniq.insert(p.first).second)
-      return M::failure();
+      return {};
   for (auto &p : lenPList)
     if (!verifyIntegerType(p.second))
-      return M::failure();
+      return {};
   for (auto &p : typeList)
     if (!verifyRecordMemberType(p.second))
-      return M::failure();
+      return {};
+  return *this;
+}
+
+L::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
+
+RecordType::TypeList fir::RecordType::getTypeList() {
+  return getImpl()->getTypeList();
+}
+
+RecordType::TypeList fir::RecordType::getLenParamList() {
+  return getImpl()->getLenParamList();
+}
+
+detail::RecordTypeStorage const *fir::RecordType::uniqueKey() const {
+  return getImpl();
+}
+
+M::LogicalResult fir::RecordType::verifyConstructionInvariants(
+    L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name) {
+  if (name.size() == 0)
+    return M::failure();
   return M::success();
 }
 
@@ -1468,4 +1491,126 @@ M::Type fir::parseFirType(FIROpsDialect *dialect, L::StringRef rawData,
                           M::Location loc) {
   FIRTypeParser parser{dialect, rawData, loc};
   return parser.parseType();
+}
+
+namespace {
+class TypePrinter {
+public:
+  void print(FIROpsDialect *dialect, M::Type ty, llvm::raw_ostream &os) {
+    if (auto type = ty.dyn_cast<fir::ReferenceType>()) {
+      os << "ref<";
+      type.getEleTy().print(os);
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::LogicalType>()) {
+      os << "logical<" << type.getFKind() << '>';
+    } else if (auto type = ty.dyn_cast<fir::RealType>()) {
+      os << "real<" << type.getFKind() << '>';
+    } else if (auto type = ty.dyn_cast<fir::CharacterType>()) {
+      os << "char<" << type.getFKind() << '>';
+    } else if (auto type = ty.dyn_cast<fir::TypeDescType>()) {
+      os << "tdesc<";
+      type.getOfTy().print(os);
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::FieldType>()) {
+      os << "field";
+    } else if (auto type = ty.dyn_cast<fir::BoxType>()) {
+      os << "box<";
+      type.getEleTy().print(os);
+      if (auto map = type.getLayoutMap()) {
+        os << ", ";
+        map.print(os);
+      }
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::BoxCharType>()) {
+      auto eleTy = type.getEleTy().cast<fir::CharacterType>();
+      os << "boxchar<" << eleTy.getFKind() << '>';
+    } else if (auto type = ty.dyn_cast<fir::BoxProcType>()) {
+      os << "boxproc<";
+      type.getEleTy().print(os);
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::DimsType>()) {
+      os << "dims<" << type.getRank() << '>';
+    } else if (auto type = ty.dyn_cast<fir::SequenceType>()) {
+      os << "array";
+      auto shape = type.getShape();
+      if (shape.hasValue()) {
+        printBounds(os, *shape);
+      } else {
+        os << "<*";
+      }
+      os << ':';
+      type.getEleTy().print(os);
+      if (auto map = type.getLayoutMap()) {
+        os << ", ";
+        map.print(os);
+      }
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::HeapType>()) {
+      os << "heap<";
+      type.getEleTy().print(os);
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::PointerType>()) {
+      os << "ptr<";
+      type.getEleTy().print(os);
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::RecordType>()) {
+      os << "type<" << type.getName();
+      if (!recordTypeVisited.count(type.uniqueKey())) {
+        recordTypeVisited.insert(type.uniqueKey());
+        if (type.getLenParamList().size()) {
+          char ch = '(';
+          for (auto p : type.getLenParamList()) {
+            os << ch << p.first << ':';
+            p.second.print(os);
+            ch = ',';
+          }
+          os << ')';
+        }
+        if (type.getTypeList().size()) {
+          char ch = '{';
+          for (auto p : type.getTypeList()) {
+            os << ch << p.first << ':';
+            p.second.print(os);
+            ch = ',';
+          }
+          os << '}';
+        }
+        recordTypeVisited.erase(type.uniqueKey());
+      }
+      os << '>';
+    } else if (auto type = ty.dyn_cast<fir::IntType>()) {
+      os << "int<" << type.getFKind() << '>';
+    } else if (auto type = ty.dyn_cast<fir::CplxType>()) {
+      os << "complex<" << type.getFKind() << '>';
+    } else {
+      assert(false);
+    }
+  }
+
+private:
+  void printBounds(llvm::raw_ostream &os, const SequenceType::Bounds &bounds) {
+    char ch = '<';
+    for (auto &b : bounds) {
+      if (b.hasValue()) {
+        os << ch << *b;
+      } else {
+        os << ch << '?';
+      }
+      ch = 'x';
+    }
+  }
+
+  // must be in a global context because the printer must be able to track
+  // context through multiple recursive invocations of the mlir type printer
+  static llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4>
+      recordTypeVisited;
+};
+
+llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4>
+    TypePrinter::recordTypeVisited; // instantiate
+} // namespace
+
+void fir::printFirType(FIROpsDialect *dialect, M::Type ty,
+                       llvm::raw_ostream &os) {
+  TypePrinter().print(dialect, ty, os);
 }

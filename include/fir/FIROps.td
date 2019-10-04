@@ -469,7 +469,7 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     llvm::SmallVector<M::Block *, 4> dests;
     llvm::SmallVector<llvm::SmallVector<M::Value *, 4>, 4> destArgs;
     while (true) {
-      M::Attribute ivalue;
+      M::IntegerAttr ivalue;
       M::Block *dest;
       llvm::SmallVector<M::Value *, 4> destArg;
       llvm::SmallVector<M::NamedAttribute, 1> temp;
@@ -590,6 +590,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
         return M::failure();
       attrs.push_back(attr);
       if (attr.dyn_cast_or_null<M::UnitAttr>()) {
+        // do nothing
       } else if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
         M::OpAsmParser::OperandType oper1;
         M::OpAsmParser::OperandType oper2;

@@ -20,6 +20,7 @@
 #include "llvm/ADT/Optional.h"
 
 namespace llvm {
+class raw_ostream;
 class StringRef;
 template <typename>
 class ArrayRef;
@@ -287,21 +288,24 @@ public:
   TypeList getTypeList();
   TypeList getLenParamList();
 
-  static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name,
-                        llvm::ArrayRef<TypePair> lenPList = {},
-                        llvm::ArrayRef<TypePair> typeList = {});
+  static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
+  RecordType finalize(llvm::ArrayRef<TypePair> lenPList,
+                      llvm::ArrayRef<TypePair> typeList);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return TypeKind::FIR_DERIVED; }
 
+  detail::RecordTypeStorage const *uniqueKey() const;
+
   static mlir::LogicalResult
   verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, llvm::StringRef name,
-                               llvm::ArrayRef<TypePair> lenPList,
-                               llvm::ArrayRef<TypePair> typeList);
+                               mlir::MLIRContext *context,
+                               llvm::StringRef name);
 };
 
 mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
                         mlir::Location loc);
+
+void printFirType(FIROpsDialect *dialect, mlir::Type ty, llvm::raw_ostream &os);
 
 } // namespace fir
 
