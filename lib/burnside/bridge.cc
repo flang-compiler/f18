@@ -122,7 +122,7 @@ class FIRConverter {
   }
 
   M::FuncOp genFunctionFIR(llvm::StringRef callee, M::FunctionType funcTy) {
-    if (auto func{getNamedFunction(callee)}) {
+    if (auto func{getNamedFunction(getMod(), callee)}) {
       return func;
     }
     return createFunction(getMod(), callee, funcTy);
@@ -895,7 +895,7 @@ void FIRConverter::genFIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
 template<typename A>
 void FIRConverter::translateRoutine(
     const A &routine, llvm::StringRef name, const Se::Symbol *funcSym) {
-  M::FuncOp func{getNamedFunction(name)};
+  M::FuncOp func{getNamedFunction(getMod(), name)};
   if (!func) {
     // get arguments and return type if any, otherwise just use empty vectors
     llvm::SmallVector<M::Type, 8> args;
@@ -960,10 +960,6 @@ void Br::BurnsideBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
   auto owningRef = M::parseSourceFile(srcMgr, context.get());
   module.reset(new M::ModuleOp(owningRef.get().getOperation()));
   owningRef.release();
-  if (validModule()) {
-    // symbols are added by ModuleManager ctor
-    manager.reset(new M::ModuleManager(getModule()));
-  }
 }
 
 Br::BurnsideBridge::BurnsideBridge(
@@ -973,7 +969,6 @@ Br::BurnsideBridge::BurnsideBridge(
   context = std::make_unique<M::MLIRContext>();
   module = std::make_unique<M::ModuleOp>(
       M::ModuleOp::create(M::UnknownLoc::get(context.get())));
-  manager = std::make_unique<M::ModuleManager>(getModule());
 }
 
 void Br::instantiateBurnsideBridge(

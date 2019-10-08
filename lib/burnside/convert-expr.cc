@@ -148,7 +148,7 @@ class ExprLowering {
 
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
     auto module{getModule(&builder)};
-    if (M::FuncOp func{getNamedFunction(name)}) {
+    if (M::FuncOp func{getNamedFunction(module, name)}) {
       return func;
     }
     return createFunction(module, name, funTy);

@@ -67,7 +67,7 @@ inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
 }
 
 /// Get a function by name (or null)
-mlir::FuncOp getNamedFunction(llvm::StringRef name);
+mlir::FuncOp getNamedFunction(mlir::ModuleOp, llvm::StringRef name);
 
 /// Create a new Function
 mlir::FuncOp createFunction(

@@ -52,7 +52,6 @@ public:
   }
 
   mlir::MLIRContext &getMLIRContext() { return *context.get(); }
-  mlir::ModuleManager &getManager() { return *manager.get(); }
   mlir::ModuleOp &getModule() { return *module.get(); }
 
   void parseSourceFile(llvm::SourceMgr &);
@@ -75,7 +74,6 @@ private:
   const parser::CookedSource *cooked;
   std::unique_ptr<mlir::MLIRContext> context;
   std::unique_ptr<mlir::ModuleOp> module;
-  std::unique_ptr<mlir::ModuleManager> manager;
 };
 
 /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR

@@ -38,8 +38,8 @@ mlir::FuncOp B::createFunction(
   return func;
 }
 
-mlir::FuncOp B::getNamedFunction(llvm::StringRef name) {
-  return getBridge().getManager().lookupSymbol<mlir::FuncOp>(name);
+mlir::FuncOp B::getNamedFunction(mlir::ModuleOp module, llvm::StringRef name) {
+  return module.lookupSymbol<mlir::FuncOp>(name);
 }
 
 void B::SymMap::addSymbol(const semantics::Symbol *symbol, mlir::Value *value) {

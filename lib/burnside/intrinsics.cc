@@ -71,7 +71,7 @@ std::optional<mlir::FuncOp> IntrinsicLibrary::getFunction(
   auto module{getModule(&builder)};
   if (const auto &it{lib.find({name, type})}; it != lib.end()) {
     const IntrinsicImplementation &impl{it->second};
-    if (mlir::FuncOp func{getNamedFunction(impl.symbol)}) {
+    if (mlir::FuncOp func{getNamedFunction(module, impl.symbol)}) {
       return func;
     }
     mlir::FuncOp function{createFunction(module, impl.symbol, impl.type)};
