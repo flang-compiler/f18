@@ -347,6 +347,15 @@ M::ParseResult parseSelector(M::OpAsmParser &parser, M::OperationState &result,
   return M::success();
 }
 
+void printComplexBinaryOp(Operation *op, OpAsmPrinter &p) {
+  assert(op->getNumOperands() == 2 && "binary op should have two operands");
+  assert(op->getNumResults() == 1 && "binary op should have one result");
+
+  p << op->getName() << ' ' << *op->getOperand(0) << ", " << *op->getOperand(1);
+  p.printOptionalAttrDict(op->getAttrs());
+  p << " : " << op->getResult(0)->getType();
+}
+
 // Tablegen operators
 
 #define GET_OP_CLASSES

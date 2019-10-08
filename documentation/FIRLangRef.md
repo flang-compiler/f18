@@ -858,6 +858,16 @@ Example:
     %91 = fir.dispatch "methodA"(%89, %90) : (!fir.box<!fir.type<T>>, !fir.ref<f32>) -> i32
 ```
 
+### Complex Ops
+
+The standard dialect does not have primitive operations for complex types.
+We've added these primitives in the FIR dialect.
+
+#### `fir.addc`
+#### `fir.subc`
+#### `fir.mulc`
+#### `fir.divc`
+
 ### Other Ops
 
 #### `fir.address_of`
@@ -934,7 +944,7 @@ FMA operation.
 #### `fir.global`
 
 Syntax:
-<pre><code><b>fir.global @</b><em>global-name [</em> <b>constant</b> <em>]</em> <b>{</b><br>
+<pre><code><b>fir.global @</b><em>global-name [</em> <b>constant</b> <em>]</em> <b>:</b> <em>type</em> <b>{</b><br>
 &nbsp;&nbsp;&nbsp; <em>initializer-list</em><br>
 <b>}</b>
 </code></pre>

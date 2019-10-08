@@ -1613,6 +1613,32 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
   }];
 }
 
+// Complex operations
+
+class fir_ArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+    fir_Op<mnemonic,
+       !listconcat(traits, [NoSideEffect, SameOperandsAndResultType])> {
+
+  let results = (outs AnyType);
+
+  let parser = [{
+    return impl::parseOneResultSameOperandTypeOp(parser, result);
+  }];
+
+  let printer = [{
+    return fir::printComplexBinaryOp(this->getOperation(), p);
+  }];
+}
+
+class ComplexArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+      fir_ArithmeticOp<mnemonic, traits>,
+      Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)>;
+
+def fir_AddcOp : ComplexArithmeticOp<"addc", [Commutative]>;
+def fir_SubcOp : ComplexArithmeticOp<"subc">;
+def fir_MulcOp : ComplexArithmeticOp<"mulc", [Commutative]>;
+def fir_DivcOp : ComplexArithmeticOp<"divc">;
+
 // Other misc. operations
 
 def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {

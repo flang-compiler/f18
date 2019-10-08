@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_LLVM_CONVERTER_H
-#define FIR_LLVM_CONVERTER_H
+#ifndef FIR_TILIKUM_TILIKUM_H
+#define FIR_TILIKUM_TILIKUM_H
 
 #include <memory>
 
@@ -26,12 +26,9 @@ namespace fir {
 /// Convert FIR to the LLVM IR dialect
 std::unique_ptr<mlir::Pass> createFIRToLLVMPass();
 
-/// Convert the standard dialect to LLVM IR dialect
-std::unique_ptr<mlir::Pass> createStdToLLVMPass();
-
 /// Convert the LLVM IR dialect to LLVM-IR proper
 std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass();
 
 } // namespace fir
 
-#endif // FIR_LLVM_CONVERTER_H
+#endif // FIR_TILIKUM_TILIKUM_H

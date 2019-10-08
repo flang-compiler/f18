@@ -17,9 +17,9 @@ add_library(FIR
   Dialect.cpp
   FIROps.cpp
   IteratedDominanceFrontier.cpp
-  LLVMConverter.cpp
   MemToReg.cpp
   StdConverter.cpp
+  Tilikum.cpp
   Type.cpp
 )
 

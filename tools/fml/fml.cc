@@ -15,7 +15,7 @@
 // Temporary Fortran front end driver main program for development scaffolding.
 
 #include "fir/Dialect.h"
-#include "fir/Tilikum/LLVMConverter.h"
+#include "fir/Tilikum/Tilikum.h"
 #include "fir/Transforms/MemToReg.h"
 #include "fir/Transforms/StdConverter.h"
 #include "../../lib/burnside/bridge.h"
