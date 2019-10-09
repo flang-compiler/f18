@@ -318,6 +318,7 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxaddr = M::cast<BoxAddrOp>(op);
+    // FIXME: stub. needs a test, etc.
     rewriter.replaceOpWithNewOp<M::LLVM::GEPOp>(boxaddr, M::Type{}, operands);
     return matchSuccess();
   }
@@ -657,6 +658,7 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   }
 };
 
+// Replace the fir-end op with a null
 struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -760,7 +762,7 @@ public:
         global.getContext());
     M::Attribute value;
     auto addrSpace = /* FIXME: hard-coded i32 here; is that ok? */
-        M::IntegerAttr::get(M::IntegerType::get(32, global.getContext()), 0);
+        rewriter.getI32IntegerAttr(0);
     rewriter.replaceOpWithNewOp<M::LLVM::GlobalOp>(global, tyAttr, isConst,
                                                    name, value, addrSpace);
     return matchSuccess();
@@ -1014,6 +1016,134 @@ struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
   }
 };
 
+// Generate code for complex addition/subtraction
+template <typename LLVMOP, typename OPTY>
+M::LLVM::InsertValueOp complexSum(OPTY sumop,
+                                  M::ConversionPatternRewriter &rewriter,
+                                  FIRToLLVMTypeConverter &lowering) {
+  auto a = sumop.lhs();
+  auto b = sumop.rhs();
+  auto loc = sumop.getLoc();
+  auto ctx = sumop.getContext();
+  auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+  auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+  auto ty = lowering.convertType(sumop.getType());
+  auto x = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+  auto x_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c0);
+  auto rx = rewriter.create<LLVMOP>(loc, ty, x, x_);
+  auto y = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+  auto y_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c1);
+  auto ry = rewriter.create<LLVMOP>(loc, ty, y, y_);
+  auto r = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+  auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r, rx, c0);
+  return rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ry, c1);
+}
+
+struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    // result: (x + x') + i(y + y')
+    auto addc = cast<fir::AddcOp>(op);
+    auto r = complexSum<M::LLVM::FAddOp>(addc, rewriter, lowering);
+    addc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(addc, r.getResult());
+    return matchSuccess();
+  }
+};
+
+struct SubcOpConversion : public FIROpConversion<fir::SubcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    // result: (x - x') + i(y - y')
+    auto subc = M::cast<fir::SubcOp>(op);
+    auto r = complexSum<M::LLVM::FSubOp>(subc, rewriter, lowering);
+    subc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(subc, r.getResult());
+    return matchSuccess();
+  }
+};
+
+struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto mulc = M::cast<fir::MulcOp>(op);
+    // TODO: should this just call __muldc3 ?
+    // result: (xx'-yy')+i(xy'+yx')
+    auto a = mulc.lhs();
+    auto b = mulc.rhs();
+    auto loc = mulc.getLoc();
+    auto ctx = mulc.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto ty = lowering.convertType(mulc.getType());
+    auto x = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+    auto x_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c0);
+    auto xx_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, x, x_);
+    auto y = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+    auto yx_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, y, x_);
+    auto y_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c1);
+    auto xy_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, x, y_);
+    auto ri = rewriter.create<M::LLVM::FAddOp>(loc, ty, xy_, yx_);
+    auto yy_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, y, y_);
+    auto rr = rewriter.create<M::LLVM::FSubOp>(loc, ty, xx_, yy_);
+    auto ra = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, ra, rr, c0);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ri, c1);
+    mulc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(mulc, r.getResult());
+    return matchSuccess();
+  }
+};
+
+struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto divc = M::cast<fir::DivcOp>(op);
+    // TODO: should this just call __divdc3 ?
+    // result: ((xx'+yy')/d) + i((yx'-xy')/d) where d = x'x' + y'y'
+    auto a = divc.lhs();
+    auto b = divc.rhs();
+    auto loc = divc.getLoc();
+    auto ctx = divc.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto ty = lowering.convertType(divc.getType());
+    auto x = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+    auto x_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c0);
+    auto xx_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, x, x_);
+    auto x_x_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, x_, x_);
+    auto y = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+    auto yx_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, y, x_);
+    auto y_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c1);
+    auto xy_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, x, y_);
+    auto yy_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, y, y_);
+    auto y_y_ = rewriter.create<M::LLVM::FMulOp>(loc, ty, y_, y_);
+    auto d = rewriter.create<M::LLVM::FAddOp>(loc, ty, x_x_, y_y_);
+    auto rrn = rewriter.create<M::LLVM::FAddOp>(loc, ty, xx_, yy_);
+    auto rin = rewriter.create<M::LLVM::FSubOp>(loc, ty, yx_, xy_);
+    auto rr = rewriter.create<M::LLVM::FDivOp>(loc, ty, rrn, d);
+    auto ri = rewriter.create<M::LLVM::FDivOp>(loc, ty, rin, d);
+    auto ra = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, ra, rr, c0);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ri, c1);
+    divc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(divc, r.getResult());
+    return matchSuccess();
+  }
+};
+
 // Lower a SELECT operation into a cascade of conditional branches. The last
 // case must be the `true` condition.
 inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
@@ -1054,22 +1184,24 @@ public:
     FIRToLLVMTypeConverter typeConverter{&context};
     M::OwningRewritePatternList patterns;
     patterns.insert<
-        AddrOfOpConversion, AllocaOpConversion, AllocMemOpConversion,
-        BoxAddrOpConversion, BoxCharLenOpConversion, BoxDimsOpConversion,
-        BoxEleSizeOpConversion, BoxIsAllocOpConversion, BoxIsArrayOpConversion,
-        BoxIsPtrOpConversion, BoxProcHostOpConversion, BoxRankOpConversion,
-        BoxTypeDescOpConversion, CallOpConversion, ConvertOpConversion,
-        CoordinateOpConversion, DispatchOpConversion, DispatchTableOpConversion,
-        DTEntryOpConversion, EmboxCharOpConversion, EmboxOpConversion,
-        EmboxProcOpConversion, FirEndOpConversion, ExtractValueOpConversion,
-        FieldIndexOpConversion, FreeMemOpConversion, GenDimsOpConversion,
-        GenTypeDescOpConversion, GlobalEntryOpConversion, GlobalOpConversion,
-        ICallOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
-        LoadOpConversion, LoopOpConversion, NoReassocOpConversion,
+        AddcOpConversion, AddrOfOpConversion, AllocaOpConversion,
+        AllocMemOpConversion, BoxAddrOpConversion, BoxCharLenOpConversion,
+        BoxDimsOpConversion, BoxEleSizeOpConversion, BoxIsAllocOpConversion,
+        BoxIsArrayOpConversion, BoxIsPtrOpConversion, BoxProcHostOpConversion,
+        BoxRankOpConversion, BoxTypeDescOpConversion, CallOpConversion,
+        ConvertOpConversion, CoordinateOpConversion, DispatchOpConversion,
+        DispatchTableOpConversion, DivcOpConversion, DTEntryOpConversion,
+        EmboxCharOpConversion, EmboxOpConversion, EmboxProcOpConversion,
+        FirEndOpConversion, ExtractValueOpConversion, FieldIndexOpConversion,
+        FreeMemOpConversion, GenDimsOpConversion, GenTypeDescOpConversion,
+        GlobalEntryOpConversion, GlobalOpConversion, ICallOpConversion,
+        InsertValueOpConversion, LenParamIndexOpConversion, LoadOpConversion,
+        LoopOpConversion, MulcOpConversion, NoReassocOpConversion,
         SelectCaseOpConversion, SelectOpConversion, SelectRankOpConversion,
-        SelectTypeOpConversion, StoreOpConversion, UnboxCharOpConversion,
-        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
-        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
+        SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
+        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
+        UndefOpConversion, UnreachableOpConversion, WhereOpConversion>(
+        &context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::populateFuncOpTypeConversionPattern(patterns, &context, typeConverter);
     M::ConversionTarget target{context};

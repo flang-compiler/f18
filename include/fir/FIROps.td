@@ -1604,12 +1604,15 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
     llvm::SmallVector<M::Type, 8> argTy(getOperandTypes());
     p << " : " << M::FunctionType::get(argTy, resTy, getContext());
   }];
+
   let extraClassDeclaration = [{
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
     operand_iterator arg_operand_begin() { return operand_begin() + 1; }
     operand_iterator arg_operand_end() { return operand_end(); }
+    llvm::StringRef passArgAttrName() { return "pass_arg_pos"; }
+    unsigned passArgPos();
   }];
 }
 

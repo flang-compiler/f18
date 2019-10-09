@@ -1,5 +1,3 @@
-// Tilikum tests - fir.end is not legalized
-
 fir.global @var_x : !fir.int<4> {}
 
 func @getAddressOfX() -> !fir.ref<!fir.int<4>> {

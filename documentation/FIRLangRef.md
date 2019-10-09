@@ -847,10 +847,9 @@ Example:
 
 Syntax:	<code><b>fir.dispatch</b> <em>method-id</em> <b>(</b> <em>arg-list</em> <b>) :</b> <em>func-type</em></code>
 
-
 Perform a dynamic dispatch on the method name via the dispatch table
-associated with the first argument.
-
+associated with the first argument.  The attribute 'pass_arg_pos' can be
+used to select a dispatch argument other than the first one.
 
 Example:
 
@@ -864,9 +863,32 @@ The standard dialect does not have primitive operations for complex types.
 We've added these primitives in the FIR dialect.
 
 #### `fir.addc`
+
+Syntax: <code><b>fir.addc <em>ssa-value</em><b>,</b> <em>ssa-value</em> :</b> <b>!fir.complex&lt;</b><em>k</em><b>&gt;</b></code>
+
+Perform addition of two complex values. The result and arguments must be
+the same type.
+
 #### `fir.subc`
+
+Syntax: <code><b>fir.subc <em>ssa-value</em><b>,</b> <em>ssa-value</em> :</b> <b>!fir.complex&lt;</b><em>k</em><b>&gt;</b></code>
+
+Perform subtraction on complex values. The result and arguments must be the
+same type.
+
 #### `fir.mulc`
+
+Syntax: <code><b>fir.mulc <em>ssa-value</em><b>,</b> <em>ssa-value</em> :</b> <b>!fir.complex&lt;</b><em>k</em><b>&gt;</b></code>
+
+Perform multiplication on complex values. The result and arguments must be
+the same type.
+
 #### `fir.divc`
+
+Syntax: <code><b>fir.divc <em>ssa-value</em><b>,</b> <em>ssa-value</em> :</b> <b>!fir.complex&lt;</b><em>k</em><b>&gt;</b></code>
+
+Perform division on complex values. The result and arguments must be the
+same type.
 
 ### Other Ops
 
