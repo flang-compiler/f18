@@ -18,53 +18,55 @@
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include <optional>
-#include <unordered_map>
-#include <utility>
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace Fortran::burnside {
 
-/// IntrinsicLibrary holds the runtime description of intrinsics. It aims
-/// at abstracting which library version is used to implement Fortran
-/// numerical intrinsics while lowering expressions.
-/// It can be probed for a certain intrinsic and will return an mlir::FuncOp
-/// that matches the targeted library implementation.
+/// IntrinsicLibrary generates FIR+MLIR operations that implement Fortran
+/// generic intrinsic function calls. It operates purely on FIR+MLIR types so
+/// that it can be used at different lowering level if needed.
+/// IntrinsicLibrary is not in charge of generating code for the argument
+/// expressions/symbols. These must be generated before and the resulting
+/// mlir::Values* are inputs for the IntrinsicLibrary operation generation.
+///
+/// The operations generated can be as simple as a single runtime library call
+/// or they may fully implement the intrinsic without runtime help. This
+/// depends on the IntrinsicLibrary::Implementation.
+///
+/// IntrinsicLibrary should not be assumed cheap to build since they may need
+/// to build a representation of the target runtime before they can be used.
+/// Once built, they are stateless and cannot be modified.
+///
+
 class IntrinsicLibrary {
 public:
-  /// Available intrinsic library versions.
+  /// Available runtime library versions.
   enum class Version { PgmathFast, PgmathRelaxed, PgmathPrecise, LLVM };
-  using Key = std::pair<llvm::StringRef, mlir::Type>;
-  // Need a custom hash for this kind of keys. LLVM provides it.
-  struct Hash {
-    size_t operator()(const Key &k) const { return llvm::hash_value(k); }
-  };
-  /// Internal structure to describe the runtime function. An intrinsic function
-  /// is not declared in mlir until the IntrinsicLibrary needs to return it.
-  /// This is to avoid polluting the LLVM IR with useless declarations.
-  /// This structure allows generating mlir::FuncOp on the fly.
-  struct IntrinsicImplementation {
-    IntrinsicImplementation(llvm::StringRef n, mlir::FunctionType t)
-      : symbol{n}, type{t} {};
-    llvm::StringRef symbol;
-    mlir::FunctionType type;
-  };
-  using Map = std::unordered_map<Key, IntrinsicImplementation, Hash>;
 
-  /// Probe the intrinsic library for a certain intrinsic and get/build the
-  /// related mlir::FuncOp if a runtime description is found.
-  /// Also add an unit attribute "fir.intrinsic" to the function so that later
-  /// it is possible to quickly know what function are intrinsics vs users.
-  std::optional<mlir::FuncOp> getFunction(
-      llvm::StringRef, mlir::Type, mlir::OpBuilder &) const;
+  ~IntrinsicLibrary();
+  /// Generate the FIR+MLIR operations for the generic intrinsic "name".
+  /// On failure, returns a nullptr, else the returned mlir::Value* is
+  /// the returned Fortran intrinsic value.
+  mlir::Value *genval(mlir::Location loc, mlir::OpBuilder &builder,
+      llvm::StringRef name, mlir::Type resultType,
+      llvm::ArrayRef<mlir::Value *> args) const;
 
-  /// Create the runtime description for the targeted library version.
+  // TODO: Expose interface to get specific intrinsic function address.
+  // TODO: Handle intrinsic subroutine.
+  // TODO: Intrinsics that do not require their arguments to be defined
+  //   (e.g shape inquiries) might not fit in the current interface that
+  //   requires mlir::Value* to be provided.
+  // TODO: Error handling interface ?
+  // TODO: Implementation is incomplete. Many intrinsics to tbd.
+
+  /// Create an IntrinsicLibrary targeting the desired runtime library version.
   static IntrinsicLibrary create(Version, mlir::MLIRContext &);
 
 private:
-  IntrinsicLibrary(Map &&l) : lib{std::move(l)} {};
-  /// Holds the intrinsic runtime description to be probed.
-  Map lib;
+  /// Actual implementation is hidden.
+  class Implementation;
+  Implementation *impl{nullptr};  // owning pointer
 };
 
 }

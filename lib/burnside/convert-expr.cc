@@ -566,28 +566,19 @@ class ExprLowering {
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(const Ev::FunctionRef<Ev::Type<TC, KIND>> &funRef) {
     if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
-      L::StringRef name{intrinsic->name};
       M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
-      // Probe the intrinsic library
-      if (std::optional<M::FuncOp> func{
-              intrinsics.getFunction(name, ty, builder)}) {
-        L::SmallVector<M::Value *, 2> operands;
-        for (const auto &arg : funRef.arguments()) {
-          if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
-            operands.push_back(genval(*expr));
-          } else {
-            // Some intrinsics have optional arguments (inquiry,
-            // transformational). These kind of intrinsics cannot be blindly
-            // mapped 1 to 1 to a runtime signature and will require a more
-            // ad-hoc handling.
-            TODO();
-          }
+      L::SmallVector<M::Value *, 2> operands;
+      // Lower arguments
+      for (const auto &arg : funRef.arguments()) {
+        if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
+          operands.push_back(genval(*expr));
+        } else {
+          operands.push_back(nullptr);  // optional
         }
-        auto x{builder.create<M::CallOp>(getLoc(), *func, operands)};
-        return x.getResult(0);  // FIXME
-      } else {
-        TODO();  // No runtime function for this intrinsic.
       }
+      // Let the intrinsic library lower the intrinsic function call
+      L::StringRef name{intrinsic->name};
+      return intrinsics.genval(getLoc(), builder, name, ty, operands);
     } else {
       TODO();  // User defined function.
     }
