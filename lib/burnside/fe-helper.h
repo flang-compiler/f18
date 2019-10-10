@@ -29,25 +29,30 @@ class MLIRContext;
 class Type;
 }
 
-namespace Fortran::evaluate {
+namespace Fortran {
+namespace common {
+class IntrinsicTypeDefaultKinds;
+}  // common
+
+namespace evaluate {
 struct DataRef;
 template<typename> class Designator;
 template<typename> class Expr;
 template<common::TypeCategory> struct SomeKind;
 struct SomeType;
 template<common::TypeCategory, int> class Type;
-}
+}  // evaluate
 
-namespace Fortran::parser {
+namespace parser {
 class CharBlock;
 class CookedSource;
-}
+}  // parser
 
-namespace Fortran::semantics {
+namespace semantics {
 class Symbol;
-}
+}  // semantics
 
-namespace Fortran::burnside {
+namespace burnside {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 
@@ -64,34 +69,39 @@ mlir::Location dummyLoc(mlir::MLIRContext *ctxt);
 mlir::Location parserPosToLoc(mlir::MLIRContext &context,
     const parser::CookedSource *cooked, const parser::CharBlock &position);
 
-mlir::Type genTypeFromCategoryAndKind(
-    mlir::MLIRContext *ctxt, common::TypeCategory tc, int kind);
-mlir::Type genTypeFromCategory(
-    mlir::MLIRContext *ctxt, common::TypeCategory tc);
+mlir::Type getFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc,
+    int kind);
+mlir::Type getFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc);
 
-mlir::Type translateDataRefToFIRType(
-    mlir::MLIRContext *ctxt, const evaluate::DataRef &dataRef);
+mlir::Type translateDataRefToFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults,
+    const evaluate::DataRef &dataRef);
 
 template<common::TypeCategory TC, int KIND>
 inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults,
     const evaluate::Designator<evaluate::Type<TC, KIND>> &) {
-  return genTypeFromCategoryAndKind(ctxt, TC, KIND);
+  return getFIRType(ctxt, defaults, TC, KIND);
 }
 
 template<common::TypeCategory TC>
 inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults,
     const evaluate::Designator<evaluate::SomeKind<TC>> &) {
-  return genTypeFromCategory(ctxt, TC);
+  return getFIRType(ctxt, defaults, TC);
 }
 
-mlir::Type translateSomeExprToFIRType(
-    mlir::MLIRContext *ctxt, const SomeExpr *expr);
+mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults, const SomeExpr *expr);
 
-mlir::Type translateSymbolToFIRType(
-    mlir::MLIRContext *ctxt, const semantics::Symbol *symbol);
+mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults,
+    const semantics::Symbol *symbol);
 
-mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
+mlir::Type convertReal(mlir::MLIRContext *context, int KIND);
 
-}  // Fortran::burnside
-
+}  // burnside
+}  // Fortran
 #endif  // FORTRAN_BURNSIDE_FE_HELPER_H_

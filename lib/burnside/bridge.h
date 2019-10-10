@@ -56,7 +56,7 @@ public:
 
   void parseSourceFile(llvm::SourceMgr &);
 
-  const common::IntrinsicTypeDefaultKinds &getDefaultKinds() {
+  common::IntrinsicTypeDefaultKinds const &getDefaultKinds() {
     return defaultKinds;
   }
 
@@ -87,9 +87,6 @@ std::unique_ptr<llvm::Module> LLVMBridge(mlir::ModuleOp &module);
 void instantiateBurnsideBridge(
     const common::IntrinsicTypeDefaultKinds &defaultKinds,
     const parser::CookedSource *cooked = nullptr);
-
-/// access to the default kinds class (for MLIR bridge)
-const common::IntrinsicTypeDefaultKinds &getDefaultKinds();
 
 /// get the burnside bridge singleton
 BurnsideBridge &getBridge();

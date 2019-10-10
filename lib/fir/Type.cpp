@@ -651,7 +651,7 @@ FIRTypeParser::verifyDerived(RecordType derivedTy,
       emitError(loc, "field parameter has invalid type");
       return {};
     }
-  llvm::StringSet uniq;
+  llvm::StringSet<> uniq;
   for (auto &p : lenPList)
     if (!uniq.insert(p.first).second) {
       emitError(loc, "LEN parameter cannot have duplicate name");

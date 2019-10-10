@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include "fir/Dialect.h"
-#include "../evaluate/expression.h"
 #include "fir/Attribute.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"

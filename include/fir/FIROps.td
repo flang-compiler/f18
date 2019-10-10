@@ -1633,6 +1633,16 @@ class fir_ArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
   }];
 }
 
+class RealArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+      fir_ArithmeticOp<mnemonic, traits>,
+      Arguments<(ins AnyRealLike:$lhs, AnyRealLike:$rhs)>;
+
+def fir_AddfOp : RealArithmeticOp<"addf", [Commutative]>;
+def fir_SubfOp : RealArithmeticOp<"subf">;
+def fir_MulfOp : RealArithmeticOp<"mulf", [Commutative]>;
+def fir_DivfOp : RealArithmeticOp<"divf">;
+def fir_ModfOp : RealArithmeticOp<"modf">;
+
 class ComplexArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_ArithmeticOp<mnemonic, traits>,
       Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)>;

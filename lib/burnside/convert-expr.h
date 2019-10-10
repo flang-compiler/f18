@@ -24,31 +24,36 @@ class Location;
 class OpBuilder;
 class Type;
 class Value;
-}
+}  // mlir
 
 namespace fir {
 class AllocaExpr;
-}
+}  // fir
 
 namespace Fortran {
+namespace common {
+class IntrinsicTypeDefaultKinds;
+}  //  common
 namespace evaluate {
 template<typename> class Expr;
 struct SomeType;
 }  // evaluate
 namespace semantics {
 class Symbol;
-}
+}  // semantics
 
 namespace burnside {
 
 class SymMap;
 
 mlir::Value *createSomeExpression(mlir::Location loc, mlir::OpBuilder &builder,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    SymMap &symMap, const IntrinsicLibrary &);
+    evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
+    common::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics);
 mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    SymMap &symMap, const IntrinsicLibrary &);
+    evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
+    common::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics);
 
 mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);

@@ -20,6 +20,7 @@
 #include "fir/Type.h"
 #include "intrinsics.h"
 #include "runtime.h"
+#include "../common/default-kinds.h"
 #include "../common/unwrap.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/real.h"
@@ -66,9 +67,10 @@ namespace {
 class ExprLowering {
   M::Location location;
   M::OpBuilder &builder;
-  const SomeExpr &expr;
+  SomeExpr const &expr;
   SymMap &symMap;
-  const IntrinsicLibrary &intrinsics;
+  Co::IntrinsicTypeDefaultKinds const &defaults;
+  IntrinsicLibrary const &intrinsics;
 
   M::Location getLoc() { return location; }
 
@@ -105,7 +107,7 @@ class ExprLowering {
   /// Generate an integral constant of `value`
   template<int KIND>
   M::Value *genIntegerConstant(M::MLIRContext *context, std::int64_t value) {
-    M::Type type{M::IntegerType::get(KIND * 8, context)};
+    M::Type type{getFIRType(context, defaults, IntegerCat, 8)};
     auto attr{builder.getIntegerAttr(type, value)};
     auto res{builder.create<M::ConstantOp>(getLoc(), type, attr)};
     return res.getResult();
@@ -115,14 +117,14 @@ class ExprLowering {
   template<int KIND>
   M::Value *genLogicalConstant(M::MLIRContext *context, bool value) {
     auto attr{builder.getBoolAttr(value)};
-    M::Type logTy{fir::LogicalType::get(context, KIND)};
+    M::Type logTy{getFIRType(context, defaults, LogicalCat, KIND)};
     auto res{builder.create<M::ConstantOp>(getLoc(), logTy, attr)};
     return res.getResult();
   }
 
   template<int KIND>
-  M::Value *genRealConstant(M::MLIRContext *context, const L::APFloat &value) {
-    M::Type fltTy{convertReal(KIND, context)};
+  M::Value *genRealConstant(M::MLIRContext *context, L::APFloat const &value) {
+    M::Type fltTy{convertReal(context, KIND)};
     auto attr{builder.getFloatAttr(fltTy, value)};
     auto res{builder.create<M::ConstantOp>(getLoc(), fltTy, attr)};
     return res.getResult();
@@ -133,16 +135,16 @@ class ExprLowering {
   }
 
   template<typename OpTy, typename A>
-  M::Value *createBinaryOp(const A &ex, M::Value *lhs, M::Value *rhs) {
+  M::Value *createBinaryOp(A const &ex, M::Value *lhs, M::Value *rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), lhs, rhs);
     return x.getResult();
   }
   template<typename OpTy, typename A>
-  M::Value *createBinaryOp(const A &ex, M::Value *rhs) {
+  M::Value *createBinaryOp(A const &ex, M::Value *rhs) {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), rhs);
   }
-  template<typename OpTy, typename A> M::Value *createBinaryOp(const A &ex) {
+  template<typename OpTy, typename A> M::Value *createBinaryOp(A const &ex) {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
   }
 
@@ -162,13 +164,14 @@ class ExprLowering {
   // FIXME binary operation :: ('a, 'a) -> 'a
   template<Co::TypeCategory TC, int KIND> M::FunctionType createFunctionType() {
     if constexpr (TC == IntegerCat) {
-      M::Type output{M::IntegerType::get(KIND, builder.getContext())};
+      M::Type output{
+          getFIRType(builder.getContext(), defaults, IntegerCat, KIND)};
       L::SmallVector<M::Type, 2> inputs;
       inputs.push_back(output);
       inputs.push_back(output);
       return M::FunctionType::get(inputs, output, builder.getContext());
     } else if constexpr (TC == RealCat) {
-      M::Type output{convertReal(KIND, builder.getContext())};
+      M::Type output{convertReal(builder.getContext(), KIND)};
       L::SmallVector<M::Type, 2> inputs;
       inputs.push_back(output);
       inputs.push_back(output);
@@ -181,7 +184,7 @@ class ExprLowering {
 
   /// Create a call to a Fortran runtime entry point
   template<Co::TypeCategory TC, int KIND, typename A>
-  M::Value *createBinaryFIRTCall(const A &ex, RuntimeEntryCode callee) {
+  M::Value *createBinaryFIRTCall(A const &ex, RuntimeEntryCode callee) {
     L::SmallVector<M::Value *, 2> operands;
     operands.push_back(genval(ex.left()));
     operands.push_back(genval(ex.right()));
@@ -193,58 +196,58 @@ class ExprLowering {
 
   template<typename OpTy, typename A>
   M::Value *createCompareOp(
-      const A &ex, M::CmpIPredicate pred, M::Value *lhs, M::Value *rhs) {
+      A const &ex, M::CmpIPredicate pred, M::Value *lhs, M::Value *rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), pred, lhs, rhs);
     return x.getResult();
   }
   template<typename OpTy, typename A>
-  M::Value *createCompareOp(const A &ex, M::CmpIPredicate pred) {
+  M::Value *createCompareOp(A const &ex, M::CmpIPredicate pred) {
     return createCompareOp<OpTy>(
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
   template<typename OpTy, typename A>
   M::Value *createFltCmpOp(
-      const A &ex, M::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
+      A const &ex, M::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), pred, lhs, rhs);
     return x.getResult();
   }
   template<typename OpTy, typename A>
-  M::Value *createFltCmpOp(const A &ex, M::CmpFPredicate pred) {
+  M::Value *createFltCmpOp(A const &ex, M::CmpFPredicate pred) {
     return createFltCmpOp<OpTy>(
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
 
-  M::Value *gen(const Se::Symbol *sym) {
+  M::Value *gen(Se::Symbol const *sym) {
     // FIXME: not all symbols are local
     return createTemporary(getLoc(), builder, symMap,
-        translateSymbolToFIRType(builder.getContext(), sym), sym);
+        translateSymbolToFIRType(builder.getContext(), defaults, sym), sym);
   }
-  M::Value *gendef(const Se::Symbol *sym) { return gen(sym); }
-  M::Value *genval(const Se::Symbol *sym) {
+  M::Value *gendef(Se::Symbol const *sym) { return gen(sym); }
+  M::Value *genval(Se::Symbol const *sym) {
     return builder.create<fir::LoadOp>(getLoc(), gen(sym));
   }
 
-  M::Value *genval(const Ev::BOZLiteralConstant &) { TODO(); }
-  M::Value *genval(const Ev::ProcedureRef &) { TODO(); }
-  M::Value *genval(const Ev::ProcedureDesignator &) { TODO(); }
-  M::Value *genval(const Ev::NullPointer &) { TODO(); }
-  M::Value *genval(const Ev::StructureConstructor &) { TODO(); }
-  M::Value *genval(const Ev::ImpliedDoIndex &) { TODO(); }
-  M::Value *genval(const Ev::DescriptorInquiry &) { TODO(); }
-  template<int KIND> M::Value *genval(const Ev::TypeParamInquiry<KIND> &) {
+  M::Value *genval(Ev::BOZLiteralConstant const &) { TODO(); }
+  M::Value *genval(Ev::ProcedureRef const &) { TODO(); }
+  M::Value *genval(Ev::ProcedureDesignator const &) { TODO(); }
+  M::Value *genval(Ev::NullPointer const &) { TODO(); }
+  M::Value *genval(Ev::StructureConstructor const &) { TODO(); }
+  M::Value *genval(Ev::ImpliedDoIndex const &) { TODO(); }
+  M::Value *genval(Ev::DescriptorInquiry const &) { TODO(); }
+  template<int KIND> M::Value *genval(Ev::TypeParamInquiry<KIND> const &) {
     TODO();
   }
-  template<int KIND> M::Value *genval(const Ev::ComplexComponent<KIND> &) {
-    TODO();
-  }
-  template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Negate<Ev::Type<TC, KIND>> &) {
+  template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &) {
     TODO();
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Add<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &) {
+    TODO();
+  }
+  template<Co::TypeCategory TC, int KIND>
+  M::Value *genval(Ev::Add<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::AddIOp>(op);
     } else if constexpr (TC == RealCat) {
@@ -254,7 +257,7 @@ class ExprLowering {
     }
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Subtract<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Subtract<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::SubIOp>(op);
     } else if constexpr (TC == RealCat) {
@@ -264,7 +267,7 @@ class ExprLowering {
     }
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Multiply<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Multiply<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::MulIOp>(op);
     } else if constexpr (TC == RealCat) {
@@ -274,7 +277,7 @@ class ExprLowering {
     }
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Divide<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Divide<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::DivISOp>(op);
     } else if constexpr (TC == RealCat) {
@@ -286,7 +289,7 @@ class ExprLowering {
     }
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Power<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Power<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryFIRTCall<TC, KIND>(op, FIRT_POW);
     } else {
@@ -294,19 +297,19 @@ class ExprLowering {
     }
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::RealToIntPower<Ev::Type<TC, KIND>> &) {
+  M::Value *genval(Ev::RealToIntPower<Ev::Type<TC, KIND>> const &) {
     TODO();
   }
-  template<int KIND> M::Value *genval(const Ev::ComplexConstructor<KIND> &) {
+  template<int KIND> M::Value *genval(Ev::ComplexConstructor<KIND> const &) {
     TODO();
   }
-  template<int KIND> M::Value *genval(const Ev::Concat<KIND> &op) {
+  template<int KIND> M::Value *genval(Ev::Concat<KIND> const &op) {
     return createBinaryFIRTCall<CharacterCat, KIND>(op, FIRT_CONCAT);
   }
 
   /// MIN and MAX operations
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Extremum<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Extremum<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryFIRTCall<TC, KIND>(
           op, op.ordering == Ev::Ordering::Greater ? FIRT_MAX : FIRT_MIN);
@@ -315,10 +318,10 @@ class ExprLowering {
     }
   }
 
-  template<int KIND> M::Value *genval(const Ev::SetLength<KIND> &) { TODO(); }
+  template<int KIND> M::Value *genval(Ev::SetLength<KIND> const &) { TODO(); }
 
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Relational<Ev::Type<TC, KIND>> &op) {
+  M::Value *genval(Ev::Relational<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
     } else if constexpr (TC == RealCat) {
@@ -327,22 +330,22 @@ class ExprLowering {
       TODO();
     }
   }
-  M::Value *genval(const Ev::Relational<Ev::SomeType> &op) {
+  M::Value *genval(Ev::Relational<Ev::SomeType> const &op) {
     return std::visit([&](const auto &x) { return genval(x); }, op.u);
   }
 
   template<Co::TypeCategory TC1, int KIND, Co::TypeCategory TC2>
-  M::Value *genval(const Ev::Convert<Ev::Type<TC1, KIND>, TC2> &convert) {
-    auto ty{genTypeFromCategoryAndKind(builder.getContext(), TC1, KIND)};
+  M::Value *genval(Ev::Convert<Ev::Type<TC1, KIND>, TC2> const &convert) {
+    auto ty{getFIRType(builder.getContext(), defaults, TC1, KIND)};
     return builder.create<fir::ConvertOp>(getLoc(), ty, genval(convert.left()));
   }
-  template<typename A> M::Value *genval(const Ev::Parentheses<A> &) { TODO(); }
+  template<typename A> M::Value *genval(Ev::Parentheses<A> const &) { TODO(); }
   template<int KIND> M::Value *genval(const Ev::Not<KIND> &op) {
     auto *context{builder.getContext()};
     return createBinaryOp<M::XOrOp>(op, genLogicalConstant<KIND>(context, 1));
   }
 
-  template<int KIND> M::Value *genval(const Ev::LogicalOperation<KIND> &op) {
+  template<int KIND> M::Value *genval(Ev::LogicalOperation<KIND> const &op) {
     switch (op.logicalOperator) {
     case Ev::LogicalOperator::And: return createBinaryOp<M::AndOp>(op);
     case Ev::LogicalOperator::Or: return createBinaryOp<M::OrOp>(op);
@@ -356,7 +359,7 @@ class ExprLowering {
   }
 
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(const Ev::Constant<Ev::Type<TC, KIND>> &con) {
+  M::Value *genval(Ev::Constant<Ev::Type<TC, KIND>> const &con) {
     if constexpr (TC == IntegerCat) {
       auto opt{con.GetScalarValue()};
       if (opt.has_value())
@@ -400,7 +403,7 @@ class ExprLowering {
   }
 
   template<Co::TypeCategory TC>
-  M::Value *genval(const Ev::Constant<Ev::SomeKind<TC>> &con) {
+  M::Value *genval(Ev::Constant<Ev::SomeKind<TC>> const &con) {
     if constexpr (TC == IntegerCat) {
       auto opt = (*con).ToInt64();
       M::Type type{getSomeKindInteger()};
@@ -413,12 +416,12 @@ class ExprLowering {
     }
   }
 
-  template<typename A> M::Value *genval(const Ev::ArrayConstructor<A> &) {
+  template<typename A> M::Value *genval(Ev::ArrayConstructor<A> const &) {
     TODO();
   }
-  M::Value *gen(const Ev::ComplexPart &) { TODO(); }
-  M::Value *gendef(const Ev::ComplexPart &cp) { return gen(cp); }
-  M::Value *genval(const Ev::ComplexPart &) { TODO(); }
+  M::Value *gen(Ev::ComplexPart const &) { TODO(); }
+  M::Value *gendef(Ev::ComplexPart const &cp) { return gen(cp); }
+  M::Value *genval(Ev::ComplexPart const &) { TODO(); }
   M::Value *gen(const Ev::Substring &) { TODO(); }
   M::Value *gendef(const Ev::Substring &ss) { return gen(ss); }
   M::Value *genval(const Ev::Substring &) { TODO(); }
@@ -437,19 +440,19 @@ class ExprLowering {
   M::Value *gen(const Ev::DataRef &dref) {
     return std::visit([&](const auto &x) { return gen(x); }, dref.u);
   }
-  M::Value *gendef(const Ev::DataRef &dref) { return gen(dref); }
-  M::Value *genval(const Ev::DataRef &dref) {
+  M::Value *gendef(Ev::DataRef const &dref) { return gen(dref); }
+  M::Value *genval(Ev::DataRef const &dref) {
     return std::visit([&](const auto &x) { return genval(x); }, dref.u);
   }
 
   // Helper function to turn the left-recursive Component structure into a list.
   // Returns the object used as the base coordinate for the component chain.
-  static const Ev::DataRef *reverseComponents(
-      const Ev::Component &cmpt, std::list<const Ev::Component *> &list) {
+  static Ev::DataRef const *reverseComponents(
+      Ev::Component const &cmpt, std::list<Ev::Component const *> &list) {
     list.push_front(&cmpt);
     return std::visit(
         Co::visitors{
-            [&](const Ev::Component &x) { return reverseComponents(x, list); },
+            [&](Ev::Component const &x) { return reverseComponents(x, list); },
             [&](auto &) { return &cmpt.base(); },
         },
         cmpt.base().u);
@@ -468,7 +471,7 @@ class ExprLowering {
       coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name));
     }
     assert(sym && "no component(s)?");
-    M::Type ty{translateSymbolToFIRType(builder.getContext(), sym)};
+    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, sym)};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, obj, coorArgs);
   }
@@ -509,7 +512,7 @@ class ExprLowering {
   }
 
   // Return the coordinate of the array reference
-  M::Value *gen(const Ev::ArrayRef &aref) {
+  M::Value *gen(Ev::ArrayRef const &aref) {
     M::Value *base;
     if (aref.base().IsSymbol())
       base = gen(const_cast<Se::Symbol *>(&aref.base().GetFirstSymbol()));
@@ -530,7 +533,7 @@ class ExprLowering {
 
   // Return a coordinate of the coarray reference. This is necessary as a
   // Component may have a CoarrayRef as its base coordinate.
-  M::Value *gen(const Ev::CoarrayRef &coref) {
+  M::Value *gen(Ev::CoarrayRef const &coref) {
     // FIXME: need to visit the cosubscripts...
     // return gen(coref.base());
     TODO();
@@ -540,13 +543,13 @@ class ExprLowering {
     return builder.create<fir::LoadOp>(getLoc(), gen(coref));
   }
 
-  template<typename A> M::Value *gen(const Ev::Designator<A> &des) {
+  template<typename A> M::Value *gen(Ev::Designator<A> const &des) {
     return std::visit([&](const auto &x) { return gen(x); }, des.u);
   }
-  template<typename A> M::Value *gendef(const Ev::Designator<A> &des) {
+  template<typename A> M::Value *gendef(Ev::Designator<A> const &des) {
     return gen(des);
   }
-  template<typename A> M::Value *genval(const Ev::Designator<A> &des) {
+  template<typename A> M::Value *genval(Ev::Designator<A> const &des) {
     return std::visit([&](const auto &x) { return genval(x); }, des.u);
   }
 
@@ -564,7 +567,7 @@ class ExprLowering {
   M::Value *genval(const Ev::FunctionRef<Ev::Type<TC, KIND>> &funRef) {
     if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
       L::StringRef name{intrinsic->name};
-      M::Type ty{genTypeFromCategoryAndKind(builder.getContext(), TC, KIND)};
+      M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
       // Probe the intrinsic library
       if (std::optional<M::FuncOp> func{
               intrinsics.getFunction(name, ty, builder)}) {
@@ -594,10 +597,10 @@ class ExprLowering {
     // must be a designator or function-reference (R902)
     return std::visit([&](const auto &e) { return gendef(e); }, exp.u);
   }
-  template<typename A> M::Value *gendef(const Ev::Expr<A> &exp) {
+  template<typename A> M::Value *gendef(Ev::Expr<A> const &exp) {
     return gen(exp);
   }
-  template<typename A> M::Value *genval(const Ev::Expr<A> &exp) {
+  template<typename A> M::Value *genval(Ev::Expr<A> const &exp) {
     return std::visit([&](const auto &e) { return genval(e); }, exp.u);
   }
 
@@ -608,8 +611,11 @@ class ExprLowering {
 
 public:
   explicit ExprLowering(M::Location loc, M::OpBuilder &bldr,
-      const SomeExpr &vop, SymMap &map, const IntrinsicLibrary &intr)
-    : location{loc}, builder{bldr}, expr{vop}, symMap{map}, intrinsics{intr} {}
+      SomeExpr const &vop, SymMap &map,
+      Co::IntrinsicTypeDefaultKinds const &defaults,
+      IntrinsicLibrary const &intr)
+    : location{loc}, builder{bldr}, expr{vop}, symMap{map}, defaults{defaults},
+      intrinsics{intr} {}
 
   /// Lower the expression `expr` into MLIR standard dialect
   M::Value *gen() { return gen(expr); }
@@ -619,26 +625,29 @@ public:
 }  // namespace
 
 M::Value *Br::createSomeExpression(M::Location loc, M::OpBuilder &builder,
-    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap,
-    const IntrinsicLibrary &intrinsics) {
-  ExprLowering lower{loc, builder, expr, symMap, intrinsics};
-  return lower.genval();
+    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
+    Co::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics}
+      .genval();
 }
 
 M::Value *Br::createSomeAddress(M::Location loc, M::OpBuilder &builder,
-    const Ev::Expr<Ev::SomeType> &expr, SymMap &symMap,
-    const IntrinsicLibrary &intrinsics) {
-  ExprLowering lower{loc, builder, expr, symMap, intrinsics};
-  return lower.gen();
+    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
+    Co::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics}.gen();
 }
 
 /// Create a temporary variable
 /// `symbol` will be nullptr for an anonymous temporary
 M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
-    SymMap &symMap, M::Type type, const Se::Symbol *symbol) {
+    SymMap &symMap, M::Type type, Se::Symbol const *symbol) {
   if (symbol)
     if (auto *val{symMap.lookupSymbol(symbol)}) {
-      if (auto *op{val->getDefiningOp()}) return op->getResult(0);
+      if (auto *op{val->getDefiningOp()}) {
+        return op->getResult(0);
+      }
       return val;
     }
   auto insPt(builder.saveInsertionPoint());

@@ -46,115 +46,158 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
 }
 
 #undef TODO
-#define TODO() assert(false)
+#define TODO() assert(false); return {}
 
-inline int defaultRealKind() {
-  return getDefaultKinds().GetDefaultKind(RealCat);
+// one argument template, must be specialized
+template<Co::TypeCategory TC>
+M::Type genFIRType(M::MLIRContext *context, int kind) {
+  return {};
 }
 
-inline int defaultIntegerKind() {
-  return getDefaultKinds().GetDefaultKind(IntegerCat);
+// two argument template
+template<Co::TypeCategory TC, int KIND>
+M::Type genFIRType(M::MLIRContext *context) {
+  if constexpr (TC == IntegerCat) {
+    auto bits{Ev::Type<IntegerCat, KIND>::Scalar::bits};
+    return M::IntegerType::get(bits, context);
+  } else if constexpr (TC == LogicalCat || TC == CharacterCat ||
+      TC == ComplexCat) {
+    return genFIRType<TC>(context, KIND);
+  } else {
+    return {};
+  }
 }
 
-inline int defaultCharKind() {
-  return getDefaultKinds().GetDefaultKind(CharacterCat);
+template<> M::Type genFIRType<RealCat, 2>(M::MLIRContext *context) {
+  return M::FloatType::getF16(context);
 }
 
-inline int defaultLogicalKind() {
-  return getDefaultKinds().GetDefaultKind(LogicalCat);
+template<> M::Type genFIRType<RealCat, 3>(M::MLIRContext *context) {
+  return M::FloatType::getBF16(context);
+}
+
+template<> M::Type genFIRType<RealCat, 4>(M::MLIRContext *context) {
+  return M::FloatType::getF32(context);
+}
+
+template<> M::Type genFIRType<RealCat, 8>(M::MLIRContext *context) {
+  return M::FloatType::getF64(context);
+}
+
+template<> M::Type genFIRType<RealCat, 10>(M::MLIRContext *context) {
+  return fir::RealType::get(context, 10);
+}
+
+template<> M::Type genFIRType<RealCat, 16>(M::MLIRContext *context) {
+  return fir::RealType::get(context, 16);
+}
+
+template<> M::Type genFIRType<RealCat>(M::MLIRContext *context, int kind) {
+  if (Ev::IsValidKindOfIntrinsicType(RealCat, kind)) {
+    switch (kind) {
+    case 2: return genFIRType<RealCat, 2>(context);
+    case 3: return genFIRType<RealCat, 3>(context);
+    case 4: return genFIRType<RealCat, 4>(context);
+    case 8: return genFIRType<RealCat, 8>(context);
+    case 10: return genFIRType<RealCat, 10>(context);
+    case 16: return genFIRType<RealCat, 16>(context);
+    }
+    assert(false && "type translation not implemented");
+  }
+  return {};
+}
+
+template<> M::Type genFIRType<IntegerCat>(M::MLIRContext *context, int kind) {
+  if (Ev::IsValidKindOfIntrinsicType(IntegerCat, kind)) {
+    switch (kind) {
+    case 1: return genFIRType<IntegerCat, 1>(context);
+    case 2: return genFIRType<IntegerCat, 2>(context);
+    case 4: return genFIRType<IntegerCat, 4>(context);
+    case 8: return genFIRType<IntegerCat, 8>(context);
+    case 16: return genFIRType<IntegerCat, 16>(context);
+    }
+    assert(false && "type translation not implemented");
+  }
+  return {};
+}
+
+template<> M::Type genFIRType<LogicalCat>(M::MLIRContext *context, int KIND) {
+  if (Ev::IsValidKindOfIntrinsicType(LogicalCat, KIND))
+    return fir::LogicalType::get(context, KIND);
+  return {};
+}
+
+template<> M::Type genFIRType<CharacterCat>(M::MLIRContext *context, int KIND) {
+  if (Ev::IsValidKindOfIntrinsicType(CharacterCat, KIND))
+    return fir::CharacterType::get(context, KIND);
+  return {};
+}
+
+template<> M::Type genFIRType<ComplexCat>(M::MLIRContext *context, int KIND) {
+  if (Ev::IsValidKindOfIntrinsicType(ComplexCat, KIND))
+    return fir::CplxType::get(context, KIND);
+  return {};
 }
 
 /// Recover the type of an evaluate::Expr<T> and convert it to an
 /// mlir::Type. The type returned can be a MLIR standard or FIR type.
 class TypeBuilder {
   M::MLIRContext *context;
+  Co::IntrinsicTypeDefaultKinds const &defaults;
+
+  template<Co::TypeCategory TC> int defaultKind() { return defaultKind(TC); }
+  int defaultKind(Co::TypeCategory TC) { return defaults.GetDefaultKind(TC); }
 
 public:
-  explicit TypeBuilder(M::MLIRContext *context) : context{context} {}
+  explicit TypeBuilder(
+      M::MLIRContext *context, Co::IntrinsicTypeDefaultKinds const &defaults)
+    : context{context}, defaults{defaults} {}
 
-  /// Create a FIR/MLIR real type
-  template<int KIND> static M::Type genReal(M::MLIRContext *context) {
-    if constexpr (KIND == 2) {
-      return M::FloatType::getF16(context);
-    } else if constexpr (KIND == 3) {
-      return M::FloatType::getBF16(context);
-    } else if constexpr (KIND == 4) {
-      return M::FloatType::getF32(context);
-    } else if constexpr (KIND == 8) {
-      return M::FloatType::getF64(context);
-    } else {
-      return fir::RealType::get(context, KIND);
-    }
-  }
-
-  template<int KIND> M::Type genReal() { return genReal<KIND>(context); }
-
-  /// Create a FIR/MLIR real type from information at runtime
-  static M::Type genReal(int kind, M::MLIRContext *context) {
-    switch (kind) {
-    case 2: return genReal<2>(context);
-    case 3: return genReal<3>(context);
-    case 4: return genReal<4>(context);
-    case 8: return genReal<8>(context);
-    default: return fir::RealType::get(context, kind);
-    }
-  }
-
-  M::Type genReal(int kind) { return genReal(kind, context); }
-
-  static M::Type genType(M::MLIRContext *ctxt, Co::TypeCategory tc, int kind) {
+  // non-template, arguments are runtime values
+  M::Type genFIRTy(Co::TypeCategory tc, int kind) {
     switch (tc) {
-    case IntegerCat: return M::IntegerType::get(kind * 8, ctxt);
-    case RealCat: return genReal(kind, ctxt);
-    case ComplexCat: return M::ComplexType::get(genReal(kind, ctxt));
-    case CharacterCat: return fir::CharacterType::get(ctxt, kind);
-    case LogicalCat: return fir::LogicalType::get(ctxt, kind);
+    case RealCat: return genFIRType<RealCat>(context, kind);
+    case IntegerCat: return genFIRType<IntegerCat>(context, kind);
+    case ComplexCat: return genFIRType<ComplexCat>(context, kind);
+    case LogicalCat: return genFIRType<LogicalCat>(context, kind);
+    case CharacterCat: return genFIRType<CharacterCat>(context, kind);
     default: break;
     }
     assert(false && "unhandled type category");
     return {};
   }
 
-  static M::Type genType(M::MLIRContext *ctxt, Co::TypeCategory tc) {
-    switch (tc) {
-    case IntegerCat: return genType(ctxt, tc, defaultIntegerKind());
-    case RealCat: return genType(ctxt, tc, defaultRealKind());
-    case ComplexCat: return genType(ctxt, tc, defaultRealKind());
-    case CharacterCat: return genType(ctxt, tc, defaultCharKind());
-    case LogicalCat: return genType(ctxt, tc, defaultLogicalKind());
-    case DerivedCat: return genType(ctxt, tc, 0);
-    default: break;
-    }
-    assert(false && "unknown type category");
-    return {};
+  // non-template, category is runtime values, kind is defaulted
+  M::Type genFIRTy(Co::TypeCategory tc) {
+    return genFIRTy(tc, defaultKind(tc));
   }
 
   M::Type gen(const Ev::ImpliedDoIndex &) {
-    return genType(context, IntegerCat);
+    return genFIRType<IntegerCat>(context, defaultKind<IntegerCat>());
   }
 
   template<template<typename> typename A, Co::TypeCategory TC>
   M::Type gen(const A<Ev::SomeKind<TC>> &) {
-    return genType(context, TC);
+    return genFIRType<TC>(context, defaultKind<TC>());
   }
 
   template<int KIND> M::Type gen(const Ev::TypeParamInquiry<KIND> &) {
-    return genType(context, IntegerCat, KIND);
+    return genFIRType<IntegerCat, KIND>(context);
   }
 
   template<typename A> M::Type gen(const Ev::Relational<A> &) {
-    return fir::LogicalType::get(context, 1);
+    return genFIRType<LogicalCat, 1>(context);
   }
 
   template<template<typename> typename A, Co::TypeCategory TC, int KIND>
   M::Type gen(const A<Ev::Type<TC, KIND>> &) {
-    return genType(context, TC, KIND);
+    return genFIRType<TC, KIND>(context);
   }
 
   // breaks the conflict between A<Type<TC,KIND>> and Expr<B> deduction
   template<Co::TypeCategory TC, int KIND>
   M::Type gen(const Ev::Expr<Ev::Type<TC, KIND>> &) {
-    return genType(context, TC, KIND);
+    return genFIRType<TC, KIND>(context);
   }
 
   template<typename A> M::Type genVariant(const A &variant) {
@@ -192,7 +235,7 @@ public:
         if (lbv.has_value() && ubv.has_value() && isConstant(lbv.value()) &&
             isConstant(ubv.value())) {
           bounds.emplace_back(
-	      toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
+              toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
         } else {
           bounds.emplace_back(0);
         }
@@ -224,24 +267,20 @@ public:
       if (auto *tySpec{type->AsIntrinsic()}) {
         int kind = toConstant(tySpec->kind());
         switch (tySpec->category()) {
-        case IntegerCat: {
-          returnTy = M::IntegerType::get(kind * 8, context);
-        } break;
-        case RealCat: {
-          returnTy = genReal(kind);
-        } break;
-        case ComplexCat: {
-          returnTy = M::ComplexType::get(genReal(kind));
-        } break;
-        case CharacterCat: {
-          returnTy = fir::CharacterType::get(context, kind);
-        } break;
-        case LogicalCat: {
-          returnTy = fir::LogicalType::get(context, kind);
-        } break;
-        case DerivedCat: {
-          TODO();
-        } break;
+        case IntegerCat:
+          returnTy = genFIRType<IntegerCat>(context, kind);
+          break;
+        case RealCat: returnTy = genFIRType<RealCat>(context, kind); break;
+        case ComplexCat:
+          returnTy = genFIRType<ComplexCat>(context, kind);
+          break;
+        case CharacterCat:
+          returnTy = genFIRType<CharacterCat>(context, kind);
+          break;
+        case LogicalCat:
+          returnTy = genFIRType<LogicalCat>(context, kind);
+          break;
+        case DerivedCat: TODO(); break;
         }
       } else if (auto *tySpec{type->AsDerived()}) {
         TODO();
@@ -313,33 +352,35 @@ M::Location Br::parserPosToLoc(M::MLIRContext &context,
   return M::UnknownLoc::get(&context);
 }
 
-M::Type Br::genTypeFromCategoryAndKind(
-    M::MLIRContext *ctxt, Co::TypeCategory tc, int kind) {
-  return TypeBuilder::genType(ctxt, tc, kind);
+M::Type Br::getFIRType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, Co::TypeCategory tc,
+    int kind) {
+  return TypeBuilder{context, defaults}.genFIRTy(tc, kind);
 }
 
-M::Type Br::genTypeFromCategory(M::MLIRContext *ctxt, Co::TypeCategory tc) {
-  return TypeBuilder::genType(ctxt, tc);
+M::Type Br::getFIRType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, Co::TypeCategory tc) {
+  return TypeBuilder{context, defaults}.genFIRTy(tc);
 }
 
-M::Type Br::translateDataRefToFIRType(
-    M::MLIRContext *context, const Ev::DataRef &dataRef) {
-  return TypeBuilder{context}.gen(dataRef);
+M::Type Br::translateDataRefToFIRType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, const Ev::DataRef &dataRef) {
+  return TypeBuilder{context, defaults}.gen(dataRef);
 }
 
 // Builds the FIR type from an instance of SomeExpr
-M::Type Br::translateSomeExprToFIRType(
-    M::MLIRContext *context, const SomeExpr *expr) {
-  return TypeBuilder{context}.gen(*expr);
+M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, const SomeExpr *expr) {
+  return TypeBuilder{context, defaults}.gen(*expr);
 }
 
 // This entry point avoids gratuitously wrapping the Symbol instance in layers
 // of Expr<T> that will then be immediately peeled back off and discarded.
-M::Type Br::translateSymbolToFIRType(
-    M::MLIRContext *context, const Se::Symbol *symbol) {
-  return TypeBuilder{context}.gen(symbol);
+M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, const Se::Symbol *symbol) {
+  return TypeBuilder{context, defaults}.gen(symbol);
 }
 
-M::Type Br::convertReal(int KIND, M::MLIRContext *context) {
-  return TypeBuilder::genReal(KIND, context);
+M::Type Br::convertReal(M::MLIRContext *context, int kind) {
+  return genFIRType<RealCat>(context, kind);
 }

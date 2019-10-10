@@ -30,6 +30,9 @@
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 
+#undef TODO
+#define TODO() assert(false && "not yet implemented")
+
 namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
 namespace Ev = Fortran::evaluate;
@@ -69,6 +72,7 @@ class FIRConverter {
   M::MLIRContext &mlirContext;
   const Pa::CookedSource *cooked;
   M::ModuleOp &module;
+  Co::IntrinsicTypeDefaultKinds const &defaults;
   std::unique_ptr<M::OpBuilder> builder;
   LabelMapType blockMap;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
@@ -91,31 +95,27 @@ class FIRConverter {
 
   /// Construct the type of an Expr<A> expression
   M::Type exprType(const SomeExpr *expr) {
-    return translateSomeExprToFIRType(&mlirContext, expr);
+    return translateSomeExprToFIRType(&mlirContext, defaults, expr);
   }
   M::Type refExprType(const SomeExpr *expr) {
-    auto type{translateSomeExprToFIRType(&mlirContext, expr)};
+    auto type{translateSomeExprToFIRType(&mlirContext, defaults, expr)};
     return fir::ReferenceType::get(type);
   }
 
-  int getDefaultIntegerKind() {
-    return getDefaultKinds().GetDefaultKind(Co::TypeCategory::Integer);
-  }
   M::Type getDefaultIntegerType() {
-    return M::IntegerType::get(8 * getDefaultIntegerKind(), &mlirContext);
-  }
-  int getDefaultLogicalKind() {
-    return getDefaultKinds().GetDefaultKind(Co::TypeCategory::Logical);
+    return getFIRType(&mlirContext, defaults, IntegerCat);
   }
   M::Type getDefaultLogicalType() {
-    return fir::LogicalType::get(&mlirContext, getDefaultLogicalKind());
+    return getFIRType(&mlirContext, defaults, LogicalCat);
   }
 
   M::Value *createFIRAddr(M::Location loc, const SomeExpr *expr) {
-    return createSomeAddress(loc, build(), *expr, symbolMap, intrinsics);
+    return createSomeAddress(
+        loc, build(), *expr, symbolMap, defaults, intrinsics);
   }
   M::Value *createFIRExpr(M::Location loc, const SomeExpr *expr) {
-    return createSomeExpression(loc, build(), *expr, symbolMap, intrinsics);
+    return createSomeExpression(
+        loc, build(), *expr, symbolMap, defaults, intrinsics);
   }
   M::Value *createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
     return createTemporary(toLocation(), build(), symbolMap, type, symbol);
@@ -262,7 +262,7 @@ class FIRConverter {
   void pushDoContext(const Pa::NonLabelDoStmt *doStmt,
       M::Value *doVar = nullptr, M::Value *counter = nullptr,
       M::Value *stepExpr = nullptr) {
-    doMap.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExpr});
+    doMap.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExpr, 0});
   }
 
   void genLoopEnterFIR(const Pa::LoopControl::Bounds &bounds,
@@ -415,7 +415,7 @@ class FIRConverter {
     auto callee{genRuntimeFunction(
         isStopStmt(std::get<Pa::StopStmt::Kind>(stmt.t)) ? FIRT_STOP
                                                          : FIRT_ERROR_STOP,
-        getDefaultIntegerKind())};
+        defaults.GetDefaultKind(IntegerCat))};
     // 2 args: stop-code-opt, quiet-opt
     llvm::SmallVector<M::Value *, 8> operands;
     build().create<M::CallOp>(toLocation(), callee, operands);
@@ -624,9 +624,9 @@ class FIRConverter {
 public:
   FIRConverter(BurnsideBridge &bridge)
     : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
-      module{bridge.getModule()}, intrinsics{IntrinsicLibrary::create(
-                                      IntrinsicLibrary::Version::LLVM,
-                                      mlirContext)} {}
+      module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
+      intrinsics{IntrinsicLibrary::create(
+          IntrinsicLibrary::Version::LLVM, mlirContext)} {}
   FIRConverter() = delete;
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
@@ -830,24 +830,23 @@ void FIRConverter::genFIR(const Pa::PauseStmt &stmt) {}
 /// translate action statements
 void FIRConverter::genFIR(AnalysisData &ad, const Fl::ActionOp &op) {
   setCurrentPos(op.v->source);
-  std::visit(
-      Co::visitors{
-          [](const Pa::ContinueStmt &) { assert(false); },
-          [](const Pa::FailImageStmt &) { assert(false); },
-          [](const Co::Indirection<Pa::ArithmeticIfStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::AssignedGotoStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::ComputedGotoStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::CycleStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::ExitStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::GotoStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::IfStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::ReturnStmt> &) { assert(false); },
-          [](const Co::Indirection<Pa::StopStmt> &) { assert(false); },
-          [&](const Co::Indirection<Pa::AssignStmt> &assign) {
-            genFIR(ad, assign.value());
-          },
-          [&](const auto &stmt) { genFIR(stmt.value()); },
-      },
+  std::visit(Co::visitors{
+                 [](const Pa::ContinueStmt &) { TODO(); },
+                 [](const Pa::FailImageStmt &) { TODO(); },
+                 [](const Co::Indirection<Pa::ArithmeticIfStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::AssignedGotoStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::ComputedGotoStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::CycleStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::ExitStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::GotoStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::IfStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::ReturnStmt> &) { TODO(); },
+                 [](const Co::Indirection<Pa::StopStmt> &) { TODO(); },
+                 [&](const Co::Indirection<Pa::AssignStmt> &assign) {
+                   genFIR(ad, assign.value());
+                 },
+                 [&](const auto &stmt) { genFIR(stmt.value()); },
+             },
       op.v->statement.u);
 }
 
@@ -903,13 +902,14 @@ void FIRConverter::translateRoutine(
     if (funcSym) {
       if (auto *details{funcSym->detailsIf<Se::SubprogramDetails>()}) {
         for (auto a : details->dummyArgs()) {
-          auto type{translateSymbolToFIRType(&mlirContext, a)};
+          auto type{translateSymbolToFIRType(&mlirContext, defaults, a)};
           args.push_back(fir::ReferenceType::get(type));
         }
         if (details->isFunction()) {
           // FIXME: handle subroutines that return magic values
           auto *result{&details->result()};
-          results.push_back(translateSymbolToFIRType(&mlirContext, result));
+          results.push_back(
+              translateSymbolToFIRType(&mlirContext, defaults, result));
         }
       } else {
         llvm::errs() << "Symbol: " << funcSym->name().ToString() << " @ "
@@ -979,7 +979,3 @@ void Br::instantiateBurnsideBridge(
 }
 
 BurnsideBridge &Br::getBridge() { return *bridgeInstance.get(); }
-
-const common::IntrinsicTypeDefaultKinds &Br::getDefaultKinds() {
-  return getBridge().getDefaultKinds();
-}
