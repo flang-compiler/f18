@@ -1231,10 +1231,10 @@ bool fir::isa_fir_or_std_type(mlir::Type t) {
 // CHARACTER
 
 CharacterType fir::CharacterType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_CHARACTER, kind * 8);
+  return Base::get(ctxt, FIR_CHARACTER, kind);
 }
 
-int fir::CharacterType::getSizeInBits() const { return getImpl()->getFKind(); }
+int fir::CharacterType::getFKind() const { return getImpl()->getFKind(); }
 
 // Dims
 
@@ -1253,35 +1253,34 @@ FieldType fir::FieldType::get(M::MLIRContext *ctxt, KindTy) {
 // LOGICAL
 
 LogicalType fir::LogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_LOGICAL, kind * 8);
+  return Base::get(ctxt, FIR_LOGICAL, kind);
 }
 
-int fir::LogicalType::getSizeInBits() const { return getImpl()->getFKind(); }
+int fir::LogicalType::getFKind() const { return getImpl()->getFKind(); }
 
 // INTEGER
 
 IntType fir::IntType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_INT, kind * 8);
+  return Base::get(ctxt, FIR_INT, kind);
 }
 
-int fir::IntType::getSizeInBits() const { return getImpl()->getFKind(); }
+int fir::IntType::getFKind() const { return getImpl()->getFKind(); }
 
 // COMPLEX
 
 CplxType fir::CplxType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_COMPLEX, kind * 8);
+  return Base::get(ctxt, FIR_COMPLEX, kind);
 }
 
-int fir::CplxType::getSizeInBits() const { return getImpl()->getFKind() * 2; }
-KindTy fir::CplxType::getFKind() const { return getImpl()->getFKind() / 8; }
+KindTy fir::CplxType::getFKind() const { return getImpl()->getFKind(); }
 
 // REAL
 
 RealType fir::RealType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_REAL, kind * 8);
+  return Base::get(ctxt, FIR_REAL, kind);
 }
 
-int fir::RealType::getSizeInBits() const { return getImpl()->getFKind(); }
+int fir::RealType::getFKind() const { return getImpl()->getFKind(); }
 
 // Box<T>
 
@@ -1306,7 +1305,7 @@ fir::BoxType::verifyConstructionInvariants(L::Optional<M::Location>,
 // BoxChar<C>
 
 BoxCharType fir::BoxCharType::get(M::MLIRContext *ctxt, KindTy kind) {
-  return Base::get(ctxt, FIR_BOXCHAR, kind * 8);
+  return Base::get(ctxt, FIR_BOXCHAR, kind);
 }
 
 CharacterType fir::BoxCharType::getEleTy() const {

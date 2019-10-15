@@ -90,8 +90,16 @@ class CharacterType
 public:
   using Base::Base;
   static CharacterType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
+};
+
+class CplxType : public mlir::Type::TypeBase<CplxType, mlir::Type,
+                                             detail::CplxTypeStorage>,
+                 public IntrinsicTypeMixin<CplxType, TypeKind::FIR_COMPLEX> {
+public:
+  using Base::Base;
+  static CplxType get(mlir::MLIRContext *ctxt, KindTy kind);
+  KindTy getFKind() const;
 };
 
 class IntType
@@ -100,8 +108,7 @@ class IntType
 public:
   using Base::Base;
   static IntType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
 };
 
 class LogicalType
@@ -111,8 +118,7 @@ class LogicalType
 public:
   using Base::Base;
   static LogicalType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
 };
 
 class RealType : public mlir::Type::TypeBase<RealType, mlir::Type,
@@ -121,17 +127,6 @@ class RealType : public mlir::Type::TypeBase<RealType, mlir::Type,
 public:
   using Base::Base;
   static RealType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
-};
-
-class CplxType : public mlir::Type::TypeBase<CplxType, mlir::Type,
-                                             detail::CplxTypeStorage>,
-                 public IntrinsicTypeMixin<CplxType, TypeKind::FIR_COMPLEX> {
-public:
-  using Base::Base;
-  static CplxType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
   KindTy getFKind() const;
 };
 

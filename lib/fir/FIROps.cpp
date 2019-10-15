@@ -42,6 +42,15 @@ M::Type AllocMemOp::getAllocatedType() {
 
 M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
+// CallOp
+
+// DispatchOp
+
+M::FunctionType DispatchOp::getFunctionType() {
+  auto attr = getAttr("fn_type").cast<M::TypeAttr>();
+  return attr.getValue().cast<M::FunctionType>();
+}
+
 // DispatchTableOp
 
 void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
@@ -166,19 +175,22 @@ void GlobalOp::appendInitialValue(M::Operation *op) {
 
 M::Region &GlobalOp::front() { return this->getOperation()->getRegion(0); }
 
+// ICallOp
+
+M::FunctionType ICallOp::getFunctionType() {
+  return getCallee()->getType().cast<M::FunctionType>();
+}
+
 // LoadOp
 
 /// Get the element type of a reference like type; otherwise null
 M::Type elementTypeOf(M::Type ref) {
-  if (auto r = ref.dyn_cast_or_null<ReferenceType>()) {
+  if (auto r = ref.dyn_cast_or_null<ReferenceType>())
     return r.getEleTy();
-  }
-  if (auto r = ref.dyn_cast_or_null<PointerType>()) {
+  if (auto r = ref.dyn_cast_or_null<PointerType>())
     return r.getEleTy();
-  }
-  if (auto r = ref.dyn_cast_or_null<HeapType>()) {
+  if (auto r = ref.dyn_cast_or_null<HeapType>())
     return r.getEleTy();
-  }
   return {};
 }
 

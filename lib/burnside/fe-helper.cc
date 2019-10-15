@@ -332,24 +332,22 @@ public:
 
 }  // namespace
 
-/// Generate an unknown location
-M::Location Br::dummyLoc(M::MLIRContext *ctxt) {
-  return M::UnknownLoc::get(ctxt);
+M::Location Br::dummyLoc(M::MLIRContext &context) {
+  return M::UnknownLoc::get(&context);
 }
 
-// What do we need to convert a CharBlock to actual source locations?
-// FIXME: replace with a map from a provenance to a source location
 M::Location Br::parserPosToLoc(M::MLIRContext &context,
     const Pa::CookedSource *cooked, const Pa::CharBlock &position) {
   if (cooked) {
     auto loc{cooked->GetSourcePositionRange(position)};
     if (loc.has_value()) {
+      // loc is a pair (begin, end); use the beginning position
       auto &filePos{loc->first};
       return M::FileLineColLoc::get(
           filePos.file.path(), filePos.line, filePos.column, &context);
     }
   }
-  return M::UnknownLoc::get(&context);
+  return dummyLoc(context);
 }
 
 M::Type Br::getFIRType(M::MLIRContext *context,

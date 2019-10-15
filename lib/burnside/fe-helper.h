@@ -63,11 +63,13 @@ constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
 constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
 constexpr common::TypeCategory DerivedCat{common::TypeCategory::Derived};
 
-mlir::Location dummyLoc(mlir::MLIRContext *ctxt);
+/// Generate a dummy location when there is no origin
+mlir::Location dummyLoc(mlir::MLIRContext &context);
 
-/// Translate a CharBlock position to (source-file, line, column)
+/// Convert a `CharBlock` front-end position pointer into the `(file, line,
+/// column)` triple for use in MLIR, LLVM, and ultimately DWARF.
 mlir::Location parserPosToLoc(mlir::MLIRContext &context,
-    const parser::CookedSource *cooked, const parser::CharBlock &position);
+    parser::CookedSource const *cooked, parser::CharBlock const &position);
 
 mlir::Type getFIRType(mlir::MLIRContext *ctxt,
     common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc,

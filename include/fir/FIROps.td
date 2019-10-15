@@ -57,7 +57,8 @@ def fir_SequenceType : Type<CPred<"$_self.isa<fir::SequenceType>()">,
     "array type">;
 
 def AnyCompositeLike : TypeConstraint<Or<[fir_RecordType.predicate,
-    fir_SequenceType.predicate, IsTupleTypePred]>, "any composite">;
+    fir_SequenceType.predicate, fir_ComplexType.predicate,
+    IsTupleTypePred]>, "any composite">;
 
 def fir_ReferenceType : Type<CPred<"$_self.isa<fir::ReferenceType>()">,
     "reference type">;
@@ -1474,7 +1475,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
 
 def fir_CallOp : fir_Op<"call", []>,
     Results<(outs Variadic<AnyType>)>,
-    Arguments<(ins SymbolRefAttr:$proc, Variadic<AnyType>:$args)> {
+    Arguments<(ins SymbolRefAttr:$callee, Variadic<AnyType>:$args)> {
   let summary = "call a procedure directly";
 
   let description = [{
@@ -1486,7 +1487,7 @@ def fir_CallOp : fir_Op<"call", []>,
     M::FunctionType calleeType;
     M::SymbolRefAttr proc;
     L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-    if (parser.parseAttribute(proc, "proc", result.attributes) ||
+    if (parser.parseAttribute(proc, "callee", result.attributes) ||
         parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
         parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(calleeType) ||
@@ -1497,10 +1498,10 @@ def fir_CallOp : fir_Op<"call", []>,
     return M::success();
   }];
   let printer = [{
-    p << getOperationName() << ' ' << getAttr("proc") << '(';
+    p << getOperationName() << ' ' << getAttr("callee") << '(';
     p.printOperands(args());
     p << ')';
-    p.printOptionalAttrDict(getAttrs(), {"proc"});
+    p.printOptionalAttrDict(getAttrs(), {"callee"});
     p << " : ";
     p.printFunctionalType(getOperation());
   }];
@@ -1543,10 +1544,11 @@ def fir_ICallOp : fir_Op<"icall", []>,
     p << '(';
     p.printOperands(args());
     p << ')';
-    p.printOptionalAttrDict(getAttrs(), {"proc"});
+    p.printOptionalAttrDict(getAttrs(), {});
     p << " : " << getCallee()->getType();
   }];
   let extraClassDeclaration = [{
+    mlir::FunctionType getFunctionType();
     Value *getCallee() { return getOperand(0); }
 
     operand_range getArgOperands() {
@@ -1588,6 +1590,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
         parser.resolveOperands(
             operands, calleeType.getInputs(), calleeLoc, result.operands))
       return M::failure();
+    result.addAttribute("fn_type", parser.getBuilder().getTypeAttr(calleeType));
     return M::success();
   }];
 
@@ -1599,13 +1602,14 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
       p.printOperands(args());
     }
     p << ')';
-    p.printOptionalAttrDict(getAttrs(), {"method"});
+    p.printOptionalAttrDict(getAttrs(), {"fn_type", "method"});
     llvm::SmallVector<M::Type, 2> resTy(getResultTypes());
     llvm::SmallVector<M::Type, 8> argTy(getOperandTypes());
     p << " : " << M::FunctionType::get(argTy, resTy, getContext());
   }];
 
   let extraClassDeclaration = [{
+    mlir::FunctionType getFunctionType();
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }

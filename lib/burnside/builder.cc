@@ -30,10 +30,13 @@ std::string B::applyNameMangling(llvm::StringRef parserName) {
   return "_Qp_"s + parserName.str();
 }
 
-mlir::FuncOp B::createFunction(
-    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy) {
+mlir::FuncOp B::createFunction(mlir::ModuleOp module, llvm::StringRef name,
+    mlir::FunctionType funcTy, parser::CookedSource const *cooked,
+    parser::CharBlock const *cb) {
   mlir::MLIRContext *ctxt{module.getContext()};
-  auto func{mlir::FuncOp::create(dummyLoc(ctxt), name, funcTy)};
+  mlir::Location loc{
+      (cooked && cb) ? parserPosToLoc(*ctxt, cooked, *cb) : dummyLoc(*ctxt)};
+  auto func{mlir::FuncOp::create(loc, name, funcTy)};
   module.push_back(func);
   return func;
 }

@@ -52,7 +52,7 @@ using AttributeTy = L::ArrayRef<M::NamedAttribute>;
 /// This converts a subset of FIR types to standard types
 class FIRToStdTypeConverter : public M::TypeConverter {
 public:
-  explicit FIRToStdTypeConverter() {}
+  using TypeConverter::TypeConverter;
 
   // convert a front-end kind value to either a std dialect type
   static M::Type kindToRealType(M::MLIRContext *ctx, KindTy kind) {
@@ -69,14 +69,14 @@ public:
     return fir::RealType::get(ctx, kind);
   }
 
-  /// Convert FIR types to LLVM IR dialect types
+  /// Convert FIR types to MLIR standard dialect types
   M::Type convertType(M::Type t) override {
     if (auto cplx = t.dyn_cast<CplxType>()) {
       return M::ComplexType::get(
           kindToRealType(cplx.getContext(), cplx.getFKind()));
     }
     if (auto integer = t.dyn_cast<IntType>()) {
-      return M::IntegerType::get(integer.getSizeInBits(), integer.getContext());
+      return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
     }
     if (auto real = t.dyn_cast<RealType>()) {
       return kindToRealType(real.getContext(), real.getFKind());

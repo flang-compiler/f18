@@ -26,7 +26,12 @@ namespace llvm {
 class StringRef;
 }
 
-namespace Fortran::burnside {
+namespace Fortran {
+namespace parser {
+class CookedSource;
+}
+
+namespace burnside {
 
 /// Miscellaneous helper routines for building MLIR
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
@@ -70,9 +75,13 @@ inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
 mlir::FuncOp getNamedFunction(mlir::ModuleOp, llvm::StringRef name);
 
 /// Create a new Function
-mlir::FuncOp createFunction(
-    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy);
+/// Both the `CookedSource` and `CharBlock` position should be provided to
+/// properly track source position information.
+mlir::FuncOp createFunction(mlir::ModuleOp module, llvm::StringRef name,
+    mlir::FunctionType funcTy, parser::CookedSource const *cooked = nullptr,
+    parser::CharBlock const *cb = nullptr);
 
-}  // Fortran::burnside
+}  // burnside
+}  // Fortran
 
 #endif  // FORTRAN_BURNSIDE_BUILDER_H_
