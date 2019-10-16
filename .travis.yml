@@ -1,0 +1,22 @@
+language: cpp
+
+dist: disco
+
+compiler:
+  - gcc
+  - clang
+
+addons:
+  apt:
+    packages:
+      - ninja-build
+      - llvm-dev
+
+before_script:
+  - mkdir build
+  - cd build
+  - cmake -DCMAKE_BUILD_TYPE=Release -GNinja ..
+
+script:
+  - ninja
+  - ninja test
