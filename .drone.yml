@@ -1,14 +1,15 @@
 kind: pipeline
 type: docker
-name: arm64
+name: arm64-gcc
 
 platform:
-  arch: arm64-gcc
+  arch: arm64
 
 steps:
 - name: test
   image: ubuntu
   commands:
+  - apt update -y && apt install -y software-properties-common
   - add-apt-repository -y ubuntu-toolchain-r-test
   - apt update -y && apt install -y llvm build-essential cmake ninja-build gcc-9
   - mkdir build && cd build
@@ -19,10 +20,10 @@ steps:
 ---
 kind: pipeline
 type: docker
-name: arm64
+name: arm64-clang
 
 platform:
-  arch: arm64-clang
+  arch: arm64
 
 steps:
 - name: test
