@@ -21,6 +21,7 @@
 #include "fir/Type.h"
 #include "flattened.h"
 #include "intrinsics.h"
+#include "io.h"
 #include "runtime.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../semantics/tools.h"
@@ -600,7 +601,19 @@ class FIRConverter {
   void genFIR(const Pa::NullifyStmt &stmt) { TODO(); }
   void genFIR(const Pa::OpenStmt &stmt) { TODO(); }
   void genFIR(const Pa::PointerAssignmentStmt &stmt) { TODO(); }
-  void genFIR(const Pa::PrintStmt &stmt) { TODO(); }
+  void genFIR(const Pa::PrintStmt &stmt) {
+    llvm::SmallVector<mlir::Value *, 4> args;
+    for (const Pa::OutputItem &item :
+        std::get<std::list<Pa::OutputItem>>(stmt.t)) {
+      if (const Pa::Expr * parserExpr{std::get_if<Pa::Expr>(&item.u)}) {
+        mlir::Location loc{toLocation(parserExpr->source)};
+        args.push_back(createFIRExpr(loc, Se::GetExpr(*parserExpr)));
+      } else {
+        assert(false);  // implied do TODO
+      }
+    }
+    genPrintStatement(build(), toLocation(lastKnownPos), args);
+  }
   void genFIR(const Pa::ReadStmt &stmt) { TODO(); }
   void genFIR(const Pa::RewindStmt &stmt) { TODO(); }
   void genFIR(const Pa::SyncAllStmt &stmt) { TODO(); }

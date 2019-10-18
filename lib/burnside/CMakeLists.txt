@@ -22,6 +22,7 @@ add_library(FortranBurnside
   flattened.cc
   intrinsics.cc
   runtime.cc
+  io.cc
 )
 
 target_link_libraries(FortranBurnside
