@@ -12,7 +12,7 @@ steps:
   - apt update -y && apt install -y llvm build-essential cmake ninja-build gcc
   - mkdir build && cd build
   - env LDFLAGS="-fuse-ld=gold" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-  - ninja
+  - ninja -j24
   - ninja test
 
 ---
