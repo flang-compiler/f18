@@ -100,6 +100,18 @@ static void PadShortCharacterActual(evaluate::Expr<evaluate::SomeType> &actual,
   }
 }
 
+static bool DefersSameTypeParameters(
+    const DerivedTypeSpec &actual, const DerivedTypeSpec &dummy) {
+  for (const auto &pair : actual.parameters()) {
+    const ParamValue &actualValue{pair.second};
+    const ParamValue *dummyValue{dummy.FindParameter(pair.first)};
+    if (!dummyValue || (actualValue.isDeferred() != dummyValue->isDeferred())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
     const std::string &dummyName, evaluate::Expr<evaluate::SomeType> &actual,
     const characteristics::TypeAndShape &actualType,
@@ -112,8 +124,8 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
   bool isElemental{dummyRank == 0 &&
       proc.attrs.test(characteristics::Procedure::Attr::Elemental)};
   PadShortCharacterActual(actual, dummy.type, actualType, messages);
-  dummy.type.IsCompatibleWith(
-      messages, actualType, "dummy argument", "actual argument", isElemental);
+  bool typesCompatible{dummy.type.IsCompatibleWith(
+      messages, actualType, "dummy argument", "actual argument", isElemental)};
 
   bool actualIsPolymorphic{actualType.type().IsPolymorphic()};
   bool dummyIsPolymorphic{dummy.type.type().IsPolymorphic()};
@@ -142,7 +154,7 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
         dummyName);
   }
 
-  // derived type actual argument checks
+  // Derived type actual argument checks
   const Symbol *actualFirstSymbol{evaluate::GetFirstSymbol(actual)};
   bool actualIsAsynchronous{
       actualFirstSymbol && actualFirstSymbol->attrs().test(Attr::ASYNCHRONOUS)};
@@ -186,7 +198,7 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
         !dummyIsValue) {
       if (auto iter{std::find_if(
               ultimates.begin(), ultimates.end(), [](const Symbol *component) {
-                return DEREF(component).attrs().test(Attr::ALLOCATABLE);
+                return IsAllocatable(DEREF(component));
               })}) {  // 15.5.2.4(6)
         if (auto *msg{messages.Say(
                 "Coindexed actual argument with ALLOCATABLE ultimate component '%s' must be associated with a %s with VALUE or INTENT(IN) attributes"_err_en_US,
@@ -213,12 +225,16 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
     }
   }
 
-  // rank and shape
+  // Rank and shape checks
   const auto *actualLastSymbol{evaluate::GetLastSymbol(actual)};
+  if (actualLastSymbol != nullptr) {
+    actualLastSymbol = GetAssociationRoot(*actualLastSymbol);
+  }
   const ObjectEntityDetails *actualLastObject{actualLastSymbol
           ? actualLastSymbol->GetUltimate().detailsIf<ObjectEntityDetails>()
           : nullptr};
   int actualRank{evaluate::GetRank(actualType.shape())};
+  bool actualIsPointer{actualLastSymbol && IsPointer(*actualLastSymbol)};
   if (dummy.type.attrs().test(
           characteristics::TypeAndShape::Attr::AssumedShape)) {
     // 15.5.2.4(16)
@@ -253,7 +269,7 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
           "Polymorphic scalar may not be associated with a %s array"_err_en_US,
           dummyName);
     }
-    if (actualLastSymbol && actualLastSymbol->attrs().test(Attr::POINTER)) {
+    if (actualIsPointer) {
       messages.Say(
           "Scalar POINTER target may not be associated with a %s array"_err_en_US,
           dummyName);
@@ -272,7 +288,7 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
         actualLastSymbol->name(), dummyName);
   }
 
-  // definability
+  // Definability
   const char *reason{nullptr};
   if (dummy.intent == common::Intent::Out) {
     reason = "INTENT(OUT)";
@@ -297,6 +313,8 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
   }
 
   // Cases when temporaries might be needed but must not be permitted.
+  bool dummyIsPointer{
+      dummy.attrs.test(characteristics::DummyDataObject::Attr::Pointer)};
   if ((actualIsAsynchronous || actualIsVolatile) &&
       (dummyIsAsynchronous || dummyIsVolatile) && !dummyIsValue) {
     if (actualIsCoindexed) {  // C1538
@@ -311,16 +329,44 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
           characteristics::TypeAndShape::Attr::AssumedRank)};
       bool dummyIsAssumedShape{dummy.type.attrs().test(
           characteristics::TypeAndShape::Attr::AssumedShape)};
-      bool actualIsPointer{actualLastSymbol &&
-          actualLastSymbol->GetUltimate().attrs().test(Attr::POINTER)};
-      bool dummyIsPointer{
-          dummy.attrs.test(characteristics::DummyDataObject::Attr::Pointer)};
       if (dummyIsContiguous ||
           !(dummyIsAssumedShape || dummyIsAssumedRank ||
               (actualIsPointer && dummyIsPointer))) {  // C1539 & C1540
         messages.Say(
             "ASYNCHRONOUS or VOLATILE actual argument that is not simply contiguous may not be associated with a contiguous %s"_err_en_US,
             dummyName);
+      }
+    }
+  }
+
+  // 15.5.2.5 -- actual & dummy are both POINTER or both ALLOCATABLE
+  bool actualIsAllocatable{
+      actualLastSymbol && IsAllocatable(*actualLastSymbol)};
+  bool dummyIsAllocatable{
+      dummy.attrs.test(characteristics::DummyDataObject::Attr::Allocatable)};
+  if ((actualIsPointer && dummyIsPointer) ||
+      (actualIsAllocatable && dummyIsAllocatable)) {
+    if (dummyIsPolymorphic != actualIsPolymorphic) {
+      messages.Say(
+          "If a POINTER or ALLOCATABLE dummy or actual argument is polymorphic, both must be so"_err_en_US);
+    }
+    bool actualIsUnlimited{actualType.type().IsUnlimitedPolymorphic()};
+    bool dummyIsUnlimited{dummy.type.type().IsUnlimitedPolymorphic()};
+    if (!actualIsUnlimited) {
+      if (dummyIsUnlimited) {
+        messages.Say(
+            "If a POINTER or ALLOCATABLE dummy or actual argument is unlimited polymorphic, both must be so"_err_en_US);
+      } else if (typesCompatible) {
+        if (!actualType.type().IsTypeCompatibleWith(dummy.type.type())) {
+          messages.Say(
+              "POINTER or ALLOCATABLE dummy and actual arguments must have the same declared type"_err_en_US);
+        }
+        if (actualType.type().category() == TypeCategory::Derived &&
+            !DefersSameTypeParameters(actualType.type().GetDerivedTypeSpec(),
+                dummy.type.type().GetDerivedTypeSpec())) {
+          messages.Say(
+              "Dummy and actual arguments must defer the same type parameters when POINTER or ALLOCATABLE"_err_en_US);
+        }
       }
     }
   }
