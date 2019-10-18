@@ -1,0 +1,15 @@
+kind: pipeline
+type: docker
+name: arm64
+
+steps:
+- name: test
+  image: bionic
+  commands:
+  - apt update -y && apt install -y llvm build-essential cmake ninja-build
+  - mkdir build && cd build
+  - cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - ninja
+  - ninja test
+
+
