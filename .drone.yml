@@ -11,7 +11,7 @@ steps:
   commands:
   - apt update -y && apt install -y llvm build-essential cmake ninja-build gcc
   - mkdir build && cd build
-  - cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - env LDFLAGS="-fuse-ld=gold" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
   - ninja
   - ninja test
 
@@ -27,9 +27,9 @@ steps:
 - name: test
   image: ubuntu
   commands:
-  - apt update -y && apt install -y llvm-8 build-essential cmake ninja-build clang-8 libc++-8-dev libc++abi-8-dev
+  - apt update -y && apt install -y llvm-8 build-essential cmake ninja-build clang-8 libc++-8-dev libc++abi-8-dev lld-8
   - mkdir build && cd build
-  - env CC=clang-8 CXX=clang++-8 CXXFLAGS="-stdlib=libc++" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - env CC=clang-8 CXX=clang++-8 CXXFLAGS="-stdlib=libc++" LDFLAGS="-fuse-ld=lld" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
   - ninja
   - ninja test
 
@@ -48,7 +48,7 @@ steps:
   commands:
   - apt update -y && apt install -y llvm build-essential cmake ninja-build
   - mkdir build && cd build
-  - cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - env LDFLAGS="-fuse-ld=gold" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
   - ninja -j24
   - ninja test
 
