@@ -29,9 +29,9 @@ steps:
 - name: test
   image: ubuntu
   commands:
-  - apt update -y && apt install -y llvm build-essential cmake ninja-build clang libc++
+  - apt update -y && apt install -y llvm-8 build-essential cmake ninja-build clang-8 libc++-8-dev
   - mkdir build && cd build
-  - env CC=clang CXX=clang++ CXXFLAGS="-stdlib=libc++" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - env CC=clang-8 CXX=clang++-8 CXXFLAGS="-stdlib=libc++" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
   - ninja -j24
   - ninja test
 
