@@ -3,19 +3,39 @@ type: docker
 name: arm64
 
 platform:
-  arch: arm64
+  arch: arm64-gcc
 
 steps:
 - name: test
   image: ubuntu
   commands:
-  - apt update -y && apt install -y llvm build-essential cmake ninja-build
+  - add-apt-repository -y ubuntu-toolchain-r-test
+  - apt update -y && apt install -y llvm build-essential cmake ninja-build gcc-9
   - mkdir build && cd build
-  - cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - env CC=gcc-9 CXX=g++-9 cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
   - ninja -j24
   - ninja test
 
 ---
+kind: pipeline
+type: docker
+name: arm64
+
+platform:
+  arch: arm64-clang
+
+steps:
+- name: test
+  image: ubuntu
+  commands:
+  - apt update -y && apt install -y llvm build-essential cmake ninja-build clang libc++
+  - mkdir build && cd build
+  - env CC=clang CXX=clang++ CXXFLAGS="-stdlib=libc++" cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - ninja -j24
+  - ninja test
+
+---
+
 kind: pipeline
 type: docker
 name: amd64
