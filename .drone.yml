@@ -2,6 +2,9 @@ kind: pipeline
 type: docker
 name: arm64
 
+platform:
+  arch: arm64
+
 steps:
 - name: test
   image: ubuntu
@@ -12,4 +15,21 @@ steps:
   - ninja -j24
   - ninja test
 
+---
+kind: pipeline
+type: docker
+name: amd64
+
+platform:
+  arch: amd64
+
+steps:
+- name: test
+  image: ubuntu
+  commands:
+  - apt update -y && apt install -y llvm build-essential cmake ninja-build
+  - mkdir build && cd build
+  - cmake -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+  - ninja -j24
+  - ninja test
 
