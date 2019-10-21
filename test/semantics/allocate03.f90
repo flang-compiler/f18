@@ -14,7 +14,7 @@
 
 ! Check for semantic errors in ALLOCATE statements
 
-subroutine C933_a(ca3, ca4, cp3, cp3mold, cp4, cp7, cp8, bsrc)
+subroutine C933_a(b1, ca3, ca4, cp3, cp3mold, cp4, cp7, cp8, bsrc)
 ! If any allocate-object has a deferred type parameter, is unlimited polymorphic,
 ! or is of abstract type, either type-spec or source-expr shall appear.
 
@@ -47,7 +47,6 @@ subroutine C933_a(ca3, ca4, cp3, cp3mold, cp4, cp7, cp8, bsrc)
   type(SomeType(1,*,*)), pointer :: cp7, cp8(:)
   type(SomeType(1, l1=3)), pointer :: cp9, cp10(:)
 
-  !ERROR: An assumed (*) type parameter may be used only for a dummy argument, associate name, or named constant
   type(B(*)) b1
   type(B(:)) b2
   type(B(5)) b3

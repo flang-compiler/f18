@@ -15,7 +15,7 @@
 ! Check for semantic errors in ALLOCATE statements
 
 
-subroutine C935(l, ac1, ac2, ac3, dc1, dc2, ec1, ec2, aa, ab, ea, eb, da, db, whatever, something)
+subroutine C935(l, ac1, ac2, ac3, dc1, dc2, ec1, ec2, aa, ab, ab2, ea, eb, da, db, whatever, something, something_else)
 ! A type-param-value in a type-spec shall be an asterisk if and only if each
 ! allocate-object is a dummy argument for which the corresponding type parameter
 ! is assumed.
@@ -45,21 +45,19 @@ subroutine C935(l, ac1, ac2, ac3, dc1, dc2, ec1, ec2, aa, ab, ea, eb, da, db, wh
 
   class(A(*)), pointer :: aa
   type(B(* , 5)), allocatable :: ab(:)
-  type(B(: , :)), pointer :: ab2(:)
+  type(B(* , *)), pointer :: ab2(:)
   class(A(l)), allocatable :: ea
   type(B(5 , 5)), pointer :: eb(:)
   class(A(:)), allocatable :: da
   type(B(: , 5)), pointer :: db(:)
   class(*), allocatable :: whatever
   type(C(la=*, lb=:, lc1=*, lc2=5, lc3=*)), pointer :: something(:)
-  !ERROR: An assumed (*) type parameter may be used only for a dummy argument, associate name, or named constant
-  type(C(la=*, lb=:, lc1=5, lc2=5, lc3=:)), pointer :: something_else(:)
+  type(C(la=*, lb=:, lc1=5, lc2=5, lc3=*)), pointer :: something_else(:)
 
   ! OK
   allocate(character(len=*):: ac1, ac3(3))
   allocate(character*(*):: ac2(5))
   allocate(B(*, 5):: aa, ab(2)) !OK but segfault GCC
-  !ERROR: Type parameters in type-spec must be assumed if and only if they are assumed for allocatable object in ALLOCATE
   allocate(B(*, *):: ab2(2))
   allocate(C(la=*, lb=10, lc1=*, lc2=5, lc3=*):: something(5))
   allocate(C(la=*, lb=10, lc1=2, lc2=5, lc3=3):: aa)
