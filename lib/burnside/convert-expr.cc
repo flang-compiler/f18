@@ -243,11 +243,8 @@ class ExprLowering {
     auto *ctxt = builder.getContext();
     auto realTy{getFIRType(ctxt, defaults, RealCat, KIND)};
     auto index = genIntegerConstant<4>(ctxt, part.isImaginaryPart ? 1 : 0);
-    L::SmallVector<M::Type, 1> input({fir::CplxType::get(ctxt, KIND)});
-    L::SmallVector<M::Type, 1> output({realTy});
-    auto funcTy = M::FunctionType::get(input, output, ctxt);
     return builder.create<fir::ExtractValueOp>(
-        getLoc(), funcTy, genval(part.left()), index);
+        getLoc(), realTy, genval(part.left()), index);
   }
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &) {
@@ -317,17 +314,14 @@ class ExprLowering {
     auto *ctxt = builder.getContext();
     auto complexTy{fir::CplxType::get(ctxt, KIND)};
     auto loc{getLoc()};
-    L::SmallVector<M::Type, 1> input(
-        {getFIRType(ctxt, defaults, RealCat, KIND)});
-    L::SmallVector<M::Type, 1> output({complexTy});
-    auto fTy = M::FunctionType::get(input, output, builder.getContext());
     auto und = builder.create<fir::UndefOp>(loc, complexTy);
     auto *lf = genval(op.left());
     auto *realIdx = genIntegerConstant<4>(ctxt, 0);
-    auto rp = builder.create<fir::InsertValueOp>(loc, fTy, und, lf, realIdx);
+    auto rp =
+        builder.create<fir::InsertValueOp>(loc, complexTy, und, lf, realIdx);
     auto *rt = genval(op.right());
     auto *imagIdx = genIntegerConstant<4>(ctxt, 1);
-    return builder.create<fir::InsertValueOp>(loc, fTy, rp, rt, imagIdx);
+    return builder.create<fir::InsertValueOp>(loc, complexTy, rp, rt, imagIdx);
   }
   template<int KIND> M::Value *genval(Ev::Concat<KIND> const &op) {
     // TODO this is a bogus call
