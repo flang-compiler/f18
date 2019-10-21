@@ -14,12 +14,12 @@
 
 #include "expression.h"
 #include "assignment.h"
+#include "check-call.h"
 #include "scope.h"
 #include "semantics.h"
 #include "symbol.h"
 #include "tools.h"
 #include "../common/idioms.h"
-#include "../evaluate/check-call.h"
 #include "../evaluate/common.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
@@ -721,17 +721,19 @@ std::optional<Expr<SubscriptInteger>> ExpressionAnalyzer::AsSubscript(
     MaybeExpr &&expr) {
   if (expr.has_value()) {
     if (expr->Rank() > 1) {
-      Say("subscript expression has rank %d"_err_en_US, expr->Rank());
+      Say("Subscript expression has rank %d greater than 1"_err_en_US,
+          expr->Rank());
     }
     if (auto *intExpr{std::get_if<Expr<SomeInteger>>(&expr->u)}) {
       if (auto *ssIntExpr{std::get_if<Expr<SubscriptInteger>>(&intExpr->u)}) {
-        return {std::move(*ssIntExpr)};
+        return std::move(*ssIntExpr);
+      } else {
+        return Expr<SubscriptInteger>{
+            Convert<SubscriptInteger, TypeCategory::Integer>{
+                std::move(*intExpr)}};
       }
-      return {Expr<SubscriptInteger>{
-          Convert<SubscriptInteger, TypeCategory::Integer>{
-              std::move(*intExpr)}}};
     } else {
-      Say("subscript expression is not INTEGER"_err_en_US);
+      Say("Subscript expression is not INTEGER"_err_en_US);
     }
   }
   return std::nullopt;
@@ -741,8 +743,9 @@ std::optional<Expr<SubscriptInteger>> ExpressionAnalyzer::TripletPart(
     const std::optional<parser::Subscript> &s) {
   if (s.has_value()) {
     return AsSubscript(Analyze(*s));
+  } else {
+    return std::nullopt;
   }
-  return std::nullopt;
 }
 
 std::optional<Subscript> ExpressionAnalyzer::AnalyzeSectionSubscript(
@@ -750,9 +753,9 @@ std::optional<Subscript> ExpressionAnalyzer::AnalyzeSectionSubscript(
   return std::visit(
       common::visitors{
           [&](const parser::SubscriptTriplet &t) {
-            return std::make_optional(Subscript{Triplet{
+            return std::make_optional<Subscript>(Triplet{
                 TripletPart(std::get<0>(t.t)), TripletPart(std::get<1>(t.t)),
-                TripletPart(std::get<2>(t.t))}});
+                TripletPart(std::get<2>(t.t))});
           },
           [&](const auto &s) -> std::optional<Subscript> {
             if (auto subscriptExpr{AsSubscript(Analyze(s))}) {
@@ -768,16 +771,15 @@ std::optional<Subscript> ExpressionAnalyzer::AnalyzeSectionSubscript(
 // Empty result means an error occurred
 std::vector<Subscript> ExpressionAnalyzer::AnalyzeSectionSubscripts(
     const std::list<parser::SectionSubscript> &sss) {
-  bool error{false};
   std::vector<Subscript> subscripts;
   for (const auto &s : sss) {
     if (auto subscript{AnalyzeSectionSubscript(s)}) {
       subscripts.emplace_back(std::move(*subscript));
     } else {
-      error = true;
+      return {};
     }
   }
-  return !error ? subscripts : std::vector<Subscript>{};
+  return subscripts;
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::ArrayElement &ae) {
@@ -1557,20 +1559,18 @@ static bool CheckCompatibleArguments(
   return true;
 }
 
-const Symbol *ExpressionAnalyzer::ResolveGeneric(
-    const Symbol &symbol, ActualArguments &actuals) {
+const Symbol *ExpressionAnalyzer::ResolveGeneric(const Symbol &symbol,
+    ActualArguments &actuals, const semantics::Scope &scope) {
   const Symbol *elemental{nullptr};  // matching elemental specific proc
   const auto &details{symbol.get<semantics::GenericDetails>()};
   for (const Symbol *specific : details.specificProcs()) {
     if (std::optional<characteristics::Procedure> procedure{
             characteristics::Procedure::Characterize(
                 ProcedureDesignator{*specific}, context_.intrinsics())}) {
-      parser::Messages buffer;
-      parser::ContextualMessages messages{
-          context_.foldingContext().messages().at(), &buffer};
-      FoldingContext localContext{context_.foldingContext(), messages};
       ActualArguments localActuals{actuals};
-      if (CheckExplicitInterface(*procedure, localActuals, localContext) &&
+      auto messages{semantics::CheckExplicitInterface(
+          *procedure, localActuals, GetFoldingContext(), scope)};
+      if (messages.empty() &&
           CheckCompatibleArguments(*procedure, localActuals)) {
         if (!procedure->IsElemental()) {
           return specific;  // takes priority over elemental match
@@ -1590,7 +1590,8 @@ const Symbol *ExpressionAnalyzer::ResolveGeneric(
 
 auto ExpressionAnalyzer::GetCalleeAndArguments(
     const parser::ProcedureDesignator &pd, ActualArguments &&arguments,
-    bool isSubroutine) -> std::optional<CalleeAndArguments> {
+    bool isSubroutine, const semantics::Scope &scope)
+    -> std::optional<CalleeAndArguments> {
   return std::visit(
       common::visitors{
           [&](const parser::Name &n) -> std::optional<CalleeAndArguments> {
@@ -1613,7 +1614,7 @@ auto ExpressionAnalyzer::GetCalleeAndArguments(
             }
             CheckForBadRecursion(n.source, ultimate);
             if (ultimate.has<semantics::GenericDetails>()) {
-              symbol = ResolveGeneric(ultimate, arguments);
+              symbol = ResolveGeneric(ultimate, arguments, scope);
             }
             if (symbol) {
               return CalleeAndArguments{
@@ -1719,7 +1720,8 @@ MaybeExpr ExpressionAnalyzer::AnalyzeCall(
     // TODO: map non-intrinsic generic procedure to specific procedure
     if (std::optional<CalleeAndArguments> callee{
             GetCalleeAndArguments(std::get<parser::ProcedureDesignator>(call.t),
-                std::move(*arguments), isSubroutine)}) {
+                std::move(*arguments), isSubroutine,
+                context_.FindScope(call.source))}) {
       if (isSubroutine) {
         CheckCall(call.source, callee->procedureDesignator, callee->arguments);
         // TODO: Package the subroutine call as an expr in the parse tree
@@ -1800,8 +1802,8 @@ std::optional<characteristics::Procedure> ExpressionAnalyzer::CheckCall(
           "References to the procedure '%s' require an explicit interface"_en_US,
           DEREF(proc.GetSymbol()).name());
     }
-    CheckArguments(
-        *chars, arguments, GetFoldingContext(), treatExternalAsImplicit);
+    semantics::CheckArguments(*chars, arguments, GetFoldingContext(),
+        context_.FindScope(callSite), treatExternalAsImplicit);
   }
   return chars;
 }

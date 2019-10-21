@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "tools.h"
+#include "characteristics.h"
 #include "traverse.h"
 #include "../common/idioms.h"
 #include "../parser/message.h"
@@ -646,6 +647,48 @@ bool IsAssumedRank(const ActualArgument &arg) {
   }
 }
 
+// IsProcedurePointer()
+bool IsProcedurePointer(const Expr<SomeType> &expr) {
+  return std::visit(
+      common::visitors{
+          [](const NullPointer &) { return true; },
+          [](const ProcedureDesignator &) { return true; },
+          [](const ProcedureRef &) { return true; },
+          [](const auto &) { return false; },
+      },
+      expr.u);
+}
+
+// IsNullPointer()
+static bool IsNullPointer(const ProcedureRef &call) {
+  auto *intrinsic{call.proc().GetSpecificIntrinsic()};
+  return intrinsic &&
+      intrinsic->characteristics.value().attrs.test(
+          characteristics::Procedure::Attr::NullPointer);
+}
+template<TypeCategory CAT, int KIND>
+bool IsNullPointer(const Expr<Type<CAT, KIND>> &expr) {
+  const auto *call{std::get_if<FunctionRef<Type<CAT, KIND>>>(&expr.u)};
+  return call && IsNullPointer(*call);
+}
+template<TypeCategory CAT> bool IsNullPointer(const Expr<SomeKind<CAT>> &expr) {
+  return std::visit([](const auto &x) { return IsNullPointer(x); }, expr.u);
+}
+bool IsNullPointer(const Expr<SomeDerived> &expr) {
+  const auto *call{std::get_if<FunctionRef<SomeDerived>>(&expr.u)};
+  return call && IsNullPointer(*call);
+}
+bool IsNullPointer(const Expr<SomeType> &expr) {
+  return std::visit(
+      common::visitors{
+          [](const NullPointer &) { return true; },
+          [](const BOZLiteralConstant &) { return false; },
+          [](const ProcedureDesignator &) { return false; },
+          [](const auto &x) { return IsNullPointer(x); },
+      },
+      expr.u);
+}
+
 // GetLastTarget()
 auto GetLastTargetHelper::operator()(const semantics::Symbol &x) const
     -> Result {
@@ -692,4 +735,20 @@ template SetOfSymbols CollectSymbols(const Expr<SomeType> &);
 template SetOfSymbols CollectSymbols(const Expr<SomeInteger> &);
 template SetOfSymbols CollectSymbols(const Expr<SubscriptInteger> &);
 
+// HasVectorSubscript()
+struct HasVectorSubscriptHelper : public AnyTraverse<HasVectorSubscriptHelper> {
+  using Base = AnyTraverse<HasVectorSubscriptHelper>;
+  HasVectorSubscriptHelper() : Base{*this} {}
+  using Base::operator();
+  bool operator()(const Subscript &ss) const {
+    return !std::holds_alternative<Triplet>(ss.u) && ss.Rank() > 0;
+  }
+  bool operator()(const ProcedureRef &) const {
+    return false;  // don't descend into function call arguments
+  }
+};
+
+bool HasVectorSubscript(const Expr<SomeType> &expr) {
+  return HasVectorSubscriptHelper{}(expr);
+}
 }

@@ -412,7 +412,7 @@ Expr<Type<TypeCategory::Integer, KIND>> LBOUND(FoldingContext &context,
   if (const auto *array{UnwrapExpr<Expr<SomeType>>(args[0])}) {
     if (int rank{array->Rank()}; rank > 0) {
       std::optional<int> dim;
-      if (args[1].has_value()) {
+      if (funcRef.Rank() == 0) {
         // Optional DIM= argument is present: result is scalar.
         if (auto dim64{GetInt64Arg(args[1])}) {
           if (*dim64 < 1 || *dim64 > rank) {
@@ -467,7 +467,7 @@ Expr<Type<TypeCategory::Integer, KIND>> UBOUND(FoldingContext &context,
   if (auto *array{UnwrapExpr<Expr<SomeType>>(args[0])}) {
     if (int rank{array->Rank()}; rank > 0) {
       std::optional<int> dim;
-      if (args[1].has_value()) {
+      if (funcRef.Rank() == 0) {
         // Optional DIM= argument is present: result is scalar.
         if (auto dim64{GetInt64Arg(args[1])}) {
           if (*dim64 < 1 || *dim64 > rank) {
@@ -1213,7 +1213,7 @@ std::optional<Expr<T>> GetNamedConstantValue(
                 if (constant->Rank() == 0) {
                   // scalar expansion
                   if (auto symShape{GetShape(context, symbol)}) {
-                    if (auto extents{AsConstantExtents(*symShape)}) {
+                    if (auto extents{AsConstantExtents(context, *symShape)}) {
                       *constant = constant->Reshape(std::move(*extents));
                       CHECK(constant->Rank() == symbol.Rank());
                     }
@@ -1221,8 +1221,8 @@ std::optional<Expr<T>> GetNamedConstantValue(
                 }
                 if (constant->Rank() == symbol.Rank()) {
                   NamedEntity base{symbol};
-                  if (auto lbounds{
-                          AsConstantExtents(GetLowerBounds(context, base))}) {
+                  if (auto lbounds{AsConstantExtents(
+                          context, GetLowerBounds(context, base))}) {
                     constant->set_lbounds(*std::move(lbounds));
                   }
                 }
@@ -1803,7 +1803,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
     }
   }
   return FromArrayConstructor(
-      context, std::move(result), AsConstantExtents(shape));
+      context, std::move(result), AsConstantExtents(context, shape));
 }
 
 // array * array case
@@ -1843,7 +1843,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
     }
   }
   return FromArrayConstructor(
-      context, std::move(result), AsConstantExtents(shape));
+      context, std::move(result), AsConstantExtents(context, shape));
 }
 
 // array * scalar case
@@ -1860,7 +1860,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
         Fold(context, f(std::move(leftScalar), Expr<RIGHT>{rightScalar})));
   }
   return FromArrayConstructor(
-      context, std::move(result), AsConstantExtents(shape));
+      context, std::move(result), AsConstantExtents(context, shape));
 }
 
 // scalar * array case
@@ -1892,7 +1892,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
     }
   }
   return FromArrayConstructor(
-      context, std::move(result), AsConstantExtents(shape));
+      context, std::move(result), AsConstantExtents(context, shape));
 }
 
 // ApplyElementwise() recursively folds the operand expression(s) of an

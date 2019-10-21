@@ -98,28 +98,46 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
   }
 }
 
-bool TypeAndShape::IsCompatibleWith(
-    parser::ContextualMessages &messages, const TypeAndShape &that) const {
+std::optional<TypeAndShape> TypeAndShape::Characterize(
+    const Expr<SomeType> &expr, FoldingContext &context) {
+  if (const auto *symbol{UnwrapWholeSymbolDataRef(expr)}) {
+    if (const auto *object{
+            symbol->detailsIf<semantics::ObjectEntityDetails>()}) {
+      return Characterize(*object);
+    }
+  }
+  if (auto type{expr.GetType()}) {
+    if (auto shape{GetShape(context, expr)}) {
+      TypeAndShape result{*type, std::move(*shape)};
+      if (type->category() == TypeCategory::Character) {
+        if (const auto *chExpr{UnwrapExpr<Expr<SomeCharacter>>(expr)}) {
+          if (auto length{chExpr->LEN()}) {
+            result.set_LEN(Expr<SomeInteger>{std::move(*length)});
+          }
+        }
+      }
+      return result;
+    }
+  }
+  return std::nullopt;
+}
+
+bool TypeAndShape::IsCompatibleWith(parser::ContextualMessages &messages,
+    const TypeAndShape &that, const char *thisIs, const char *thatIs,
+    bool isElemental) const {
   const auto &len{that.LEN()};
   if (!type_.IsTypeCompatibleWith(that.type_)) {
     std::stringstream lenstr;
     if (len) {
       len->AsFortran(lenstr);
     }
-    messages.Say("Target type '%s' is not compatible with '%s'"_err_en_US,
-        that.type_.AsFortran(lenstr.str()), type_.AsFortran());
+    messages.Say(
+        "%1$s type '%2$s' is not compatible with %3$s type '%4$s'"_err_en_US,
+        thatIs, that.type_.AsFortran(lenstr.str()), thisIs, type_.AsFortran());
     return false;
   }
-  if (auto myLEN{ToInt64(LEN())}) {
-    if (auto thatLEN{ToInt64(len)}) {
-      if (*thatLEN < *myLEN) {
-        messages.Say(
-            "Warning: effective length '%jd' is less than expected length '%jd'"_en_US,
-            *thatLEN, *myLEN);
-      }
-    }
-  }
-  return CheckConformance(messages, shape_, that.shape_);
+  return isElemental ||
+      CheckConformance(messages, shape_, that.shape_, thisIs, thatIs);
 }
 
 void TypeAndShape::AcquireShape(const semantics::ObjectEntityDetails &object) {
@@ -133,6 +151,9 @@ void TypeAndShape::AcquireShape(const semantics::ObjectEntityDetails &object) {
   }
   if (object.IsAssumedSize()) {
     attrs_.set(Attr::AssumedSize);
+  }
+  if (object.IsDeferredShape()) {
+    attrs_.set(Attr::DeferredShape);
   }
   if (object.IsCoarray()) {
     attrs_.set(Attr::Coarray);
@@ -310,6 +331,51 @@ std::optional<DummyArgument> DummyArgument::Characterize(
   return std::nullopt;
 }
 
+std::optional<DummyArgument> DummyArgument::FromActual(
+    std::string &&name, const Expr<SomeType> &expr, FoldingContext &context) {
+  return std::visit(
+      common::visitors{
+          [&](const BOZLiteralConstant &) {
+            return std::make_optional<DummyArgument>(std::move(name),
+                DummyDataObject{
+                    TypeAndShape{DynamicType::TypelessIntrinsicArgument()}});
+          },
+          [&](const NullPointer &) { return std::optional<DummyArgument>{}; },
+          [&](const ProcedureDesignator &designator) {
+            if (auto proc{Procedure::Characterize(
+                    designator, context.intrinsics())}) {
+              return std::make_optional<DummyArgument>(
+                  std::move(name), DummyProcedure{std::move(*proc)});
+            } else {
+              return std::optional<DummyArgument>{};
+            }
+          },
+          [&](const ProcedureRef &call) {
+            if (auto proc{
+                    Procedure::Characterize(call, context.intrinsics())}) {
+              return std::make_optional<DummyArgument>(
+                  std::move(name), DummyProcedure{std::move(*proc)});
+            } else {
+              return std::optional<DummyArgument>{};
+            }
+          },
+          [&](const auto &) {
+            if (auto type{expr.GetType()}) {
+              if (auto shape{GetShape(context, expr)}) {
+                return std::make_optional<DummyArgument>(std::move(name),
+                    DummyDataObject{TypeAndShape{*type, std::move(*shape)}});
+              } else {
+                return std::make_optional<DummyArgument>(
+                    std::move(name), DummyDataObject{TypeAndShape{*type}});
+              }
+            } else {
+              return std::optional<DummyArgument>{};
+            }
+          },
+      },
+      expr.u);
+}
+
 bool DummyArgument::IsOptional() const {
   return std::visit(
       common::visitors{
@@ -451,6 +517,7 @@ Procedure::Procedure(FunctionResult &&fr, DummyArguments &&args, Attrs a)
   : functionResult{std::move(fr)}, dummyArguments{std::move(args)}, attrs{a} {}
 Procedure::Procedure(DummyArguments &&args, Attrs a)
   : dummyArguments{std::move(args)}, attrs{a} {}
+Procedure::~Procedure() = default;
 
 bool Procedure::operator==(const Procedure &that) const {
   return attrs == that.attrs && dummyArguments == that.dummyArguments &&
@@ -466,15 +533,6 @@ std::optional<Procedure> Procedure::Characterize(
           {semantics::Attr::ELEMENTAL, Procedure::Attr::Elemental},
           {semantics::Attr::BIND_C, Procedure::Attr::BindC},
       });
-  auto SetFunctionResult{[&](const semantics::DeclTypeSpec *type) {
-    if (type != nullptr) {
-      if (auto resultType{DynamicType::From(*type)}) {
-        result.functionResult = FunctionResult{*resultType};
-        return true;
-      }
-    }
-    return false;
-  }};
   return std::visit(
       common::visitors{
           [&](const semantics::SubprogramDetails &subp)
@@ -507,26 +565,26 @@ std::optional<Procedure> Procedure::Characterize(
             }
             const semantics::ProcInterface &interface{proc.interface()};
             if (const semantics::Symbol * interfaceSymbol{interface.symbol()}) {
-              auto characterized{Characterize(*interfaceSymbol, intrinsics)};
-              if (!characterized) {
-                return std::nullopt;
-              }
-              result = *characterized;
+              return Characterize(*interfaceSymbol, intrinsics);
             } else {
               result.attrs.set(Procedure::Attr::ImplicitInterface);
+              const semantics::DeclTypeSpec *type{interface.type()};
               if (symbol.test(semantics::Symbol::Flag::Function)) {
-                if (!SetFunctionResult(interface.type())) {
+                if (type != nullptr) {
+                  if (auto resultType{DynamicType::From(*type)}) {
+                    result.functionResult = FunctionResult{*resultType};
+                  }
+                } else {
                   return std::nullopt;
                 }
-              } else {
-                // subroutine, not function
-                if (interface.type() != nullptr) {
+              } else {  // subroutine, not function
+                if (type != nullptr) {
                   return std::nullopt;
                 }
               }
+              // The PASS name, if any, is not a characteristic.
+              return result;
             }
-            // The PASS name, if any, is not a characteristic.
-            return result;
           },
           [&](const semantics::ProcBindingDetails &binding) {
             if (auto result{Characterize(binding.symbol(), intrinsics)}) {
@@ -538,8 +596,9 @@ std::optional<Procedure> Procedure::Characterize(
                 }
               }
               return result;
+            } else {
+              return std::optional<Procedure>{};
             }
-            return std::optional<Procedure>{};
           },
           [&](const semantics::UseDetails &use) {
             return Characterize(use.symbol(), intrinsics);
