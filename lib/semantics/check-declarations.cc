@@ -88,24 +88,24 @@ void CheckHelper::Check(Symbol &symbol) {
   }
   if (IsAssumedLengthCharacterFunction(symbol)) {  // C723
     if (symbol.attrs().test(Attr::RECURSIVE)) {
-      context_.Say(
+      messages_.Say(
           "An assumed-length CHARACTER(*) function cannot be RECURSIVE"_err_en_US);
     }
     if (symbol.Rank() > 0) {
-      context_.Say(
+      messages_.Say(
           "An assumed-length CHARACTER(*) function cannot return an array"_err_en_US);
     }
     if (symbol.attrs().test(Attr::PURE)) {
-      context_.Say(
+      messages_.Say(
           "An assumed-length CHARACTER(*) function cannot be PURE"_err_en_US);
     }
     if (symbol.attrs().test(Attr::ELEMENTAL)) {
-      context_.Say(
+      messages_.Say(
           "An assumed-length CHARACTER(*) function cannot be ELEMENTAL"_err_en_US);
     }
     if (const Symbol * result{FindFunctionResult(symbol)}) {
       if (result->attrs().test(Attr::POINTER)) {
-        context_.Say(
+        messages_.Say(
             "An assumed-length CHARACTER(*) function cannot return a POINTER"_err_en_US);
       }
     }
@@ -113,6 +113,19 @@ void CheckHelper::Check(Symbol &symbol) {
   if (auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
     Check(object->shape());
     Check(object->coshape());
+    if (object->isDummy() && symbol.attrs().test(Attr::INTENT_OUT)) {
+      if (FindUltimateComponent(symbol,
+              std::function<bool(const Symbol &)>{[](const Symbol &symbol) {
+                return IsCoarray(symbol) && IsAllocatable(symbol);
+              }})) {  // C846
+        messages_.Say(
+            "An INTENT(OUT) dummy argument may not be, or contain, an ALLOCATABLE coarray"_err_en_US);
+      }
+      if (IsOrContainsEventOrLockComponent(symbol)) {  // C847
+        messages_.Say(
+            "An INTENT(OUT) dummy argument may not be, or contain, EVENT_TYPE or LOCK_TYPE"_err_en_US);
+      }
+    }
   }
 }
 
