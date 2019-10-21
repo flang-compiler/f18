@@ -170,10 +170,9 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
             dummyName);
       }
       if (const Symbol *
-          tbp{FindImmediateComponent(derived,
-              std::function<bool(const Symbol &)>{[](const Symbol &symbol) {
-                return symbol.has<ProcBindingDetails>();
-              }})}) {  // 15.5.2.4(2)
+          tbp{FindImmediateComponent(derived, [](const Symbol &symbol) {
+            return symbol.has<ProcBindingDetails>();
+          })}) {  // 15.5.2.4(2)
         if (auto *msg{messages.Say(
                 "Actual argument associated with TYPE(*) %s may not have type-bound procedure '%s'"_err_en_US,
                 dummyName, tbp->name())}) {
@@ -181,10 +180,9 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
         }
       }
       if (const Symbol *
-          finalizer{FindImmediateComponent(derived,
-              std::function<bool(const Symbol &)>{[](const Symbol &symbol) {
-                return symbol.has<FinalProcDetails>();
-              }})}) {  // 15.5.2.4(2)
+          finalizer{FindImmediateComponent(derived, [](const Symbol &symbol) {
+            return symbol.has<FinalProcDetails>();
+          })}) {  // 15.5.2.4(2)
         if (auto *msg{messages.Say(
                 "Actual argument associated with TYPE(*) %s may not have FINAL subroutine '%s'"_err_en_US,
                 dummyName, finalizer->name())}) {
