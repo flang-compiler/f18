@@ -84,6 +84,30 @@ subroutine dsa_seq_loop_iv()
   print *,i,j,k  ! should all be -1
 end subroutine dsa_seq_loop_iv
 
+! Although weird, but the following example is OpenMP syntactically legal.
+! Variables used as loop iteration variables in sequential loops in a parallel
+! or task generating construct may be listed in data-sharing clauses on the
+! construct itself, and on enclosed constructs, subject to other restrictions.
+subroutine dsa_seq_loop_iv_shared()
+  use omp_lib
+
+  i = -1
+  j = -1
+  k = -1
+
+  !$omp parallel num_threads(2) shared(i,j)
+  do i = 1, 2
+     do j = 3, 4
+        !$omp parallel num_threads(2) shared(k)
+        do k = 5, 6
+        enddo
+        !$omp end parallel
+     enddo
+  enddo
+  !$omp end parallel
+  print *,i,j,k  ! result varies from vendor to vendor
+end subroutine dsa_seq_loop_iv_shared
+
 ! The loop iteration variable in the associated do-loop of a simd construct
 ! with just one associated do-loop is linear with a linear-step that is the
 ! increment of the associated do-loop.
@@ -142,11 +166,24 @@ subroutine dsa_assumed_size_helper(A, N)
   print *,sum(A(:,1))
 end subroutine dsa_assumed_size_helper
 
+subroutine dsa_assumed_size_private_helper(A, N)
+  real A(1:N,*)
+  !WRONG: Assumed-size arrays cannot be listed in a non-shared clause
+  !$omp parallel do private(A)
+  do i = 1, N
+     do j = 1, N
+        A(j,i) = j
+     end do
+  enddo
+  print *,sum(A(:,1))
+end subroutine dsa_assumed_size_private_helper
+
 ! Assumed-size arrays are shared.
 subroutine dsa_assumed_size()
   real A(10,10)
   A = 0.0
   call dsa_assumed_size_helper(A, 10)
+  call dsa_assumed_size_private_helper(A, 10)
 end subroutine dsa_assumed_size
 
 ! An associate name preserves the association with the selector established
