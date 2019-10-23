@@ -61,6 +61,29 @@ subroutine dsa_loop_iv()
   print *,i.eq.0
 end subroutine dsa_loop_iv
 
+! A loop iteration variable for a sequential loop in a parallel or task
+! generating construct is private in the innermost such construct that
+! encloses the loop
+subroutine dsa_seq_loop_iv()
+  use omp_lib
+  i = -1
+  j = -1
+  k = -1
+
+  !$omp parallel num_threads(2)
+  do i = 1, 2  ! private, above PARALLEL construct encloses the loop
+     do j = 3, 4  ! private, above PARALLEL construct encloses the loop
+        !$omp parallel num_threads(2)
+        do k = 5, 6  ! private, above PARALLEL construct encloses the loop
+           print *,'in k: ', i,j,k  ! i and j are shared; k is private
+        enddo
+        !$omp end parallel
+     enddo
+  enddo
+  !$omp end parallel
+  print *,i,j,k  ! should all be -1
+end subroutine dsa_seq_loop_iv
+
 ! The loop iteration variable in the associated do-loop of a simd construct
 ! with just one associated do-loop is linear with a linear-step that is the
 ! increment of the associated do-loop.
@@ -155,6 +178,7 @@ program mm
   call dsa_threadprivate
   call dsa_bad_sum
   call dsa_loop_iv
+  call dsa_seq_loop_iv
   call dsa_simd_iv
   call dsa_forall
   call dsa_cray
