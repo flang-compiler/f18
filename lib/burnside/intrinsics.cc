@@ -14,6 +14,7 @@
 
 #include "intrinsics.h"
 #include "builder.h"
+#include "complex.h"
 #include "fe-helper.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
@@ -111,7 +112,7 @@ private:
 
   /// Define the different FIR generators that can be mapped to intrinsic to
   /// generate the related code.
-  using Generator = mlir::Value *(Implementation::*)(Context &) const;
+  using Generator = mlir::Value *(Implementation::*)(Context &)const;
   /// Search a runtime function that is associated to the generic intrinsic name
   /// and whose signature matches the intrinsic arguments and result types.
   /// If no such runtime function is found but a runtime function associated
@@ -132,7 +133,7 @@ private:
   mlir::Value *defaultGenerator(Context &c) const {
     return generateWrapperCall<&I::generateRuntimeCall>(c);
   }
-  mlir::Value *conjgGenerator(Context &) const;
+  mlir::Value *generateConjg(Context &) const;
 
   struct IntrinsicHanlder {
     const char *name;
@@ -144,7 +145,7 @@ private:
   /// defined here for a generic intrinsic, the defaultGenerator will
   /// be attempted.
   static constexpr IntrinsicHanlder handlers[]{
-      {"conjg", &I::conjgGenerator},
+      {"conjg", &I::generateConjg},
   };
 
   // helpers
@@ -358,6 +359,8 @@ std::string IntrinsicLibrary::Implementation::getWrapperName(Context &c) {
   } else if (auto cplx{resultType.dyn_cast<fir::CplxType>()}) {
     // TODO using kind here is weird, but I do not want to hard coded mapping
     return prefix.str() + c.name.str() + ".c" + std::to_string(cplx.getFKind());
+  } else if (auto firf{resultType.dyn_cast<fir::RealType>()}) {
+    return prefix.str() + c.name.str() + ".f" + std::to_string(firf.getFKind());
   } else {
     assert(false);
     return "fir." + c.name.str() + ".unknown";
@@ -447,31 +450,23 @@ mlir::Value *IntrinsicLibrary::Implementation::generateRuntimeCall(
 }
 
 // CONJG
-mlir::Value *IntrinsicLibrary::Implementation::conjgGenerator(
+mlir::Value *IntrinsicLibrary::Implementation::generateConjg(
     Context &genCtxt) const {
   assert(genCtxt.arguments.size() == 1);
   mlir::Type resType{genCtxt.getResultType()};
   assert(resType == genCtxt.arguments[0]->getType());
+  mlir::OpBuilder &builder{*genCtxt.builder};
+  ComplexHandler cplxHandler{builder, genCtxt.loc};
 
-  // FIXME make fir.complex<f32>.. instead of fir.complex<4> to avoid
-  // constantly having to translate to fe types ? Or get actual mapping
-  auto complexType{resType.cast<fir::CplxType>()};
-  mlir::Type realType{
-      burnside::convertReal(genCtxt.getMLIRContext(), complexType.getFKind())};
-  auto ity{mlir::IndexType::get(genCtxt.getMLIRContext())};
-  auto oneAttr{genCtxt.builder->getIntegerAttr(ity, 1)};
-  auto *imagIdx{
-      genCtxt.builder->create<mlir::ConstantOp>(genCtxt.loc, ity, oneAttr)
-          .getResult()};
-  auto parts{genCtxt.builder->create<fir::ExtractValueOp>(
-      genCtxt.loc, realType, genCtxt.arguments[0], imagIdx)};
   // TODO a negation unary would be better than a sub to zero ?
-  auto zeroAttr{genCtxt.builder->getFloatAttr(realType, llvm::APFloat{0.})};
-  auto zero{genCtxt.builder->create<mlir::ConstantOp>(
-      genCtxt.loc, realType, zeroAttr)};
-  auto negImag{genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, parts)};
-  return genCtxt.builder->create<fir::InsertValueOp>(
-      genCtxt.loc, resType, genCtxt.arguments[0], negImag, imagIdx);
+  mlir::Value *cplx{genCtxt.arguments[0]};
+  mlir::Type realType{cplxHandler.getComplexPartType(cplx)};
+  mlir::Value *zero{builder.create<mlir::ConstantOp>(
+      genCtxt.loc, realType, builder.getZeroAttr(realType))};
+  mlir::Value *imag{cplxHandler.createComplexImagPart(cplx)};
+  mlir::Value *negImag{
+      genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, imag)};
+  return cplxHandler.setImagPart(cplx, negImag);
 }
 
 // RuntimeStaticDescription implementation
