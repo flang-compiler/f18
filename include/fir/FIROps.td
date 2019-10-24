@@ -125,7 +125,7 @@ def fir_AllocateOpBuilder : OpBuilder<
   "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
-    result.addAttribute("in_type", builder->getTypeAttr(inType));
+    result.addAttribute("in_type", M::TypeAttr::get(inType));
     result.addOperands(sizes);
     for (auto namedAttr : attributes)
       result.addAttribute(namedAttr.first, namedAttr.second);
@@ -136,7 +136,7 @@ def fir_NamedAllocateOpBuilder : OpBuilder<
   "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
-    result.addAttribute("in_type", builder->getTypeAttr(inType));
+    result.addAttribute("in_type", M::TypeAttr::get(inType));
     result.addAttribute("name", builder->getStringAttr(name));
     result.addOperands(sizes);
     for (auto namedAttr : attributes)
@@ -185,7 +185,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     if (parser.parseType(intype))
       return M::failure();
     auto &builder = parser.getBuilder();
-    result.addAttribute("in_type", builder.getTypeAttr(intype));
+    result.addAttribute("in_type", M::TypeAttr::get(intype));
     if (!parser.parseOptionalComma()) {
       llvm::SmallVector<M::Type, 4> typeVec;
       llvm::SmallVector<M::OpAsmParser::OperandType, 4> operands;
@@ -1473,91 +1473,18 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
 
 // Procedure call operations
 
-def fir_CallOp : fir_Op<"call", []>,
-    Results<(outs Variadic<AnyType>)>,
-    Arguments<(ins SymbolRefAttr:$callee, Variadic<AnyType>:$args)> {
-  let summary = "call a procedure directly";
+def fir_CallOp : fir_Op<"call", []>, Results<(outs Variadic<AnyType>)>,
+    Arguments<(ins OptionalAttr<SymbolRefAttr>:$callee,
+               Variadic<AnyType>:$args)> {
+  let summary = "call a procedure";
 
   let description = [{
-    Provides a custom parser and pretty printer to allow for a slightly more
-    readable syntax in the FIR dialect, e.g. `fir.call @sub(%12)`.
+    Provides a custom parser and pretty printer to allow a more readable syntax
+    in the FIR dialect, e.g. `fir.call @sub(%12)` or `fir.call %20(%22,%23)`.
   }];
 
-  let parser = [{
-    M::FunctionType calleeType;
-    M::SymbolRefAttr proc;
-    L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-    if (parser.parseAttribute(proc, "callee", result.attributes) ||
-        parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
-        parser.parseColonType(calleeType) ||
-        parser.resolveOperands(operands, calleeType.getInputs(),
-            parser.getNameLoc(), result.operands) ||
-        parser.addTypesToList(calleeType.getResults(), result.types))
-      return M::failure();
-    return M::success();
-  }];
-  let printer = [{
-    p << getOperationName() << ' ' << getAttr("callee") << '(';
-    p.printOperands(args());
-    p << ')';
-    p.printOptionalAttrDict(getAttrs(), {"callee"});
-    p << " : ";
-    p.printFunctionalType(getOperation());
-  }];
-}
-
-def fir_ICallOp : fir_Op<"icall", []>,
-    Results<(outs Variadic<AnyType>)>,
-    Arguments<(ins FunctionType:$proc, Variadic<AnyType>:$args)> {
-  let summary = "call a procedure indirectly";
-
-  let description = [{
-    Provides a custom parser and pretty printer to allow for a slightly more
-    readable syntax in the FIR dialect, e.g. `fir.icall %fun(%12)`.
-  }];
-
-  let parser = [{ 
-    M::FunctionType calleeType;
-    L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-    M::OpAsmParser::OperandType callee;
-    if (parser.parseOperand(callee))
-      return M::failure();
-    operands.push_back(callee);
-    auto calleeLoc = parser.getNameLoc();
-    if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
-        parser.parseColonType(calleeType) ||
-        parser.addTypesToList(calleeType.getResults(), result.types))
-      return M::failure();
-    L::SmallVector<M::Type, 8> types;
-    types.push_back(calleeType);
-    auto input = calleeType.getInputs();
-    types.insert(types.end(), input.begin(), input.end());
-    if (parser.resolveOperands(operands, types, calleeLoc, result.operands))
-      return M::failure();
-    return M::success();
-  }];
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(proc());
-    p << '(';
-    p.printOperands(args());
-    p << ')';
-    p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << getCallee()->getType();
-  }];
-  let extraClassDeclaration = [{
-    mlir::FunctionType getFunctionType();
-    Value *getCallee() { return getOperand(0); }
-
-    operand_range getArgOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
-    }
-
-    operand_iterator arg_operand_begin() { return ++operand_begin(); }
-    operand_iterator arg_operand_end() { return operand_end(); }
-  }];
+  let parser = [{ return parseCallOp(parser, result); }];
+  let printer = [{ printCallOp(p, *this); }];
 }
 
 def fir_DispatchOp : fir_Op<"dispatch", []>,
@@ -1590,7 +1517,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
         parser.resolveOperands(
             operands, calleeType.getInputs(), calleeLoc, result.operands))
       return M::failure();
-    result.addAttribute("fn_type", parser.getBuilder().getTypeAttr(calleeType));
+    result.addAttribute("fn_type", M::TypeAttr::get(calleeType));
     return M::success();
   }];
 
@@ -1731,8 +1658,7 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
     M::Type intype;
     if (parser.parseType(intype))
       return M::failure();
-    auto &builder = parser.getBuilder();
-    result.addAttribute("in_type", builder.getTypeAttr(intype));
+    result.addAttribute("in_type", M::TypeAttr::get(intype));
     M::Type restype;
     if (parser.parseColonType(restype) ||
         parser.addTypeToList(restype, result.types))
@@ -1801,7 +1727,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
         parser.parseColonType(type) ||
         parser.resolveOperand(constant, type, result.operands))
       return M::failure();
-    result.addAttribute("in_type", parser.getBuilder().getTypeAttr(type));
+    result.addAttribute("in_type", M::TypeAttr::get(type));
     return M::success();
   }];
   let printer = [{ 

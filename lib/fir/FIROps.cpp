@@ -44,6 +44,66 @@ M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
 // CallOp
 
+void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
+  auto callee = op.callee();
+  bool isDirect = callee.hasValue();
+  p << op.getOperationName() << ' ';
+  if (isDirect)
+    p.printSymbolName(callee.getValue());
+  else
+    p << *op.getOperand(0);
+  p << '(';
+  p.printOperands(L::drop_begin(op.getOperands(), isDirect ? 0 : 1));
+  p << ')';
+  p.printOptionalAttrDict(op.getAttrs(), {"callee"});
+  L::SmallVector<Type, 1> resultTypes(op.getResultTypes());
+  L::SmallVector<Type, 8> argTypes(
+      L::drop_begin(op.getOperandTypes(), isDirect ? 0 : 1));
+  p << " : " << FunctionType::get(argTypes, resultTypes, op.getContext());
+}
+
+M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
+  L::SmallVector<M::OpAsmParser::OperandType, 8> operands;
+
+  if (parser.parseOperandList(operands))
+    return M::failure();
+  bool isDirect = operands.empty();
+  SmallVector<NamedAttribute, 4> attrs;
+  SymbolRefAttr funcAttr;
+
+  if (isDirect)
+    if (parser.parseAttribute(funcAttr, "callee", attrs))
+      return M::failure();
+  Type type;
+
+  if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
+      parser.parseOptionalAttributeDict(attrs) || parser.parseColon() ||
+      parser.parseType(type))
+    return M::failure();
+
+  auto funcType = type.dyn_cast<M::FunctionType>();
+  if (!funcType)
+    return parser.emitError(parser.getNameLoc(), "expected function type");
+  if (isDirect) {
+    if (parser.resolveOperands(operands, funcType.getInputs(),
+                               parser.getNameLoc(), result.operands))
+      return M::failure();
+  } else {
+    auto funcArgs =
+        L::ArrayRef<M::OpAsmParser::OperandType>(operands).drop_front();
+    L::SmallVector<M::Value *, 8> resultArgs(
+        result.operands.begin() + (result.operands.empty() ? 0 : 1),
+        result.operands.end());
+    if (parser.resolveOperand(operands[0], funcType, result.operands) ||
+        parser.resolveOperands(funcArgs, funcType.getInputs(),
+                               parser.getNameLoc(), resultArgs))
+      return M::failure();
+  }
+  result.addTypes(funcType.getResults());
+  result.attributes = attrs;
+  return M::success();
+}
+
 // DispatchOp
 
 M::FunctionType DispatchOp::getFunctionType() {
@@ -110,7 +170,7 @@ void DispatchTableOp::appendTableEntry(M::Operation *op) {
 void GlobalOp::build(M::Builder *builder, M::OperationState *result,
                      L::StringRef name, M::Type type,
                      L::ArrayRef<M::NamedAttribute> attrs) {
-  result->addAttribute(getTypeAttrName(), builder->getTypeAttr(type));
+  result->addAttribute(getTypeAttrName(), M::TypeAttr::get(type));
   result->addAttribute(M::SymbolTable::getSymbolAttrName(),
                        builder->getStringAttr(name));
   for (const auto &pair : attrs) {
@@ -140,7 +200,7 @@ M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
   if (parser.parseColonType(globalType)) {
     return M::failure();
   }
-  result.addAttribute(getTypeAttrName(), builder.getTypeAttr(globalType));
+  result.addAttribute(getTypeAttrName(), M::TypeAttr::get(globalType));
 
   // Parse the optional initializer body.
   M::Region *body = result.addRegion();
@@ -174,12 +234,6 @@ void GlobalOp::appendInitialValue(M::Operation *op) {
 }
 
 M::Region &GlobalOp::front() { return this->getOperation()->getRegion(0); }
-
-// ICallOp
-
-M::FunctionType ICallOp::getFunctionType() {
-  return getCallee()->getType().cast<M::FunctionType>();
-}
 
 // LoadOp
 

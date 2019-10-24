@@ -342,6 +342,24 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   }
 };
 
+M::LLVM::LLVMFuncOp getMalloc(AllocMemOp op,
+                              M::ConversionPatternRewriter &rewriter,
+                              M::LLVM::LLVMDialect *dialect) {
+  auto module = op.getParentOfType<M::ModuleOp>();
+  auto mallocFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("malloc");
+  if (!mallocFunc) {
+    M::OpBuilder moduleBuilder(
+        op.getParentOfType<M::ModuleOp>().getBodyRegion());
+    auto voidPtrType = M::LLVM::LLVMType::getInt8PtrTy(dialect);
+    auto indexType = M::LLVM::LLVMType::getInt64Ty(dialect);
+    mallocFunc = moduleBuilder.create<M::LLVM::LLVMFuncOp>(
+        rewriter.getUnknownLoc(), "malloc",
+        M::LLVM::LLVMType::getFunctionTy(voidPtrType, indexType,
+                                         /*isVarArg=*/false));
+  }
+  return mallocFunc;
+}
+
 // convert to `call` to the runtime to `malloc` memory
 struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   using FIROpConversion::FIROpConversion;
@@ -352,7 +370,11 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
     auto heap = M::cast<AllocMemOp>(op);
     auto ty = lowering.convertType(heap.getType());
     // FIXME: should be a call to malloc
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(heap, ty, operands,
+    auto loc = heap.getLoc();
+    auto ity = lowering.indexType();
+    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(heap, ty, c1.getResult(),
                                                    heap.getAttrs());
     return matchSuccess();
   }
@@ -927,19 +949,6 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   }
 };
 
-// indirect call (via a pointer); see dispatch as well
-struct ICallOpConversion : public FIROpConversion<fir::ICallOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto icall = M::cast<fir::ICallOp>(op);
-    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(icall, operands);
-    return matchSuccess();
-  }
-};
-
 // InsertValue is the generalized instruction for the composition of new
 // aggregate type values.
 struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
@@ -1415,14 +1424,14 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
         EmboxOpConversion, EmboxProcOpConversion, FirEndOpConversion,
         ExtractValueOpConversion, FieldIndexOpConversion, FreeMemOpConversion,
         GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
-        GlobalOpConversion, ICallOpConversion, InsertValueOpConversion,
-        LenParamIndexOpConversion, LoadOpConversion, LoopOpConversion,
-        ModfOpConversion, MulcOpConversion, MulfOpConversion,
-        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
-        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
-        SubcOpConversion, SubfOpConversion, UnboxCharOpConversion,
-        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
-        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
+        GlobalOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
+        LoadOpConversion, LoopOpConversion, ModfOpConversion, MulcOpConversion,
+        MulfOpConversion, NoReassocOpConversion, SelectCaseOpConversion,
+        SelectOpConversion, SelectRankOpConversion, SelectTypeOpConversion,
+        StoreOpConversion, SubcOpConversion, SubfOpConversion,
+        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
+        UndefOpConversion, UnreachableOpConversion, WhereOpConversion>(
+        &context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();

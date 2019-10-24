@@ -35,7 +35,7 @@ func @oth3() -> !fir.tdesc<!fir.type<derived5{f1:f32,f2:f32}>>
 func @print_index3(index, index, index)
 func @user_i64(i64)
 func @user_tdesc(!fir.tdesc<!fir.type<x>>)
-func @store_tuple(tuple<i32>) -> ()
+func @store_tuple(!fir.type<qq1{f1:i32}>) -> ()
 
 func @get_method_box() -> !fir.box<!fir.type<derived3{f:f32}>>
 func @method_impl(!fir.box<!fir.type<derived3{f:f32}>>)
@@ -87,7 +87,7 @@ func @instructions() {
   fir.call @user_i64(%31) : (i64) -> ()
   fir.freemem %5 : !fir.heap<!fir.array<100:f32>>
   %32 = fir.call @get_func() : () -> (() -> ())
-  fir.icall %32() : () -> ()
+  fir.call %32() : () -> ()
   %33 = fir.address_of (@it1) : !fir.ref<() -> !fir.int<4>>
   return
 }
@@ -101,21 +101,21 @@ func @boxing_match() {
   %b3 = fir.undefined !fir.char<1>
   %4 = fir.emboxchar %3, %c8 : (!fir.ref<!fir.char<1>>, i32) -> !fir.boxchar<1>
   %5:2 = fir.unboxchar %4 : (!fir.boxchar<1>) -> (!fir.ref<!fir.char<1>>, i32)
-  %6 = fir.alloca tuple<i32, f64> : !fir.ref<tuple<i32, f64>>
-  %a1 = fir.undefined tuple<i32, f64>
+  %6 = fir.alloca !fir.type<qq2{f1:i32,f2:f64}> : !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>
+  %a1 = fir.undefined !fir.type<qq2{f1:i32,f2:f64}>
   %z = constant 0 : i32
   %c12 = constant 12 : i32
-  %a2 = fir.insert_value %a1, %c12, %z : (tuple<i32, f64>, i32, i32) -> tuple<i32, f64>
+  %a2 = fir.insert_value %a1, %c12, %z : (!fir.type<qq2{f1:i32,f2:f64}>, i32, i32) -> !fir.type<qq2{f1:i32,f2:f64}>
   %z1 = constant 1 : i32
   %c42 = constant 42.13 : f64
-  %a3 = fir.insert_value %a1, %c42, %z1 : (tuple<i32, f64>, f64, i32) -> tuple<i32, f64>
-  fir.store %a3 to %6 : !fir.ref<tuple<i32, f64>>
-  %7 = fir.emboxproc @method_impl, %6 : ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<i32, f64>>) -> !fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>
-  %8:2 = fir.unboxproc %7 : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<i32, f64>>)
+  %a3 = fir.insert_value %a1, %c42, %z1 : (!fir.type<qq2{f1:i32,f2:f64}>, f64, i32) -> !fir.type<qq2{f1:i32,f2:f64}>
+  fir.store %a3 to %6 : !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>
+  %7 = fir.emboxproc @method_impl, %6 : ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>) -> !fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>
+  %8:2 = fir.unboxproc %7 : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>)
   %9 = call @box3() : () -> !fir.boxproc<(i32, i32) -> i64>
-  %10:2 = fir.unboxproc %9 : (!fir.boxproc<(i32, i32) -> i64>) -> ((i32, i32) -> i64, !fir.ref<tuple<i32>>)
-  %11 = fir.load %10#1 : !fir.ref<tuple<i32>>
-  fir.call @store_tuple(%11) : (tuple<i32>) -> ()
+  %10:2 = fir.unboxproc %9 : (!fir.boxproc<(i32, i32) -> i64>) -> ((i32, i32) -> i64, !fir.ref<!fir.type<qq1{f1:i32}>>)
+  %11 = fir.load %10#1 : !fir.ref<!fir.type<qq1{f1:i32}>>
+  fir.call @store_tuple(%11) : (!fir.type<qq1{f1:i32}>) -> ()
   return
 }
 
