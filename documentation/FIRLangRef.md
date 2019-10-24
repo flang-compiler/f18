@@ -811,7 +811,7 @@ generalized and not restricted to affine loop nests.
 Example:
 
 ```mlir
-    %78 = fir.icall %75(%74) : !fir.ref<!T>
+    %78 = fir.call %75(%74) : !fir.ref<!T>
     fir.where %56 {
       fir.store %76 to %78 : !fir.ref<!T>
     } otherwise {
@@ -823,24 +823,13 @@ Example:
 
 Syntax:	<code><b>fir.call</b> <em>callee</em> <b>(</b> <em>arg-list</em> <b>) :</b> <em>func-type</em></code>
 
-Call the specified function.
+Call the specified function or function reference.
 
 Example:
 
 ```mlir
+    %89 = fir.call %funcref(%arg0) : (!fir.ref<f32>) -> f32
     %90 = fir.call @function(%arg1, %arg2) : (!fir.ref<f32>, !fir.ref<f32>) -> f32
-```
-
-#### `fir.icall`
-
-Syntax:	<code><b>fir.icall</b> <em>callee</em> <b>(</b> <em>arg-list</em> <b>) :</b> <em>func-type</em></code>
-
-Call the specified function reference.
-
-Example:
-
-```mlir
-    %89 = fir.icall %funcref(%arg0) : (!fir.ref<f32>) -> f32
 ```
 
 #### `fir.dispatch`

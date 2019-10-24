@@ -430,6 +430,7 @@ class ExprLowering {
             Ev::Expr<TR>{Ev::Constant<TR>{opt->AIMAG()}}});
       }
       assert(false && "array of complex unhandled");
+      return {};
     } else {
       assert(false && "unhandled constant");
       return {};
