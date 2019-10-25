@@ -75,8 +75,8 @@ std::vector<LabelMention> GetAssign(
 }
 
 static std::tuple<const parser::Name *, LabelMention, LabelMention> FindStack(
-    const std::vector<std::tuple<const parser::Name *, LabelMention, LabelMention>>
-        &stack,
+    const std::vector<
+        std::tuple<const parser::Name *, LabelMention, LabelMention>> &stack,
     const parser::Name *key) {
   for (auto iter{stack.rbegin()}, iend{stack.rend()}; iter != iend; ++iter) {
     if (std::get<0>(*iter) == key) {
@@ -705,17 +705,10 @@ struct ControlFlowAnalyzer {
 
 }  // namespace flat
 
-template<typename A>
-void CreateFlatIR(const A &ptree, std::list<flat::Op> &ops, AnalysisData &ad) {
+void CreateFlatIR(std::list<flat::Op> &ops, AnalysisData &ad) {
   flat::ControlFlowAnalyzer linearize{ops, ad};
-  Walk(ptree, linearize);
+  std::visit(
+      [&](const auto *ptree) { Walk(*ptree, linearize); }, ad.parseTreeRoot);
 }
-
-#define INSTANTIATE_EXPLICITLY(T) \
-  template void CreateFlatIR<parser::T>( \
-      const parser::T &, std::list<flat::Op> &, AnalysisData &)
-INSTANTIATE_EXPLICITLY(MainProgram);
-INSTANTIATE_EXPLICITLY(FunctionSubprogram);
-INSTANTIATE_EXPLICITLY(SubroutineSubprogram);
 
 }  // namespace burnside

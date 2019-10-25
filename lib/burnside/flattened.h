@@ -214,24 +214,21 @@ std::vector<LabelMention> GetAssign(
 
 // Collection of data maintained internally by the flattening algorithm
 struct AnalysisData {
+  template<typename Node>
+  AnalysisData(const Node &node) : parseTreeRoot{&node} {}
+
   std::map<parser::Label, flat::LabelOp> labelMap;
   std::vector<
       std::tuple<const parser::Name *, flat::LabelMention, flat::LabelMention>>
       constructContextStack;
   flat::LabelBuilder labelBuilder;
   std::map<const semantics::Symbol *, std::set<parser::Label>> assignMap;
+  const std::variant<const parser::MainProgram *,
+      const parser::FunctionSubprogram *, const parser::SubroutineSubprogram *>
+      parseTreeRoot;
 };
 
-// entry-point into building the flat IR
-template<typename A>
-void CreateFlatIR(const A &ptree, std::list<flat::Op> &ops, AnalysisData &ad);
-
-#define EXPLICIT_INSTANTIATION(T) \
-  extern template void CreateFlatIR<parser::T>( \
-      const parser::T &, std::list<flat::Op> &, AnalysisData &)
-EXPLICIT_INSTANTIATION(MainProgram);
-EXPLICIT_INSTANTIATION(FunctionSubprogram);
-EXPLICIT_INSTANTIATION(SubroutineSubprogram);
+void CreateFlatIR(std::list<flat::Op> &, AnalysisData &);
 
 }  // namespace burnside
 

@@ -229,8 +229,12 @@ class FIRConverter {
     }
     noInsPt = true;
   }
-  void genFIR(const Fl::ReturnOp &op) {
-    std::visit([&](const auto *stmt) { genFIR(*stmt); }, op.u);
+  void genFIR(AnalysisData &ad, const Fl::ReturnOp &op) {
+    std::visit(Co::visitors{
+                   [&](const Pa::ReturnStmt *stmt) { genReturnStmt(ad, stmt); },
+                   [&](const auto *stmt) { genFIR(*stmt); },
+               },
+        op.u);
     noInsPt = true;
   }
   void genFIR(const Fl::ConditionalGotoOp &op) {
@@ -386,7 +390,7 @@ class FIRConverter {
   void genEnterFIR(const Pa::OmpEndLoopDirective &) { TODO(); }
   void genEnterFIR(const Pa::SelectRankConstruct &) { TODO(); }
   void genEnterFIR(const Pa::SelectTypeConstruct &) { TODO(); }
-  
+
   void genExitFIR(const Pa::DoConstruct &construct) {
     if (firLoopOp) {
       build().setInsertionPointAfter(
@@ -458,9 +462,39 @@ class FIRConverter {
     build().create<M::CallOp>(toLocation(), callee, operands);
     build().create<fir::UnreachableOp>(toLocation());
   }
-  void genFIR(const Pa::ReturnStmt &stmt) {
-    build().create<M::ReturnOp>(toLocation());  // FIXME: argument(s)?
+  void genReturnStmt(AnalysisData &, const Pa::FunctionSubprogram &func) {
+    auto &stmt{std::get<Pa::Statement<Pa::FunctionStmt>>(func.t)};
+    auto &name{std::get<Pa::Name>(stmt.statement.t)};
+    assert(name.symbol);
+    const auto &details{name.symbol->get<Se::SubprogramDetails>()};
+    const Se::Symbol *result{&details.result()};
+    M::Value *resultRef{symbolMap.lookupSymbol(result)};
+    assert(resultRef);  // FIXME might die if result
+    // was never referenced before and temp not created.
+    M::Value *resultVal{build().create<fir::LoadOp>(toLocation(), resultRef)};
+    build().create<M::ReturnOp>(toLocation(), resultVal);
   }
+  void genReturnStmt(const Pa::MainProgram &) {
+    build().create<M::ReturnOp>(toLocation());
+  }
+  void genReturnStmt(
+      const Pa::SubroutineSubprogram &, const Pa::ReturnStmt * = nullptr) {
+    // TODO use Pa::ReturnStmt for alternate return
+    build().create<M::ReturnOp>(toLocation());
+  }
+  void genReturnStmt(AnalysisData &ad, const Pa::ReturnStmt *stmt = nullptr) {
+    std::visit(Co::visitors{
+                   [&](const Pa::SubroutineSubprogram *sub) {
+                     genReturnStmt(*sub, stmt);
+                   },
+                   [&](const Pa::FunctionSubprogram *func) {
+                     genReturnStmt(ad, *func);
+                   },
+                   [&](const Pa::MainProgram *main) { genReturnStmt(*main); },
+               },
+        ad.parseTreeRoot);
+  }
+
   void genFIR(const Pa::StopStmt &stmt) {
     auto callee{genRuntimeFunction(
         isStopStmt(std::get<Pa::StopStmt::Kind>(stmt.t)) ? FIRT_STOP
@@ -858,10 +892,12 @@ void FIRConverter::genFIR(AnalysisData &ad, const Fl::ActionOp &op) {
                  [](const Co::Indirection<Pa::ExitStmt> &) { TODO(); },
                  [](const Co::Indirection<Pa::GotoStmt> &) { TODO(); },
                  [](const Co::Indirection<Pa::IfStmt> &) { TODO(); },
-                 [](const Co::Indirection<Pa::ReturnStmt> &) { TODO(); },
                  [](const Co::Indirection<Pa::StopStmt> &) { TODO(); },
                  [&](const Co::Indirection<Pa::AssignStmt> &assign) {
                    genFIR(ad, assign.value());
+                 },
+                 [](const Co::Indirection<Pa::ReturnStmt> &) {
+                   assert(false && "should be a ReturnOp");
                  },
                  [&](const auto &stmt) { genFIR(stmt); },
              },
@@ -895,6 +931,11 @@ void FIRConverter::genFIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
                      genFIR(oper);
                      lastWasLabel = true;
                    },
+                   [&](const Fl::ReturnOp &oper) {
+                     noInsPt = false;
+                     genFIR(ad, oper);
+                     lastWasLabel = true;
+                   },
                    [&](const auto &oper) {
                      noInsPt = false;
                      genFIR(oper);
@@ -904,8 +945,7 @@ void FIRConverter::genFIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
         op.u);
   }
   if (build().getInsertionBlock()) {
-    // FIXME: assuming type of '() -> ()'
-    build().create<M::ReturnOp>(toLocation());
+    genReturnStmt(ad);
   }
 }
 
@@ -955,9 +995,9 @@ void FIRConverter::translateRoutine(
       assert(false && "symbol misidentified by front-end");
     }
   }
-  AnalysisData ad;
+  AnalysisData ad{routine};
   std::list<Fl::Op> operations;
-  CreateFlatIR(routine, operations, ad);
+  CreateFlatIR(operations, ad);
   genFIR(ad, operations);
   finalizeQueued();
 }
