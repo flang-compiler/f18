@@ -20,6 +20,7 @@
 
 srcdir=$(dirname $0)
 source $srcdir/common.sh
+[[ ! -f $src ]] && echo "File not found: $src" && exit 1
 
 FileCheck=${FileCheck:=internal_check}
 
