@@ -18,6 +18,7 @@
 #include "fir/Type.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/Transforms/SideEffectsInterface.h"
 
 namespace M = mlir;
 
@@ -57,8 +58,10 @@ fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
                 >();
 }
 
-// anchor the class vtable
-fir::FIROpsDialect::~FIROpsDialect() {}
+// anchor the class vtable to this compilation unit
+fir::FIROpsDialect::~FIROpsDialect() {
+  // do nothing
+}
 
 M::Type fir::FIROpsDialect::parseType(llvm::StringRef rawData,
                                       M::Location loc) const {
@@ -91,6 +94,6 @@ void fir::FIROpsDialect::printAttribute(M::Attribute attr,
   } else if (attr.dyn_cast_or_null<fir::UpperBoundAttr>()) {
     os << fir::UpperBoundAttr::getAttrName();
   } else {
-    assert(false);
+    assert(false && "attribute pretty-printer is not implemented");
   }
 }

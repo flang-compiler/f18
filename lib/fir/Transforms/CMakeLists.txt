@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,28 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-string-conversion")
-
-add_executable(fml
-  fml.cc
+add_llvm_library(FIRTransforms
+  CSE.cpp
+  MemToReg.cpp
 )
 
-set(LIBS
-  MLIRAffineOps
-  MLIRLLVMIR
-  MLIRLoopOps
-  MLIRStandardOps
+add_dependencies(FIRTransforms FIROpsIncGen)
+
+target_link_libraries(FIRTransforms
+  FIR
 )
 
-whole_archive_link(fml ${LIBS})
-target_link_libraries(fml
-  FortranCommon
-  FortranParser
-  FortranEvaluate
-  FortranSemantics
-  FortranBurnside
-  FIRTransforms
-  ${LIBS}
+install (TARGETS FIRTransforms
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
 )
-
-install(TARGETS fml DESTINATION bin)

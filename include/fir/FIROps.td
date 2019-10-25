@@ -189,15 +189,14 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     if (!parser.parseOptionalComma()) {
       llvm::SmallVector<M::Type, 4> typeVec;
       llvm::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-      if (parser.parseOperandList(operands,
-              M::OpAsmParser::Delimiter::None) ||
-          parser.parseOptionalAttributeDict(result.attributes) ||
+      if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::None) ||
           parser.resolveOperands(operands, builder.getIndexType(),
               parser.getNameLoc(), result.operands))
         return M::failure();
     }
     M::Type restype;
-    if (parser.parseColonType(restype) ||
+    if (parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseColonType(restype) ||
         parser.addTypeToList(restype, result.types))
       return M::failure();
     return M::success();
@@ -248,7 +247,7 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
   }];
 }
 
-def fir_LoadOp : fir_OneResultOp<"load", [NoSideEffect]>,
+def fir_LoadOp : fir_OneResultOp<"load", []>,
     Arguments<(ins AnyReferenceLike:$memref)> {
   let summary = "load a value from a memory reference";
 

@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-add_library(FIR
+add_subdirectory(Transforms)
+
+add_llvm_library(FIR
   Attribute.cpp
   Dialect.cpp
   FIROps.cpp
   IteratedDominanceFrontier.cpp
   KindMapping.cpp
-  MemToReg.cpp
   StdConverter.cpp
   Tilikum.cpp
   Type.cpp
@@ -43,5 +44,4 @@ target_link_libraries(FIR
 install (TARGETS FIR
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
 )

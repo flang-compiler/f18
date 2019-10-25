@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Transforms/MemToReg.h"
 #include "fir/Analysis/IteratedDominanceFrontier.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
+#include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/Pass/Pass.h"
@@ -735,6 +735,6 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
 } // namespace
 
-std::unique_ptr<M::FunctionPassBase> fir::createMemToRegPass() {
+std::unique_ptr<M::OpPassBase<M::FuncOp>> fir::createMemToRegPass() {
   return std::make_unique<MemToReg<LoadOp, StoreOp, AllocaOp, UndefOp>>();
 }

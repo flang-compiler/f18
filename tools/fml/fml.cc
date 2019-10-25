@@ -16,7 +16,7 @@
 
 #include "fir/Dialect.h"
 #include "fir/Tilikum/Tilikum.h"
-#include "fir/Transforms/MemToReg.h"
+#include "fir/Transforms/Passes.h"
 #include "fir/Transforms/StdConverter.h"
 #include "../../lib/burnside/bridge.h"
 #include "../../lib/burnside/convert-expr.h"
@@ -276,9 +276,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     llvm::errs() << ";== 1 ==\n";
     mlirModule.dump();
   }
+  // Run FIR mem2reg and CSE as a pair
   pm.addPass(fir::createMemToRegPass());
-  // Run FIR lowering and CSE as a pair
-  pm.addPass(mlir::createCSEPass());
+  pm.addPass(fir::createCSEPass());
   if (driver.lowerToStd) {
     pm.addPass(fir::createFIRToStdPass());
   }
