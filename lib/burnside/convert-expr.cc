@@ -153,6 +153,8 @@ class ExprLowering {
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
     auto module{getModule(&builder)};
     if (M::FuncOp func{getNamedFunction(module, name)}) {
+      assert(func.getType() == funTy &&
+          "function already declared with a different type");
       return func;
     }
     return createFunction(module, name, funTy);
@@ -628,7 +630,31 @@ class ExprLowering {
       L::StringRef name{intrinsic->name};
       return intrinsics.genval(getLoc(), builder, name, ty, operands);
     } else {
-      TODO();  // User defined function.
+      // implicit interface implementation only
+      // TODO: explicit interface
+      L::SmallVector<M::Type, 2> argTypes;
+      L::SmallVector<M::Value *, 2> operands;
+      for (const auto &arg : funRef.arguments()) {
+        assert(
+            arg.has_value() && "optional argument requires explicit interface");
+        const auto *expr{arg->UnwrapExpr()};
+        assert(expr && "assumed type argument requires explicit interface");
+        if (const Se::Symbol * sym{Ev::UnwrapWholeSymbolDataRef(*expr)}) {
+          M::Value *argRef{symMap.lookupSymbol(sym)};
+          assert(argRef && "could not get symbol reference");
+          argTypes.push_back(argRef->getType());
+          operands.push_back(argRef);
+        } else {
+          // TODO create temps for expressions
+          TODO();
+        }
+      }
+      M::Type resultType{getFIRType(builder.getContext(), defaults, TC, KIND)};
+      M::FunctionType funTy{
+          M::FunctionType::get(argTypes, resultType, builder.getContext())};
+      M::FuncOp func{getFunction(funRef.proc().GetName(), funTy)};
+      M::CallOp call{builder.create<M::CallOp>(getLoc(), func, operands)};
+      return call.getResult(0);
     }
   }
 
