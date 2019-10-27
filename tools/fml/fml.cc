@@ -588,12 +588,17 @@ int main(int argc, char *const argv[]) {
   if (driver.warnOnNonstandardUsage) {
     options.features.WarnOnAllNonstandard();
   }
-  if (!options.features.IsEnabled(
-          Fortran::parser::LanguageFeature::BackslashEscapes)) {
-    driver.pgf90Args.push_back("-Mbackslash");
-  }
-  if (options.features.IsEnabled(Fortran::parser::LanguageFeature::OpenMP)) {
-    driver.pgf90Args.push_back("-mp");
+
+  if (driver.pgf90Args.size() > 0) {
+    // marshal the arguments for cl parsing
+    int argc_cp = driver.pgf90Args.size();
+    const char **argv_cp = new const char *[argc_cp + 1];
+    for (int i = 0; i < argc_cp; ++i)
+      argv_cp[i] = driver.pgf90Args[i].c_str();
+    argv_cp[argc_cp] = nullptr;
+    llvm::cl::ParseCommandLineOptions(
+        argc_cp, argv_cp, "Fortran/FIR/MLIR compiler\n");
+    delete[] argv_cp;
   }
 
   Fortran::parser::AllSources allSources;
@@ -604,8 +609,6 @@ int main(int argc, char *const argv[]) {
       .set_searchDirectories(driver.searchDirectories)
       .set_warnOnNonstandardUsage(driver.warnOnNonstandardUsage)
       .set_warningsAreErrors(driver.warningsAreErrors);
-  
-  //llvm::cl::ParseCommandLineOptions(argc, argv, "Fortran/FIR/MLIR compiler\n");
 
   if (!anyFiles) {
     driver.measureTree = true;
