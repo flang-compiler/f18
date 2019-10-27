@@ -177,6 +177,22 @@ class FIRConverter {
     return build().create<M::AndOp>(lhs->getLoc(), lhs, rhs);
   }
 
+  template<typename A> void genFIR(const Co::Indirection<A> &indirection) {
+    genFIR(indirection.value());
+  }
+  template<typename A> void genFIR(const Pa::Statement<A> &stmt) {
+    setCurrentPos(stmt.source);
+    genFIR(stmt.statement);
+  }
+  template<typename A> void genFIR(const std::list<A> &list) {
+    for (auto &a : list) {
+      genFIR(a);
+    }
+  }
+  template<typename A> void genFIROnVariant(const A &variant) {
+    std::visit([&](auto &s) { genFIR(s); }, variant.u);
+  }
+
   void genFIR(AnalysisData &ad, std::list<Fl::Op> &operations);
 
   // Control flow destination
@@ -335,14 +351,42 @@ class FIRConverter {
       pushDoContext(&ss);
     }
   }
-  template<typename A> void genEnterFIR(const A &construct) {
-    // FIXME: add other genEnterFIR() members and delete this stub
+
+  /// Lower FORALL construct (See 10.2.4)
+  void genEnterFIR(const Pa::ForallConstruct &forall) {
+    auto &stmt{std::get<Pa::Statement<Pa::ForallConstructStmt>>(forall.t)};
+    setCurrentPos(stmt.source);
+    auto &fas{stmt.statement};
+    auto &ctrl{std::get<Co::Indirection<Pa::ConcurrentHeader>>(fas.t).value()};
+    auto &bld{build()};
+    // bld.create<fir::LoopOp>();
+    for (auto &s : std::get<std::list<Pa::ForallBodyConstruct>>(forall.t)) {
+      genFIROnVariant(s);
+    }
     TODO();
   }
+  void genFIR(const Pa::ForallConstruct &forall) { genEnterFIR(forall); }
+  void genFIR(const Pa::ForallAssignmentStmt &s) { genFIROnVariant(s); }
+
+  void genEnterFIR(const Pa::WhereConstruct &where) { TODO(); }
+  void genFIR(const Pa::WhereConstruct &where) { genEnterFIR(where); }
+
   void genFIR(const Fl::BeginOp &op) {
     std::visit([&](auto *construct) { genEnterFIR(*construct); }, op.u);
   }
 
+  void genEnterFIR(const Pa::AssociateConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::BlockConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::CaseConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::ChangeTeamConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::CriticalConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::IfConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::CompilerDirective &) { TODO(); }
+  void genEnterFIR(const Pa::OpenMPConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::OmpEndLoopDirective &) { TODO(); }
+  void genEnterFIR(const Pa::SelectRankConstruct &) { TODO(); }
+  void genEnterFIR(const Pa::SelectTypeConstruct &) { TODO(); }
+  
   void genExitFIR(const Pa::DoConstruct &construct) {
     if (firLoopOp) {
       build().setInsertionPointAfter(
@@ -500,9 +544,7 @@ class FIRConverter {
   }
 
   // Action statements
-  void genFIR(const Pa::AllocateStmt &stmt) {
-    TODO();
-  }
+  void genFIR(const Pa::AllocateStmt &stmt) { TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
@@ -510,90 +552,34 @@ class FIRConverter {
     build().create<fir::StoreOp>(
         loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
   }
-  void genFIR(const Pa::BackspaceStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::CallStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::CloseStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::DeallocateStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::EndfileStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::EventPostStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::EventWaitStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::FlushStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::FormTeamStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::InquireStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::LockStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::NullifyStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::OpenStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::PointerAssignmentStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::PrintStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::ReadStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::RewindStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::SyncAllStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::SyncImagesStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::SyncMemoryStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::SyncTeamStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::UnlockStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::WaitStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::WhereStmt &stmt){
-    TODO();
-  }
-  void genFIR(const Pa::WriteStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::ForallStmt &stmt) {
-    TODO();
-  }
-  void genFIR(AnalysisData &ad, const Pa::AssignStmt &stmt) {
-    TODO();
-  }
-  void genFIR(const Pa::PauseStmt &stmt) {
-    TODO();
-  }
+  void genFIR(const Pa::BackspaceStmt &stmt) { TODO(); }
+  void genFIR(const Pa::CallStmt &stmt) { TODO(); }
+  void genFIR(const Pa::CloseStmt &stmt) { TODO(); }
+  void genFIR(const Pa::DeallocateStmt &stmt) { TODO(); }
+  void genFIR(const Pa::EndfileStmt &stmt) { TODO(); }
+  void genFIR(const Pa::EventPostStmt &stmt) { TODO(); }
+  void genFIR(const Pa::EventWaitStmt &stmt) { TODO(); }
+  void genFIR(const Pa::FlushStmt &stmt) { TODO(); }
+  void genFIR(const Pa::FormTeamStmt &stmt) { TODO(); }
+  void genFIR(const Pa::InquireStmt &stmt) { TODO(); }
+  void genFIR(const Pa::LockStmt &stmt) { TODO(); }
+  void genFIR(const Pa::NullifyStmt &stmt) { TODO(); }
+  void genFIR(const Pa::OpenStmt &stmt) { TODO(); }
+  void genFIR(const Pa::PointerAssignmentStmt &stmt) { TODO(); }
+  void genFIR(const Pa::PrintStmt &stmt) { TODO(); }
+  void genFIR(const Pa::ReadStmt &stmt) { TODO(); }
+  void genFIR(const Pa::RewindStmt &stmt) { TODO(); }
+  void genFIR(const Pa::SyncAllStmt &stmt) { TODO(); }
+  void genFIR(const Pa::SyncImagesStmt &stmt) { TODO(); }
+  void genFIR(const Pa::SyncMemoryStmt &stmt) { TODO(); }
+  void genFIR(const Pa::SyncTeamStmt &stmt) { TODO(); }
+  void genFIR(const Pa::UnlockStmt &stmt) { TODO(); }
+  void genFIR(const Pa::WaitStmt &stmt) { TODO(); }
+  void genFIR(const Pa::WhereStmt &stmt) { TODO(); }
+  void genFIR(const Pa::WriteStmt &stmt) { TODO(); }
+  void genFIR(const Pa::ForallStmt &stmt) { TODO(); }
+  void genFIR(AnalysisData &ad, const Pa::AssignStmt &stmt) { TODO(); }
+  void genFIR(const Pa::PauseStmt &stmt) { TODO(); }
 
   template<typename A>
   void translateRoutine(
@@ -877,7 +863,7 @@ void FIRConverter::genFIR(AnalysisData &ad, const Fl::ActionOp &op) {
                  [&](const Co::Indirection<Pa::AssignStmt> &assign) {
                    genFIR(ad, assign.value());
                  },
-                 [&](const auto &stmt) { genFIR(stmt.value()); },
+                 [&](const auto &stmt) { genFIR(stmt); },
              },
       op.v->statement.u);
 }
