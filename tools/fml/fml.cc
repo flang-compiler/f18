@@ -330,7 +330,7 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
   // run passes
   mlir::PassManager pm{mlirModule.getContext()};
   pm.addPass(fir::createMemToRegPass());
-  pm.addPass(mlir::createCSEPass());
+  pm.addPass(fir::createCSEPass());
   if (driver.lowerToStd) {
     pm.addPass(fir::createFIRToStdPass());
   }
@@ -604,6 +604,8 @@ int main(int argc, char *const argv[]) {
       .set_searchDirectories(driver.searchDirectories)
       .set_warnOnNonstandardUsage(driver.warnOnNonstandardUsage)
       .set_warningsAreErrors(driver.warningsAreErrors);
+  
+  //llvm::cl::ParseCommandLineOptions(argc, argv, "Fortran/FIR/MLIR compiler\n");
 
   if (!anyFiles) {
     driver.measureTree = true;

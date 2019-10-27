@@ -20,6 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "fir/FIROps.h"
 #include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/IR/Attributes.h"
@@ -33,13 +34,19 @@
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/RecyclingAllocator.h"
 #include <deque>
 
 using namespace mlir;
 
+static llvm::cl::opt<bool>
+    ClLeaveEffects("keep-effects",
+                   llvm::cl::desc("disable cleaning up effects attributes"),
+                   llvm::cl::init(false), llvm::cl::Hidden);
+
 namespace {
-// TODO(riverriddle) Handle commutative operations.
+
 struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
   static unsigned getHashValue(const Operation *opC) {
     auto *op = const_cast<Operation *>(opC);
@@ -48,11 +55,20 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
     //   - Attributes
     //   - Result Types
     //   - Operands
+    unsigned hashOps;
+    if (op->isCommutative()) {
+      std::vector<void *> vec(op->operand_begin(), op->operand_end());
+      llvm::sort(vec.begin(), vec.end());
+      hashOps = llvm::hash_combine_range(vec.begin(), vec.end());
+    } else {
+      hashOps = hash_combine_range(op->operand_begin(), op->operand_end());
+    }
     return hash_combine(
         op->getName(), op->getAttrs(),
         hash_combine_range(op->result_type_begin(), op->result_type_end()),
-        hash_combine_range(op->operand_begin(), op->operand_end()));
+        hashOps);
   }
+
   static bool isEqual(const Operation *lhsC, const Operation *rhsC) {
     auto *lhs = const_cast<Operation *>(lhsC);
     auto *rhs = const_cast<Operation *>(rhsC);
@@ -73,19 +89,28 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
     if (lhs->getAttrs() != rhs->getAttrs())
       return false;
     // Compare operands.
-    if (!std::equal(lhs->operand_begin(), lhs->operand_end(),
-                    rhs->operand_begin()))
-      return false;
+    if (lhs->isCommutative()) {
+      SmallVector<Value *, 8> lops(lhs->operand_begin(), lhs->operand_end());
+      llvm::sort(lops.begin(), lops.end());
+      SmallVector<Value *, 8> rops(rhs->operand_begin(), rhs->operand_end());
+      llvm::sort(rops.begin(), rops.end());
+      if (!std::equal(lops.begin(), lops.end(), rops.begin()))
+        return false;
+    } else {
+      if (!std::equal(lhs->operand_begin(), lhs->operand_end(),
+                      rhs->operand_begin()))
+        return false;
+    }
     // Compare result types.
     return std::equal(lhs->result_type_begin(), lhs->result_type_end(),
                       rhs->result_type_begin());
   }
 };
 
-/// Simple common sub-expression elimination.
-struct CSE : public FunctionPass<CSE> {
-  CSE() = default;
-  CSE(const CSE &) {}
+/// Basic common sub-expression elimination.
+struct BasicCSE : public FunctionPass<BasicCSE> {
+  BasicCSE() = default;
+  BasicCSE(const BasicCSE &) {}
 
   /// Shared implementation of operation elimination and scoped map definitions.
   using AllocatorTy = llvm::RecyclingAllocator<
@@ -118,6 +143,21 @@ struct CSE : public FunctionPass<CSE> {
                      Block *bb);
   void simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
                       Region &region);
+  
+  void cleanupBlock(Block *bb) {
+    for (auto &inst : *bb) {
+      if (fir::nonVolatileLoad(&inst)) {
+        inst.removeAttr(Identifier::get("effects_token", inst.getContext()));
+      } else if (inst.getNumRegions()) {
+        for (auto &region : inst.getRegions())
+          cleanupRegion(region);
+      }
+    }
+  }
+  void cleanupRegion(Region &region) {
+    for (auto &block : region)
+      cleanupBlock(&block);
+  }
 
   void runOnFunction() override;
 
@@ -127,16 +167,15 @@ private:
 };
 
 /// Attempt to eliminate a redundant operation.
-LogicalResult CSE::simplifyOperation(ScopedMapTy &knownValues, Operation *op) {
+LogicalResult BasicCSE::simplifyOperation(ScopedMapTy &knownValues,
+                                          Operation *op) {
   // Don't simplify operations with nested blocks. We don't currently model
   // equality comparisons correctly among other things. It is also unclear
   // whether we would want to CSE such operations.
   if (op->getNumRegions() != 0)
     return failure();
 
-  // TODO(riverriddle) We currently only eliminate non side-effecting
-  // operations.
-  if (!op->hasNoSideEffect())
+  if (!op->hasNoSideEffect() && !fir::nonVolatileLoad(op))
     return failure();
 
   // If the operation is already trivially dead just add it to the erase list.
@@ -167,8 +206,16 @@ LogicalResult CSE::simplifyOperation(ScopedMapTy &knownValues, Operation *op) {
   return failure();
 }
 
-void CSE::simplifyBlock(ScopedMapTy &knownValues, DominanceInfo &domInfo,
-                        Block *bb) {
+void BasicCSE::simplifyBlock(ScopedMapTy &knownValues, DominanceInfo &domInfo,
+                             Block *bb) {
+  std::intptr_t token = reinterpret_cast<std::intptr_t>(bb);
+  for (auto &inst : *bb) {
+    if (fir::nonVolatileLoad(&inst))
+      inst.setAttr("effects_token",
+                   IntegerAttr::get(IndexType::get(inst.getContext()), token));
+    if (dyn_cast<fir::StoreOp>(&inst) || fir::impureCall(&inst))
+      token = reinterpret_cast<std::intptr_t>(&inst);
+  }
   for (auto &inst : *bb) {
     // If the operation is simplified, we don't process any held regions.
     if (succeeded(simplifyOperation(knownValues, &inst)))
@@ -190,8 +237,8 @@ void CSE::simplifyBlock(ScopedMapTy &knownValues, DominanceInfo &domInfo,
   }
 }
 
-void CSE::simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
-                         Region &region) {
+void BasicCSE::simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
+                              Region &region) {
   // If the region is empty there is nothing to do.
   if (region.empty())
     return;
@@ -237,15 +284,20 @@ void CSE::simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
   }
 }
 
-void CSE::runOnFunction() {
+void BasicCSE::runOnFunction() {
   /// A scoped hash table of defining operations within a function.
-  ScopedMapTy knownValues;
-  simplifyRegion(knownValues, getAnalysis<DominanceInfo>(),
-                 getFunction().getBody());
+  {
+    ScopedMapTy knownValues;
+    simplifyRegion(knownValues, getAnalysis<DominanceInfo>(),
+                   getFunction().getBody());
+  }
+  if (!ClLeaveEffects) {
+    cleanupRegion(getFunction().getBody());
+  }
 
   // If no operations were erased, then we mark all analyses as preserved.
   if (opsToErase.empty())
-    return ;//markAllAnalysesPreserved();
+    return markAllAnalysesPreserved();
 
   /// Erase any operations that were marked as dead during simplification.
   for (auto *op : opsToErase)
@@ -254,13 +306,14 @@ void CSE::runOnFunction() {
 
   // We currently don't remove region operations, so mark dominance as
   // preserved.
-  //markAnalysesPreserved<DominanceInfo, PostDominanceInfo>();
+  markAnalysesPreserved<DominanceInfo, PostDominanceInfo>();
 }
+
 } // end anonymous namespace
 
 std::unique_ptr<OpPassBase<FuncOp>> fir::createCSEPass() {
-  return std::make_unique<CSE>();
+  return std::make_unique<BasicCSE>();
 }
 
-static PassRegistration<CSE>
-    pass("cse", "Eliminate common sub-expressions in functions");
+static PassRegistration<BasicCSE>
+    pass("basiccse", "Eliminate common sub-expressions in functions");
