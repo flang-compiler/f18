@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "runtime.h"
+#include "builder.h"
 #include "fir/Type.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -21,8 +22,58 @@
 #include "mlir/IR/Types.h"
 #include <cassert>
 
-namespace Br = Fortran::burnside;
+namespace Fortran::burnside {
+mlir::Type RuntimeStaticDescription::getMLIRType(
+    TypeCode t, mlir::MLIRContext *context) {
+  switch (t) {
+  case TypeCode::i32: return mlir::IntegerType::get(32, context);
+  case TypeCode::i64: return mlir::IntegerType::get(64, context);
+  case TypeCode::f32: return mlir::FloatType::getF32(context);
+  case TypeCode::f64: return mlir::FloatType::getF64(context);
+  // TODO need to access mapping between fe/target
+  case TypeCode::c32: return fir::CplxType::get(context, 4);
+  case TypeCode::c64: return fir::CplxType::get(context, 8);
+  // ! IOCookie is experimental only so far
+  case TypeCode::IOCookie:
+    return fir::ReferenceType::get(mlir::IntegerType::get(64, context));
+  }
+  assert(false && "bug");
+  return {};
+}
 
+mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
+    mlir::MLIRContext *context) const {
+  llvm::SmallVector<mlir::Type, 2> argMLIRTypes;
+  for (const TypeCode *t{argumentTypeCodes.start};
+       t != nullptr && t != argumentTypeCodes.end; ++t) {
+    argMLIRTypes.push_back(getMLIRType(*t, context));
+  }
+  if (resultTypeCode.has_value()) {
+    mlir::Type resMLIRType{getMLIRType(*resultTypeCode, context)};
+    return mlir::FunctionType::get(argMLIRTypes, resMLIRType, context);
+  } else {
+    return mlir::FunctionType::get(argMLIRTypes, {}, context);
+  }
+}
+
+mlir::FuncOp RuntimeStaticDescription::getFuncOp(
+    mlir::OpBuilder &builder) const {
+  mlir::ModuleOp module{getModule(&builder)};
+  mlir::FunctionType funTy{getMLIRFunctionType(module.getContext())};
+  auto function{getNamedFunction(module, symbol)};
+  if (!function) {
+    function = createFunction(module, symbol, funTy);
+    function.setAttr("fir.runtime", builder.getUnitAttr());
+  } else {
+    assert(funTy == function.getType() && "conflicting runtime declaration");
+  }
+  return function;
+}
+}
+
+// TODO remove dependencies to stub rt below
+
+namespace Br = Fortran::burnside;
 using namespace Fortran;
 using namespace Fortran::burnside;
 
