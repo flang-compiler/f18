@@ -102,26 +102,6 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
 
 LoopOp getForInductionVarOwner(mlir::Value *val);
 
-/// return true iff the Operation is a non-volatile LoadOp
-inline bool nonVolatileLoad(mlir::Operation *op) {
-  if (auto load = dyn_cast<fir::LoadOp>(op))
-    if (!load.getAttr("volatile"))
-      return true;
-  return false;
-}
-
-/// return true iff the Operation is a CallOp or DispatchOp and not pure
-inline bool impureCall(mlir::Operation *op) {
-  if (auto call = dyn_cast<fir::CallOp>(op)) {
-    if (!call.getAttr("pure"))
-      return true;
-  } else if (auto dispatch = dyn_cast<fir::DispatchOp>(op)) {
-    if (!dispatch.getAttr("pure"))
-      return true;
-  }
-  return false;
-}
-
 } // namespace fir
 
 #endif // FIR_FIROPS_H

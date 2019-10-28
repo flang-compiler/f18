@@ -20,7 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/FIROps.h"
+#include "fir/FIROpsSupport.h"
 #include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/IR/Attributes.h"
@@ -143,7 +143,7 @@ struct BasicCSE : public FunctionPass<BasicCSE> {
                      Block *bb);
   void simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
                       Region &region);
-  
+
   void cleanupBlock(Block *bb) {
     for (auto &inst : *bb) {
       if (fir::nonVolatileLoad(&inst)) {
