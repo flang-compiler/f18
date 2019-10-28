@@ -112,6 +112,11 @@ Examples:
     !fir.array<*:f64>	; array of unknown rank and shape
 ```
 
+Unlike Fortran, FIR arrays have a starting index of 0 (always). This must be
+accounted for when lowering Fortran arrays. See `fir.coordinate_of` and
+`fir.embox` on how access maps can be used. (A starting index of 0 makes FIR
+array offset computation consistent with tuples, record types, etc.)
+
 ### Pointer-like Types
 
 <pre><code><b>!fir.ref&lt;</b><em>ref-to-type</em><b>&gt;</b><br>
@@ -132,6 +137,8 @@ attribute. A variable with a POINTER attribute has a runtime defined reference
 value. This introduces aliasing (which may be important to the optimizer), and
 having a separate type allows for some refinement in alias
 analysis. _ptr-to-type_ cannot be `!fir.ptr`, `!fir.heap`, or `!fir.ref`.
+
+A value of type `!fir.ptr` can introduce aliasing (unlike `!fir.ref`).
 
 <pre><code><b>!fir.heap&lt;</b><em>heap-to-type</em><b>&gt;</b><br>
 </code></pre>
@@ -660,8 +667,15 @@ The content and type of _host-context_ is to be determined.
 
 Syntax:	<code><b>fir.coordinate_of</b> <em>box-or-ref-value</em> <b>,</b> <em>index-field-list</em> <b>: (</b> <em>reference-like-type</em> <b>) -&gt; !fir.ref&lt;</b><em>T</em><b>&gt;</b></code>
 
-Compute the internal coordinate address starting from a boxed value or
-unboxed memory reference. Returns a memory reference.
+Compute the internal coordinate address starting from a boxed value or unboxed
+memory reference. Returns a memory reference. When computing the coordinate of
+an array element, the rank of the array must be known and the number of
+indexing expressions must equal the rank of the array.
+
+This operation will apply the access map from a boxed value implicitly.
+
+Unlike LLVM's GEP instruction, one cannot stride over the outermost reference;
+therefore, the leading 0 index must be omitted.
 
 Example:
 
@@ -674,9 +688,12 @@ Example:
 
 Syntax:	<code><b>fir.extract_value</b> <em>entity</em> <b>,</b> <em>index-field-list</em> <b>: (</b> <em>entity-type</em> <b>,</b> <em>index-type</em> <b>) -&gt;</b> <em>subobject-type</em></code>
 
-Extract a value from an entity with a type composed of arrays and/or
+Extract a value from an entity with a type composed of tuples, arrays, and/or
 derived types. Returns the value from _entity_ with the type of the
-specified component.
+specified component. Cannot be used on values of `!fir.box` type.
+
+Note that the <em>entity</em> ssa-value must be of compile-time known size
+in order to use this operation.
 
 Example:
 
@@ -685,6 +702,35 @@ Example:
     %60 = fir.call @foo3() : () -> !fir.type<X{field:i32}>
     %61 = fir.extract_value %60, %59 : (!fir.type<X{field:i32}>, !fir.field) -> i32
 ```
+
+#### `fir.insert_value`
+
+Syntax:	<code><b>fir.insert_value</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>: (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
+
+Insert a value into an entity with a type composed of tuples, arrays, and/or
+derived types. Returns a new value of the same type as _entity_.  It cannot be
+used on values of `!fir.box` type.
+
+Note that the <em>entity</em> ssa-value must be of compile-time known size
+in order to use this operation.
+
+Example:
+
+```mlir
+    %64 = fir.field_index("field") : !fir.field
+    %65 = fir.call @foo2() : () -> i32
+    %66 = fir.call @foo3() : () -> !fir.type<X{field:i32}>
+    %67 = fir.insert_value(%66, %65, %64) : (!fir.type<X{field:i32}>, i32, !fir.field) -> !fir.type<X{field:i32}>
+```
+
+The above is one possible translation of the following Fortran code sequence.
+
+```Fortran
+    temp1 = foo2()
+    temp2 = foo3()
+    temp2%field = temp1
+```
+
 
 #### `fir.field_index`
 
@@ -701,47 +747,6 @@ Example:
     %62 = fir.field_index ("member_1") : !fir.field
 ```
 
-#### `fir.gendims`
-
-Syntax:	<code><b>fir.gendims</b> <em>triple-list</em> <b>: (</b> <em>type-list</em> <b>) -&gt; !fir.dims&lt;</b><em>R</em><b>&gt;</b></code>
-
-
-Generate dimension information. This is needed to embox array entities.
-
-
-Example:
-
-```mlir
-    %c1 = constant 1 : i32
-    %c10 = constant 10 : i32
-    %63 = fir.gendims %c1,%c10,%c1 : (i32,i32,i32) -> !fir.dims<1>
-```
-
-#### `fir.insert_value`
-
-Syntax:	<code><b>fir.insert_value</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>: (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
-
-Insert a value into an entity with a type composed arrays and/or derived
-types. Returns a new value of the same type as _entity_.
-
-Example:
-
-```mlir
-    %64 = fir.field_index("field") : !fir.field
-    %65 = fir.call @foo2() : () -> i32
-    %66 = fir.call @foo3() : () -> !fir.type<X{field:i32}>
-    %67 = fir.insert_value(%66, %65, %64) : (!fir.type<X{field:i32}>, i32, !fir.field) -> !fir.type<X{field:i32}>
-```
-
-The above is a possible translation of the following Fortran code sequence.
-
-```Fortran
-    temp1 = foo2()
-    temp2 = foo3()
-    temp2%field = temp1
-```
-
-
 #### `fir.len_param_index`
 
 Syntax:	<code><b>fir.len_param_index ("</b><em>len-param-name</em><b>") : !fir.field</b></code>
@@ -753,6 +758,26 @@ Example:
 
 ```mlir
     %62 = fir.len_param_index("param_1") : !fir.field
+```
+
+#### `fir.gendims`
+
+Syntax:	<code><b>fir.gendims</b> <em>triple-list</em> <b>: (</b> <em>type-list</em> <b>) -&gt; !fir.dims&lt;</b><em>R</em><b>&gt;</b></code>
+
+
+Generate dimension information. This is needed to embox array entities. A
+triple corresponds to the definition of Fortran's array slice operator.
+Specifically, the components are `(first, last, stride)`.
+
+(These values will be lowered appropriately for the target runtime, which may
+encode the triple as a `CFI_dim_t`, for example.)
+
+Example:
+
+```mlir
+    %c1 = constant 1 : i32
+    %c10 = constant 10 : i32
+    %63 = fir.gendims %c1,%c10,%c1 : (i32,i32,i32) -> !fir.dims<1>
 ```
 
 ### Generalized Control Flow Ops

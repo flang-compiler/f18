@@ -14,7 +14,7 @@
 
 #include "runtime.h"
 #include "builder.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -44,9 +44,8 @@ mlir::Type RuntimeStaticDescription::getMLIRType(
 mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
     mlir::MLIRContext *context) const {
   llvm::SmallVector<mlir::Type, 2> argMLIRTypes;
-  for (const TypeCode *t{argumentTypeCodes.start};
-       t != nullptr && t != argumentTypeCodes.end; ++t) {
-    argMLIRTypes.push_back(getMLIRType(*t, context));
+  for (const TypeCode &t : argumentTypeCodes) {
+    argMLIRTypes.push_back(getMLIRType(t, context));
   }
   if (resultTypeCode.has_value()) {
     mlir::Type resMLIRType{getMLIRType(*resultTypeCode, context)};

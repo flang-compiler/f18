@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_DIALECT_H
-#define FIR_DIALECT_H
+#ifndef DIALECT_FIR_FIRDIALECT_H
+#define DIALECT_FIR_FIRDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 
@@ -24,6 +24,8 @@ class StringRef;
 
 namespace mlir {
 class Attribute;
+class DialectAsmParser;
+class DialectAsmPrinter;
 class Location;
 class MLIRContext;
 class Type;
@@ -39,16 +41,15 @@ public:
 
   static llvm::StringRef getDialectNamespace() { return "fir"; }
 
-  mlir::Type parseType(llvm::StringRef rawData,
-                       mlir::Location loc) const override;
-  void printType(mlir::Type ty, llvm::raw_ostream &os) const override;
+  mlir::Type parseType(mlir::DialectAsmParser &parser) const override;
+  void printType(mlir::Type ty, mlir::DialectAsmPrinter &p) const override;
 
-  mlir::Attribute parseAttribute(llvm::StringRef rawText, mlir::Type type,
-                                 mlir::Location loc) const override;
+  mlir::Attribute parseAttribute(mlir::DialectAsmParser &parser,
+                                 mlir::Type type) const override;
   void printAttribute(mlir::Attribute attr,
-                      llvm::raw_ostream &os) const override;
+                      mlir::DialectAsmPrinter &p) const override;
 };
 
 } // namespace fir
 
-#endif // FIR_DIALECT_H
+#endif // DIALECT_FIR_FIRDIALECT_H

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/Attribute.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Transforms/SideEffectsInterface.h"
@@ -43,13 +43,16 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
     result->addSuccessor(block, blkArgs);
   }
 }
+
+M::DialectRegistration<fir::FIROpsDialect> FIROps;
+
 } // namespace
 
 fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
     : M::Dialect("fir", ctx) {
   addTypes<BoxType, BoxCharType, BoxProcType, CharacterType, CplxType, DimsType,
-           FieldType, HeapType, IntType, LogicalType, PointerType, RealType,
-           RecordType, ReferenceType, SequenceType, TypeDescType>();
+           FieldType, HeapType, IntType, LenType, LogicalType, PointerType,
+           RealType, RecordType, ReferenceType, SequenceType, TypeDescType>();
   addAttributes<ClosedIntervalAttr, ExactTypeAttr, LowerBoundAttr,
                 PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,
@@ -63,37 +66,20 @@ fir::FIROpsDialect::~FIROpsDialect() {
   // do nothing
 }
 
-M::Type fir::FIROpsDialect::parseType(llvm::StringRef rawData,
-                                      M::Location loc) const {
-  return parseFirType(const_cast<FIROpsDialect *>(this), rawData, loc);
+M::Type fir::FIROpsDialect::parseType(M::DialectAsmParser &parser) const {
+  return parseFirType(const_cast<FIROpsDialect *>(this), parser);
 }
 
-void fir::FIROpsDialect::printType(M::Type ty, llvm::raw_ostream &os) const {
-  return printFirType(const_cast<FIROpsDialect *>(this), ty, os);
+void fir::FIROpsDialect::printType(M::Type ty, M::DialectAsmPrinter &p) const {
+  return printFirType(const_cast<FIROpsDialect *>(this), ty, p);
 }
 
-M::Attribute fir::FIROpsDialect::parseAttribute(llvm::StringRef rawText,
-                                                M::Type type,
-                                                M::Location loc) const {
-  return parseFirAttribute(const_cast<FIROpsDialect *>(this), rawText, type,
-                           loc);
+M::Attribute fir::FIROpsDialect::parseAttribute(M::DialectAsmParser &parser,
+                                                M::Type type) const {
+  return parseFirAttribute(const_cast<FIROpsDialect *>(this), parser, type);
 }
 
 void fir::FIROpsDialect::printAttribute(M::Attribute attr,
-                                        llvm::raw_ostream &os) const {
-  if (auto exact = attr.dyn_cast<fir::ExactTypeAttr>()) {
-    os << fir::ExactTypeAttr::getAttrName() << '<' << exact.getType() << '>';
-  } else if (auto sub = attr.dyn_cast<fir::SubclassAttr>()) {
-    os << fir::SubclassAttr::getAttrName() << '<' << sub.getType() << '>';
-  } else if (attr.dyn_cast_or_null<fir::PointIntervalAttr>()) {
-    os << fir::PointIntervalAttr::getAttrName();
-  } else if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
-    os << fir::ClosedIntervalAttr::getAttrName();
-  } else if (attr.dyn_cast_or_null<fir::LowerBoundAttr>()) {
-    os << fir::LowerBoundAttr::getAttrName();
-  } else if (attr.dyn_cast_or_null<fir::UpperBoundAttr>()) {
-    os << fir::UpperBoundAttr::getAttrName();
-  } else {
-    assert(false && "attribute pretty-printer is not implemented");
-  }
+                                        M::DialectAsmPrinter &p) const {
+  printFirAttribute(const_cast<FIROpsDialect *>(this), attr, p);
 }

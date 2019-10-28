@@ -17,6 +17,9 @@
 
 #include <memory>
 
+namespace llvm {
+class StringRef;
+}
 namespace mlir {
 class Pass;
 }
@@ -27,7 +30,7 @@ namespace fir {
 std::unique_ptr<mlir::Pass> createFIRToLLVMPass();
 
 /// Convert the LLVM IR dialect to LLVM-IR proper
-std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass();
+std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass(llvm::StringRef output);
 
 } // namespace fir
 

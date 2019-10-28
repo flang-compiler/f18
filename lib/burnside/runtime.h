@@ -32,13 +32,57 @@ namespace Fortran::burnside {
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
+/// C++ does not provide variable size constexpr container yet.
+/// StaticVector is a class that can be used to hold constexpr data as if it was
+/// a vector (i.e, the number of element is not reflected in the
+/// container type). This is useful to use in classes that need to be constexpr
+/// and where leaking the size as a template type would make it harder to
+/// manipulate. It can hold whatever data that can appear as non-type templates
+/// (integers, enums, pointer to objects, function pointers...).
+/// Example usage:
+///
+///  enum class Enum {A, B};
+///  constexpr StaticVector<Enum> vec{StaticVector::create<Enum::A, Enum::B>()};
+///  for (const Enum& code : vec) { /*...*/ }
+///
+
+/// This is the class where the constexpr data is "allocated". In fact
+/// the data is stored "in" the type. Objects of this type are not meant to
+/// be ever constructed.
+template<typename T, T... v> struct StaticVectorStorage {
+  static constexpr T values[]{v...};
+  static constexpr const T *start{&values[0]};
+  static constexpr const T *end{start + sizeof...(v)};
+};
+template<typename T> struct StaticVectorStorage<T> {
+  static constexpr const T *start{nullptr}, *end{nullptr};
+};
+
+/// StaticVector cannot be directly constructed, instead its
+/// `create` static method has to be used to create StaticVector objects.
+/// StaticVector are views over the StaticVectorStorage type that was built
+/// while instantiating the create method. They do not duplicate the values from
+/// these read-only storages.
+template<typename T> struct StaticVector {
+  template<T... v> static constexpr StaticVector create() {
+    using storage = StaticVectorStorage<T, v...>;
+    return StaticVector{storage::start, storage::end};
+  }
+  using const_iterator = const T *;
+  constexpr const_iterator begin() const { return startPtr; }
+  constexpr const_iterator end() const { return endPtr; }
+  const T *startPtr{nullptr};
+  const T *endPtr{nullptr};
+};
+
 /// Define a simple static runtime description that different runtime can
 /// derived from (e.g io, maths ...).
 /// This base class only define enough to generate the functuion declarations,
-// it is up to the actual runtime descriptions to define a way to organize these
-// descriptions in a meaningful way.
+/// it is up to the actual runtime descriptions to define a way to organize
+/// these descriptions in a meaningful way.
 /// It is constexpr constructible so that static tables of such descriptions can
 /// be safely stored as global variables without requiring global constructors.
+
 class RuntimeStaticDescription {
 public:
   /// Define possible runtime function argument/return type used in signature
@@ -46,22 +90,9 @@ public:
   /// directly be used because they can only be dynamically built.
   enum TypeCode { i32, i64, f32, f64, c32, c64, IOCookie };
   using MaybeTypeCode = std::optional<TypeCode>;  // for results
+  using TypeCodeVector = StaticVector<TypeCode>;  // for arguments
   static constexpr MaybeTypeCode voidTy{MaybeTypeCode{std::nullopt}};
 
-  /// C++ does not provide variable size constexpr container yet. TypeVector
-  /// implements one for Type elements. It works because Type is an enumeration.
-  struct TypeCodeVector {
-    template<TypeCode... v> struct Storage {
-      static constexpr TypeCode values[]{v...};
-    };
-    template<TypeCode... v> static constexpr TypeCodeVector create() {
-      const TypeCode *start{&Storage<v...>::values[0]};
-      return TypeCodeVector{start, start + sizeof...(v)};
-    }
-    template<> constexpr TypeCodeVector create<>() { return TypeCodeVector{}; }
-    const TypeCode *start{nullptr};
-    const TypeCode *end{nullptr};
-  };
   constexpr RuntimeStaticDescription(
       const char *s, MaybeTypeCode r, TypeCodeVector a)
     : symbol{s}, resultTypeCode{r}, argumentTypeCodes{a} {}
@@ -88,7 +119,7 @@ private:
 // TODO: Find a better place for this if this is retained.
 // This is currently here because this was designed to provide
 // maps over runtime description without the burden of having to
-// instantiate these maps dynamically and to keep they somewhere.
+// instantiate these maps dynamically and to keep them somewhere.
 template<typename Value> class StaticMultimapView {
 public:
   using Key = typename Value::Key;
@@ -114,7 +145,7 @@ public:
     // TODO: sorted
     // non empty increasing pointer direction
     return !range.empty();
-  };
+  }
   constexpr const_iterator begin() const { return range.begin(); }
   constexpr const_iterator end() const { return range.end(); }
 

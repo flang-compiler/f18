@@ -1,4 +1,4 @@
-# Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-string-conversion")
 
-add_subdirectory(f18)
-add_subdirectory(bbc)
-add_subdirectory(tco)
+add_executable(bbc
+  bbc.cc
+)
+
+set(LIBS
+  FIR
+  FIRTransforms
+  MLIRAffineOps
+  MLIRLLVMIR
+  MLIRLoopOps
+  MLIRStandardOps
+)
+
+whole_archive_link(bbc ${LIBS})
+target_link_libraries(bbc
+  FortranCommon
+  FortranParser
+  FortranEvaluate
+  FortranSemantics
+  FortranBurnside
+  FIRTransforms
+  ${LIBS}
+)
+
+install(TARGETS bbc DESTINATION bin)

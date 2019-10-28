@@ -12,10 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_ATTRIBUTE_H
-#define FIR_ATTRIBUTE_H
+#ifndef DIALECT_FIR_FIRATTRIBUTE_H
+#define DIALECT_FIR_FIRATTRIBUTE_H
 
 #include "mlir/IR/Attributes.h"
+
+namespace mlir {
+class DialectAsmParser;
+class DialectAsmPrinter;
+} // namespace mlir
 
 namespace fir {
 
@@ -33,6 +38,7 @@ enum AttributeKind {
   FIR_CLOSEDCLOSED_INTERVAL,
   FIR_OPENCLOSED_INTERVAL,
   FIR_CLOSEDOPEN_INTERVAL,
+  FIR_REAL_ATTR,
 };
 
 class ExactTypeAttr
@@ -114,10 +120,23 @@ public:
   constexpr static unsigned getId() { return AttributeKind::FIR_POINT; }
 };
 
+class RealAttr : public mlir::Attribute::AttrBase<RealAttr, mlir::Attribute> {
+public:
+  using Base::Base;
+
+  static llvm::StringRef getAttrName() { return "real"; }
+  static RealAttr get(mlir::MLIRContext *ctxt, const llvm::APFloat &flt);
+  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
+  constexpr static unsigned getId() { return AttributeKind::FIR_REAL_ATTR; }
+};
+
 mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
-                                  llvm::StringRef rawText, mlir::Type type,
-                                  mlir::Location loc);
+                                  mlir::DialectAsmParser &parser,
+                                  mlir::Type type);
+
+void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
+                       mlir::DialectAsmPrinter &p);
 
 } // namespace fir
 
-#endif // FIR_ATTRIBUTE_H
+#endif // DIALECT_FIR_FIRATTRIBUTE_H

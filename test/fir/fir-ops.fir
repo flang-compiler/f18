@@ -11,11 +11,11 @@ func @dvd2() -> !fir.type<derived2(p:i32)>
 func @dvd3() -> !fir.type<derived3{f:f32}>
 func @dvd4() -> !fir.type<derived4(p:i8){f:f32}>
 
-func @arr1() -> !fir.array<10:f32>
-func @arr2() -> !fir.array<10x10:f32>
-func @arr3() -> !fir.array<?:f32>
-func @arr4() -> !fir.array<10x?:f32>
-func @arr5() -> !fir.array<?x?:f32>
+func @arr1() -> !fir.array<10xf32>
+func @arr2() -> !fir.array<10x10xf32>
+func @arr3() -> !fir.array<?xf32>
+func @arr4() -> !fir.array<10x?xf32>
+func @arr5() -> !fir.array<?x?xf32>
 func @arr6() -> !fir.array<*:f32>
 
 func @mem1() -> !fir.ref<i32>
@@ -23,7 +23,7 @@ func @mem2() -> !fir.ptr<i32>
 func @mem3() -> !fir.heap<i32>
 func @mem4() -> !fir.ref<() -> ()>
 
-func @box1() -> !fir.box<!fir.array<?:f32>>
+func @box1() -> !fir.box<!fir.array<?xf32>>
 func @box2() -> !fir.boxchar<2>
 func @box3() -> !fir.boxproc<(i32, i32) -> i64>
 func @box4() -> !fir.box<!fir.type<derived3{f:f32}>>
@@ -45,39 +45,39 @@ func @nop()
 func @get_func() -> (() -> ())
 
 func @instructions() {
-  %0 = fir.alloca !fir.array<10:i32> : !fir.ref<!fir.array<10:i32>>
-  %1 = fir.load %0 : !fir.ref<!fir.array<10:i32>>
+  %0 = fir.alloca !fir.array<10xi32> : !fir.ref<!fir.array<10xi32>>
+  %1 = fir.load %0 : !fir.ref<!fir.array<10xi32>>
   %2 = fir.alloca i32 : !fir.ref<i32>
   %3 = constant 22 : i32
   fir.store %3 to %2 : !fir.ref<i32>
   %4 = fir.undefined i32
-  %5 = fir.allocmem !fir.array<100:f32> : !fir.heap<!fir.array<100:f32>>
-  %6 = fir.embox %5 : (!fir.heap<!fir.array<100:f32>>) -> !fir.box<!fir.array<100:f32>>
-  %7 = fir.box_addr %6 : (!fir.box<!fir.array<100:f32>>) -> !fir.ref<!fir.array<100:f32>>
+  %5 = fir.allocmem !fir.array<100xf32> : !fir.heap<!fir.array<100xf32>>
+  %6 = fir.embox %5 : (!fir.heap<!fir.array<100xf32>>) -> !fir.box<!fir.array<100xf32>>
+  %7 = fir.box_addr %6 : (!fir.box<!fir.array<100xf32>>) -> !fir.ref<!fir.array<100xf32>>
   %c0 = constant 0 : index
-  %d1:3 = fir.box_dims %6, %c0 : (!fir.box<!fir.array<100:f32>>, index) -> (index, index, index)
+  %d1:3 = fir.box_dims %6, %c0 : (!fir.box<!fir.array<100xf32>>, index) -> (index, index, index)
   fir.call @print_index3(%d1#0, %d1#1, %d1#2) : (index, index, index) -> ()
   %8 = fir.call @it1() : () -> !fir.int<4>
-  %9 = fir.box_elesize %6 : (!fir.box<!fir.array<100:f32>>) -> i64
-  %10 = fir.box_isalloc %6 : (!fir.box<!fir.array<100:f32>>) -> i1
-  %11 = fir.box_isarray %6 : (!fir.box<!fir.array<100:f32>>) -> i1
-  %12 = fir.box_isptr %6 : (!fir.box<!fir.array<100:f32>>) -> i1
-  %13 = fir.box_rank %6 : (!fir.box<!fir.array<100:f32>>) -> i64
-  %14 = fir.box_tdesc %6 : (!fir.box<!fir.array<100:f32>>) -> !fir.tdesc<!fir.array<100:f32>>
+  %9 = fir.box_elesize %6 : (!fir.box<!fir.array<100xf32>>) -> i64
+  %10 = fir.box_isalloc %6 : (!fir.box<!fir.array<100xf32>>) -> i1
+  %11 = fir.box_isarray %6 : (!fir.box<!fir.array<100xf32>>) -> i1
+  %12 = fir.box_isptr %6 : (!fir.box<!fir.array<100xf32>>) -> i1
+  %13 = fir.box_rank %6 : (!fir.box<!fir.array<100xf32>>) -> i64
+  %14 = fir.box_tdesc %6 : (!fir.box<!fir.array<100xf32>>) -> !fir.tdesc<!fir.array<100xf32>>
   %15 = fir.call @box2() : () -> !fir.boxchar<2>
   %16 = fir.boxchar_len %15 : (!fir.boxchar<2>) -> i32
   %17 = fir.call @box3() : () -> !fir.boxproc<(i32, i32) -> i64>
   %18 = fir.boxproc_host %17 : (!fir.boxproc<(i32, i32) -> i64>) -> !fir.ref<i32>
   %19 = constant 10 : i32
-  %20 = fir.coordinate_of %5, %19 : (!fir.heap<!fir.array<100:f32>>, i32) -> !fir.ref<f32>
-  %21 = fir.field_index("f") : !fir.field
+  %20 = fir.coordinate_of %5, %19 : (!fir.heap<!fir.array<100xf32>>, i32) -> !fir.ref<f32>
+  %21 = fir.field_index f, !fir.type<derived{f:f32}>
   %22 = fir.undefined !fir.type<derived{f:f32}>
   %23 = fir.extract_value %22, %21 : (!fir.type<derived{f:f32}>, !fir.field) -> f32
   %c1 = constant 1 : i32
   %24 = fir.gendims %c1, %19, %c1 : (i32, i32, i32) -> !fir.dims<1>
   %cf1 = constant 1.0 : f32
   %25 = fir.insert_value %22, %cf1, %21 : (!fir.type<derived{f:f32}>, f32, !fir.field) -> !fir.type<derived{f:f32}>
-  %26 = fir.len_param_index("f") : !fir.field
+  %26 = fir.len_param_index f, !fir.type<derived3{f:f32}>
   %27 = fir.call @box4() : () -> !fir.box<!fir.type<derived3{f:f32}>>
   %28 = fir.dispatch "method"(%27) : (!fir.box<!fir.type<derived3{f:f32}>>) -> i32
   %29 = fir.convert %28 : (i32) -> i64
@@ -85,7 +85,7 @@ func @instructions() {
   fir.call @user_tdesc(%30) : (!fir.tdesc<!fir.type<x>>) -> ()
   %31 = fir.no_reassoc %29 : i64
   fir.call @user_i64(%31) : (i64) -> ()
-  fir.freemem %5 : !fir.heap<!fir.array<100:f32>>
+  fir.freemem %5 : !fir.heap<!fir.array<100xf32>>
   %32 = fir.call @get_func() : () -> (() -> ())
   fir.call %32() : () -> ()
   %33 = fir.address_of (@it1) : !fir.ref<() -> !fir.int<4>>

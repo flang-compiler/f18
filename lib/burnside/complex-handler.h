@@ -19,66 +19,66 @@
 
 #include "fe-helper.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 
 namespace Fortran::burnside {
 /// Provide helpers to generate Complex manipulations in FIR.
 
 class ComplexHandler {
 public:
+  // The values of part enum members are meaningful for
+  // InsertValueOp and ExtractValueOp so they are explicit.
+  enum class Part { Real = 0, Imag = 1 };
+
   ComplexHandler(mlir::OpBuilder &b, mlir::Location l) : builder{b}, loc{l} {}
   mlir::Type getComplexPartType(fir::KindTy complexKind) {
     return convertReal(builder.getContext(), complexKind);
-  }
-
-  mlir::Type getComplexPartType(mlir::Type complexType) {
-    return getComplexPartType(complexType.cast<fir::CplxType>().getFKind());
-  }
-
-  mlir::Type getComplexPartType(mlir::Value *cplx) {
-    assert(cplx != nullptr);
-    return getComplexPartType(cplx->getType());
-  }
-
-  mlir::Value *createComplexPart(mlir::Value *cplx, bool isImaginaryPart) {
-    return builder.create<fir::ExtractValueOp>(
-        loc, getComplexPartType(cplx), cplx, getPartId(isImaginaryPart));
-  }
-
-  mlir::Value *createComplexRealPart(mlir::Value *cplx) {
-    return createComplexPart(cplx, false);
-  }
-
-  mlir::Value *createComplexImagPart(mlir::Value *cplx) {
-    return createComplexPart(cplx, true);
-  }
-
-  mlir::Value *setComplexPart(
-      mlir::Value *cplx, mlir::Value *part, bool isImaginaryPart) {
-    assert(cplx != nullptr);
-    return builder.create<fir::InsertValueOp>(
-        loc, cplx->getType(), cplx, part, getPartId(isImaginaryPart));
-  }
-  mlir::Value *setRealPart(mlir::Value *cplx, mlir::Value *part) {
-    return setComplexPart(cplx, part, false);
-  }
-  mlir::Value *setImagPart(mlir::Value *cplx, mlir::Value *part) {
-    return setComplexPart(cplx, part, true);
   }
 
   mlir::Value *createComplex(
       fir::KindTy kind, mlir::Value *real, mlir::Value *imag) {
     mlir::Type complexTy{fir::CplxType::get(builder.getContext(), kind)};
     mlir::Value *und{builder.create<fir::UndefOp>(loc, complexTy)};
-    return setImagPart(setRealPart(und, real), imag);
+    return insert<Part::Imag>(insert<Part::Real>(und, real), imag);
   }
 
+  // Complex part manipulation helpers
+  mlir::Type getComplexPartType(mlir::Type complexType) {
+    return getComplexPartType(complexType.cast<fir::CplxType>().getFKind());
+  }
+  mlir::Type getComplexPartType(mlir::Value *cplx) {
+    assert(cplx != nullptr);
+    return getComplexPartType(cplx->getType());
+  }
+
+  template<Part partId> mlir::Value *extract(mlir::Value *cplx) {
+    return builder.create<fir::ExtractValueOp>(
+        loc, getComplexPartType(cplx), cplx, getPartId<partId>());
+  }
+  template<Part partId>
+  mlir::Value *insert(mlir::Value *cplx, mlir::Value *part) {
+    assert(cplx != nullptr);
+    return builder.create<fir::InsertValueOp>(
+        loc, cplx->getType(), cplx, part, getPartId<partId>());
+  }
+
+  /// Complex part access helper dynamic versions
+  mlir::Value *extractComplexPart(mlir::Value *cplx, bool isImagPart) {
+    return isImagPart ? extract<Part::Imag>(cplx) : extract<Part::Real>(cplx);
+  }
+  mlir::Value *insertComplexPart(
+      mlir::Value *cplx, mlir::Value *part, bool isImagPart) {
+    return isImagPart ? insert<Part::Imag>(cplx, part)
+                      : insert<Part::Real>(cplx, part);
+  }
+
+  // Complex operation helpers
   mlir::Value *createComplexCompare(
       mlir::Value *cplx1, mlir::Value *cplx2, bool eq) {
-    mlir::Value *real1{createComplexRealPart(cplx1)};
-    mlir::Value *real2{createComplexRealPart(cplx2)};
-    mlir::Value *imag1{createComplexImagPart(cplx1)};
-    mlir::Value *imag2{createComplexImagPart(cplx2)};
+    mlir::Value *real1{extract<Part::Real>(cplx1)};
+    mlir::Value *real2{extract<Part::Real>(cplx2)};
+    mlir::Value *imag1{extract<Part::Imag>(cplx1)};
+    mlir::Value *imag2{extract<Part::Imag>(cplx2)};
 
     mlir::CmpFPredicate predicate{
         eq ? mlir::CmpFPredicate::UEQ : mlir::CmpFPredicate::UNE};
@@ -95,9 +95,10 @@ public:
   }
 
 private:
-  inline mlir::Value *getPartId(bool isImaginaryPart) {
+  // Make mlir ConstantOp from template part id.
+  template<Part partId> inline mlir::Value *getPartId() {
     auto type{mlir::IntegerType::get(32, builder.getContext())};
-    auto attr{builder.getIntegerAttr(type, isImaginaryPart ? 1 : 0)};
+    auto attr{builder.getIntegerAttr(type, static_cast<int>(partId))};
     return builder.create<mlir::ConstantOp>(loc, type, attr).getResult();
   }
 

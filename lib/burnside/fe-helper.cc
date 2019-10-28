@@ -14,7 +14,7 @@
 
 #include "fe-helper.h"
 #include "bridge.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "../semantics/expression.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"
@@ -46,7 +46,9 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
 }
 
 #undef TODO
-#define TODO() assert(false); return {}
+#define TODO() \
+  assert(false && "not yet implemented"); \
+  return {}
 
 // one argument template, must be specialized
 template<Co::TypeCategory TC>
@@ -218,7 +220,7 @@ public:
 
   M::Type mkVoid() { return M::TupleType::get(context); }
 
-  fir::SequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
+  fir::SequenceType::Shape genSeqShape(Se::SymbolRef symbol) {
     assert(symbol->IsObjectArray());
     fir::SequenceType::Bounds bounds;
     auto &details = symbol->get<Se::ObjectEntityDetails>();
@@ -248,17 +250,20 @@ public:
 
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.
-  M::Type gen(const Se::Symbol *symbol) {
+  M::Type gen(Se::SymbolRef symbol) {
     if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
       M::Type returnTy{mkVoid()};
       if (proc->isFunction()) {
-        returnTy = gen(&proc->result());
+        returnTy = gen(proc->result());
       }
       // FIXME: handle alt-return
       llvm::SmallVector<M::Type, 4> inputTys;
       for (auto *arg : proc->dummyArgs()) {
         // FIXME: not all args are pass by ref
-        inputTys.emplace_back(fir::ReferenceType::get(gen(arg)));
+        // Nullptr args are alternate returns indicators
+        if (arg) {
+          inputTys.emplace_back(fir::ReferenceType::get(gen(*arg)));
+        }
       }
       return M::FunctionType::get(inputTys, returnTy, context);
     }
@@ -283,6 +288,7 @@ public:
         case DerivedCat: TODO(); break;
         }
       } else if (auto *tySpec{type->AsDerived()}) {
+        (void)tySpec; // FIXME
         TODO();
       } else {
         assert(false && "type spec not found");
@@ -375,7 +381,7 @@ M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
 // This entry point avoids gratuitously wrapping the Symbol instance in layers
 // of Expr<T> that will then be immediately peeled back off and discarded.
 M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
-    Co::IntrinsicTypeDefaultKinds const &defaults, const Se::Symbol *symbol) {
+    Co::IntrinsicTypeDefaultKinds const &defaults, Se::SymbolRef symbol) {
   return TypeBuilder{context, defaults}.gen(symbol);
 }
 

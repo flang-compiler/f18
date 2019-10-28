@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "fir/Analysis/IteratedDominanceFrontier.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
 #include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
@@ -18,11 +18,17 @@
 #include <utility>
 #include <vector>
 
+namespace L = llvm;
 namespace M = mlir;
 
 using namespace fir;
 
 using DominatorTree = M::DominanceInfo;
+
+static L::cl::opt<bool>
+    ClDisableMemToReg("disable-mem2reg",
+                      L::cl::desc("disable memory to register pass"),
+                      L::cl::init(false), L::cl::Hidden);
 
 /// A generalized version of a mem-to-reg pass suitable for use with an MLIR
 /// dialect. This code was ported from the LLVM project. MLIR differs with its
@@ -49,8 +55,8 @@ bool isAllocaPromotable(ALLOCA &ae) {
 
 template <typename LOAD, typename STORE, typename ALLOCA>
 struct AllocaInfo {
-  llvm::SmallVector<M::Block *, 32> definingBlocks;
-  llvm::SmallVector<M::Block *, 32> usingBlocks;
+  L::SmallVector<M::Block *, 32> definingBlocks;
+  L::SmallVector<M::Block *, 32> usingBlocks;
 
   M::Operation *onlyStore;
   M::Block *onlyBlock;
@@ -103,9 +109,10 @@ struct RenamePassData {
 
   RenamePassData(M::Block *b, M::Block *p, const ValVector &v)
       : BB(b), Pred(p), Values(v) {}
+  RenamePassData(RenamePassData &&) = default;
+  RenamePassData &operator=(RenamePassData &&) = delete;
   RenamePassData(const RenamePassData &) = delete;
   RenamePassData &operator=(const RenamePassData &) = delete;
-  RenamePassData(RenamePassData &&) = default;
   ~RenamePassData() = default;
 
   M::Block *BB;
@@ -115,7 +122,7 @@ struct RenamePassData {
 
 template <typename LOAD, typename STORE, typename ALLOCA>
 struct LargeBlockInfo {
-  using INMap = llvm::DenseMap<M::Operation *, unsigned>;
+  using INMap = L::DenseMap<M::Operation *, unsigned>;
   INMap instNumbers;
 
   static bool isInterestingInstruction(M::Operation &I) {
@@ -169,16 +176,16 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
   /// Contains a stable numbering of basic blocks to avoid non-determinstic
   /// behavior.
-  llvm::DenseMap<M::Block *, unsigned> BBNumbers;
+  L::DenseMap<M::Block *, unsigned> BBNumbers;
 
   /// Reverse mapping of Allocas.
-  llvm::DenseMap<M::Operation *, unsigned> allocaLookup;
+  L::DenseMap<M::Operation *, unsigned> allocaLookup;
 
   /// The set of basic blocks the renamer has already visited.
-  llvm::SmallPtrSet<M::Block *, 16> Visited;
+  L::SmallPtrSet<M::Block *, 16> Visited;
 
-  llvm::DenseMap<std::pair<M::Block *, M::Operation *>, unsigned> BlockArgs;
-  llvm::DenseMap<std::pair<M::Block *, unsigned>, unsigned> argToAllocaMap;
+  L::DenseMap<std::pair<M::Block *, M::Operation *>, unsigned> BlockArgs;
+  L::DenseMap<std::pair<M::Block *, unsigned>, unsigned> argToAllocaMap;
 
   bool rewriteSingleStoreAlloca(ALLOCA &AI,
                                 AllocaInfo<LOAD, STORE, ALLOCA> &Info,
@@ -225,13 +232,13 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       }
 
       // Otherwise, we *can* safely rewrite this load.
-      M::Value *ReplVal = onlyStore.getOperand(0);
+      M::Value *replVal = onlyStore.getOperand(0);
       // If the replacement value is the load, this must occur in unreachable
       // code.
-      if (ReplVal == LI.getResult())
-        ReplVal = builder->create<UNDEF>(LI.getLoc(), LI.getType());
+      if (replVal == LI.getResult())
+        replVal = builder->create<UNDEF>(LI.getLoc(), LI.getType());
 
-      LI.replaceAllUsesWith(ReplVal);
+      LI.replaceAllUsesWith(replVal);
       LI.erase();
       LBI.deleteValue(LI);
     }
@@ -251,17 +258,19 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
                                 AllocaInfo<LOAD, STORE, ALLOCA> &Info,
                                 LargeBlockInfo<LOAD, STORE, ALLOCA> &LBI) {
     // Walk the use-def list of the alloca, getting the locations of all stores.
-    using StoresByIndexTy = llvm::SmallVector<std::pair<unsigned, STORE *>, 64>;
-    StoresByIndexTy StoresByIndex;
+    using StoresByIndexTy =
+        L::SmallVector<std::pair<unsigned, M::Operation *>, 64>;
+    StoresByIndexTy storesByIndex;
 
     for (auto U = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
          U != E; U++)
       if (STORE SI = M::dyn_cast<STORE>(U->getOwner()))
-        StoresByIndex.emplace_back(LBI.getInstructionIndex(SI), &SI);
+        storesByIndex.emplace_back(LBI.getInstructionIndex(SI),
+                                   SI.getOperation());
 
     // Sort the stores by their index, making it efficient to do a lookup with a
     // binary search.
-    llvm::sort(StoresByIndex, llvm::less_first());
+    L::sort(storesByIndex, L::less_first());
 
     // Walk all of the loads from this alloca, replacing them with the nearest
     // store above them, if any.
@@ -275,11 +284,12 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       unsigned LoadIdx = LBI.getInstructionIndex(LI);
 
       // Find the nearest store that has a lower index than this load.
-      typename StoresByIndexTy::iterator I = llvm::lower_bound(
-          StoresByIndex, std::make_pair(LoadIdx, static_cast<STORE *>(nullptr)),
-          llvm::less_first());
-      if (I == StoresByIndex.begin()) {
-        if (StoresByIndex.empty()) {
+      typename StoresByIndexTy::iterator I = L::lower_bound(
+          storesByIndex,
+          std::make_pair(LoadIdx, static_cast<M::Operation *>(nullptr)),
+          L::less_first());
+      if (I == storesByIndex.begin()) {
+        if (storesByIndex.empty()) {
           // If there are no stores, the load takes the undef value.
           auto undef = builder->create<UNDEF>(LI.getLoc(), LI.getType());
           LI.replaceAllUsesWith(undef.getResult());
@@ -292,14 +302,14 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         // Otherwise, there was a store before this load, the load takes its
         // value. Note, if the load was marked as nonnull we don't want to lose
         // that information when we erase it. So we preserve it with an assume.
-        M::Value *ReplVal = std::prev(I)->second->getOperand(0);
+        M::Value *replVal = std::prev(I)->second->getOperand(0);
 
         // If the replacement value is the load, this must occur in unreachable
         // code.
-        if (ReplVal == LI)
-          ReplVal = builder->create<UNDEF>(LI.getLoc(), LI.getType());
+        if (replVal == LI)
+          replVal = builder->create<UNDEF>(LI.getLoc(), LI.getType());
 
-        LI.replaceAllUsesWith(ReplVal);
+        LI.replaceAllUsesWith(replVal);
       }
 
       LI.erase();
@@ -310,9 +320,9 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     while (!AI.use_empty()) {
       auto *ae = AI.getResult();
       for (auto ai = ae->user_begin(), E = ae->user_end(); ai != E; ai++)
-        if (STORE SI = M::dyn_cast<STORE>(*ai)) {
-          SI.erase();
-          LBI.deleteValue(SI);
+        if (STORE si = M::dyn_cast<STORE>(*ai)) {
+          si.erase();
+          LBI.deleteValue(si);
         }
     }
 
@@ -321,14 +331,14 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
   }
 
   void computeLiveInBlocks(ALLOCA &ae, AllocaInfo<LOAD, STORE, ALLOCA> &Info,
-                           const llvm::SmallPtrSetImpl<M::Block *> &DefBlocks,
-                           llvm::SmallPtrSetImpl<M::Block *> &liveInBlks) {
+                           const L::SmallPtrSetImpl<M::Block *> &DefBlocks,
+                           L::SmallPtrSetImpl<M::Block *> &liveInBlks) {
     auto *AI = ae.getOperation();
     // To determine liveness, we must iterate through the predecessors of blocks
     // where the def is live.  Blocks are added to the worklist if we need to
     // check their predecessors.  Start with all the using blocks.
-    llvm::SmallVector<M::Block *, 64> LiveInBlockWorklist(
-        Info.usingBlocks.begin(), Info.usingBlocks.end());
+    L::SmallVector<M::Block *, 64> LiveInBlockWorklist(Info.usingBlocks.begin(),
+                                                       Info.usingBlocks.end());
 
     // If any of the using blocks is also a definition block, check to see if
     // the definition occurs before or after the use.  If it happens before the
@@ -535,39 +545,34 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         if (!srcOpn)
           continue;
 
-        auto Src = M::dyn_cast<ALLOCA>(srcOpn);
-        if (!Src)
+        if (!M::dyn_cast<ALLOCA>(srcOpn))
           continue;
 
-        llvm::DenseMap<M::Operation *, unsigned>::iterator AI =
+        L::DenseMap<M::Operation *, unsigned>::iterator ai =
             allocaLookup.find(srcOpn);
-        if (AI == allocaLookup.end())
+        if (ai == allocaLookup.end())
           continue;
-
-        M::Value *V = IncomingVals[AI->second];
 
         // Anything using the load now uses the current value.
-        LI.replaceAllUsesWith(V);
+        LI.replaceAllUsesWith(IncomingVals[ai->second]);
         LI.erase();
       } else if (auto SI = M::dyn_cast<STORE>(opn)) {
         auto *dstOpn = SI.getOperand(1)->getDefiningOp();
         if (!dstOpn)
           continue;
 
-        // Delete this instruction and mark the name as the current holder of
-        // the value
-        auto Dest = M::dyn_cast<ALLOCA>(dstOpn);
-        if (!Dest)
+        if (!M::dyn_cast<ALLOCA>(dstOpn))
           continue;
 
-        llvm::DenseMap<M::Operation *, unsigned>::iterator ai =
+        L::DenseMap<M::Operation *, unsigned>::iterator ai =
             allocaLookup.find(dstOpn);
         if (ai == allocaLookup.end())
           continue;
 
-        // what value were we writing?
-        unsigned AllocaNo = ai->second;
-        addValue(IncomingVals, AllocaNo, SI.getOperand(0));
+        // Delete this instruction and mark the name as the current holder of
+        // the value
+        unsigned allocaNo = ai->second;
+        addValue(IncomingVals, allocaNo, SI.getOperand(0));
         SI.erase();
       }
     }
@@ -579,7 +584,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       return;
 
     // Keep track of the successors so we don't visit the same successor twice
-    llvm::SmallPtrSet<M::Block *, 8> VisitedSuccs;
+    L::SmallPtrSet<M::Block *, 8> VisitedSuccs;
 
     // Handle the first successor without using the worklist.
     VisitedSuccs.insert(*I);
@@ -622,9 +627,9 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       // If we haven't computed a numbering for the BB's in the function, do
       // so now.
       if (BBNumbers.empty()) {
-        unsigned ID = 0;
+        unsigned id = 0;
         for (auto &BB : F)
-          BBNumbers[&BB] = ID++;
+          BBNumbers[&BB] = id++;
       }
 
       // Keep the reverse mapping of the 'Allocas' array for the rename pass.
@@ -636,27 +641,27 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       // insertion of dead phi nodes.
 
       // Unique the set of defining blocks for efficient lookup.
-      llvm::SmallPtrSet<M::Block *, 32> DefBlocks(info.definingBlocks.begin(),
-                                                  info.definingBlocks.end());
+      L::SmallPtrSet<M::Block *, 32> defBlocks(info.definingBlocks.begin(),
+                                               info.definingBlocks.end());
 
       // Determine which blocks the value is live in.  These are blocks which
       // lead to uses.
-      llvm::SmallPtrSet<M::Block *, 32> liveInBlks;
-      computeLiveInBlocks(ae, info, DefBlocks, liveInBlks);
+      L::SmallPtrSet<M::Block *, 32> liveInBlks;
+      computeLiveInBlocks(ae, info, defBlocks, liveInBlks);
 
       // At this point, we're committed to promoting the alloca using IDF's,
       // and the standard SSA construction algorithm.  Determine which blocks
       // need phi nodes and see if we can optimize out some work by avoiding
       // insertion of dead phi nodes.
       IDF.setLiveInBlocks(liveInBlks);
-      IDF.setDefiningBlocks(DefBlocks);
-      llvm::SmallVector<M::Block *, 32> PHIBlocks;
-      IDF.calculate(PHIBlocks);
-      llvm::sort(PHIBlocks, [this](M::Block *A, M::Block *B) {
+      IDF.setDefiningBlocks(defBlocks);
+      L::SmallVector<M::Block *, 32> phiBlocks;
+      IDF.calculate(phiBlocks);
+      L::sort(phiBlocks, [this](M::Block *A, M::Block *B) {
         return BBNumbers.find(A)->second < BBNumbers.find(B)->second;
       });
 
-      for (M::Block *BB : PHIBlocks)
+      for (M::Block *BB : phiBlocks)
         addBlockArgument(BB, ae, allocaNum);
 
       aes.push_back(ae);
@@ -671,20 +676,20 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     // Set the incoming values for the basic block to be null values for all
     // of the alloca's.  We do this in case there is a load of a value that
     // has not been stored yet.  In this case, it will get this null value.
-    RenamePassData::ValVector Values(allocas.size());
+    RenamePassData::ValVector values(allocas.size());
     for (unsigned i = 0, e = allocas.size(); i != e; ++i)
-      Values[i] = builder->create<UNDEF>(allocas[i].getLoc(),
+      values[i] = builder->create<UNDEF>(allocas[i].getLoc(),
                                          allocas[i].getAllocatedType());
 
     // Walks all basic blocks in the function performing the SSA rename
     // algorithm and inserting the phi nodes we marked as necessary
     std::vector<RenamePassData> renameWorklist;
-    renameWorklist.emplace_back(&F.front(), nullptr, Values);
+    renameWorklist.emplace_back(&F.front(), nullptr, values);
     do {
-      RenamePassData RPD(std::move(renameWorklist.back()));
+      RenamePassData rpd(std::move(renameWorklist.back()));
       renameWorklist.pop_back();
       // renamePass may add new worklist entries.
-      renamePass(RPD.BB, RPD.Pred, RPD.Values, renameWorklist);
+      renamePass(rpd.BB, rpd.Pred, rpd.Values, renameWorklist);
     } while (!renameWorklist.empty());
 
     // The renamer uses the Visited set to avoid infinite loops.  Clear it
@@ -707,6 +712,9 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
   /// run the MemToReg pass on the FIR dialect
   void runOnFunction() override {
+    if (ClDisableMemToReg)
+      return;
+
     auto f = this->getFunction();
     auto &entry = f.front();
     auto bldr = M::OpBuilder(f.getBody());

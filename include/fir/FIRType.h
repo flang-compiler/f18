@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_TYPE_H
-#define FIR_TYPE_H
+#ifndef DIALECT_FIR_FIRTYPE_H
+#define DIALECT_FIR_FIRTYPE_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
-#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
 class raw_ostream;
@@ -26,6 +26,11 @@ template <typename>
 class ArrayRef;
 class hash_code;
 } // namespace llvm
+
+namespace mlir {
+class DialectAsmParser;
+class DialectAsmPrinter;
+} // namespace mlir
 
 namespace fir {
 
@@ -43,6 +48,7 @@ struct DimsTypeStorage;
 struct FieldTypeStorage;
 struct HeapTypeStorage;
 struct IntTypeStorage;
+struct LenTypeStorage;
 struct LogicalTypeStorage;
 struct PointerTypeStorage;
 struct RealTypeStorage;
@@ -64,7 +70,8 @@ enum TypeKind {
   FIR_DIMS,
   FIR_FIELD,
   FIR_HEAP,
-  FIR_INT,     // intrinsic
+  FIR_INT, // intrinsic
+  FIR_LEN,
   FIR_LOGICAL, // intrinsic
   FIR_POINTER,
   FIR_REAL, // intrinsic
@@ -202,6 +209,14 @@ public:
                                mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
+class LenType
+    : public mlir::Type::TypeBase<LenType, mlir::Type, detail::LenTypeStorage> {
+public:
+  using Base::Base;
+  static LenType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static bool kindof(unsigned kind) { return kind == TypeKind::FIR_LEN; }
+};
+
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
                                                 detail::PointerTypeStorage> {
 public:
@@ -235,14 +250,13 @@ class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
                                                  detail::SequenceTypeStorage> {
 public:
   using Base::Base;
-  using BoundInfo = int64_t;
-  using Extent = llvm::Optional<BoundInfo>;
-  using Bounds = std::vector<Extent>;
-  using Shape = llvm::Optional<Bounds>;
+  using Extent = int64_t;
+  using Shape = llvm::SmallVector<Extent, 8>;
 
   mlir::Type getEleTy() const;
   Shape getShape() const;
   mlir::AffineMapAttr getLayoutMap() const;
+  unsigned getDimension() const { return getShape().size(); }
 
   static SequenceType get(const Shape &shape, mlir::Type elementType,
                           mlir::AffineMapAttr map = {});
@@ -283,6 +297,13 @@ public:
   TypeList getTypeList();
   TypeList getLenParamList();
 
+  mlir::Type getType(llvm::StringRef ident);
+  mlir::Type getType(unsigned index) {
+    assert(index < getNumFields());
+    return getTypeList()[index].second;
+  }
+  unsigned getNumFields() { return getTypeList().size(); }
+
   static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
   void finalize(llvm::ArrayRef<TypePair> lenPList,
                 llvm::ArrayRef<TypePair> typeList);
@@ -297,17 +318,10 @@ public:
                                llvm::StringRef name);
 };
 
-mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
-                        mlir::Location loc);
+mlir::Type parseFirType(FIROpsDialect *, mlir::DialectAsmParser &parser);
 
-void printFirType(FIROpsDialect *dialect, mlir::Type ty, llvm::raw_ostream &os);
+void printFirType(FIROpsDialect *, mlir::Type ty, mlir::DialectAsmPrinter &p);
 
 } // namespace fir
 
-namespace llvm {
-inline llvm::hash_code hash_value(const Optional<int64_t> &ext) {
-  return fir::hash_value(ext);
-}
-} // namespace llvm
-
-#endif // FIR_TYPE_H
+#endif // DIALECT_FIR_FIRTYPE_H

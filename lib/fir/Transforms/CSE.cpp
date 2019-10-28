@@ -44,6 +44,10 @@ static llvm::cl::opt<bool>
     ClLeaveEffects("keep-effects",
                    llvm::cl::desc("disable cleaning up effects attributes"),
                    llvm::cl::init(false), llvm::cl::Hidden);
+static llvm::cl::opt<bool> ClDisableCSE("disable-cse",
+                                        llvm::cl::desc("disable CSE pass"),
+                                        llvm::cl::init(false),
+                                        llvm::cl::Hidden);
 
 namespace {
 
@@ -146,7 +150,7 @@ struct BasicCSE : public FunctionPass<BasicCSE> {
 
   void cleanupBlock(Block *bb) {
     for (auto &inst : *bb) {
-      if (fir::nonVolatileLoad(&inst)) {
+      if (fir::nonVolatileLoad(&inst) || fir::pureCall(&inst)) {
         inst.removeAttr(Identifier::get("effects_token", inst.getContext()));
       } else if (inst.getNumRegions()) {
         for (auto &region : inst.getRegions())
@@ -175,7 +179,7 @@ LogicalResult BasicCSE::simplifyOperation(ScopedMapTy &knownValues,
   if (op->getNumRegions() != 0)
     return failure();
 
-  if (!op->hasNoSideEffect() && !fir::nonVolatileLoad(op))
+  if (!op->hasNoSideEffect() && !fir::nonVolatileLoad(op) && !fir::pureCall(op))
     return failure();
 
   // If the operation is already trivially dead just add it to the erase list.
@@ -210,7 +214,7 @@ void BasicCSE::simplifyBlock(ScopedMapTy &knownValues, DominanceInfo &domInfo,
                              Block *bb) {
   std::intptr_t token = reinterpret_cast<std::intptr_t>(bb);
   for (auto &inst : *bb) {
-    if (fir::nonVolatileLoad(&inst))
+    if (fir::nonVolatileLoad(&inst) || fir::pureCall(&inst))
       inst.setAttr("effects_token",
                    IntegerAttr::get(IndexType::get(inst.getContext()), token));
     if (dyn_cast<fir::StoreOp>(&inst) || fir::impureCall(&inst))
@@ -285,6 +289,9 @@ void BasicCSE::simplifyRegion(ScopedMapTy &knownValues, DominanceInfo &domInfo,
 }
 
 void BasicCSE::runOnFunction() {
+  if (ClDisableCSE)
+    return;
+
   /// A scoped hash table of defining operations within a function.
   {
     ScopedMapTy knownValues;

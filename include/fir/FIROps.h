@@ -28,6 +28,34 @@ namespace fir {
 
 class FirEndOp;
 
+enum class CmpFPredicate {
+  FirstValidValue,
+  // Always false
+  AlwaysFalse = FirstValidValue,
+  // Ordered comparisons
+  OEQ,
+  OGT,
+  OGE,
+  OLT,
+  OLE,
+  ONE,
+  // Both ordered
+  ORD,
+  // Unordered comparisons
+  UEQ,
+  UGT,
+  UGE,
+  ULT,
+  ULE,
+  UNE,
+  // Any unordered
+  UNO,
+  // Always true
+  AlwaysTrue,
+  // Number of predicates.
+  NumPredicates
+};
+
 /// `fir.global` is a typed symbol with an optional list of initializers.
 class GlobalOp
     : public mlir::Op<
@@ -96,6 +124,15 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
                                 mlir::OperationState *result,
                                 mlir::OpAsmParser::OperandType &selector,
                                 mlir::Type &type);
+
+void buildCmpFOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs);
+void buildCmpCOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs);
+mlir::ParseResult parseCmpfOp(mlir::OpAsmParser &parser,
+                              mlir::OperationState &result);
+mlir::ParseResult parseCmpcOp(mlir::OpAsmParser &parser,
+                              mlir::OperationState &result);
 
 #define GET_OP_CLASSES
 #include "fir/FIROps.h.inc"

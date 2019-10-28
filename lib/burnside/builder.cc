@@ -45,11 +45,11 @@ mlir::FuncOp B::getNamedFunction(mlir::ModuleOp module, llvm::StringRef name) {
   return module.lookupSymbol<mlir::FuncOp>(name);
 }
 
-void B::SymMap::addSymbol(const semantics::Symbol *symbol, mlir::Value *value) {
-  symbolMap.try_emplace(symbol, value);
+void B::SymMap::addSymbol(semantics::SymbolRef symbol, mlir::Value *value) {
+  symbolMap.try_emplace(&*symbol, value);
 }
 
-mlir::Value *B::SymMap::lookupSymbol(const semantics::Symbol *symbol) {
-  auto iter{symbolMap.find(symbol)};
+mlir::Value *B::SymMap::lookupSymbol(semantics::SymbolRef symbol) {
+  auto iter{symbolMap.find(&*symbol)};
   return (iter == symbolMap.end()) ? nullptr : iter->second;
 }

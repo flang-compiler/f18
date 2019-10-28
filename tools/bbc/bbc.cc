@@ -14,7 +14,7 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Transforms/Passes.h"
 #include "fir/Transforms/StdConverter.h"
@@ -23,7 +23,7 @@
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
-#include "../../lib/parser/flang-features.h"
+#include "../../lib/common/Fortran-features.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
 #include "../../lib/parser/parse-tree.h"
@@ -286,68 +286,15 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToLLVMPass());
   }
   if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass());
+    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll"));
   }
-  auto result{pm.run(mlirModule)};
-  if (driver.dumpFIR) {
-    llvm::errs() << ";== 2 ==\n";
-    mlirModule.dump();
-  }
-  return {};
-}
-
-// For handling .fir files (MLIR+FIR)
-std::string CompileFir(std::string path, Fortran::parser::Options options,
-    DriverOptions &driver,
-    Fortran::semantics::SemanticsContext &semanticsContext) {
-  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
-
-  // check that there is a file to load
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(path);
-  if (std::error_code EC = fileOrErr.getError()) {
-    llvm::errs() << "Could not open file: " << EC.message() << '\n';
-    std::exit(-1);
-  }
-
-  // load the file into a module
-  llvm::SourceMgr sourceMgr;
-  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
-  Br::getBridge().parseSourceFile(sourceMgr);
-  auto mlirModule = Br::getBridge().getModule();
-  if (!Br::getBridge().validModule()) {
-    llvm::errs() << "Error can't load file " << path << '\n';
-    std::exit(3);
-  }
-  if (mlir::failed(mlirModule.verify())) {
-    llvm::errs() << "Error verifying FIR module\n";
-    std::exit(4);
-  }
-
-  llvm::errs() << ";== 3 ==\n";
-  mlirModule.dump();
-
-  // run passes
-  mlir::PassManager pm{mlirModule.getContext()};
-  pm.addPass(fir::createMemToRegPass());
-  pm.addPass(fir::createCSEPass());
-  if (driver.lowerToStd) {
-    pm.addPass(fir::createFIRToStdPass());
-  }
-  if (driver.lowerToLLVM) {
-    pm.addPass(fir::createFIRToLLVMPass());
-  }
-  if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass());
-  }
-  auto result{pm.run(mlirModule)};
-  llvm::errs() << ";== 4 ==\n";
-  mlirModule.dump();
-  if (mlir::succeeded(result)) {
-    llvm::errs() << "a.ll written\n";
+  if (mlir::succeeded(pm.run(mlirModule))) {
+    if (driver.dumpFIR) {
+      llvm::errs() << ";== 2 ==\n";
+      mlirModule.dump();
+    }
   } else {
-    llvm::errs() << "FAILED\n";
-    std::exit(5);
+    llvm::errs() << "oops, pass manager reported failure\n";
   }
   return {};
 }
@@ -407,8 +354,7 @@ int main(int argc, char *const argv[]) {
 
   Fortran::common::IntrinsicTypeDefaultKinds defaultKinds;
 
-  std::vector<std::string> fortranSources, firSources, otherSources,
-      relocatables;
+  std::vector<std::string> fortranSources, otherSources, relocatables;
   bool anyFiles{false};
 
   while (!args.empty()) {
@@ -428,8 +374,6 @@ int main(int argc, char *const argv[]) {
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
             suffix == "F18" || suffix == "ff18") {
           fortranSources.push_back(arg);
-        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir") {
-          firSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
           relocatables.push_back(arg);
         } else {
@@ -618,12 +562,6 @@ int main(int argc, char *const argv[]) {
   }
   for (const auto &path : fortranSources) {
     std::string relo{CompileFortran(path, options, driver, semanticsContext)};
-    if (!driver.compileOnly && !relo.empty()) {
-      relocatables.push_back(relo);
-    }
-  }
-  for (const auto &path : firSources) {
-    std::string relo{CompileFir(path, options, driver, semanticsContext)};
     if (!driver.compileOnly && !relo.empty()) {
       relocatables.push_back(relo);
     }

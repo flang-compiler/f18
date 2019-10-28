@@ -13,9 +13,10 @@
 // limitations under the License.
 
 #include "fir/Transforms/StdConverter.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -24,8 +25,6 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/LowerAffine.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Config/abi-breaking.h"
 #include "llvm/IR/IRBuilder.h"
@@ -41,6 +40,11 @@ namespace L = llvm;
 namespace M = mlir;
 
 using namespace fir;
+
+static L::cl::opt<bool>
+    ClDisableFirToStd("disable-fir2std",
+                      L::cl::desc("disable FIR to standard pass"),
+                      L::cl::init(false), L::cl::Hidden);
 
 namespace {
 
@@ -144,7 +148,10 @@ class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
 
 public:
   void runOnModule() override {
-    return;
+    if (ClDisableFirToStd)
+      return;
+
+    return; // FIXME
 
     for (auto fn : getModule().getOps<M::FuncOp>()) {
       M::OpBuilder rewriter{&fn.getBody()};

@@ -32,6 +32,7 @@ class Type;
 namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
+template<typename T> class Reference;
 }  // common
 
 namespace evaluate {
@@ -50,6 +51,7 @@ class CookedSource;
 
 namespace semantics {
 class Symbol;
+using SymbolRef = common::Reference<const Symbol>;
 }  // semantics
 
 namespace burnside {
@@ -100,7 +102,7 @@ mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
 
 mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
     common::IntrinsicTypeDefaultKinds const &defaults,
-    const semantics::Symbol *symbol);
+    const semantics::SymbolRef symbol);
 
 mlir::Type convertReal(mlir::MLIRContext *context, int KIND);
 

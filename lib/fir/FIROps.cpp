@@ -14,10 +14,12 @@
 
 #include "fir/FIROps.h"
 #include "fir/Attribute.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/StringSwitch.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -42,6 +44,16 @@ M::Type AllocMemOp::getAllocatedType() {
 
 M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
+// BoxDimsOp
+
+/// Get the result types packed in a tuple tuple
+M::Type BoxDimsOp::getTupleType() {
+  L::SmallVector<M::Type, 3> triple{getResult(0)->getType(),
+                                    getResult(1)->getType(),
+                                    getResult(2)->getType()};
+  return mlir::TupleType::get(triple, getContext());
+}
+
 // CallOp
 
 void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
@@ -49,7 +61,7 @@ void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
   bool isDirect = callee.hasValue();
   p << op.getOperationName() << ' ';
   if (isDirect)
-    p.printSymbolName(callee.getValue());
+    p << callee.getValue();
   else
     p << *op.getOperand(0);
   p << '(';
@@ -77,7 +89,7 @@ M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
   Type type;
 
   if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttributeDict(attrs) || parser.parseColon() ||
+      parser.parseOptionalAttrDict(attrs) || parser.parseColon() ||
       parser.parseType(type))
     return M::failure();
 
@@ -104,6 +116,137 @@ M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
   return M::success();
 }
 
+// CmpfOp
+
+fir::CmpFPredicate CmpfOp::getPredicateByName(llvm::StringRef name) {
+  return llvm::StringSwitch<fir::CmpFPredicate>(name)
+      .Case("false", CmpFPredicate::AlwaysFalse)
+      .Case("oeq", CmpFPredicate::OEQ)
+      .Case("ogt", CmpFPredicate::OGT)
+      .Case("oge", CmpFPredicate::OGE)
+      .Case("olt", CmpFPredicate::OLT)
+      .Case("ole", CmpFPredicate::OLE)
+      .Case("one", CmpFPredicate::ONE)
+      .Case("ord", CmpFPredicate::ORD)
+      .Case("ueq", CmpFPredicate::UEQ)
+      .Case("ugt", CmpFPredicate::UGT)
+      .Case("uge", CmpFPredicate::UGE)
+      .Case("ult", CmpFPredicate::ULT)
+      .Case("ule", CmpFPredicate::ULE)
+      .Case("une", CmpFPredicate::UNE)
+      .Case("uno", CmpFPredicate::UNO)
+      .Case("true", CmpFPredicate::AlwaysTrue)
+      .Default(CmpFPredicate::NumPredicates);
+}
+
+void buildCmpFOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+  result.addOperands({lhs, rhs});
+  result.types.push_back(builder->getI1Type());
+  result.addAttribute(
+      CmpfOp::getPredicateAttrName(),
+      builder->getI64IntegerAttr(static_cast<int64_t>(predicate)));
+}
+
+template <typename OPTY>
+void printCmpOp(OpAsmPrinter &p, OPTY op) {
+  static const char *predicateNames[] = {
+      /*AlwaysFalse*/ "false",
+      /*OEQ*/ "oeq",
+      /*OGT*/ "ogt",
+      /*OGE*/ "oge",
+      /*OLT*/ "olt",
+      /*OLE*/ "ole",
+      /*ONE*/ "one",
+      /*ORD*/ "ord",
+      /*UEQ*/ "ueq",
+      /*UGT*/ "ugt",
+      /*UGE*/ "uge",
+      /*ULT*/ "ult",
+      /*ULE*/ "ule",
+      /*UNE*/ "une",
+      /*UNO*/ "uno",
+      /*AlwaysTrue*/ "true",
+  };
+  static_assert(std::extent<decltype(predicateNames)>::value ==
+                    (size_t)fir::CmpFPredicate::NumPredicates,
+                "wrong number of predicate names");
+  p << op.getOperationName() << ' ';
+  auto predicateValue =
+      op.template getAttrOfType<M::IntegerAttr>(OPTY::getPredicateAttrName())
+          .getInt();
+  assert(predicateValue >= static_cast<int>(CmpFPredicate::FirstValidValue) &&
+         predicateValue < static_cast<int>(CmpFPredicate::NumPredicates) &&
+         "unknown predicate index");
+  Builder b(op.getContext());
+  auto predicateStringAttr = b.getStringAttr(predicateNames[predicateValue]);
+  p.printAttribute(predicateStringAttr);
+  p << ", ";
+  p.printOperand(op.lhs());
+  p << ", ";
+  p.printOperand(op.rhs());
+  p.printOptionalAttrDict(op.getAttrs(),
+                          /*elidedAttrs=*/{OPTY::getPredicateAttrName()});
+  p << " : " << op.lhs()->getType();
+}
+
+void printCmpfOp(OpAsmPrinter &p, CmpfOp op) { printCmpOp(p, op); }
+
+template <typename OPTY>
+M::ParseResult parseCmpOp(M::OpAsmParser &parser, M::OperationState &result) {
+  L::SmallVector<M::OpAsmParser::OperandType, 2> ops;
+  L::SmallVector<M::NamedAttribute, 4> attrs;
+  M::Attribute predicateNameAttr;
+  M::Type type;
+  if (parser.parseAttribute(predicateNameAttr, OPTY::getPredicateAttrName(),
+                            attrs) ||
+      parser.parseComma() || parser.parseOperandList(ops, 2) ||
+      parser.parseOptionalAttrDict(attrs) || parser.parseColonType(type) ||
+      parser.resolveOperands(ops, type, result.operands))
+    return failure();
+
+  if (!predicateNameAttr.isa<M::StringAttr>())
+    return parser.emitError(parser.getNameLoc(),
+                            "expected string comparison predicate attribute");
+
+  // Rewrite string attribute to an enum value.
+  L::StringRef predicateName =
+      predicateNameAttr.cast<M::StringAttr>().getValue();
+  auto predicate = CmpfOp::getPredicateByName(predicateName);
+  if (predicate == CmpFPredicate::NumPredicates)
+    return parser.emitError(parser.getNameLoc(),
+                            "unknown comparison predicate \"" + predicateName +
+                                "\"");
+
+  auto builder = parser.getBuilder();
+  M::Type i1Type = builder.getI1Type();
+  attrs[0].second = builder.getI64IntegerAttr(static_cast<int64_t>(predicate));
+  result.attributes = attrs;
+  result.addTypes({i1Type});
+  return success();
+}
+
+M::ParseResult parseCmpfOp(M::OpAsmParser &parser, M::OperationState &result) {
+  return parseCmpOp<fir::CmpfOp>(parser, result);
+}
+
+// CmpcOp
+
+void buildCmpCOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+  result.addOperands({lhs, rhs});
+  result.types.push_back(builder->getI1Type());
+  result.addAttribute(
+      CmpcOp::getPredicateAttrName(),
+      builder->getI64IntegerAttr(static_cast<int64_t>(predicate)));
+}
+
+void printCmpcOp(OpAsmPrinter &p, CmpcOp op) { printCmpOp(p, op); }
+
+M::ParseResult parseCmpcOp(M::OpAsmParser &parser, M::OperationState &result) {
+  return parseCmpOp<fir::CmpcOp>(parser, result);
+}
+
 // DispatchOp
 
 M::FunctionType DispatchOp::getFunctionType() {
@@ -117,9 +260,8 @@ void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
                             L::StringRef name, M::Type type,
                             L::ArrayRef<M::NamedAttribute> attrs) {
   result->addAttribute("method", builder->getStringAttr(name));
-  for (const auto &pair : attrs) {
+  for (const auto &pair : attrs)
     result->addAttribute(pair.first, pair.second);
-  }
 }
 
 M::ParseResult DispatchTableOp::parse(M::OpAsmParser &parser,
@@ -131,7 +273,7 @@ M::ParseResult DispatchTableOp::parse(M::OpAsmParser &parser,
 
   // Convert the parsed name attr into a string attr.
   result.attributes.back().second =
-      parser.getBuilder().getStringAttr(nameAttr.getValue());
+      parser.getBuilder().getStringAttr(nameAttr.getRootReference());
 
   // Parse the optional table body.
   M::Region *body = result.addRegion();
@@ -173,9 +315,8 @@ void GlobalOp::build(M::Builder *builder, M::OperationState *result,
   result->addAttribute(getTypeAttrName(), M::TypeAttr::get(type));
   result->addAttribute(M::SymbolTable::getSymbolAttrName(),
                        builder->getStringAttr(name));
-  for (const auto &pair : attrs) {
+  for (const auto &pair : attrs)
     result->addAttribute(pair.first, pair.second);
-  }
 }
 
 M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
@@ -187,19 +328,18 @@ M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
     return failure();
 
   auto &builder = parser.getBuilder();
-  result.attributes.back().second = builder.getStringAttr(nameAttr.getValue());
+  auto name = nameAttr.getRootReference();
+  result.attributes.back().second = builder.getStringAttr(name);
 
-  if (parser.parseOptionalKeyword("constant")) {
-    result.addAttribute("constant", builder.getBoolAttr(false));
-  } else {
+  if (!parser.parseOptionalKeyword("constant")) {
     // if "constant" keyword then mark this as a constant, not a variable
-    result.addAttribute("constant", builder.getBoolAttr(true));
+    result.addAttribute("constant", builder.getUnitAttr());
   }
 
   M::Type globalType;
-  if (parser.parseColonType(globalType)) {
+  if (parser.parseColonType(globalType))
     return M::failure();
-  }
+
   result.addAttribute(getTypeAttrName(), M::TypeAttr::get(globalType));
 
   // Parse the optional initializer body.
@@ -217,7 +357,7 @@ void GlobalOp::print(M::OpAsmPrinter &p) {
   auto varName =
       getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
   p << getOperationName() << " @" << varName;
-  if (getAttr("constant").cast<M::BoolAttr>().getValue())
+  if (getAttr("constant"))
     p << " constant";
   p << " : ";
   p.printType(getType());
@@ -283,19 +423,16 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
       parser.parseKeyword("to") || parser.parseOperand(ub) ||
       parser.resolveOperand(ub, indexType, result.operands))
     return M::failure();
-  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword())) {
+
+  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword()))
     result.addAttribute(LoopOp::getStepKeyword(),
                         builder.getIntegerAttr(builder.getIndexType(), 1));
-  } else if (parser.parseOperand(step) ||
-             parser.resolveOperand(step, indexType, result.operands)) {
+  else if (parser.parseOperand(step) ||
+           parser.resolveOperand(step, indexType, result.operands))
     return M::failure();
-  }
 
-  if (parser.parseOptionalKeyword("unordered")) {
-    // ok
-  } else {
-    result.addAttribute("unordered", builder.getBoolAttr(true));
-  }
+  if (!parser.parseOptionalKeyword("unordered"))
+    result.addAttribute("unordered", builder.getUnitAttr());
 
   // Parse the body region.
   M::Region *body = result.addRegion();
@@ -305,17 +442,15 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
   fir::LoopOp::ensureTerminator(*body, builder, result.location);
 
   // Parse the optional attribute list.
-  if (parser.parseOptionalAttributeDict(result.attributes)) {
+  if (parser.parseOptionalAttrDict(result.attributes))
     return M::failure();
-  }
   return M::success();
 }
 
 fir::LoopOp getForInductionVarOwner(M::Value *val) {
   auto *ivArg = dyn_cast<M::BlockArgument>(val);
-  if (!ivArg) {
+  if (!ivArg)
     return fir::LoopOp();
-  }
   assert(ivArg->getOwner() && "unlinked block argument");
   auto *containingInst = ivArg->getOwner()->getParentOp();
   return dyn_cast_or_null<fir::LoopOp>(containingInst);
@@ -358,23 +493,21 @@ M::ParseResult parseWhereOp(M::OpAsmParser &parser, M::OperationState &result) {
       parser.resolveOperand(cond, i1Type, result.operands))
     return M::failure();
 
-  if (parser.parseRegion(*thenRegion, {}, {})) {
+  if (parser.parseRegion(*thenRegion, {}, {}))
     return M::failure();
-  }
+
   WhereOp::ensureTerminator(*thenRegion, parser.getBuilder(), result.location);
 
   if (!parser.parseOptionalKeyword("otherwise")) {
-    if (parser.parseRegion(*elseRegion, {}, {})) {
+    if (parser.parseRegion(*elseRegion, {}, {}))
       return M::failure();
-    }
     WhereOp::ensureTerminator(*elseRegion, parser.getBuilder(),
                               result.location);
   }
 
   // Parse the optional attribute list.
-  if (parser.parseOptionalAttributeDict(result.attributes)) {
+  if (parser.parseOptionalAttrDict(result.attributes))
     return M::failure();
-  }
 
   return M::success();
 }
@@ -395,9 +528,8 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
     auto &attr = cases[i];
     if (!attr.dyn_cast_or_null<M::UnitAttr>()) {
       ++o;
-      if (attr.dyn_cast_or_null<ClosedIntervalAttr>()) {
+      if (attr.dyn_cast_or_null<ClosedIntervalAttr>())
         ++o;
-      }
     }
   }
   return o;
@@ -413,11 +545,22 @@ M::ParseResult parseSelector(M::OpAsmParser &parser, M::OperationState &result,
   return M::success();
 }
 
-void printComplexBinaryOp(Operation *op, OpAsmPrinter &p) {
-  assert(op->getNumOperands() == 2 && "binary op should have two operands");
-  assert(op->getNumResults() == 1 && "binary op should have one result");
+/// Generic pretty-printer of a binary operation
+void printBinaryOp(Operation *op, OpAsmPrinter &p) {
+  assert(op->getNumOperands() == 2 && "binary op must have two operands");
+  assert(op->getNumResults() == 1 && "binary op must have one result");
 
   p << op->getName() << ' ' << *op->getOperand(0) << ", " << *op->getOperand(1);
+  p.printOptionalAttrDict(op->getAttrs());
+  p << " : " << op->getResult(0)->getType();
+}
+
+/// Generic pretty-printer of an unary operation
+void printUnaryOp(Operation *op, OpAsmPrinter &p) {
+  assert(op->getNumOperands() == 1 && "unary op must have one operand");
+  assert(op->getNumResults() == 1 && "unary op must have one result");
+
+  p << op->getName() << ' ' << *op->getOperand(0);
   p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op->getResult(0)->getType();
 }

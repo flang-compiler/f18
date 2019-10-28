@@ -14,11 +14,11 @@
 
 #include "convert-expr.h"
 #include "builder.h"
-#include "complex.h"
+#include "complex-handler.h"
 #include "fe-helper.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "intrinsics.h"
 #include "runtime.h"
 #include "../common/default-kinds.h"
@@ -80,12 +80,12 @@ class ExprLowering {
   /// unordered, but we may want to cons ordered in certain situation.
   static M::CmpIPredicate translateRelational(Co::RelationalOperator rop) {
     switch (rop) {
-    case Co::RelationalOperator::LT: return M::CmpIPredicate::SLT;
-    case Co::RelationalOperator::LE: return M::CmpIPredicate::SLE;
-    case Co::RelationalOperator::EQ: return M::CmpIPredicate::EQ;
-    case Co::RelationalOperator::NE: return M::CmpIPredicate::NE;
-    case Co::RelationalOperator::GT: return M::CmpIPredicate::SGT;
-    case Co::RelationalOperator::GE: return M::CmpIPredicate::SGE;
+    case Co::RelationalOperator::LT: return M::CmpIPredicate::slt;
+    case Co::RelationalOperator::LE: return M::CmpIPredicate::sle;
+    case Co::RelationalOperator::EQ: return M::CmpIPredicate::eq;
+    case Co::RelationalOperator::NE: return M::CmpIPredicate::ne;
+    case Co::RelationalOperator::GT: return M::CmpIPredicate::sgt;
+    case Co::RelationalOperator::GE: return M::CmpIPredicate::sge;
     }
     assert(false && "unhandled INTEGER relational operator");
     return {};
@@ -93,14 +93,15 @@ class ExprLowering {
 
   /// Convert parser's REAL relational operators to MLIR.  TODO: using
   /// unordered, but we may want to cons ordered in certain situation.
-  static M::CmpFPredicate translateFloatRelational(Co::RelationalOperator rop) {
+  static fir::CmpFPredicate translateFloatRelational(
+      Co::RelationalOperator rop) {
     switch (rop) {
-    case Co::RelationalOperator::LT: return M::CmpFPredicate::ULT;
-    case Co::RelationalOperator::LE: return M::CmpFPredicate::ULE;
-    case Co::RelationalOperator::EQ: return M::CmpFPredicate::UEQ;
-    case Co::RelationalOperator::NE: return M::CmpFPredicate::UNE;
-    case Co::RelationalOperator::GT: return M::CmpFPredicate::UGT;
-    case Co::RelationalOperator::GE: return M::CmpFPredicate::UGE;
+    case Co::RelationalOperator::LT: return fir::CmpFPredicate::ULT;
+    case Co::RelationalOperator::LE: return fir::CmpFPredicate::ULE;
+    case Co::RelationalOperator::EQ: return fir::CmpFPredicate::UEQ;
+    case Co::RelationalOperator::NE: return fir::CmpFPredicate::UNE;
+    case Co::RelationalOperator::GT: return fir::CmpFPredicate::UGT;
+    case Co::RelationalOperator::GE: return fir::CmpFPredicate::UGE;
     }
     assert(false && "unhandled REAL relational operator");
     return {};
@@ -148,6 +149,19 @@ class ExprLowering {
   }
   template<typename OpTy, typename A> M::Value *createBinaryOp(A const &ex) {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
+  }
+  template<typename OpTy, typename A> M::Value *createLogicalOp(A const &ex) {
+    auto mlirTy{M::IntegerType::get(1, builder.getContext())};
+    auto *lhs{genval(ex.left())};
+    auto *rhs{genval(ex.right())};
+    // mlir logical ops do not work with fir.logical<k>, so the operation
+    // is wrapped in conversions
+    auto lhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, lhs)};
+    auto rhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, rhs)};
+    auto op{createBinaryOp<OpTy>(ex, lhsConv, rhsConv)};
+    assert(lhs);
+    auto resType{lhs->getType()};
+    return builder.create<fir::ConvertOp>(getLoc(), resType, op);
   }
 
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
@@ -212,24 +226,24 @@ class ExprLowering {
   }
   template<typename OpTy, typename A>
   M::Value *createFltCmpOp(
-      A const &ex, M::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
+      A const &ex, fir::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), pred, lhs, rhs);
     return x.getResult();
   }
   template<typename OpTy, typename A>
-  M::Value *createFltCmpOp(A const &ex, M::CmpFPredicate pred) {
+  M::Value *createFltCmpOp(A const &ex, fir::CmpFPredicate pred) {
     return createFltCmpOp<OpTy>(
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
 
-  M::Value *gen(Se::Symbol const *sym) {
+  M::Value *gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
     return createTemporary(getLoc(), builder, symMap,
-        translateSymbolToFIRType(builder.getContext(), defaults, sym), sym);
+        translateSymbolToFIRType(builder.getContext(), defaults, sym), &*sym);
   }
-  M::Value *gendef(Se::Symbol const *sym) { return gen(sym); }
-  M::Value *genval(Se::Symbol const *sym) {
+  M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
+  M::Value *genval(Se::SymbolRef sym) {
     // Do not load the same symbols several time in one expression.
     // Fortran guarantees variable value must be the same wherever it
     // appears in one expression.
@@ -254,7 +268,7 @@ class ExprLowering {
   }
 
   template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &part) {
-    return ComplexHandler{builder, getLoc()}.createComplexPart(
+    return ComplexHandler{builder, getLoc()}.extractComplexPart(
         genval(part.left()), part.isImaginaryPart);
   }
 
@@ -348,21 +362,25 @@ class ExprLowering {
 
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Relational<Ev::Type<TC, KIND>> const &op) {
+    mlir::Value *result{nullptr};
     if constexpr (TC == IntegerCat) {
-      return createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
+      result = createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
     } else if constexpr (TC == RealCat) {
-      return createFltCmpOp<M::CmpFOp>(op, translateFloatRelational(op.opr));
+      result =
+          createFltCmpOp<fir::CmpfOp>(op, translateFloatRelational(op.opr));
     } else if constexpr (TC == ComplexCat) {
       bool eq{op.opr == Co::RelationalOperator::EQ};
       assert(eq ||
           op.opr == Co::RelationalOperator::NE &&
               "relation undefined for complex");
-      return ComplexHandler{builder, getLoc()}.createComplexCompare(
+      result = ComplexHandler{builder, getLoc()}.createComplexCompare(
           genval(op.left()), genval(op.right()), eq);
     } else {
       static_assert(TC == CharacterCat);
       TODO();
     }
+    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
+    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
   }
 
   // TODO JP: the thing below should not be required.
@@ -382,16 +400,24 @@ class ExprLowering {
   }
 
   template<int KIND> M::Value *genval(Ev::LogicalOperation<KIND> const &op) {
+    mlir::Value *result{nullptr};
     switch (op.logicalOperator) {
-    case Ev::LogicalOperator::And: return createBinaryOp<M::AndOp>(op);
-    case Ev::LogicalOperator::Or: return createBinaryOp<M::OrOp>(op);
+    case Ev::LogicalOperator::And:
+      result = createLogicalOp<M::AndOp>(op);
+      break;
+    case Ev::LogicalOperator::Or: result = createLogicalOp<M::OrOp>(op); break;
     case Ev::LogicalOperator::Eqv:
-      return createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::EQ);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::eq);
+      break;
     case Ev::LogicalOperator::Neqv:
-      return createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::NE);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::ne);
+      break;
     }
-    assert(false && "unhandled logical operation");
-    return {};
+    if (!result) {
+      assert(false && "unhandled logical operation");
+    }
+    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
+    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
   }
 
   template<Co::TypeCategory TC, int KIND>
@@ -515,13 +541,15 @@ class ExprLowering {
     L::SmallVector<M::Value *, 2> coorArgs;
     auto obj{gen(*base)};
     const Se::Symbol *sym{nullptr};
+    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, *sym)};
     for (auto *field : list) {
       sym = &field->GetLastSymbol();
       auto name{sym->name().ToString()};
-      coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name));
+      // FIXME: as we're walking the chain of field names, we need to update the
+      // subtype as we drill down
+      coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name, ty));
     }
     assert(sym && "no component(s)?");
-    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, sym)};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, obj, coorArgs);
   }
@@ -565,7 +593,7 @@ class ExprLowering {
   M::Value *gen(Ev::ArrayRef const &aref) {
     M::Value *base;
     if (aref.base().IsSymbol())
-      base = gen(const_cast<Se::Symbol *>(&aref.base().GetFirstSymbol()));
+      base = gen(aref.base().GetFirstSymbol());
     else
       base = gen(aref.base().GetComponent());
     llvm::SmallVector<M::Value *, 8> args;
@@ -640,7 +668,7 @@ class ExprLowering {
         const auto *expr{arg->UnwrapExpr()};
         assert(expr && "assumed type argument requires explicit interface");
         if (const Se::Symbol * sym{Ev::UnwrapWholeSymbolDataRef(*expr)}) {
-          M::Value *argRef{symMap.lookupSymbol(sym)};
+          M::Value *argRef{symMap.lookupSymbol(*sym)};
           assert(argRef && "could not get symbol reference");
           argTypes.push_back(argRef->getType());
           operands.push_back(argRef);
@@ -709,7 +737,7 @@ M::Value *Br::createSomeAddress(M::Location loc, M::OpBuilder &builder,
 M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
     SymMap &symMap, M::Type type, Se::Symbol const *symbol) {
   if (symbol)
-    if (auto *val{symMap.lookupSymbol(symbol)}) {
+    if (auto *val{symMap.lookupSymbol(*symbol)}) {
       if (auto *op{val->getDefiningOp()}) {
         return op->getResult(0);
       }
@@ -721,7 +749,7 @@ M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
   assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
   if (symbol) {
     ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
-    symMap.addSymbol(symbol, ae);
+    symMap.addSymbol(*symbol, ae);
   } else {
     ae = builder.create<fir::AllocaOp>(loc, type);
   }

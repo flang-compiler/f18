@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/Type.h"
-#include "fir/Dialect.h"
+#include "fir/FIRType.h"
+#include "fir/FIRDialect.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/Twine.h"
-#include "llvm/Support/raw_ostream.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -31,581 +30,162 @@ using namespace fir;
 
 namespace {
 
-// Tokens
-
-enum class TokenKind {
-  error,
-  eof,
-  leftang,
-  rightang,
-  leftparen,
-  rightparen,
-  leftbrace,
-  rightbrace,
-  leftbracket,
-  rightbracket,
-  colon,
-  comma,
-  period,
-  eroteme,
-  ecphoneme,
-  star,
-  arrow,
-  ident,
-  string,
-  intlit,
-};
-
-struct Token {
-  TokenKind kind;
-  L::StringRef text;
-};
-
-// Lexer
-
-class Lexer {
-public:
-  Lexer(L::StringRef source) : srcBuff{source}, srcPtr{source.begin()} {}
-
-  // consume and return next token from the input. input is advanced to after
-  // the token.
-  Token lexToken();
-
-  int nextNonWSChar() {
-    skipWhitespace();
-    if (atEnd())
-      return -1;
-    return *srcPtr++;
-  }
-
-  // peek ahead to the next non-whitespace character, leaving it on the input
-  // stream
-  char nextChar() {
-    skipWhitespace();
-    if (atEnd())
-      return '\0';
-    return *srcPtr;
-  }
-
-  // advance the input stream `count` characters
-  void advance(unsigned count = 1) {
-    while (count--) {
-      if (atEnd())
-        break;
-      ++srcPtr;
-    }
-  }
-
-  const char *getMarker() { return srcPtr; }
-
-  L::StringRef getNextType() {
-    char const *const marker = srcPtr;
-    L::SmallVector<char, 8> nestedPunc;
-    for (bool scanning = true; scanning && !atEnd(); ++srcPtr) {
-      char c = *srcPtr;
-      switch (c) {
-      case '<':
-      case '[':
-      case '(':
-      case '{':
-        nestedPunc.push_back(c);
-        break;
-      case '>':
-        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '<') {
-          goto done;
-        }
-        continue;
-      case ']':
-        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '[') {
-          goto done;
-        }
-        continue;
-      case ')':
-        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '(') {
-          goto done;
-        }
-        continue;
-      case '}':
-        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '{') {
-          goto done;
-        }
-        continue;
-      case ',':
-        if (nestedPunc.empty()) {
-          goto done;
-        }
-        continue;
-      case '-':
-        if ((srcPtr + 1 != srcBuff.end()) && *(srcPtr + 1) == '>') {
-          ++srcPtr;
-        }
-        continue;
-      done:
-        --srcPtr;
-        [[fallthrough]];
-      case '\0': {
-        scanning = false;
-      } break;
-      default:
-        break;
-      }
-    }
-    std::size_t count = srcPtr - marker;
-    return {marker, count};
-  }
-
-private:
-  void skipWhitespace() {
-    while (!atEnd()) {
-      switch (*srcPtr) {
-      case ' ':
-      case '\f':
-      case '\n':
-      case '\r':
-      case '\t':
-      case '\v':
-        ++srcPtr;
-        continue;
-      default:
-        break;
-      }
-      break;
-    }
-  }
-
-  Token formToken(TokenKind kind, const char *tokStart) {
-    return Token{kind, L::StringRef(tokStart, srcPtr - tokStart)};
-  }
-
-  Token emitError(const char *loc, const L::Twine &message) {
-    return formToken(TokenKind::error, loc);
-  }
-
-  bool atEnd() const { return srcPtr == srcBuff.end(); }
-
-  Token lexIdent(const char *tokStart);
-  Token lexNumber(const char *tokStart);
-  Token lexString(const char *tokStart);
-
-  L::StringRef srcBuff;
-  const char *srcPtr;
-};
-
-Token Lexer::lexToken() {
-  skipWhitespace();
-  if (atEnd()) {
-    return formToken(TokenKind::eof, "");
-  }
-
-  const char *tokStart = srcPtr;
-  switch (*srcPtr++) {
-  case '<':
-    return formToken(TokenKind::leftang, tokStart);
-  case '>':
-    return formToken(TokenKind::rightang, tokStart);
-  case '{':
-    return formToken(TokenKind::leftbrace, tokStart);
-  case '}':
-    return formToken(TokenKind::rightbrace, tokStart);
-  case '[':
-    return formToken(TokenKind::leftbracket, tokStart);
-  case ']':
-    return formToken(TokenKind::rightbracket, tokStart);
-  case '(':
-    return formToken(TokenKind::leftparen, tokStart);
-  case ')':
-    return formToken(TokenKind::rightparen, tokStart);
-  case ':':
-    return formToken(TokenKind::colon, tokStart);
-  case ',':
-    return formToken(TokenKind::comma, tokStart);
-  case '"':
-    return lexString(tokStart + 1);
-  case '-':
-    if (*srcPtr == '>') {
-      srcPtr++;
-      return formToken(TokenKind::arrow, tokStart);
-    }
-    return lexNumber(tokStart);
-  case '+':
-    return lexNumber(tokStart + 1);
-  case '!':
-    return formToken(TokenKind::ecphoneme, tokStart);
-  case '?':
-    return formToken(TokenKind::eroteme, tokStart);
-  case '*':
-    return formToken(TokenKind::star, tokStart);
-  case '.':
-    return formToken(TokenKind::period, tokStart);
-  default:
-    if (std::isalpha(*tokStart)) {
-      return lexIdent(tokStart);
-    }
-    if (std::isdigit(*tokStart)) {
-      return lexNumber(tokStart);
-    }
-    return emitError(tokStart, "unexpected character");
-  }
-}
-
-Token Lexer::lexString(const char *tokStart) {
-  while (!atEnd() && *srcPtr != '"') {
-    ++srcPtr;
-  }
-  Token token{formToken(TokenKind::string, tokStart)};
-  ++srcPtr;
-  return token;
-}
-
-Token Lexer::lexIdent(const char *tokStart) {
-  while (!atEnd() && (std::isalnum(*srcPtr) || *srcPtr == '_')) {
-    ++srcPtr;
-  }
-  return formToken(TokenKind::ident, tokStart);
-}
-
-Token Lexer::lexNumber(const char *tokStart) {
-  while (!atEnd() && std::isdigit(*srcPtr)) {
-    ++srcPtr;
-  }
-  return formToken(TokenKind::intlit, tokStart);
-}
-
-class auto_counter {
-public:
-  explicit auto_counter(int &ref) : counter(ref) { ++counter; }
-  ~auto_counter() { --counter; }
-
-private:
-  auto_counter() = delete;
-  auto_counter(const auto_counter &) = delete;
-  int &counter;
-};
-
-/// A FIROpsDialect instance uses a FIRTypeParser object to parse and
-/// instantiate all FIR types from .fir files.
-class FIRTypeParser {
-public:
-  FIRTypeParser(FIROpsDialect *dialect, L::StringRef rawData, M::Location loc)
-      : context{dialect->getContext()}, lexer{rawData}, loc{loc} {}
-
-  M::Type parseType();
-
-protected:
-  inline void emitError(M::Location loc, const L::Twine &msg) {
-    M::emitError(loc, msg);
-  }
-
-  bool consumeToken(TokenKind tk, const L::Twine &msg) {
-    auto token = lexer.lexToken();
-    if (token.kind != tk) {
-      emitError(loc, msg);
-      return true; // error!
-    }
-    return false;
-  }
-
-  bool consumeChar(char ch, const L::Twine &msg) {
-    auto lexCh = lexer.nextChar();
-    if (lexCh != ch) {
-      emitError(loc, msg);
-      return true; // error!
-    }
-    lexer.advance();
-    return false;
-  }
-
-  template <typename A>
-  A parseIntLitSingleton(const char *msg) {
-    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
-      return {};
-    }
-    auto token{lexer.lexToken()};
-    if (token.kind != TokenKind::intlit) {
-      emitError(loc, msg);
-      return {};
-    }
-    KindTy kind;
-    if (token.text.getAsInteger(0, kind)) {
-      emitError(loc, "expected integer constant");
-      return {};
-    }
-    if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
-      return {};
-    }
-    if (checkAtEnd())
-      return {};
-    return A::get(getContext(), kind);
-  }
-
-  // `<` kind `>`
-  template <typename A>
-  A parseKindSingleton() {
-    return parseIntLitSingleton<A>("expected kind parameter");
-  }
-
-  // `<` rank `>`
-  template <typename A>
-  A parseRankSingleton() {
-    return parseIntLitSingleton<A>("expected rank parameter");
-  }
-
-  // '<' type '>'
-  template <typename A>
-  A parseTypeSingleton() {
-    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
-      return {};
-    }
-    auto ofTy = parseNextType();
-    if (!ofTy) {
-      emitError(loc, "expected type parameter");
-      return {};
-    }
-    if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
-      return {};
-    }
-    if (checkAtEnd())
-      return {};
-    return A::get(ofTy);
-  }
-
-  M::Type parseNextType();
-
-  bool checkAtEnd() {
-    if (!recursiveCall) {
-      auto token = lexer.lexToken();
-      if (token.kind != TokenKind::eof) {
-        emitError(loc, "unexpected extra characters");
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // `box` `<` type (',' affine-map)? `>`
-  BoxType parseBox() {
-    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
-      return {};
-    }
-    auto ofTy = parseNextType();
-    if (!ofTy) {
-      emitError(loc, "expected type parameter");
-      return {};
-    }
-    auto token = lexer.lexToken();
-    M::AffineMapAttr map;
-    if (token.kind == TokenKind::comma) {
-      map = parseAffineMapAttr();
-      token = lexer.lexToken();
-    }
-    if (token.kind != TokenKind::rightang) {
-      emitError(loc, "expected '>' in type");
-      return {};
-    }
-    if (checkAtEnd())
-      return {};
-    return BoxType::get(ofTy, map);
-  }
-
-  // `boxchar` `<` kind `>`
-  BoxCharType parseBoxChar() { return parseKindSingleton<BoxCharType>(); }
-
-  // `boxproc` `<` return-type `>`
-  BoxProcType parseBoxProc() { return parseTypeSingleton<BoxProcType>(); }
-
-  // `char` `<` kind `>`
-  CharacterType parseCharacter() { return parseKindSingleton<CharacterType>(); }
-
-  // `dims` `<` rank `>`
-  DimsType parseDims() { return parseRankSingleton<DimsType>(); }
-
-  // `field`
-  FieldType parseField() {
-    if (checkAtEnd())
-      return {};
-    return FieldType::get(getContext());
-  }
-
-  // `logical` `<` kind `>`
-  LogicalType parseLogical() { return parseKindSingleton<LogicalType>(); }
-
-  // `int` `<` kind `>`
-  IntType parseInteger() { return parseKindSingleton<IntType>(); }
-
-  // `complex` `<` kind `>`
-  CplxType parseComplex() { return parseKindSingleton<CplxType>(); }
-
-  // `real` `<` kind `>`
-  RealType parseReal() { return parseKindSingleton<RealType>(); }
-
-  // `ref` `<` type `>`
-  ReferenceType parseReference() { return parseTypeSingleton<ReferenceType>(); }
-
-  // `ptr` `<` type `>`
-  PointerType parsePointer() { return parseTypeSingleton<PointerType>(); }
-
-  // `heap` `<` type `>`
-  HeapType parseHeap() { return parseTypeSingleton<HeapType>(); }
-
-  SequenceType::Shape parseShape();
-  SequenceType parseSequence();
-
-  RecordType::TypeList parseTypeList();
-  RecordType::TypeList parseLenParamList();
-  RecordType parseDerived();
-  RecordType verifyDerived(RecordType derivedTy,
-                           llvm::ArrayRef<RecordType::TypePair> lenPList,
-                           llvm::ArrayRef<RecordType::TypePair> typeList);
-
-  // `tdesc` `<` type `>`
-  TypeDescType parseTypeDesc() { return parseTypeSingleton<TypeDescType>(); }
-
-  // `void`
-  M::Type parseVoid() {
-    if (checkAtEnd())
-      return {};
-    return M::TupleType::get(getContext());
-  }
-
-  M::MLIRContext *getContext() const { return context; }
-
-  M::AffineMapAttr parseAffineMapAttr();
-
-private:
-  M::MLIRContext *context;
-  Lexer lexer;
-  M::Location loc;
-  int recursiveCall{-1};
-};
-
-// If this is a `!fir.x` type then recursively parse it now, otherwise figure
-// out its extent and call into the standard type parser.
-M::Type FIRTypeParser::parseNextType() {
-  return M::parseType(lexer.getNextType(), getContext());
-}
-
-// Parses either `*` `:`
-//            or (int | `?`) (`x` (int | `?`))* `:`
-SequenceType::Shape FIRTypeParser::parseShape() {
-  SequenceType::Bounds bounds;
-  int extent;
-  int nextChar;
-  Token token = lexer.lexToken();
-  if (token.kind == TokenKind::star) {
-    token = lexer.lexToken();
-    if (token.kind != TokenKind::colon) {
-      emitError(loc, "expected '*' to be followed by ':'");
-      return {};
-    }
-    return SequenceType::Shape();
-  }
-  while (true) {
-    if (token.kind != TokenKind::eroteme) {
-      goto shape_spec;
-    }
-    bounds.emplace_back(SequenceType::Extent());
-    goto check_xchar;
-  shape_spec:
-    if (token.kind != TokenKind::intlit) {
-      emitError(loc, "expected an integer or '?' in shape specification");
-      return {};
-    }
-    token.text.getAsInteger(10, extent);
-    bounds.emplace_back(extent);
-  check_xchar:
-    nextChar = lexer.nextNonWSChar();
-    if (nextChar == ':') {
-      return SequenceType::Shape(bounds);
-    }
-    if (nextChar != 'x') {
-      emitError(loc, "expected an 'x' or ':' after integer");
-      return {};
-    }
-    token = lexer.lexToken();
-  }
-}
-
-// affine-map ::= `#` ident
-M::AffineMapAttr FIRTypeParser::parseAffineMapAttr() {
-  return {}; // FIXME opParser->parseAttr();
-}
-
-// bounds ::= lo extent stride | `?`
-// `array` `<` bounds (`,` bounds)* `:` type (',' affine-map)? `>`
-SequenceType FIRTypeParser::parseSequence() {
-  if (consumeToken(TokenKind::leftang, "expected '<' in array type")) {
+template <typename TYPE>
+TYPE parseIntSingleton(M::DialectAsmParser &parser) {
+  int kind = 0;
+  if (parser.parseLess() || parser.parseInteger(kind) ||
+      parser.parseGreater()) {
+    parser.emitError(parser.getCurrentLocation(), "kind value expected");
     return {};
   }
-  auto shape = parseShape();
-  M::Type eleTy = parseNextType();
-  if (!eleTy) {
-    emitError(loc, "invalid element type");
+  return TYPE::get(parser.getBuilder().getContext(), kind);
+}
+
+template <typename TYPE>
+TYPE parseKindSingleton(M::DialectAsmParser &parser) {
+  return parseIntSingleton<TYPE>(parser);
+}
+
+template <typename TYPE>
+TYPE parseRankSingleton(M::DialectAsmParser &parser) {
+  return parseIntSingleton<TYPE>(parser);
+}
+
+template <typename TYPE>
+TYPE parseTypeSingleton(M::DialectAsmParser &parser, M::Location) {
+  M::Type ty;
+  if (parser.parseLess() || parser.parseType(ty) || parser.parseGreater()) {
+    parser.emitError(parser.getCurrentLocation(), "type expected");
     return {};
   }
-  auto token = lexer.lexToken();
+  return TYPE::get(ty);
+}
+
+// `box` `<` type (',' affine-map)? `>`
+BoxType parseBox(M::DialectAsmParser &parser, M::Location loc) {
+  M::Type ofTy;
+  if (parser.parseLess() || parser.parseType(ofTy)) {
+    parser.emitError(parser.getCurrentLocation(), "expected type parameter");
+    return {};
+  }
+
   M::AffineMapAttr map;
-  if (token.kind == TokenKind::comma) {
-    map = parseAffineMapAttr();
-    token = lexer.lexToken();
-  }
-  if (token.kind != TokenKind::rightang) {
-    emitError(loc, "expected '>' in array type");
+  if (!parser.parseOptionalComma())
+    if (parser.parseAttribute(map)) {
+      parser.emitError(parser.getCurrentLocation(), "expected affine map");
+      return {};
+    }
+  if (parser.parseGreater()) {
+    parser.emitError(parser.getCurrentLocation(), "expected '>'");
     return {};
   }
-  if (checkAtEnd()) {
+  return BoxType::get(ofTy, map);
+}
+
+// `boxchar` `<` kind `>`
+BoxCharType parseBoxChar(M::DialectAsmParser &parser) {
+  return parseKindSingleton<BoxCharType>(parser);
+}
+
+// `boxproc` `<` return-type `>`
+BoxProcType parseBoxProc(M::DialectAsmParser &parser, M::Location loc) {
+  return parseTypeSingleton<BoxProcType>(parser, loc);
+}
+
+// `char` `<` kind `>`
+CharacterType parseCharacter(M::DialectAsmParser &parser) {
+  return parseKindSingleton<CharacterType>(parser);
+}
+
+// `complex` `<` kind `>`
+CplxType parseComplex(M::DialectAsmParser &parser) {
+  return parseKindSingleton<CplxType>(parser);
+}
+
+// `dims` `<` rank `>`
+DimsType parseDims(M::DialectAsmParser &parser) {
+  return parseRankSingleton<DimsType>(parser);
+}
+
+// `field`
+FieldType parseField(M::DialectAsmParser &parser) {
+  return FieldType::get(parser.getBuilder().getContext());
+}
+
+// `heap` `<` type `>`
+HeapType parseHeap(M::DialectAsmParser &parser, M::Location loc) {
+  return parseTypeSingleton<HeapType>(parser, loc);
+}
+
+// `int` `<` kind `>`
+IntType parseInteger(M::DialectAsmParser &parser) {
+  return parseKindSingleton<IntType>(parser);
+}
+
+// `len`
+LenType parseLen(M::DialectAsmParser &parser) {
+  return LenType::get(parser.getBuilder().getContext());
+}
+
+// `logical` `<` kind `>`
+LogicalType parseLogical(M::DialectAsmParser &parser) {
+  return parseKindSingleton<LogicalType>(parser);
+}
+
+// `ptr` `<` type `>`
+PointerType parsePointer(M::DialectAsmParser &parser, M::Location loc) {
+  return parseTypeSingleton<PointerType>(parser, loc);
+}
+
+// `real` `<` kind `>`
+RealType parseReal(M::DialectAsmParser &parser) {
+  return parseKindSingleton<RealType>(parser);
+}
+
+// `ref` `<` type `>`
+ReferenceType parseReference(M::DialectAsmParser &parser, M::Location loc) {
+  return parseTypeSingleton<ReferenceType>(parser, loc);
+}
+
+// `tdesc` `<` type `>`
+TypeDescType parseTypeDesc(M::DialectAsmParser &parser, M::Location loc) {
+  return parseTypeSingleton<TypeDescType>(parser, loc);
+}
+
+// `void`
+M::Type parseVoid(M::DialectAsmParser &parser) {
+  return parser.getBuilder().getNoneType();
+}
+
+// `array` `<` `*` | bounds (`x` bounds)* `:` type (',' affine-map)? `>`
+// bounds ::= `?` | int-lit
+SequenceType parseSequence(M::DialectAsmParser &parser, M::Location) {
+  if (parser.parseLess()) {
+    parser.emitError(parser.getNameLoc(), "expecting '<'");
     return {};
   }
+  SequenceType::Shape shape;
+  if (parser.parseOptionalStar()) {
+    if (parser.parseDimensionList(shape, true)) {
+      parser.emitError(parser.getNameLoc(), "invalid shape");
+      return {};
+    }
+  } else if (parser.parseColon()) {
+    parser.emitError(parser.getNameLoc(), "expected ':'");
+    return {};
+  }
+  M::Type eleTy;
+  if (parser.parseType(eleTy) || parser.parseGreater()) {
+    parser.emitError(parser.getNameLoc(), "expecting element type");
+    return {};
+  }
+  M::AffineMapAttr map;
+  if (!parser.parseOptionalComma())
+    if (parser.parseAttribute(map)) {
+      parser.emitError(parser.getNameLoc(), "expecting affine map");
+      return {};
+    }
   return SequenceType::get(shape, eleTy, map);
-}
-
-// Parses: string `:` type (',' string `:` type)* '}'
-RecordType::TypeList FIRTypeParser::parseTypeList() {
-  RecordType::TypeList result;
-  while (true) {
-    auto name{lexer.lexToken()};
-    if (name.kind != TokenKind::ident) {
-      emitError(loc, "expected identifier");
-      return {};
-    }
-    if (consumeToken(TokenKind::colon, "expected colon")) {
-      return {};
-    }
-    auto memTy{parseNextType()};
-    result.emplace_back(name.text, memTy);
-    auto token{lexer.lexToken()};
-    if (token.kind == TokenKind::rightbrace) {
-      return result;
-    }
-    if (token.kind != TokenKind::comma) {
-      emitError(loc, "expected ','");
-      return {};
-    }
-  }
-}
-
-// Parses: string `:` int-type (',' string `:` int-type)* ')'
-RecordType::TypeList FIRTypeParser::parseLenParamList() {
-  RecordType::TypeList result;
-  while (true) {
-    auto name{lexer.lexToken()};
-    if (name.kind != TokenKind::ident) {
-      emitError(loc, "expected identifier");
-      return {};
-    }
-    if (consumeToken(TokenKind::colon, "expected colon")) {
-      return {};
-    }
-    auto memTy{parseNextType()};
-    result.emplace_back(name.text, memTy);
-    auto token{lexer.lexToken()};
-    if (token.kind == TokenKind::rightparen) {
-      return result;
-    }
-    if (token.kind != TokenKind::comma) {
-      emitError(loc, "expected ','");
-      return {};
-    }
-  }
 }
 
 bool verifyIntegerType(M::Type ty) {
@@ -615,8 +195,8 @@ bool verifyIntegerType(M::Type ty) {
 bool verifyRecordMemberType(M::Type ty) {
   return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
            ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
-           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
-           ty.dyn_cast<TypeDescType>());
+           ty.dyn_cast<FieldType>() || ty.dyn_cast<LenType>() ||
+           ty.dyn_cast<ReferenceType>() || ty.dyn_cast<TypeDescType>());
 }
 
 bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
@@ -632,34 +212,34 @@ bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
   return true;
 }
 
-RecordType
-FIRTypeParser::verifyDerived(RecordType derivedTy,
-                             L::ArrayRef<RecordType::TypePair> lenPList,
-                             L::ArrayRef<RecordType::TypePair> typeList) {
+RecordType verifyDerived(M::DialectAsmParser &parser, RecordType derivedTy,
+                         L::ArrayRef<RecordType::TypePair> lenPList,
+                         L::ArrayRef<RecordType::TypePair> typeList) {
+  auto loc = parser.getNameLoc();
   if (!verifySameLists(derivedTy.getLenParamList(), lenPList) ||
       !verifySameLists(derivedTy.getTypeList(), typeList)) {
-    emitError(loc, "cannot redefine record type members");
+    parser.emitError(loc, "cannot redefine record type members");
     return {};
   }
   for (auto &p : lenPList)
     if (!verifyIntegerType(p.second)) {
-      emitError(loc, "LEN parameter must be integral type");
+      parser.emitError(loc, "LEN parameter must be integral type");
       return {};
     }
   for (auto &p : typeList)
     if (!verifyRecordMemberType(p.second)) {
-      emitError(loc, "field parameter has invalid type");
+      parser.emitError(loc, "field parameter has invalid type");
       return {};
     }
   llvm::StringSet<> uniq;
   for (auto &p : lenPList)
     if (!uniq.insert(p.first).second) {
-      emitError(loc, "LEN parameter cannot have duplicate name");
+      parser.emitError(loc, "LEN parameter cannot have duplicate name");
       return {};
     }
   for (auto &p : typeList)
     if (!uniq.insert(p.first).second) {
-      emitError(loc, "field cannot have duplicate name");
+      parser.emitError(loc, "field cannot have duplicate name");
       return {};
     }
   return derivedTy;
@@ -669,91 +249,65 @@ FIRTypeParser::verifyDerived(RecordType derivedTy,
 // `type` `<` name
 //           (`(` id `:` type (`,` id `:` type)* `)`)?
 //           (`{` id `:` type (`,` id `:` type)* `}`)? '>'
-RecordType FIRTypeParser::parseDerived() {
-  if (consumeToken(TokenKind::leftang, "expected '<' in type type")) {
+RecordType parseDerived(M::DialectAsmParser &parser, M::Location) {
+  L::StringRef name;
+  if (parser.parseLess() || parser.parseKeyword(&name)) {
+    parser.emitError(parser.getNameLoc(),
+                     "expected a identifier as name of derived type");
     return {};
   }
-  auto name{lexer.lexToken()};
-  if (name.kind != TokenKind::ident) {
-    emitError(loc, "expected a identifier as name of derived type");
-    return {};
-  }
-  RecordType result = RecordType::get(getContext(), name.text);
-  auto token = lexer.lexToken();
+  RecordType result = RecordType::get(parser.getBuilder().getContext(), name);
+
   RecordType::TypeList lenParamList;
+  if (!parser.parseOptionalLParen()) {
+    while (true) {
+      L::StringRef lenparam;
+      M::Type intTy;
+      if (parser.parseKeyword(&lenparam) || parser.parseColon() ||
+          parser.parseType(intTy)) {
+        parser.emitError(parser.getNameLoc(), "expected LEN parameter list");
+        return {};
+      }
+      lenParamList.emplace_back(lenparam, intTy);
+      if (parser.parseOptionalComma())
+        break;
+    }
+    if (parser.parseRParen()) {
+      parser.emitError(parser.getNameLoc(), "expected ')'");
+      return {};
+    }
+  }
+
   RecordType::TypeList typeList;
-  if (token.kind == TokenKind::leftbrace) {
-    goto parse_fields;
-  } else if (token.kind != TokenKind::leftparen) {
-    // degenerate case?
-    goto check_close;
+  if (!parser.parseOptionalLBrace()) {
+    while (true) {
+      L::StringRef field;
+      M::Type fldTy;
+      if (parser.parseKeyword(&field) || parser.parseColon() ||
+          parser.parseType(fldTy)) {
+        parser.emitError(parser.getNameLoc(), "expected field type list");
+        return {};
+      }
+      typeList.emplace_back(field, fldTy);
+      if (parser.parseOptionalComma())
+        break;
+    }
+    if (parser.parseRBrace()) {
+      parser.emitError(parser.getNameLoc(), "expected '}'");
+      return {};
+    }
   }
-  lenParamList = parseLenParamList();
-  token = lexer.lexToken();
-  if (token.kind != TokenKind::leftbrace) {
-    // no fields?
-    goto check_close;
-  }
-parse_fields:
-  typeList = parseTypeList();
-  token = lexer.lexToken();
-check_close:
-  if (token.kind != TokenKind::rightang) {
-    emitError(loc, "expected '>' in type type");
+
+  if (parser.parseGreater()) {
+    parser.emitError(parser.getNameLoc(), "expected '>' in type type");
     return {};
   }
-  if (checkAtEnd()) {
-    return {};
-  }
+
   if (lenParamList.empty() && typeList.empty())
     return result;
-  result.finalize(lenParamList, typeList);
-  return verifyDerived(result, lenParamList, typeList);
-}
 
-M::Type FIRTypeParser::parseType() {
-  auto_counter c{recursiveCall};
-  auto token = lexer.lexToken();
-  if (token.kind == TokenKind::ident) {
-    if (token.text == "ref")
-      return parseReference();
-    if (token.text == "array")
-      return parseSequence();
-    if (token.text == "char")
-      return parseCharacter();
-    if (token.text == "logical")
-      return parseLogical();
-    if (token.text == "real")
-      return parseReal();
-    if (token.text == "type")
-      return parseDerived();
-    if (token.text == "box")
-      return parseBox();
-    if (token.text == "boxchar")
-      return parseBoxChar();
-    if (token.text == "boxproc")
-      return parseBoxProc();
-    if (token.text == "ptr")
-      return parsePointer();
-    if (token.text == "heap")
-      return parseHeap();
-    if (token.text == "dims")
-      return parseDims();
-    if (token.text == "tdesc")
-      return parseTypeDesc();
-    if (token.text == "field")
-      return parseField();
-    if (token.text == "int")
-      return parseInteger();
-    if (token.text == "complex")
-      return parseComplex();
-    if (token.text == "void")
-      return parseVoid();
-    emitError(loc, "not a known fir type");
-    return {};
-  }
-  emitError(loc, "invalid token");
-  return {};
+  result.finalize(lenParamList, typeList);
+  return verifyDerived(parser, result, lenParamList, typeList);
 }
 
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
@@ -764,6 +318,55 @@ bool singleIndirectionLevel(M::Type ty) {
 }
 
 } // namespace
+
+// Implementation of the thin interface from dialect to type parser
+
+M::Type fir::parseFirType(FIROpsDialect *, M::DialectAsmParser &parser) {
+  L::StringRef typeNameLit;
+  if (M::failed(parser.parseKeyword(&typeNameLit)))
+    return {};
+
+  auto loc = parser.getEncodedSourceLoc(parser.getNameLoc());
+  if (typeNameLit == "array")
+    return parseSequence(parser, loc);
+  if (typeNameLit == "box")
+    return parseBox(parser, loc);
+  if (typeNameLit == "boxchar")
+    return parseBoxChar(parser);
+  if (typeNameLit == "boxproc")
+    return parseBoxProc(parser, loc);
+  if (typeNameLit == "char")
+    return parseCharacter(parser);
+  if (typeNameLit == "complex")
+    return parseComplex(parser);
+  if (typeNameLit == "dims")
+    return parseDims(parser);
+  if (typeNameLit == "field")
+    return parseField(parser);
+  if (typeNameLit == "heap")
+    return parseHeap(parser, loc);
+  if (typeNameLit == "int")
+    return parseInteger(parser);
+  if (typeNameLit == "len")
+    return parseLen(parser);
+  if (typeNameLit == "logical")
+    return parseLogical(parser);
+  if (typeNameLit == "ptr")
+    return parsePointer(parser, loc);
+  if (typeNameLit == "real")
+    return parseReal(parser);
+  if (typeNameLit == "ref")
+    return parseReference(parser, loc);
+  if (typeNameLit == "tdesc")
+    return parseTypeDesc(parser, loc);
+  if (typeNameLit == "type")
+    return parseDerived(parser, loc);
+  if (typeNameLit == "void")
+    return parseVoid(parser);
+
+  parser.emitError(parser.getNameLoc(), "unknown FIR type " + typeNameLit);
+  return {};
+}
 
 namespace fir {
 namespace detail {
@@ -836,6 +439,24 @@ struct FieldTypeStorage : public M::TypeStorage {
 private:
   FieldTypeStorage() = delete;
   explicit FieldTypeStorage(KindTy) {}
+};
+
+/// The type of a derived type LEN parameter reference
+struct LenTypeStorage : public M::TypeStorage {
+  using KeyTy = KindTy;
+
+  static unsigned hashKey(const KeyTy &) { return L::hash_combine(0); }
+
+  bool operator==(const KeyTy &) const { return true; }
+
+  static LenTypeStorage *construct(M::TypeStorageAllocator &allocator, KindTy) {
+    auto *storage = allocator.allocate<LenTypeStorage>();
+    return new (storage) LenTypeStorage{0};
+  }
+
+private:
+  LenTypeStorage() = delete;
+  explicit LenTypeStorage(KindTy) {}
 };
 
 /// `LOGICAL` storage
@@ -1250,6 +871,12 @@ FieldType fir::FieldType::get(M::MLIRContext *ctxt, KindTy) {
   return Base::get(ctxt, FIR_FIELD, 0);
 }
 
+// Len
+
+LenType fir::LenType::get(M::MLIRContext *ctxt, KindTy) {
+  return Base::get(ctxt, FIR_LEN, 0);
+}
+
 // LOGICAL
 
 LogicalType fir::LogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
@@ -1342,7 +969,8 @@ M::Type fir::ReferenceType::getEleTy() const {
 M::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<LenType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1365,9 +993,9 @@ M::LogicalResult fir::PointerType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1388,9 +1016,9 @@ M::LogicalResult fir::HeapType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1421,9 +1049,10 @@ M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
   // DIMENSION attribute can only be applied to an intrinsic or record type
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>() || eleTy.dyn_cast<SequenceType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>() ||
+      eleTy.dyn_cast<SequenceType>())
     return M::failure();
   return M::success();
 }
@@ -1431,37 +1060,18 @@ M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
 // compare if two shapes are equivalent
 bool fir::operator==(const SequenceType::Shape &sh_1,
                      const SequenceType::Shape &sh_2) {
-  if (sh_1.hasValue() != sh_2.hasValue()) {
+  if (sh_1.size() != sh_2.size())
     return false;
-  }
-  if (!sh_1.hasValue()) {
-    return true;
-  }
-  auto &bnd_1 = *sh_1;
-  auto &bnd_2 = *sh_2;
-  if (bnd_1.size() != bnd_2.size()) {
-    return false;
-  }
-  for (std::size_t i = 0, end = bnd_1.size(); i != end; ++i) {
-    if (bnd_1[i].hasValue() != bnd_2[i].hasValue()) {
+  for (std::size_t i = 0, e = sh_1.size(); i != e; ++i)
+    if (sh_1[i] != sh_2[i])
       return false;
-    }
-    if (bnd_1[i].hasValue() && *bnd_1[i] != *bnd_2[i]) {
-      return false;
-    }
-  }
   return true;
-}
-
-// compute the hash of an Extent
-L::hash_code fir::hash_value(const SequenceType::Extent &ext) {
-  return L::hash_combine(ext.hasValue() ? *ext : 0);
 }
 
 // compute the hash of a Shape
 L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
-  if (sh.hasValue()) {
-    return L::hash_combine_range(sh->begin(), sh->end());
+  if (sh.size()) {
+    return L::hash_combine_range(sh.begin(), sh.end());
   }
   return L::hash_combine(0);
 }
@@ -1500,6 +1110,14 @@ M::LogicalResult fir::RecordType::verifyConstructionInvariants(
   return M::success();
 }
 
+M::Type fir::RecordType::getType(L::StringRef ident) {
+  for (auto f : getTypeList())
+    if (ident == f.first)
+      return f.second;
+  assert(false && "query for field not present in record");
+  return {};
+}
+
 /// Type descriptor type
 ///
 /// This is the type of a type descriptor object (similar to a class instance)
@@ -1515,138 +1133,137 @@ M::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
 
-// Implementation of the thin interface from dialect to type parser
+namespace {
 
-M::Type fir::parseFirType(FIROpsDialect *dialect, L::StringRef rawData,
-                          M::Location loc) {
-  FIRTypeParser parser{dialect, rawData, loc};
-  return parser.parseType();
+void printBounds(llvm::raw_ostream &os, const SequenceType::Shape &bounds) {
+  os << '<';
+  for (auto &b : bounds) {
+    if (b >= 0) {
+      os << b << 'x';
+    } else {
+      os << "?x";
+    }
+  }
 }
 
-namespace {
-class TypePrinter {
-public:
-  void print(FIROpsDialect *dialect, M::Type ty, llvm::raw_ostream &os) {
-    if (auto type = ty.dyn_cast<fir::ReferenceType>()) {
-      os << "ref<";
-      type.getEleTy().print(os);
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::LogicalType>()) {
-      os << "logical<" << type.getFKind() << '>';
-    } else if (auto type = ty.dyn_cast<fir::RealType>()) {
-      os << "real<" << type.getFKind() << '>';
-    } else if (auto type = ty.dyn_cast<fir::CharacterType>()) {
-      os << "char<" << type.getFKind() << '>';
-    } else if (auto type = ty.dyn_cast<fir::TypeDescType>()) {
-      os << "tdesc<";
-      type.getOfTy().print(os);
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::FieldType>()) {
-      os << "field";
-    } else if (auto type = ty.dyn_cast<fir::BoxType>()) {
-      os << "box<";
-      type.getEleTy().print(os);
-      if (auto map = type.getLayoutMap()) {
-        os << ", ";
-        map.print(os);
-      }
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::BoxCharType>()) {
-      auto eleTy = type.getEleTy().cast<fir::CharacterType>();
-      os << "boxchar<" << eleTy.getFKind() << '>';
-    } else if (auto type = ty.dyn_cast<fir::BoxProcType>()) {
-      os << "boxproc<";
-      type.getEleTy().print(os);
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::DimsType>()) {
-      os << "dims<" << type.getRank() << '>';
-    } else if (auto type = ty.dyn_cast<fir::SequenceType>()) {
-      os << "array";
-      auto shape = type.getShape();
-      if (shape.hasValue()) {
-        printBounds(os, *shape);
-      } else {
-        os << "<*";
-      }
-      os << ':';
-      type.getEleTy().print(os);
-      if (auto map = type.getLayoutMap()) {
-        os << ", ";
-        map.print(os);
-      }
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::HeapType>()) {
-      os << "heap<";
-      type.getEleTy().print(os);
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::PointerType>()) {
-      os << "ptr<";
-      type.getEleTy().print(os);
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::RecordType>()) {
-      os << "type<" << type.getName();
-      if (!recordTypeVisited.count(type.uniqueKey())) {
-        recordTypeVisited.insert(type.uniqueKey());
-        if (type.getLenParamList().size()) {
-          char ch = '(';
-          for (auto p : type.getLenParamList()) {
-            os << ch << p.first << ':';
-            p.second.print(os);
-            ch = ',';
-          }
-          os << ')';
-        }
-        if (type.getTypeList().size()) {
-          char ch = '{';
-          for (auto p : type.getTypeList()) {
-            os << ch << p.first << ':';
-            p.second.print(os);
-            ch = ',';
-          }
-          os << '}';
-        }
-        recordTypeVisited.erase(type.uniqueKey());
-      }
-      os << '>';
-    } else if (auto type = ty.dyn_cast<fir::IntType>()) {
-      os << "int<" << type.getFKind() << '>';
-    } else if (auto type = ty.dyn_cast<fir::CplxType>()) {
-      os << "complex<" << type.getFKind() << '>';
-    } else {
-      assert(false);
-    }
-  }
+llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4> recordTypeVisited;
 
-private:
-  void printBounds(llvm::raw_ostream &os, const SequenceType::Bounds &bounds) {
-    char ch = '<';
-    for (auto &b : bounds) {
-      if (b.hasValue()) {
-        os << ch << *b;
-      } else {
-        os << ch << '?';
-      }
-      ch = 'x';
-    }
-  }
-
-  // must be in a global context because the printer must be able to track
-  // context through multiple recursive invocations of the mlir type printer
-  static llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4>
-      recordTypeVisited;
-};
-
-llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4>
-    TypePrinter::recordTypeVisited; // instantiate
 } // namespace
 
-void fir::printFirType(FIROpsDialect *dialect, M::Type ty,
-                       llvm::raw_ostream &os) {
-  TypePrinter().print(dialect, ty, os);
+void fir::printFirType(FIROpsDialect *, M::Type ty, M::DialectAsmPrinter &p) {
+  auto &os = p.getStream();
+  switch (ty.getKind()) {
+  case fir::FIR_BOX: {
+    auto type = ty.cast<BoxType>();
+    os << "box<";
+    p.printType(type.getEleTy());
+    if (auto map = type.getLayoutMap()) {
+      os << ", ";
+      p.printAttribute(map);
+    }
+    os << '>';
+  } break;
+  case fir::FIR_BOXCHAR: {
+    auto type = ty.cast<BoxCharType>().getEleTy();
+    os << "boxchar<" << type.cast<fir::CharacterType>().getFKind() << '>';
+  } break;
+  case fir::FIR_BOXPROC:
+    os << "boxproc<";
+    p.printType(ty.cast<BoxProcType>().getEleTy());
+    os << '>';
+    break;
+  case fir::FIR_CHARACTER: // intrinsic
+    os << "char<" << ty.cast<CharacterType>().getFKind() << '>';
+    break;
+  case fir::FIR_COMPLEX: // intrinsic
+    os << "complex<" << ty.cast<CplxType>().getFKind() << '>';
+    break;
+  case fir::FIR_DERIVED: { // derived
+    auto type = ty.cast<fir::RecordType>();
+    os << "type<" << type.getName();
+    if (!recordTypeVisited.count(type.uniqueKey())) {
+      recordTypeVisited.insert(type.uniqueKey());
+      if (type.getLenParamList().size()) {
+        char ch = '(';
+        for (auto p : type.getLenParamList()) {
+          os << ch << p.first << ':';
+          p.second.print(os);
+          ch = ',';
+        }
+        os << ')';
+      }
+      if (type.getTypeList().size()) {
+        char ch = '{';
+        for (auto p : type.getTypeList()) {
+          os << ch << p.first << ':';
+          p.second.print(os);
+          ch = ',';
+        }
+        os << '}';
+      }
+      recordTypeVisited.erase(type.uniqueKey());
+    }
+    os << '>';
+  } break;
+  case fir::FIR_DIMS:
+    os << "dims<" << ty.cast<DimsType>().getRank() << '>';
+    break;
+  case fir::FIR_FIELD:
+    os << "field";
+    break;
+  case fir::FIR_HEAP:
+    os << "heap<";
+    p.printType(ty.cast<HeapType>().getEleTy());
+    os << '>';
+    break;
+  case fir::FIR_INT: // intrinsic
+    os << "int<" << ty.cast<fir::IntType>().getFKind() << '>';
+    break;
+  case fir::FIR_LEN:
+    os << "len";
+    break;
+  case fir::FIR_LOGICAL: // intrinsic
+    os << "logical<" << ty.cast<LogicalType>().getFKind() << '>';
+    break;
+  case fir::FIR_POINTER:
+    os << "ptr<";
+    p.printType(ty.cast<PointerType>().getEleTy());
+    os << '>';
+    break;
+  case fir::FIR_REAL: // intrinsic
+    os << "real<" << ty.cast<fir::RealType>().getFKind() << '>';
+    break;
+  case fir::FIR_REFERENCE:
+    os << "ref<";
+    p.printType(ty.cast<ReferenceType>().getEleTy());
+    os << '>';
+    break;
+  case fir::FIR_SEQUENCE: {
+    os << "array";
+    auto type = ty.cast<SequenceType>();
+    auto shape = type.getShape();
+    if (shape.size()) {
+      printBounds(os, shape);
+    } else {
+      os << "<*:";
+    }
+    p.printType(ty.cast<SequenceType>().getEleTy());
+    if (auto map = type.getLayoutMap()) {
+      os << ", ";
+      map.print(os);
+    }
+    os << '>';
+  } break;
+  case fir::FIR_TYPEDESC:
+    os << "tdesc<";
+    p.printType(ty.cast<TypeDescType>().getOfTy());
+    os << '>';
+    break;
+  }
 }

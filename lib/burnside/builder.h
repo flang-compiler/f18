@@ -40,9 +40,9 @@ class SymMap {
   llvm::DenseMap<const semantics::Symbol *, mlir::Value *> symbolMap;
 
 public:
-  void addSymbol(const semantics::Symbol *symbol, mlir::Value *value);
+  void addSymbol(semantics::SymbolRef symbol, mlir::Value *value);
 
-  mlir::Value *lookupSymbol(const semantics::Symbol *symbol);
+  mlir::Value *lookupSymbol(semantics::SymbolRef symbol);
 };
 
 std::string applyNameMangling(llvm::StringRef parserName);

@@ -12,28 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-string-conversion")
-
-add_executable(fml
-  fml.cc
+set(LIBS
+  FIR
+  FIRTransforms
+  MLIRAffineToStandard
+  MLIRAnalysis
+  MLIRLLVMIR
+  MLIRParser
+  MLIRPass
+  MLIRTransforms
+  MLIRSupport
 )
 
-set(LIBS
+add_llvm_library(FirTcoLib tco.cpp)
+target_link_libraries(FirTcoLib ${LIBS})
+
+set(EXE_LIBS
+  ${LIBS}
   MLIRAffineOps
-  MLIRLLVMIR
+  MLIRLoopToStandard
+  MLIREDSC
+  MLIRLinalg
   MLIRLoopOps
   MLIRStandardOps
+  MLIRStandardToLLVM
+  MLIRVectorOps
+  MLIRVectorToLLVM
 )
 
-whole_archive_link(fml ${LIBS})
-target_link_libraries(fml
-  FortranCommon
-  FortranParser
-  FortranEvaluate
-  FortranSemantics
-  FortranBurnside
-  FIRTransforms
-  ${LIBS}
-)
-
-install(TARGETS fml DESTINATION bin)
+add_llvm_tool(tco tco.cpp)
+llvm_update_compile_flags(tco)
+whole_archive_link(tco ${EXE_LIBS})
+target_link_libraries(tco PRIVATE FIR MLIRIR FirTcoLib ${EXE_LIBS} LLVMSupport)

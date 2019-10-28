@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_FIROPSSUPPORT_H
-#define FIR_FIROPSSUPPORT_H
+#ifndef FIR_FIROPS_SUPPORT_H
+#define FIR_FIROPS_SUPPORT_H
 
 #include "fir/FIROps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
@@ -23,32 +23,44 @@ namespace fir {
 /// return true iff the Operation is a non-volatile LoadOp
 inline bool nonVolatileLoad(mlir::Operation *op) {
   if (auto load = dyn_cast<fir::LoadOp>(op))
-    if (!load.getAttr("volatile"))
-      return true;
+    return !load.getAttr("volatile");
   return false;
 }
 
 /// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
 /// mlir::CallOp, or mlir::CallIndirectOp and not pure
+/// NB: this is not the same as `!pureCall(op)`
 inline bool impureCall(mlir::Operation *op) {
   // Should we also auto-detect that the called function is pure if its
   // arguments are not references?  For now, rely on a "pure" attribute.
-  if (auto call = dyn_cast<fir::CallOp>(op)) {
-    if (!call.getAttr("pure"))
-      return true;
-  } else if (auto dispatch = dyn_cast<fir::DispatchOp>(op)) {
-    if (!dispatch.getAttr("pure"))
-      return true;
-  } else if (auto call = dyn_cast<mlir::CallOp>(op)) {
-    if (!call.getAttr("pure"))
-      return true;
-  } else if (auto icall = dyn_cast<mlir::CallIndirectOp>(op)) {
-    if (!icall.getAttr("pure"))
-      return true;
-  }
+  if (auto call = dyn_cast<fir::CallOp>(op))
+    return !call.getAttr("pure");
+  if (auto dispatch = dyn_cast<fir::DispatchOp>(op))
+    return !dispatch.getAttr("pure");
+  if (auto call = dyn_cast<mlir::CallOp>(op))
+    return !call.getAttr("pure");
+  if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
+    return !icall.getAttr("pure");
+  return false;
+}
+
+/// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
+/// mlir::CallOp, or mlir::CallIndirectOp and is also pure.
+/// NB: this is not the same as `!impureCall(op)`
+inline bool pureCall(mlir::Operation *op) {
+  // Should we also auto-detect that the called function is pure if its
+  // arguments are not references?  For now, rely on a "pure" attribute.
+  if (auto call = dyn_cast<fir::CallOp>(op))
+    return bool(call.getAttr("pure"));
+  if (auto dispatch = dyn_cast<fir::DispatchOp>(op))
+    return bool(dispatch.getAttr("pure"));
+  if (auto call = dyn_cast<mlir::CallOp>(op))
+    return bool(call.getAttr("pure"));
+  if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
+    return bool(icall.getAttr("pure"));
   return false;
 }
 
 } // namespace fir
 
-#endif // FIR_FIROPSSUPPORT_H
+#endif // FIR_FIROPS_SUPPORT_H
