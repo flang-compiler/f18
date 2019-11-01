@@ -102,6 +102,30 @@ private:
     String,  // char-literal-constant or Hollerith constant
   };
 
+  bool mayHaveLeadingInt(TokenKind desc) {
+    switch (desc) {
+    case TokenKind::A:
+    case TokenKind::B:
+    case TokenKind::D:
+    case TokenKind::DT:
+    case TokenKind::E:
+    case TokenKind::EN:
+    case TokenKind::ES:
+    case TokenKind::EX:
+    case TokenKind::F:
+    case TokenKind::G:
+    case TokenKind::I:
+    case TokenKind::L:
+    case TokenKind::O:
+    case TokenKind::P:
+    case TokenKind::X:
+    case TokenKind::Z:
+    case TokenKind::Slash:
+    case TokenKind::LParen: return true;
+    default: return false;
+    }
+  }
+
   struct Token {
     Token &set_kind(TokenKind kind) {
       kind_ = kind;
@@ -176,6 +200,7 @@ private:
   Token knrToken_{};  // k, n, or r UnsignedInteger token
   int64_t knrValue_{-1};  // -1 ==> not present
   int64_t wValue_{-1};
+  bool previousTokenWasInt_{false};
   char argString_[3]{};  // 1-2 character msg arg; usually edit descriptor name
   bool formatHasErrors_{false};
   bool unterminatedFormatError_{false};
@@ -213,6 +238,7 @@ template<typename CHAR> void FormatValidator<CHAR>::NextToken() {
   // At entry, cursor_ points before the start of the next token.
   // At exit, cursor_ points to last CHAR of token_.
 
+  previousTokenWasInt_ = token_.kind() == TokenKind::UnsignedInteger;
   CHAR c{NextChar()};
   token_.set_kind(TokenKind::None);
   token_.set_offset(cursor_ - format_);
@@ -472,7 +498,7 @@ template<typename CHAR> bool FormatValidator<CHAR>::Check() {
   Token starToken{};  // unlimited format token
   bool hasDataEditDesc{false};
 
-  // Subject to error recovery exceptions, a loop iteration processes an
+  // Subject to error recovery exceptions, a loop iteration processes one
   // edit descriptor or does list management.  The loop terminates when
   //  - a level-0 right paren is processed (format may be valid)
   //  - the end of an incomplete format is reached
@@ -773,7 +799,12 @@ template<typename CHAR> bool FormatValidator<CHAR>::Check() {
     default:
       // Possible first token of the next format item; token not yet processed.
       if (commaRequired) {
-        ReportError("Expected ',' or ')' in format expression");  // C1302
+        const char *s{"Expected ',' or ')' in format expression"};  // C1302
+        if (previousTokenWasInt_ && mayHaveLeadingInt(token_.kind())) {
+          ReportError(s);
+        } else {
+          ReportWarning(s);
+        }
       }
     }
   }
