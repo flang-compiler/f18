@@ -36,7 +36,7 @@ using TypeCode = unsigned char;
 
 template<typename TR, typename... TA> using FuncPointer = TR (*)(TA...);
 // This specific type signature prevents GCC complaining about function casts.
-using GenericFunctionPointer = void (*) (void);
+using GenericFunctionPointer = void (*)(void);
 
 enum class PassBy { Ref, Val };
 template<typename TA, PassBy Pass = PassBy::Ref> struct ArgumentInfo {
@@ -104,7 +104,7 @@ public:
   template<template<typename> typename ConstantContainer, typename TR,
       typename... TA>
   std::optional<HostProcedureWrapper<ConstantContainer, TR, TA...>>
-  GetHostProcedureWrapper(const std::string &name);
+  GetHostProcedureWrapper(const std::string &name) const;
 
 private:
   std::multimap<std::string, const HostRuntimeIntrinsicProcedure> procedures_;

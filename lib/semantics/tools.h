@@ -50,16 +50,19 @@ const Symbol *FindFunctionResult(const Symbol &);
 // Return the Symbol of the variable of a construct association, if it exists
 const Symbol *GetAssociationRoot(const Symbol &);
 
+bool IsGenericDefinedOp(const Symbol &);
 bool IsCommonBlockContaining(const Symbol &block, const Symbol &object);
 bool DoesScopeContain(const Scope *maybeAncestor, const Scope &maybeDescendent);
 bool DoesScopeContain(const Scope *, const Symbol &);
-bool IsUseAssociated(const Symbol *, const Scope &);
+bool IsUseAssociated(const Symbol &, const Scope &);
 bool IsHostAssociated(const Symbol &, const Scope &);
 bool IsDummy(const Symbol &);
 bool IsPointerDummy(const Symbol &);
 bool IsFunction(const Symbol &);
 bool IsPureProcedure(const Symbol &);
 bool IsPureProcedure(const Scope &);
+bool IsBindCProcedure(const Symbol &);
+bool IsBindCProcedure(const Scope &);
 bool IsProcedure(const Symbol &);
 bool IsProcName(const Symbol &symbol);  // proc-name
 bool IsVariableName(const Symbol &symbol);  // variable-name
@@ -81,8 +84,16 @@ bool IsSaved(const Symbol &);
 bool CanBeTypeBoundProc(const Symbol *);
 
 // Return an ultimate component of type that matches predicate, or nullptr.
+const Symbol *FindUltimateComponent(const DerivedTypeSpec &type,
+    const std::function<bool(const Symbol &)> &predicate);
 const Symbol *FindUltimateComponent(
-    const DerivedTypeSpec &type, std::function<bool(const Symbol &)> predicate);
+    const Symbol &symbol, const std::function<bool(const Symbol &)> &predicate);
+
+// Returns an immediate component of type that matches predicate, or nullptr.
+// An immediate component of a type is one declared for that type or is an
+// immediate component of the type that it extends.
+const Symbol *FindImmediateComponent(
+    const DerivedTypeSpec &, const std::function<bool(const Symbol &)> &);
 
 inline bool IsPointer(const Symbol &symbol) {
   return symbol.attrs().test(Attr::POINTER);
@@ -102,6 +113,12 @@ inline bool IsOptional(const Symbol &symbol) {
 inline bool IsIntentIn(const Symbol &symbol) {
   return symbol.attrs().test(Attr::INTENT_IN);
 }
+inline bool IsIntentInOut(const Symbol &symbol) {
+  return symbol.attrs().test(Attr::INTENT_INOUT);
+}
+inline bool IsIntentOut(const Symbol &symbol) {
+  return symbol.attrs().test(Attr::INTENT_OUT);
+}
 inline bool IsProtected(const Symbol &symbol) {
   return symbol.attrs().test(Attr::PROTECTED);
 }
@@ -113,10 +130,24 @@ inline bool IsAssumedSizeArray(const Symbol &symbol) {
 }
 bool IsAssumedLengthCharacter(const Symbol &);
 bool IsAssumedLengthCharacterFunction(const Symbol &);
-std::optional<parser::MessageFixedText> WhyNotModifiable(
-    const Symbol &symbol, const Scope &scope);
 // Is the symbol modifiable in this scope
+std::optional<parser::MessageFixedText> WhyNotModifiable(
+    const Symbol &, const Scope &);
+std::unique_ptr<parser::Message> WhyNotModifiable(SourceName, const SomeExpr &,
+    const Scope &, bool vectorSubscriptIsOk = false);
 bool IsExternalInPureContext(const Symbol &symbol, const Scope &scope);
+bool HasCoarray(const parser::Expr &expression);
+
+// Analysis of image control statements
+bool IsImageControlStmt(const parser::ExecutableConstruct &);
+// Get the location of the image control statement in this ExecutableConstruct
+const parser::CharBlock GetImageControlStmtLocation(
+    const parser::ExecutableConstruct &);
+// Image control statements that reference coarrays need an extra message
+// to clarify why they're image control statements.  This function returns
+// std::nullopt for ExecutableConstructs that do not require an extra message
+std::optional<parser::MessageFixedText> GetImageControlStmtCoarrayMsg(
+    const parser::ExecutableConstruct &);
 
 // Returns the complete list of derived type parameter symbols in
 // the order in which their declarations appear in the derived type
@@ -211,10 +242,9 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
 // Derived type component iterator that provides a C++ LegacyForwardIterator
 // iterator over the Ordered, Direct, Ultimate or Potential components of a
 // DerivedTypeSpec. These iterators can be used with STL algorithms
-// accepting LegacyForwadIterator.
+// accepting LegacyForwardIterator.
 // The kind of component is a template argument of the iterator factory
 // ComponentIterator.
-//
 //
 // - Ordered components are the components from the component order defined
 // in 7.5.4.7, except that the parent component IS added between the parent
@@ -227,6 +257,18 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
 //  - then, the components in declaration order (without visiting subcomponents)
 //
 // - Ultimate, Direct and Potential components are as defined in 7.5.1.
+//   - Ultimate components of a derived type are the closure of its components
+//     of intrinsic type, its ALLOCATABLE or POINTER components, and the
+//     ultimate components of its non-ALLOCATABLE non-POINTER derived type
+//     components.  (No ultimate component has a derived type unless it is
+//     ALLOCATABLE or POINTER.)
+//   - Direct components of a derived type are all of its components, and all
+//     of the direct components of its non-ALLOCATABLE non-POINTER derived type
+//     components.  (Direct components are always present.)
+//   - Potential subobject components of a derived type are the closure of
+//     its non-POINTER components and the potential subobject components of
+//     its non-POINTER derived type components.  (The lifetime of each
+//     potential subobject component is that of the entire instance.)
 // Parent and procedure components are considered against these definitions.
 // For this kind of iterator, the component tree is recursively visited in the
 // following order:
@@ -265,10 +307,10 @@ public:
   class const_iterator {
   public:
     using iterator_category = std::forward_iterator_tag;
-    using value_type = const Symbol *;
+    using value_type = SymbolRef;
     using difference_type = void;
-    using pointer = const value_type *;
-    using reference = const value_type &;
+    using pointer = const Symbol *;
+    using reference = const Symbol &;
 
     static const_iterator Create(const DerivedTypeSpec &);
 
@@ -283,8 +325,9 @@ public:
     }
     reference operator*() const {
       CHECK(!componentPath_.empty());
-      return std::get<0>(componentPath_.back());
+      return DEREF(componentPath_.back().component());
     }
+    pointer operator->() const { return &**this; }
 
     bool operator==(const const_iterator &other) const {
       return componentPath_ == other.componentPath_;
@@ -295,44 +338,61 @@ public:
 
     // bool() operator indicates if the iterator can be dereferenced without
     // having to check against an end() iterator.
-    explicit operator bool() const {
-      return !componentPath_.empty() &&
-          GetComponentSymbol(componentPath_.back());
-    }
+    explicit operator bool() const { return !componentPath_.empty(); }
 
-    // Build a designator name of the referenced component for messages.
+    // Builds a designator name of the referenced component for messages.
     // The designator helps when the component referred to by the iterator
     // may be "buried" into other components. This gives the full
     // path inside the iterated derived type: e.g "%a%b%c%ultimate"
-    // when (*it)->names() only gives "ultimate". Parent component are
+    // when it->name() only gives "ultimate". Parent components are
     // part of the path for clarity, even though they could be
     // skipped.
     std::string BuildResultDesignatorName() const;
 
   private:
     using name_iterator = typename std::list<SourceName>::const_iterator;
-    using ComponentPathNode =
-        std::tuple<const Symbol *, const DerivedTypeSpec *, name_iterator>;
-    using ComponentPath = std::vector<ComponentPathNode>;
 
-    static const Symbol *GetComponentSymbol(const ComponentPathNode &node) {
-      return std::get<0>(node);
-    }
-    static void SetComponentSymbol(ComponentPathNode &node, const Symbol *sym) {
-      std::get<0>(node) = sym;
-    }
-    static const Symbol &GetTypeSymbol(const ComponentPathNode &node) {
-      return std::get<1>(node)->typeSymbol();
-    }
-    static const Scope *GetScope(const ComponentPathNode &node) {
-      return std::get<1>(node)->scope();
-    }
-    static name_iterator &GetIterator(ComponentPathNode &node) {
-      return std::get<2>(node);
-    }
-    bool PlanComponentTraversal(const Symbol &component);
+    class ComponentPathNode {
+    public:
+      explicit ComponentPathNode(const DerivedTypeSpec &derived)
+        : derived_{derived} {
+        const std::list<SourceName> &nameList{
+            derived.typeSymbol().get<DerivedTypeDetails>().componentNames()};
+        nameIterator_ = nameList.cbegin();
+        nameEnd_ = nameList.cend();
+      }
+      const Symbol *component() const { return component_; }
+      void set_component(const Symbol &component) { component_ = &component; }
+      bool visited() const { return visited_; }
+      void set_visited(bool yes) { visited_ = yes; }
+      bool descended() const { return descended_; }
+      void set_descended(bool yes) { descended_ = yes; }
+      name_iterator &nameIterator() { return nameIterator_; }
+      name_iterator nameEnd() { return nameEnd_; }
+      const Symbol &GetTypeSymbol() const { return derived_->typeSymbol(); }
+      const Scope &GetScope() const { return DEREF(derived_->scope()); }
+      bool operator==(const ComponentPathNode &that) const {
+        return &*derived_ == &*that.derived_ &&
+            nameIterator_ == that.nameIterator_ &&
+            component_ == that.component_;
+      }
+
+    private:
+      common::Reference<const DerivedTypeSpec> derived_;
+      name_iterator nameEnd_;
+      name_iterator nameIterator_;
+      const Symbol *component_{nullptr};  // until Increment()
+      bool visited_{false};
+      bool descended_{false};
+    };
+
+    const DerivedTypeSpec *PlanComponentTraversal(
+        const Symbol &component) const;
+    // Advances to the next relevant symbol, if any.  Afterwards, the
+    // iterator will either be at its end or contain no null component().
     void Increment();
-    ComponentPath componentPath_;
+
+    std::vector<ComponentPathNode> componentPath_;
   };
 
   const_iterator begin() { return cbegin(); }
@@ -356,8 +416,8 @@ using PotentialComponentIterator = ComponentIterator<ComponentKind::Potential>;
 // Common component searches, the iterator returned is referring to the first
 // component, according to the order defined for the related ComponentIterator,
 // that verifies the property from the name.
-// If no components verifies the property, an end iterator (casting to false)
-// is returned. Otherwise, the returned iterator cast to true and can be
+// If no component verifies the property, an end iterator (casting to false)
+// is returned. Otherwise, the returned iterator casts to true and can be
 // dereferenced.
 PotentialComponentIterator::const_iterator FindEventOrLockPotentialComponent(
     const DerivedTypeSpec &);
@@ -365,5 +425,6 @@ UltimateComponentIterator::const_iterator FindCoarrayUltimateComponent(
     const DerivedTypeSpec &);
 UltimateComponentIterator::const_iterator FindPointerUltimateComponent(
     const DerivedTypeSpec &);
+
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_

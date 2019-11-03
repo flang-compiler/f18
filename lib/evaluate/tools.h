@@ -102,13 +102,12 @@ template<typename A> bool IsVariable(const A &x) {
 }
 
 // Predicate: true when an expression is assumed-rank
-bool IsAssumedRank(const semantics::Symbol &);
+bool IsAssumedRank(const Symbol &);
 bool IsAssumedRank(const ActualArgument &);
 template<typename A> bool IsAssumedRank(const A &) { return false; }
 template<typename A> bool IsAssumedRank(const Designator<A> &designator) {
-  if (const auto *symbol{
-          std::get_if<const semantics::Symbol *>(&designator.u)}) {
-    return IsAssumedRank(*symbol);
+  if (const auto *symbol{std::get_if<SymbolRef>(&designator.u)}) {
+    return IsAssumedRank(symbol->get());
   } else {
     return false;
   }
@@ -244,8 +243,8 @@ template<typename A> std::optional<NamedEntity> ExtractNamedEntity(const A &x) {
   if (auto dataRef{ExtractDataRef(x)}) {
     return std::visit(
         common::visitors{
-            [](const Symbol *symbol) -> std::optional<NamedEntity> {
-              return NamedEntity{*symbol};
+            [](SymbolRef &&symbol) -> std::optional<NamedEntity> {
+              return NamedEntity{symbol};
             },
             [](Component &&component) -> std::optional<NamedEntity> {
               return NamedEntity{std::move(component)};
@@ -296,11 +295,20 @@ template<typename A> std::optional<CoarrayRef> ExtractCoarrayRef(const A &x) {
 // extract and return that symbol, else null.
 template<typename A> const Symbol *UnwrapWholeSymbolDataRef(const A &x) {
   if (auto dataRef{ExtractDataRef(x)}) {
-    if (const Symbol **p{std::get_if<const Symbol *>(&dataRef->u)}) {
-      return *p;
+    if (const SymbolRef * p{std::get_if<SymbolRef>(&dataRef->u)}) {
+      return &p->get();
     }
   }
   return nullptr;
+}
+
+// GetFirstSymbol(A%B%C[I]%D) -> A
+template<typename A> const Symbol *GetFirstSymbol(const A &x) {
+  if (auto dataRef{ExtractDataRef(x)}) {
+    return &dataRef->GetFirstSymbol();
+  } else {
+    return nullptr;
+  }
 }
 
 // Creation of conversion expressions can be done to either a known
@@ -379,10 +387,9 @@ std::optional<Expr<SomeType>> ConvertToType(
     const DynamicType &, Expr<SomeType> &&);
 std::optional<Expr<SomeType>> ConvertToType(
     const DynamicType &, std::optional<Expr<SomeType>> &&);
+std::optional<Expr<SomeType>> ConvertToType(const Symbol &, Expr<SomeType> &&);
 std::optional<Expr<SomeType>> ConvertToType(
-    const semantics::Symbol &, Expr<SomeType> &&);
-std::optional<Expr<SomeType>> ConvertToType(
-    const semantics::Symbol &, std::optional<Expr<SomeType>> &&);
+    const Symbol &, std::optional<Expr<SomeType>> &&);
 
 // Conversions to the type of another expression
 template<TypeCategory TC, int TK, typename FROM>
@@ -683,13 +690,13 @@ struct TypeKindVisitor {
 // GetLastSymbol() returns the rightmost symbol in an object or procedure
 // designator (which has perhaps been wrapped in an Expr<>), or a null pointer
 // when none is found.
-struct GetLastSymbolHelper : public AnyTraverse<GetLastSymbolHelper,
-                                 std::optional<const semantics::Symbol *>> {
-  using Result = std::optional<const semantics::Symbol *>;
+struct GetLastSymbolHelper
+  : public AnyTraverse<GetLastSymbolHelper, std::optional<const Symbol *>> {
+  using Result = std::optional<const Symbol *>;
   using Base = AnyTraverse<GetLastSymbolHelper, Result>;
   GetLastSymbolHelper() : Base{*this} {}
   using Base::operator();
-  Result operator()(const semantics::Symbol &x) const { return &x; }
+  Result operator()(const Symbol &x) const { return &x; }
   Result operator()(const Component &x) const { return &x.GetLastSymbol(); }
   Result operator()(const NamedEntity &x) const { return &x.GetLastSymbol(); }
   Result operator()(const ProcedureDesignator &x) const {
@@ -710,7 +717,7 @@ struct GetLastSymbolHelper : public AnyTraverse<GetLastSymbolHelper,
   }
 };
 
-template<typename A> const semantics::Symbol *GetLastSymbol(const A &x) {
+template<typename A> const Symbol *GetLastSymbol(const A &x) {
   if (auto known{GetLastSymbolHelper{}(x)}) {
     return *known;
   } else {
@@ -721,7 +728,7 @@ template<typename A> const semantics::Symbol *GetLastSymbol(const A &x) {
 // Convenience: If GetLastSymbol() succeeds on the argument, return its
 // set of attributes, otherwise the empty set.
 template<typename A> semantics::Attrs GetAttrs(const A &x) {
-  if (const semantics::Symbol * symbol{GetLastSymbol(x)}) {
+  if (const Symbol * symbol{GetLastSymbol(x)}) {
     return symbol->attrs();
   } else {
     return {};
@@ -754,47 +761,59 @@ template<typename A> bool IsAllocatableOrPointer(const A &x) {
       semantics::Attrs{semantics::Attr::POINTER, semantics::Attr::ALLOCATABLE});
 }
 
-// Predicate: IsProcedurePointer()
-template<typename A> bool IsProcedurePointer(const A &) { return false; }
-inline bool IsProcedurePointer(const ProcedureDesignator &) { return true; }
-inline bool IsProcedurePointer(const ProcedureRef &) { return true; }
-inline bool IsProcedurePointer(const Expr<SomeType> &expr) {
-  return std::visit(
-      [](const auto &x) { return IsProcedurePointer(x); }, expr.u);
-}
-template<typename A> bool IsProcedurePointer(const std::optional<A> &x) {
-  return x.has_value() && IsProcedurePointer(*x);
-}
+// Pointer detection predicates
+bool IsProcedurePointer(const Expr<SomeType> &);
+bool IsNullPointer(const Expr<SomeType> &);
 
-// GetLastTarget() returns the rightmost symbol in an object
-// designator (which has perhaps been wrapped in an Expr<>) that has the
-// POINTER or TARGET attribute, or a null pointer when none is found.
-struct GetLastTargetHelper : public AnyTraverse<GetLastTargetHelper,
-                                 std::optional<const semantics::Symbol *>> {
-  using Result = std::optional<const semantics::Symbol *>;
-  using Base = AnyTraverse<GetLastTargetHelper, Result>;
-  GetLastTargetHelper() : Base{*this} {}
+// Extracts the chain of symbols from a designator, which has perhaps been
+// wrapped in an Expr<>, removing all of the (co)subscripts.  The
+// base object will be the first symbol in the result vector.
+struct GetSymbolVectorHelper
+  : public Traverse<GetSymbolVectorHelper, SymbolVector> {
+  using Result = SymbolVector;
+  using Base = Traverse<GetSymbolVectorHelper, Result>;
   using Base::operator();
-  Result operator()(const semantics::Symbol &) const;
-  Result operator()(const Component &) const;
-};
-
-template<typename A> const semantics::Symbol *GetLastTarget(const A &x) {
-  if (auto known{GetLastTargetHelper{}(x)}) {
-    return *known;
-  } else {
-    return nullptr;
+  GetSymbolVectorHelper() : Base{*this} {}
+  Result Default() { return {}; }
+  Result Combine(Result &&a, Result &&b) {
+    a.insert(a.end(), b.begin(), b.end());
+    return std::move(a);
   }
+  Result operator()(const Symbol &) const;
+  Result operator()(const Component &) const;
+  Result operator()(const ArrayRef &) const;
+  Result operator()(const CoarrayRef &) const;
+};
+template<typename A> SymbolVector GetSymbolVector(const A &x) {
+  return GetSymbolVectorHelper{}(x);
 }
+
+// GetLastTarget() returns the rightmost symbol in an object designator's
+// SymbolVector that has the POINTER or TARGET attribute, or a null pointer
+// when none is found.
+const Symbol *GetLastTarget(const SymbolVector &);
 
 // Resolves any whole ASSOCIATE(B=>A) associations
-const semantics::Symbol &ResolveAssociations(const semantics::Symbol &);
+const Symbol &ResolveAssociations(const Symbol &);
 
 // Collects all of the Symbols in an expression
-using SetOfSymbols = std::set<const semantics::Symbol *>;
-template<typename A> SetOfSymbols CollectSymbols(const A &);
-extern template SetOfSymbols CollectSymbols(const Expr<SomeType> &);
-extern template SetOfSymbols CollectSymbols(const Expr<SomeInteger> &);
-extern template SetOfSymbols CollectSymbols(const Expr<SubscriptInteger> &);
+template<typename A> semantics::SymbolSet CollectSymbols(const A &);
+extern template semantics::SymbolSet CollectSymbols(const Expr<SomeType> &);
+extern template semantics::SymbolSet CollectSymbols(const Expr<SomeInteger> &);
+extern template semantics::SymbolSet CollectSymbols(
+    const Expr<SubscriptInteger> &);
+
+// Predicate: does a variable contain a vector-valued subscript (not a triplet)?
+bool HasVectorSubscript(const Expr<SomeType> &);
+
+// Utilities for attaching the location of the declaration of a symbol
+// of interest to a message, if both pointers are non-null.  Handles
+// the case of USE association gracefully.
+parser::Message *AttachDeclaration(parser::Message *, const Symbol *);
+template<typename... A>
+parser::Message *SayWithDeclaration(
+    parser::ContextualMessages &messages, const Symbol *symbol, A &&... x) {
+  return AttachDeclaration(messages.Say(std::forward<A>(x)...), symbol);
+}
 }
 #endif  // FORTRAN_EVALUATE_TOOLS_H_

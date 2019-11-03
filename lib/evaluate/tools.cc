@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "tools.h"
+#include "characteristics.h"
 #include "traverse.h"
 #include "../common/idioms.h"
 #include "../parser/message.h"
@@ -26,7 +27,7 @@ namespace Fortran::evaluate {
 // IsVariable()
 auto IsVariableHelper::operator()(const ProcedureDesignator &x) const
     -> Result {
-  const semantics::Symbol *symbol{x.GetSymbol()};
+  const Symbol *symbol{x.GetSymbol()};
   return symbol && symbol->attrs().test(semantics::Attr::POINTER);
 }
 
@@ -606,7 +607,7 @@ std::optional<Expr<SomeType>> ConvertToType(
 }
 
 std::optional<Expr<SomeType>> ConvertToType(
-    const semantics::Symbol &symbol, Expr<SomeType> &&x) {
+    const Symbol &symbol, Expr<SomeType> &&x) {
   if (int xRank{x.Rank()}; xRank > 0) {
     if (symbol.Rank() != xRank) {
       return std::nullopt;
@@ -619,7 +620,7 @@ std::optional<Expr<SomeType>> ConvertToType(
 }
 
 std::optional<Expr<SomeType>> ConvertToType(
-    const semantics::Symbol &to, std::optional<Expr<SomeType>> &&x) {
+    const Symbol &to, std::optional<Expr<SomeType>> &&x) {
   if (x.has_value()) {
     return ConvertToType(to, std::move(*x));
   } else {
@@ -627,8 +628,8 @@ std::optional<Expr<SomeType>> ConvertToType(
   }
 }
 
-bool IsAssumedRank(const semantics::Symbol &symbol0) {
-  const semantics::Symbol &symbol{ResolveAssociations(symbol0)};
+bool IsAssumedRank(const Symbol &symbol0) {
+  const Symbol &symbol{ResolveAssociations(symbol0)};
   if (const auto *details{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
     return details->IsAssumedRank();
   } else {
@@ -640,34 +641,68 @@ bool IsAssumedRank(const ActualArgument &arg) {
   if (const auto *expr{arg.UnwrapExpr()}) {
     return IsAssumedRank(*expr);
   } else {
-    const semantics::Symbol *assumedTypeDummy{arg.GetAssumedTypeDummy()};
+    const Symbol *assumedTypeDummy{arg.GetAssumedTypeDummy()};
     CHECK(assumedTypeDummy != nullptr);
     return IsAssumedRank(*assumedTypeDummy);
   }
 }
 
-// GetLastTarget()
-auto GetLastTargetHelper::operator()(const semantics::Symbol &x) const
-    -> Result {
-  if (x.attrs().HasAny({semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    return &x;
-  } else {
-    return nullptr;
-  }
-}
-auto GetLastTargetHelper::operator()(const Component &x) const -> Result {
-  const semantics::Symbol &symbol{x.GetLastSymbol()};
-  if (symbol.attrs().HasAny(
-          {semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    return &symbol;
-  } else if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
-    return nullptr;
-  } else {
-    return std::nullopt;
-  }
+// IsProcedurePointer()
+bool IsProcedurePointer(const Expr<SomeType> &expr) {
+  return std::visit(
+      common::visitors{
+          [](const NullPointer &) { return true; },
+          [](const ProcedureDesignator &) { return true; },
+          [](const ProcedureRef &) { return true; },
+          [](const auto &) { return false; },
+      },
+      expr.u);
 }
 
-const semantics::Symbol &ResolveAssociations(const semantics::Symbol &symbol) {
+// IsNullPointer()
+struct IsNullPointerHelper : public AllTraverse<IsNullPointerHelper, false> {
+  using Base = AllTraverse<IsNullPointerHelper, false>;
+  IsNullPointerHelper() : Base(*this) {}
+  using Base::operator();
+  bool operator()(const ProcedureRef &call) const {
+    auto *intrinsic{call.proc().GetSpecificIntrinsic()};
+    return intrinsic &&
+        intrinsic->characteristics.value().attrs.test(
+            characteristics::Procedure::Attr::NullPointer);
+  }
+  bool operator()(const NullPointer &) const { return true; }
+};
+bool IsNullPointer(const Expr<SomeType> &expr) {
+  return IsNullPointerHelper{}(expr);
+}
+
+// GetSymbolVector()
+auto GetSymbolVectorHelper::operator()(const Symbol &x) const -> Result {
+  return {x};
+}
+auto GetSymbolVectorHelper::operator()(const Component &x) const -> Result {
+  Result result{(*this)(x.base())};
+  result.emplace_back(x.GetLastSymbol());
+  return result;
+}
+auto GetSymbolVectorHelper::operator()(const ArrayRef &x) const -> Result {
+  return GetSymbolVector(x.base());
+}
+auto GetSymbolVectorHelper::operator()(const CoarrayRef &x) const -> Result {
+  return x.base();
+}
+
+const Symbol *GetLastTarget(const SymbolVector &symbols) {
+  auto end{std::crend(symbols)};
+  // N.B. Neither clang nor g++ recognizes "symbols.crbegin()" here.
+  auto iter{std::find_if(std::crbegin(symbols), end, [](const Symbol &x) {
+    return x.attrs().HasAny(
+        {semantics::Attr::POINTER, semantics::Attr::TARGET});
+  })};
+  return iter == end ? nullptr : &**iter;
+}
+
+const Symbol &ResolveAssociations(const Symbol &symbol) {
   if (const auto *details{symbol.detailsIf<semantics::AssocEntityDetails>()}) {
     if (const Symbol * nested{UnwrapWholeSymbolDataRef(details->expr())}) {
       return ResolveAssociations(*nested);
@@ -677,19 +712,55 @@ const semantics::Symbol &ResolveAssociations(const semantics::Symbol &symbol) {
 }
 
 struct CollectSymbolsHelper
-  : public SetTraverse<CollectSymbolsHelper, SetOfSymbols> {
-  using Base = SetTraverse<CollectSymbolsHelper, SetOfSymbols>;
+  : public SetTraverse<CollectSymbolsHelper, semantics::SymbolSet> {
+  using Base = SetTraverse<CollectSymbolsHelper, semantics::SymbolSet>;
   CollectSymbolsHelper() : Base{*this} {}
   using Base::operator();
-  SetOfSymbols operator()(const semantics::Symbol &symbol) const {
-    return {&symbol};
+  semantics::SymbolSet operator()(const Symbol &symbol) const {
+    return {symbol};
   }
 };
-template<typename A> SetOfSymbols CollectSymbols(const A &x) {
+template<typename A> semantics::SymbolSet CollectSymbols(const A &x) {
   return CollectSymbolsHelper{}(x);
 }
-template SetOfSymbols CollectSymbols(const Expr<SomeType> &);
-template SetOfSymbols CollectSymbols(const Expr<SomeInteger> &);
-template SetOfSymbols CollectSymbols(const Expr<SubscriptInteger> &);
+template semantics::SymbolSet CollectSymbols(const Expr<SomeType> &);
+template semantics::SymbolSet CollectSymbols(const Expr<SomeInteger> &);
+template semantics::SymbolSet CollectSymbols(const Expr<SubscriptInteger> &);
 
+// HasVectorSubscript()
+struct HasVectorSubscriptHelper : public AnyTraverse<HasVectorSubscriptHelper> {
+  using Base = AnyTraverse<HasVectorSubscriptHelper>;
+  HasVectorSubscriptHelper() : Base{*this} {}
+  using Base::operator();
+  bool operator()(const Subscript &ss) const {
+    return !std::holds_alternative<Triplet>(ss.u) && ss.Rank() > 0;
+  }
+  bool operator()(const ProcedureRef &) const {
+    return false;  // don't descend into function call arguments
+  }
+};
+
+bool HasVectorSubscript(const Expr<SomeType> &expr) {
+  return HasVectorSubscriptHelper{}(expr);
+}
+
+parser::Message *AttachDeclaration(
+    parser::Message *message, const Symbol *symbol) {
+  if (message && symbol) {
+    const Symbol *unhosted{symbol};
+    while (
+        const auto *assoc{unhosted->detailsIf<semantics::HostAssocDetails>()}) {
+      unhosted = &assoc->symbol();
+    }
+    if (const auto *use{symbol->detailsIf<semantics::UseDetails>()}) {
+      message->Attach(use->location(),
+          "'%s' is USE-associated with '%s' in module '%s'"_en_US,
+          symbol->name(), unhosted->name(), use->module().name());
+    } else {
+      message->Attach(
+          unhosted->name(), "Declaration of '%s'"_en_US, symbol->name());
+    }
+  }
+  return message;
+}
 }

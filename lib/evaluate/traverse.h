@@ -38,8 +38,6 @@
 //   expression leaf nodes.  They invoke the visitor's operator() for the
 //   subtrees of interior nodes, and the visitor's Combine() to merge their
 //   results together.
-// - The default operator() inherited into each visitor just reflects right
-//   back into Traverse<> to descend into subtrees.
 // - Overloads of operator() in each visitor handle the cases of interest.
 
 #include "expression.h"
@@ -57,6 +55,9 @@ public:
   template<typename A, bool C>
   Result operator()(const common::Indirection<A, C> &x) const {
     return visitor_(x.value());
+  }
+  template<typename A> Result operator()(SymbolRef x) const {
+    return visitor_(*x);
   }
   template<typename A> Result operator()(const std::unique_ptr<A> &x) const {
     return visitor_(x.get());
@@ -93,9 +94,7 @@ public:
   template<typename T> Result operator()(const Constant<T> &) const {
     return visitor_.Default();
   }
-  Result operator()(const semantics::Symbol &) const {
-    return visitor_.Default();
-  }
+  Result operator()(const Symbol &) const { return visitor_.Default(); }
   Result operator()(const StaticDataObject &) const {
     return visitor_.Default();
   }
@@ -151,7 +150,7 @@ public:
   Result operator()(const ProcedureDesignator &x) const {
     if (const Component * component{x.GetComponent()}) {
       return visitor_(*component);
-    } else if (const semantics::Symbol * symbol{x.GetSymbol()}) {
+    } else if (const Symbol * symbol{x.GetSymbol()}) {
       return visitor_(*symbol);
     } else {
       return visitor_(DEREF(x.GetSpecificIntrinsic()));
@@ -247,11 +246,12 @@ private:
 
 // For validity checks across an expression: if any operator() result is
 // false, so is the overall result.
-template<typename Visitor, typename Base = Traverse<Visitor, bool>>
+template<typename Visitor, bool DefaultValue,
+    typename Base = Traverse<Visitor, bool>>
 struct AllTraverse : public Base {
   AllTraverse(Visitor &v) : Base{v} {}
   using Base::operator();
-  static bool Default() { return true; }
+  static bool Default() { return DefaultValue; }
   static bool Combine(bool x, bool y) { return x && y; }
 };
 

@@ -47,7 +47,7 @@ public:
   constexpr MessageFixedText &operator=(const MessageFixedText &) = default;
   constexpr MessageFixedText &operator=(MessageFixedText &&) = default;
 
-  const CharBlock &text() const { return text_; }
+  CharBlock text() const { return text_; }
   bool isFatal() const { return isFatal_; }
 
 private:
@@ -87,7 +87,7 @@ public:
   std::string MoveString() { return std::move(string_); }
 
 private:
-  void Format(const MessageFixedText *text, ...);
+  void Format(const MessageFixedText *, ...);
 
   template<typename A> A Convert(const A &x) {
     static_assert(!std::is_class_v<std::decay_t<A>>);
@@ -106,9 +106,7 @@ private:
   const char *Convert(const std::string &);
   const char *Convert(std::string &);
   const char *Convert(std::string &&);
-  const char *Convert(const CharBlock &);
-  const char *Convert(CharBlock &);
-  const char *Convert(CharBlock &&);
+  const char *Convert(CharBlock);
 
   bool isFatal_{false};
   std::string string_;
@@ -185,6 +183,7 @@ public:
     attachmentIsContext_ = true;
   }
   Message &Attach(Message *);
+  Message &Attach(std::unique_ptr<Message> &&);
   template<typename... A> Message &Attach(A &&... args) {
     return Attach(new Message{std::forward<A>(args)...});  // reference-counted
   }
@@ -284,6 +283,7 @@ public:
 
   CharBlock at() const { return at_; }
   Messages *messages() const { return messages_; }
+  bool empty() const { return !messages_ || messages_->empty(); }
 
   // Set CharBlock for messages; restore when the returned value is deleted
   common::Restorer<CharBlock> SetLocation(CharBlock at) {
@@ -291,6 +291,12 @@ public:
       at = at_;
     }
     return common::ScopedSet(at_, std::move(at));
+  }
+
+  // Diverts messages to another buffer; restored when the returned
+  // value is deleted.
+  common::Restorer<Messages *> SetMessages(Messages &buffer) {
+    return common::ScopedSet(messages_, &buffer);
   }
 
   template<typename... A> Message *Say(CharBlock at, A &&... args) {

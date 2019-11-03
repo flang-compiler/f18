@@ -445,7 +445,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"index",
         {{"string", SameChar}, {"substring", SameChar},
             {"back", AnyLogical, Rank::scalar, Optionality::optional},
-            SubscriptDefaultKIND},
+            DefaultingKIND},
         KINDInt},
     {"int", {{"a", AnyNumeric, Rank::elementalOrBOZ}, DefaultingKIND}, KINDInt},
     {"int_ptr_kind", {}, DefaultInt, Rank::scalar},
@@ -467,9 +467,9 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
         {{"array", AnyData, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
         KINDInt, Rank::vector},
     {"leadz", {{"i", AnyInt}}, DefaultInt},
-    {"len", {{"string", AnyChar, Rank::anyOrAssumedRank}, SubscriptDefaultKIND},
+    {"len", {{"string", AnyChar, Rank::anyOrAssumedRank}, DefaultingKIND},
         KINDInt, Rank::scalar},
-    {"len_trim", {{"string", AnyChar}, SubscriptDefaultKIND}, KINDInt},
+    {"len_trim", {{"string", AnyChar}, DefaultingKIND}, KINDInt},
     {"lge", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
     {"lgt", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
     {"lle", {{"string_a", SameChar}, {"string_b", SameChar}}, DefaultLogical},
@@ -618,7 +618,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"scan",
         {{"string", SameChar}, {"set", SameChar},
             {"back", AnyLogical, Rank::elemental, Optionality::optional},
-            SubscriptDefaultKIND},
+            DefaultingKIND},
         KINDInt},
     {"selected_char_kind", {{"name", DefaultChar, Rank::scalar}}, DefaultInt,
         Rank::scalar},
@@ -695,7 +695,7 @@ static const IntrinsicInterface genericIntrinsicFunction[]{
     {"verify",
         {{"string", SameChar}, {"set", SameChar},
             {"back", AnyLogical, Rank::elemental, Optionality::optional},
-            SubscriptDefaultKIND},
+            DefaultingKIND},
         KINDInt},
 };
 
@@ -1209,7 +1209,7 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
         CHECK(!shapeArgSize.has_value());
         if (rank == 1) {
           if (auto shape{GetShape(context, *arg)}) {
-            if (auto constShape{AsConstantShape(*shape)}) {
+            if (auto constShape{AsConstantShape(context, *shape)}) {
               shapeArgSize = constShape->At(ConstantSubscripts{1}).ToInt64();
               CHECK(shapeArgSize >= 0);
               argOk = true;
@@ -1438,18 +1438,10 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
     const IntrinsicDummyArgument &d{dummy[std::min(j, dummyArgPatterns - 1)]};
     if (const auto &arg{rearranged[j]}) {
       if (const Expr<SomeType> *expr{arg->UnwrapExpr()}) {
-        std::optional<characteristics::TypeAndShape> typeAndShape;
-        if (auto type{expr->GetType()}) {
-          if (auto shape{GetShape(context, *expr)}) {
-            typeAndShape.emplace(*type, std::move(*shape));
-          } else {
-            typeAndShape.emplace(*type);
-          }
-        } else {
-          typeAndShape.emplace(DynamicType::TypelessIntrinsicArgument());
-        }
-        dummyArgs.emplace_back(std::string{d.keyword},
-            characteristics::DummyDataObject{std::move(typeAndShape.value())});
+        auto dc{characteristics::DummyArgument::FromActual(
+            std::string{d.keyword}, *expr, context)};
+        CHECK(dc.has_value());
+        dummyArgs.emplace_back(std::move(*dc));
         if (d.typePattern.kindCode == KindCode::same &&
             !sameDummyArg.has_value()) {
           sameDummyArg = j;
@@ -1569,21 +1561,17 @@ SpecificCall IntrinsicProcTable::Implementation::HandleNull(
             CHECK(last != nullptr);
             auto procPointer{
                 characteristics::Procedure::Characterize(*last, intrinsics)};
-            characteristics::DummyProcedure dp{
-                common::Clone(procPointer.value())};
-            args.emplace_back("mold"s, std::move(dp));
-            fResult.emplace(std::move(procPointer.value()));
+            CHECK(procPointer.has_value());
+            args.emplace_back("mold"s,
+                characteristics::DummyProcedure{common::Clone(*procPointer)});
+            fResult.emplace(std::move(*procPointer));
           } else if (auto type{mold->GetType()}) {
             // MOLD= object pointer
-            std::optional<characteristics::TypeAndShape> typeAndShape;
-            if (auto shape{GetShape(context, *mold)}) {
-              typeAndShape.emplace(*type, std::move(*shape));
-            } else {
-              typeAndShape.emplace(*type);
-            }
-            characteristics::DummyDataObject ddo{typeAndShape.value()};
-            args.emplace_back("mold"s, std::move(ddo));
-            fResult.emplace(std::move(*typeAndShape));
+            characteristics::TypeAndShape typeAndShape{
+                *type, GetShape(context, *mold)};
+            args.emplace_back(
+                "mold"s, characteristics::DummyDataObject{typeAndShape});
+            fResult.emplace(std::move(typeAndShape));
           } else {
             context.messages().Say(
                 "MOLD= argument to NULL() lacks type"_err_en_US);

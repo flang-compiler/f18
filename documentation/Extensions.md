@@ -20,8 +20,9 @@ Intentional violations of the standard
   rule imposes an artificially small constraint in some cases
   where Fortran mandates that something have the default `INTEGER`
   type: specifically, the results of references to the intrinsic functions
-  `LEN`, `SIZE`, `LBOUND`, `UBOUND`, and `SHAPE`.  We return
-  `INTEGER(KIND=8)` in these cases.
+  `SIZE`, `LBOUND`, `UBOUND`, `SHAPE`, and the location reductions
+  `FINDLOC`, `MAXLOC`, and `MINLOC`.  We return `INTEGER(KIND=8)` by
+  default in these cases.
 
 Extensions, deletions, and legacy features supported by default
 ===============================================================
@@ -102,6 +103,12 @@ Extensions, deletions, and legacy features supported by default
 * Specific intrinsics AMAX0, AMAX1, AMIN0, AMIN1, DMAX1, DMIN1, MAX0, MAX1,
   MIN0, and MIN1 accept more argument types than specified. They are replaced by
   the related generics followed by conversions to the specified result types.
+* When a scalar CHARACTER actual argument of the same kind is known to
+  have a length shorter than the associated dummy argument, it is extended
+  on the right with blanks, similar to assignment.
+* When a dummy argument is `POINTER` or `ALLOCATABLE` and is `INTENT(IN)`, we
+  relax enforcement of some requirements on actual arguments that must otherwise
+  hold true for definable arguments.
 
 Extensions supported when enabled by options
 --------------------------------------------
