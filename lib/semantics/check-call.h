@@ -14,32 +14,40 @@
 
 // Constraint checking for procedure references
 
-#ifndef FORTRAN_EVALUATE_CHECK_CALL_H_
-#define FORTRAN_EVALUATE_CHECK_CALL_H_
+#ifndef FORTRAN_SEMANTICS_CHECK_CALL_H_
+#define FORTRAN_SEMANTICS_CHECK_CALL_H_
 
-#include "call.h"
+#include "../evaluate/call.h"
 
 namespace Fortran::parser {
+class Messages;
 class ContextualMessages;
 }
 namespace Fortran::evaluate::characteristics {
 struct Procedure;
 }
-
 namespace Fortran::evaluate {
 class FoldingContext;
+}
+
+namespace Fortran::semantics {
+class Scope;
 
 // The Boolean flag argument should be true when the called procedure
 // does not actually have an explicit interface at the call site, but
 // its characteristics are known because it is a subroutine or function
 // defined at the top level in the same source file.
-void CheckArguments(const characteristics::Procedure &, ActualArguments &,
-    FoldingContext &, bool treatingExternalAsImplicit = false);
+void CheckArguments(const evaluate::characteristics::Procedure &,
+    evaluate::ActualArguments &, evaluate::FoldingContext &, const Scope &,
+    bool treatingExternalAsImplicit = false);
 
 // Check actual arguments against a procedure with an explicit interface.
-// Report an error and return false if not compatible.
-bool CheckExplicitInterface(
-    const characteristics::Procedure &, ActualArguments &, FoldingContext &);
-
+// Reports a buffer of errors when not compatible.
+parser::Messages CheckExplicitInterface(
+    const evaluate::characteristics::Procedure &, evaluate::ActualArguments &,
+    const evaluate::FoldingContext &, const Scope &);
+// Check actual arguments for the purpose of resolving a generic interface.
+bool CheckInterfaceForGeneric(const evaluate::characteristics::Procedure &,
+    evaluate::ActualArguments &, const evaluate::FoldingContext &);
 }
 #endif

@@ -54,7 +54,8 @@ bool DistinguishableOpOrAssign(const Procedure &, const Procedure &);
 
 class TypeAndShape {
 public:
-  ENUM_CLASS(Attr, AssumedRank, AssumedShape, AssumedSize, Coarray)
+  ENUM_CLASS(
+      Attr, AssumedRank, AssumedShape, AssumedSize, DeferredShape, Coarray)
   using Attrs = common::EnumSet<Attr, Attr_enumSize>;
 
   explicit TypeAndShape(DynamicType t) : type_{t} { AcquireLEN(); }
@@ -62,6 +63,12 @@ public:
     AcquireLEN();
   }
   TypeAndShape(DynamicType t, Shape &&s) : type_{t}, shape_{std::move(s)} {
+    AcquireLEN();
+  }
+  TypeAndShape(DynamicType t, std::optional<Shape> &&s) : type_{t} {
+    if (s.has_value()) {
+      shape_ = std::move(*s);
+    }
     AcquireLEN();
   }
   DEFAULT_CONSTRUCTORS_AND_ASSIGNMENTS(TypeAndShape)
@@ -76,6 +83,8 @@ public:
       const semantics::ProcInterface &);
   static std::optional<TypeAndShape> Characterize(
       const semantics::DeclTypeSpec &);
+  static std::optional<TypeAndShape> Characterize(
+      const Expr<SomeType> &, FoldingContext &);
   template<typename A>
   static std::optional<TypeAndShape> Characterize(const A *p) {
     return p ? Characterize(*p) : std::nullopt;
@@ -93,10 +102,12 @@ public:
   }
   const Shape &shape() const { return shape_; }
   const Attrs &attrs() const { return attrs_; }
+  int corank() const { return corank_; }
 
   int Rank() const { return GetRank(shape_); }
-  bool IsCompatibleWith(
-      parser::ContextualMessages &, const TypeAndShape &) const;
+  bool IsCompatibleWith(parser::ContextualMessages &, const TypeAndShape &that,
+      const char *thisIs = "POINTER", const char *thatIs = "TARGET",
+      bool isElemental = false) const;
 
   std::ostream &Dump(std::ostream &) const;
 
@@ -109,26 +120,8 @@ protected:
   std::optional<Expr<SomeInteger>> LEN_;
   Shape shape_;
   Attrs attrs_;
+  int corank_{0};
 };
-
-template<typename T>
-std::optional<TypeAndShape> GetTypeAndShape(
-    const Expr<T> &expr, FoldingContext &context) {
-  if (auto type{expr.GetType()}) {
-    if (auto shape{GetShape(context, expr)}) {
-      TypeAndShape result{*type, std::move(*shape)};
-      if (type->category() == TypeCategory::Character) {
-        if (const auto *chExpr{UnwrapExpr<Expr<SomeCharacter>>(expr)}) {
-          if (auto length{chExpr->LEN()}) {
-            result.set_LEN(Expr<SomeInteger>{std::move(*length)});
-          }
-        }
-      }
-      return result;
-    }
-  }
-  return std::nullopt;
-}
 
 // 15.3.2.2
 struct DummyDataObject {
@@ -171,14 +164,17 @@ struct AlternateReturn {
 // 15.3.2.1
 struct DummyArgument {
   DECLARE_CONSTRUCTORS_AND_ASSIGNMENTS(DummyArgument)
-  explicit DummyArgument(std::string &&name, DummyDataObject &&x)
+  DummyArgument(std::string &&name, DummyDataObject &&x)
     : name{std::move(name)}, u{std::move(x)} {}
-  explicit DummyArgument(std::string &&name, DummyProcedure &&x)
+  DummyArgument(std::string &&name, DummyProcedure &&x)
     : name{std::move(name)}, u{std::move(x)} {}
   explicit DummyArgument(AlternateReturn &&x) : u{std::move(x)} {}
+  ~DummyArgument();
   bool operator==(const DummyArgument &) const;
   static std::optional<DummyArgument> Characterize(
       const semantics::Symbol &, const IntrinsicProcTable &);
+  static std::optional<DummyArgument> FromActual(
+      std::string &&, const Expr<SomeType> &, FoldingContext &);
   bool IsOptional() const;
   void SetOptional(bool = true);
   bool CanBePassedViaImplicitInterface() const;
@@ -232,6 +228,7 @@ struct Procedure {
   Procedure(FunctionResult &&, DummyArguments &&, Attrs);
   Procedure(DummyArguments &&, Attrs);  // for subroutines and NULL()
   DECLARE_CONSTRUCTORS_AND_ASSIGNMENTS(Procedure)
+  ~Procedure();
   bool operator==(const Procedure &) const;
 
   // Characterizes the procedure represented by a symbol, which may be an

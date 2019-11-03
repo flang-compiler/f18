@@ -21,6 +21,7 @@
 #include "../common/indirection.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree.h"
+#include "../parser/tools.h"
 #include <algorithm>
 #include <set>
 #include <variant>
@@ -78,6 +79,11 @@ const Scope *FindPureProcedureContaining(const Scope *scope) {
     scope = FindProgramUnitContaining(scope->parent());
   }
   return nullptr;
+}
+
+bool IsGenericDefinedOp(const Symbol &symbol) {
+  const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()};
+  return details && details->kind() == GenericKind::DefinedOp;
 }
 
 bool IsCommonBlockContaining(const Symbol &block, const Symbol &object) {
@@ -161,12 +167,36 @@ bool IsFunction(const Symbol &symbol) {
 }
 
 bool IsPureProcedure(const Symbol &symbol) {
+  if (const auto *procDetails{symbol.detailsIf<ProcEntityDetails>()}) {
+    if (const Symbol * procInterface{procDetails->interface().symbol()}) {
+      // procedure component with a PURE interface
+      return IsPureProcedure(*procInterface);
+    }
+  }
   return symbol.attrs().test(Attr::PURE) && IsProcedure(symbol);
 }
 
 bool IsPureProcedure(const Scope &scope) {
   if (const Symbol * symbol{scope.GetSymbol()}) {
     return IsPureProcedure(*symbol);
+  } else {
+    return false;
+  }
+}
+
+bool IsBindCProcedure(const Symbol &symbol) {
+  if (const auto *procDetails{symbol.detailsIf<ProcEntityDetails>()}) {
+    if (const Symbol * procInterface{procDetails->interface().symbol()}) {
+      // procedure component with a BIND(C) interface
+      return IsBindCProcedure(*procInterface);
+    }
+  }
+  return symbol.attrs().test(Attr::BIND_C) && IsProcedure(symbol);
+}
+
+bool IsBindCProcedure(const Scope &scope) {
+  if (const Symbol * symbol{scope.GetSymbol()}) {
+    return IsBindCProcedure(*symbol);
   } else {
     return false;
   }
@@ -331,10 +361,14 @@ const Symbol *FindFunctionResult(const Symbol &symbol) {
   return nullptr;
 }
 
+// When an construct association maps to a variable, and that variable
+// is not an array with a vector-valued subscript, return the base
+// Symbol of that variable, else nullptr.  Descends into other construct
+// associations when one associations maps to another.
 static const Symbol *GetAssociatedVariable(const AssocEntityDetails &details) {
   if (const MaybeExpr & expr{details.expr()}) {
-    if (evaluate::IsVariable(*expr)) {
-      if (const Symbol * varSymbol{evaluate::GetLastSymbol(*expr)}) {
+    if (evaluate::IsVariable(*expr) && !evaluate::HasVectorSubscript(*expr)) {
+      if (const Symbol * varSymbol{evaluate::GetFirstSymbol(*expr)}) {
         return GetAssociationRoot(*varSymbol);
       }
     }
@@ -485,8 +519,7 @@ bool InProtectedContext(const Symbol &symbol, const Scope &currentScope) {
 }
 
 // C1101 and C1158
-// TODO Need to check for the case of a variable that has a vector subscript
-// that is construct associated, also need to check for a coindexed object
+// TODO Need to check for a coindexed object (why? C1103?)
 std::optional<parser::MessageFixedText> WhyNotModifiable(
     const Symbol &symbol, const Scope &scope) {
   const Symbol *root{GetAssociationRoot(symbol)};
@@ -506,6 +539,163 @@ std::optional<parser::MessageFixedText> WhyNotModifiable(
   } else {
     return std::nullopt;
   }
+}
+
+std::unique_ptr<parser::Message> WhyNotModifiable(parser::CharBlock at,
+    const SomeExpr &expr, const Scope &scope, bool vectorSubscriptIsOk) {
+  if (evaluate::IsVariable(expr)) {
+    if (auto dataRef{evaluate::ExtractDataRef(expr)}) {
+      if (!vectorSubscriptIsOk && evaluate::HasVectorSubscript(expr)) {
+        return std::make_unique<parser::Message>(
+            at, "variable has a vector subscript"_en_US);
+      } else {
+        const Symbol &symbol{dataRef->GetFirstSymbol()};
+        if (auto maybeWhy{WhyNotModifiable(symbol, scope)}) {
+          return std::make_unique<parser::Message>(symbol.name(),
+              parser::MessageFormattedText{
+                  std::move(*maybeWhy), symbol.name()});
+        }
+      }
+    } else {
+      // reference to function returning POINTER
+    }
+  } else {
+    return std::make_unique<parser::Message>(
+        at, "expression is not a variable"_en_US);
+  }
+  return {};
+}
+
+struct ImageControlStmtHelper {
+  using ImageControlStmts = std::variant<parser::ChangeTeamConstruct,
+      parser::CriticalConstruct, parser::EventPostStmt, parser::EventWaitStmt,
+      parser::FormTeamStmt, parser::LockStmt, parser::StopStmt,
+      parser::SyncAllStmt, parser::SyncImagesStmt, parser::SyncMemoryStmt,
+      parser::SyncTeamStmt, parser::UnlockStmt>;
+  template<typename T> bool operator()(const T &) {
+    return common::HasMember<T, ImageControlStmts>;
+  }
+  template<typename T> bool operator()(const common::Indirection<T> &x) {
+    return (*this)(x.value());
+  }
+  bool IsCoarrayObject(const parser::AllocateObject &allocateObject) {
+    const parser::Name &name{GetLastName(allocateObject)};
+    return name.symbol && IsCoarray(*name.symbol);
+  }
+  bool operator()(const parser::AllocateStmt &stmt) {
+    const auto &allocationList{std::get<std::list<parser::Allocation>>(stmt.t)};
+    for (const auto &allocation : allocationList) {
+      const auto &allocateObject{
+          std::get<parser::AllocateObject>(allocation.t)};
+      if (IsCoarrayObject(allocateObject)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  bool operator()(const parser::DeallocateStmt &stmt) {
+    const auto &allocateObjectList{
+        std::get<std::list<parser::AllocateObject>>(stmt.t)};
+    for (const auto &allocateObject : allocateObjectList) {
+      if (IsCoarrayObject(allocateObject)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  bool operator()(const parser::CallStmt &stmt) {
+    const auto &procedureDesignator{
+        std::get<parser::ProcedureDesignator>(stmt.v.t)};
+    if (auto *name{std::get_if<parser::Name>(&procedureDesignator.u)}) {
+      // TODO: also ensure that the procedure is, in fact, an intrinsic
+      if (name->source == "move_alloc") {
+        const auto &args{std::get<std::list<parser::ActualArgSpec>>(stmt.v.t)};
+        if (!args.empty()) {
+          const parser::ActualArg &actualArg{
+              std::get<parser::ActualArg>(args.front().t)};
+          if (const auto *argExpr{
+                  std::get_if<common::Indirection<parser::Expr>>(
+                      &actualArg.u)}) {
+            return HasCoarray(argExpr->value());
+          }
+        }
+      }
+    }
+    return false;
+  }
+  bool operator()(const parser::Statement<parser::ActionStmt> &stmt) {
+    return std::visit(*this, stmt.statement.u);
+  }
+};
+
+bool IsImageControlStmt(const parser::ExecutableConstruct &construct) {
+  return std::visit(ImageControlStmtHelper{}, construct.u);
+}
+
+std::optional<parser::MessageFixedText> GetImageControlStmtCoarrayMsg(
+    const parser::ExecutableConstruct &construct) {
+  if (const auto *actionStmt{
+          std::get_if<parser::Statement<parser::ActionStmt>>(&construct.u)}) {
+    return std::visit(
+        common::visitors{
+            [](const common::Indirection<parser::AllocateStmt> &)
+                -> std::optional<parser::MessageFixedText> {
+              return "ALLOCATE of a coarray is an image control"
+                     " statement"_en_US;
+            },
+            [](const common::Indirection<parser::DeallocateStmt> &)
+                -> std::optional<parser::MessageFixedText> {
+              return "DEALLOCATE of a coarray is an image control"
+                     " statement"_en_US;
+            },
+            [](const common::Indirection<parser::CallStmt> &)
+                -> std::optional<parser::MessageFixedText> {
+              return "MOVE_ALLOC of a coarray is an image control"
+                     " statement "_en_US;
+            },
+            [](const auto &) -> std::optional<parser::MessageFixedText> {
+              return std::nullopt;
+            },
+        },
+        actionStmt->statement.u);
+  }
+  return std::nullopt;
+}
+
+const parser::CharBlock GetImageControlStmtLocation(
+    const parser::ExecutableConstruct &executableConstruct) {
+  return std::visit(
+      common::visitors{
+          [](const common::Indirection<parser::ChangeTeamConstruct>
+                  &construct) {
+            return std::get<parser::Statement<parser::ChangeTeamStmt>>(
+                construct.value().t)
+                .source;
+          },
+          [](const common::Indirection<parser::CriticalConstruct> &construct) {
+            return std::get<parser::Statement<parser::CriticalStmt>>(
+                construct.value().t)
+                .source;
+          },
+          [](const parser::Statement<parser::ActionStmt> &actionStmt) {
+            return actionStmt.source;
+          },
+          [](const auto &) { return parser::CharBlock{}; },
+      },
+      executableConstruct.u);
+}
+
+bool HasCoarray(const parser::Expr &expression) {
+  if (const auto *expr{GetExpr(expression)}) {
+    for (const Symbol &symbol : evaluate::CollectSymbols(*expr)) {
+      if (const Symbol * root{GetAssociationRoot(symbol)}) {
+        if (IsCoarray(*root)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 static const DeclTypeSpec &InstantiateIntrinsicType(Scope &scope,
@@ -587,14 +777,14 @@ void InstantiateDerivedType(DerivedTypeSpec &spec, Scope &containingScope,
   const Symbol &typeSymbol{spec.typeSymbol()};
   const Scope *typeScope{typeSymbol.scope()};
   CHECK(typeScope != nullptr);
-  for (const Symbol *symbol : OrderParameterDeclarations(typeSymbol)) {
-    const SourceName &name{symbol->name()};
-    if (typeScope->find(symbol->name()) != typeScope->end()) {
+  for (const Symbol &symbol : OrderParameterDeclarations(typeSymbol)) {
+    const SourceName &name{symbol.name()};
+    if (typeScope->find(symbol.name()) != typeScope->end()) {
       // This type parameter belongs to the derived type itself, not to
       // one of its parents.  Put the type parameter expression value
       // into the new scope as the initialization value for the parameter.
       if (ParamValue * paramValue{spec.FindParameter(name)}) {
-        const TypeParamDetails &details{symbol->get<TypeParamDetails>()};
+        const TypeParamDetails &details{symbol.get<TypeParamDetails>()};
         paramValue->set_attr(details.attr());
         if (MaybeIntExpr expr{paramValue->GetExplicit()}) {
           // Ensure that any kind type parameters with values are
@@ -624,10 +814,7 @@ void InstantiateDerivedType(DerivedTypeSpec &spec, Scope &containingScope,
             instanceDetails.set_type(*type);
           }
           instanceDetails.set_init(std::move(*expr));
-          Symbol *parameter{
-              newScope.try_emplace(name, std::move(instanceDetails))
-                  .first->second};
-          CHECK(parameter != nullptr);
+          newScope.try_emplace(name, std::move(instanceDetails));
         }
       }
     }
@@ -649,11 +836,11 @@ void ProcessParameterExpressions(
   // fold them within the scope of the derived type being instantiated;
   // these expressions cannot use its type parameters.  Convert the values
   // of the expressions to the declared types of the type parameters.
-  for (const Symbol *symbol : paramDecls) {
-    const SourceName &name{symbol->name()};
+  for (const Symbol &symbol : paramDecls) {
+    const SourceName &name{symbol.name()};
     if (ParamValue * paramValue{spec.FindParameter(name)}) {
       if (const MaybeIntExpr & expr{paramValue->GetExplicit()}) {
-        if (auto converted{evaluate::ConvertToType(*symbol, SomeExpr{*expr})}) {
+        if (auto converted{evaluate::ConvertToType(symbol, SomeExpr{*expr})}) {
           SomeExpr folded{
               evaluate::Fold(foldingContext, std::move(*converted))};
           if (auto *intExpr{std::get_if<SomeIntExpr>(&folded.u)}) {
@@ -677,9 +864,9 @@ void ProcessParameterExpressions(
   // parameters are available for use in the default initialization
   // expressions of later parameters.
   auto restorer{foldingContext.WithPDTInstance(spec)};
-  for (const Symbol *symbol : paramDecls) {
-    const SourceName &name{symbol->name()};
-    const TypeParamDetails &details{symbol->get<TypeParamDetails>()};
+  for (const Symbol &symbol : paramDecls) {
+    const SourceName &name{symbol.name()};
+    const TypeParamDetails &details{symbol.get<TypeParamDetails>()};
     MaybeIntExpr expr;
     ParamValue *paramValue{spec.FindParameter(name)};
     if (paramValue == nullptr) {
@@ -692,7 +879,7 @@ void ProcessParameterExpressions(
         paramValue->SetExplicit(std::move(*expr));
       } else {
         spec.AddParamValue(
-            symbol->name(), ParamValue{std::move(*expr), details.attr()});
+            symbol.name(), ParamValue{std::move(*expr), details.attr()});
       }
     }
   }
@@ -717,8 +904,7 @@ const DeclTypeSpec &FindOrInstantiateDerivedType(Scope &scope,
 static Symbol &InstantiateSymbol(
     const Symbol &symbol, Scope &scope, SemanticsContext &semanticsContext) {
   evaluate::FoldingContext foldingContext{semanticsContext.foldingContext()};
-  CHECK(foldingContext.pdtInstance() != nullptr);
-  const DerivedTypeSpec &instanceSpec{*foldingContext.pdtInstance()};
+  const DerivedTypeSpec &instanceSpec{DEREF(foldingContext.pdtInstance())};
   auto pair{scope.try_emplace(symbol.name(), symbol.attrs())};
   Symbol &result{*pair.first->second};
   if (!pair.second) {
@@ -788,58 +974,46 @@ typename ComponentIterator<componentKind>::const_iterator
 ComponentIterator<componentKind>::const_iterator::Create(
     const DerivedTypeSpec &derived) {
   const_iterator it{};
-  const std::list<SourceName> &names{
-      derived.typeSymbol().get<DerivedTypeDetails>().componentNames()};
-  if (names.empty()) {
-    return it;  // end iterator
-  } else {
-    it.componentPath_.emplace_back(
-        ComponentPathNode{nullptr, &derived, names.cbegin()});
-    it.Increment();  // search first relevant component (may be the end)
-    return it;
-  }
+  it.componentPath_.emplace_back(derived);
+  it.Increment();  // cue up first relevant component, if any
+  return it;
 }
 
 template<ComponentKind componentKind>
-bool ComponentIterator<componentKind>::const_iterator::PlanComponentTraversal(
-    const Symbol &component) {
-  // only data component can be traversed
+const DerivedTypeSpec *
+ComponentIterator<componentKind>::const_iterator::PlanComponentTraversal(
+    const Symbol &component) const {
   if (const auto *details{component.detailsIf<ObjectEntityDetails>()}) {
-    const DeclTypeSpec *type{details->type()};
-    if (!type) {
-      return false;  // error recovery
-    } else if (const auto *derived{type->AsDerived()}) {
-      bool traverse{false};
-      if constexpr (componentKind == ComponentKind::Ordered) {
-        // Order Component (only visit parents)
-        traverse = component.test(Symbol::Flag::ParentComp);
-      } else if constexpr (componentKind == ComponentKind::Direct) {
-        traverse = !IsAllocatableOrPointer(component);
-      } else if constexpr (componentKind == ComponentKind::Ultimate) {
-        traverse = !IsAllocatableOrPointer(component);
-      } else if constexpr (componentKind == ComponentKind::Potential) {
-        traverse = !IsPointer(component);
-      }
-      if (traverse) {
-        const Symbol *newTypeSymbol{&derived->typeSymbol()};
-        // Avoid infinite loop if the type is already part of the types
-        // being visited. It is possible to have "loops in type" because
-        // C744 does not forbid to use not yet declared type for
-        // ALLOCATABLE or POINTER components.
-        for (const auto &node : componentPath_) {
-          if (newTypeSymbol == &GetTypeSymbol(node)) {
-            return false;
-          }
+    if (const DeclTypeSpec * type{details->type()}) {
+      if (const auto *derived{type->AsDerived()}) {
+        bool traverse{false};
+        if constexpr (componentKind == ComponentKind::Ordered) {
+          // Order Component (only visit parents)
+          traverse = component.test(Symbol::Flag::ParentComp);
+        } else if constexpr (componentKind == ComponentKind::Direct) {
+          traverse = !IsAllocatableOrPointer(component);
+        } else if constexpr (componentKind == ComponentKind::Ultimate) {
+          traverse = !IsAllocatableOrPointer(component);
+        } else if constexpr (componentKind == ComponentKind::Potential) {
+          traverse = !IsPointer(component);
         }
-        componentPath_.emplace_back(ComponentPathNode{nullptr, derived,
-            newTypeSymbol->get<DerivedTypeDetails>()
-                .componentNames()
-                .cbegin()});
-        return true;
+        if (traverse) {
+          const Symbol &newTypeSymbol{derived->typeSymbol()};
+          // Avoid infinite loop if the type is already part of the types
+          // being visited. It is possible to have "loops in type" because
+          // C744 does not forbid to use not yet declared type for
+          // ALLOCATABLE or POINTER components.
+          for (const auto &node : componentPath_) {
+            if (&newTypeSymbol == &node.GetTypeSymbol()) {
+              return nullptr;
+            }
+          }
+          return derived;
+        }
       }
     }  // intrinsic & unlimited polymorphic not traversable
   }
-  return false;
+  return nullptr;
 }
 
 template<ComponentKind componentKind>
@@ -862,81 +1036,46 @@ static bool StopAtComponentPre(const Symbol &component) {
 
 template<ComponentKind componentKind>
 static bool StopAtComponentPost(const Symbol &component) {
-  if constexpr (componentKind == ComponentKind::Ordered) {
-    return component.test(Symbol::Flag::ParentComp);
-  } else {
-    return false;
-  }
+  return componentKind == ComponentKind::Ordered &&
+      component.test(Symbol::Flag::ParentComp);
 }
-
-enum class ComponentVisitState { Resume, Pre, Post };
 
 template<ComponentKind componentKind>
 void ComponentIterator<componentKind>::const_iterator::Increment() {
-  std::int64_t level{static_cast<std::int64_t>(componentPath_.size()) - 1};
-  // Need to know if this is the first incrementation or if the visit is resumed
-  // after a user increment.
-  ComponentVisitState state{
-      level >= 0 && GetComponentSymbol(componentPath_[level])
-          ? ComponentVisitState::Resume
-          : ComponentVisitState::Pre};
-  while (level >= 0) {
-    bool descend{false};
-    const Scope &scope{DEREF(GetScope(componentPath_[level]))};
-    auto &levelIterator{GetIterator(componentPath_[level])};
-    const auto &levelEndIterator{GetTypeSymbol(componentPath_[level])
-                                     .template get<DerivedTypeDetails>()
-                                     .componentNames()
-                                     .cend()};
-
-    while (!descend && levelIterator != levelEndIterator) {
-      const Symbol *component{GetComponentSymbol(componentPath_[level])};
-
-      switch (state) {
-      case ComponentVisitState::Resume:
-        if (StopAtComponentPre<componentKind>(DEREF(component))) {
-          // The symbol was not yet considered for
-          // traversal.
-          descend = PlanComponentTraversal(*component);
+  while (!componentPath_.empty()) {
+    ComponentPathNode &deepest{componentPath_.back()};
+    if (deepest.component()) {
+      if (!deepest.descended()) {
+        deepest.set_descended(true);
+        if (const DerivedTypeSpec *
+            derived{PlanComponentTraversal(*deepest.component())}) {
+          componentPath_.emplace_back(*derived);
+          continue;
         }
-        break;
-      case ComponentVisitState::Pre:
-        // Search iterator
-        if (auto iter{scope.find(*levelIterator)}; iter != scope.cend()) {
-          const Symbol *newComponent{iter->second};
-          SetComponentSymbol(componentPath_[level], newComponent);
-          if (StopAtComponentPre<componentKind>(*newComponent)) {
-            return;
-          }
-          descend = PlanComponentTraversal(*newComponent);
-          if (!descend && StopAtComponentPost<componentKind>(*newComponent)) {
-            return;
-          }
-        }
-        break;
-      case ComponentVisitState::Post:
-        if (StopAtComponentPost<componentKind>(DEREF(component))) {
-          return;
-        }
-        break;
+      } else if (!deepest.visited()) {
+        deepest.set_visited(true);
+        return;  // this is the next component to visit, after descending
       }
-
-      if (descend) {
-        level++;
-      } else {
-        SetComponentSymbol(componentPath_[level], nullptr);  // safety
-        levelIterator++;
-      }
-      state = ComponentVisitState::Pre;
     }
-
-    if (!descend) {  // Finished level traversal
+    auto &nameIterator{deepest.nameIterator()};
+    if (nameIterator == deepest.nameEnd()) {
       componentPath_.pop_back();
-      --level;
-      state = ComponentVisitState::Post;
+    } else {
+      const Scope &scope{deepest.GetScope()};
+      auto scopeIter{scope.find(*nameIterator++)};
+      if (scopeIter != scope.cend()) {
+        const Symbol &component{*scopeIter->second};
+        deepest.set_component(component);
+        deepest.set_descended(false);
+        if (StopAtComponentPre<componentKind>(component)) {
+          deepest.set_visited(true);
+          return;  // this is the next component to visit, before descending
+        } else {
+          deepest.set_visited(!StopAtComponentPost<componentKind>(component));
+        }
+      }
     }
   }
-  // iterator reached end of components
 }
 
 template<ComponentKind componentKind>
@@ -945,7 +1084,7 @@ ComponentIterator<componentKind>::const_iterator::BuildResultDesignatorName()
     const {
   std::string designator{""};
   for (const auto &node : componentPath_) {
-    designator += "%" + GetComponentSymbol(node)->name().ToString();
+    designator += "%" + DEREF(node.component()).name().ToString();
   }
   return designator;
 }
@@ -959,23 +1098,22 @@ UltimateComponentIterator::const_iterator FindCoarrayUltimateComponent(
     const DerivedTypeSpec &derived) {
   UltimateComponentIterator ultimates{derived};
   return std::find_if(ultimates.begin(), ultimates.end(),
-      [](const Symbol *component) { return DEREF(component).Corank() > 0; });
+      [](const Symbol &component) { return component.Corank() > 0; });
 }
 
 UltimateComponentIterator::const_iterator FindPointerUltimateComponent(
     const DerivedTypeSpec &derived) {
   UltimateComponentIterator ultimates{derived};
   return std::find_if(ultimates.begin(), ultimates.end(),
-      [](const Symbol *component) { return IsPointer(DEREF(component)); });
+      [](const Symbol &component) { return IsPointer(component); });
 }
 
 PotentialComponentIterator::const_iterator FindEventOrLockPotentialComponent(
     const DerivedTypeSpec &derived) {
   PotentialComponentIterator potentials{derived};
   return std::find_if(
-      potentials.begin(), potentials.end(), [](const Symbol *component) {
-        if (const auto *details{
-                DEREF(component).detailsIf<ObjectEntityDetails>()}) {
+      potentials.begin(), potentials.end(), [](const Symbol &component) {
+        if (const auto *details{component.detailsIf<ObjectEntityDetails>()}) {
           const DeclTypeSpec *type{details->type()};
           return type && IsEventTypeOrLockType(type->AsDerived());
         }
@@ -984,13 +1122,53 @@ PotentialComponentIterator::const_iterator FindEventOrLockPotentialComponent(
 }
 
 const Symbol *FindUltimateComponent(const DerivedTypeSpec &derived,
-    std::function<bool(const Symbol &)> predicate) {
+    const std::function<bool(const Symbol &)> &predicate) {
   UltimateComponentIterator ultimates{derived};
   if (auto it{std::find_if(ultimates.begin(), ultimates.end(),
-          [&predicate](const Symbol *component) -> bool {
-            return predicate(DEREF(component));
+          [&predicate](const Symbol &component) -> bool {
+            return predicate(component);
           })}) {
-    return *it;
+    return &*it;
+  }
+  return nullptr;
+}
+
+const Symbol *FindUltimateComponent(const Symbol &symbol,
+    const std::function<bool(const Symbol &)> &predicate) {
+  if (predicate(symbol)) {
+    return &symbol;
+  } else if (const auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
+    if (const auto *type{object->type()}) {
+      if (const auto *derived{type->AsDerived()}) {
+        return FindUltimateComponent(*derived, predicate);
+      }
+    }
+  }
+  return nullptr;
+}
+
+const Symbol *FindImmediateComponent(const DerivedTypeSpec &type,
+    const std::function<bool(const Symbol &)> &predicate) {
+  if (const Scope * scope{type.scope()}) {
+    const Symbol *parent{nullptr};
+    for (const auto &pair : *scope) {
+      const Symbol *symbol{&*pair.second};
+      if (predicate(*symbol)) {
+        return symbol;
+      }
+      if (symbol->test(Symbol::Flag::ParentComp)) {
+        parent = symbol;
+      }
+    }
+    if (parent != nullptr) {
+      if (const auto *object{parent->detailsIf<ObjectEntityDetails>()}) {
+        if (const auto *type{object->type()}) {
+          if (const auto *derived{type->AsDerived()}) {
+            return FindImmediateComponent(*derived, predicate);
+          }
+        }
+      }
+    }
   }
   return nullptr;
 }
@@ -1010,5 +1188,4 @@ bool IsFunctionResultWithSameNameAsFunction(const Symbol &symbol) {
   }
   return false;
 }
-
 }

@@ -27,8 +27,6 @@
 #include <sstream>
 #include <string>
 
-using namespace std::literals::string_literals;
-
 // IsDescriptor() predicate
 // TODO there's probably a better place for this predicate than here
 namespace Fortran::semantics {
@@ -47,8 +45,8 @@ static bool IsDescriptor(const ObjectEntityDetails &details) {
       if (const Scope * scope{typeSpec->scope()}) {
         if (const Symbol * symbol{scope->symbol()}) {
           if (const auto *details{symbol->detailsIf<DerivedTypeDetails>()}) {
-            for (const Symbol *param : details->paramDecls()) {
-              if (const auto *details{param->detailsIf<TypeParamDetails>()}) {
+            for (const Symbol &param : details->paramDecls()) {
+              if (const auto *details{param.detailsIf<TypeParamDetails>()}) {
                 if (details->attr() == common::TypeParamAttr::Len) {
                   return true;
                 }
@@ -109,6 +107,10 @@ bool DynamicType::IsAssumedLengthCharacter() const {
       charLength_->isAssumed();
 }
 
+bool DynamicType::IsTypelessIntrinsicArgument() const {
+  return category_ == TypeCategory::Integer && kind_ == TypelessKind;
+}
+
 static const semantics::Symbol *FindParentComponent(
     const semantics::DerivedTypeSpec &derived) {
   const semantics::Symbol &typeSymbol{derived.typeSymbol()};
@@ -142,7 +144,7 @@ static const semantics::Symbol *FindComponent(
   if (const auto *scope{derived.scope()}) {
     auto iter{scope->find(name)};
     if (iter != scope->end()) {
-      return iter->second;
+      return &*iter->second;
     } else if (const auto *parent{GetParentTypeSpec(derived)}) {
       return FindComponent(*parent, name);
     }
@@ -197,8 +199,7 @@ static bool AreSameDerivedType(const semantics::DerivedTypeSpec &x,
     const auto yLookup{ySymbol.scope()->find(*yComponentName)};
     if (xLookup == xSymbol.scope()->end() ||
         yLookup == ySymbol.scope()->end() ||
-        !AreSameComponent(
-            DEREF(xLookup->second), DEREF(yLookup->second), inProgress)) {
+        !AreSameComponent(*xLookup->second, *yLookup->second, inProgress)) {
       return false;
     }
   }
@@ -214,22 +215,24 @@ static bool AreSameComponent(const semantics::Symbol &x,
   if (x.attrs().test(semantics::Attr::PRIVATE)) {
     return false;
   }
-#if 0 // TODO
+#if 0  // TODO
   if (const auto *xObject{x.detailsIf<semantics::ObjectEntityDetails>()}) {
     if (const auto *yObject{y.detailsIf<semantics::ObjectEntityDetails>()}) {
 #else
   if (x.has<semantics::ObjectEntityDetails>()) {
     if (y.has<semantics::ObjectEntityDetails>()) {
 #endif
-      // TODO: compare types, type parameters, bounds, &c.
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    // TODO: non-object components
-    return true;
-  }
+  // TODO: compare types, type parameters, bounds, &c.
+  return true;
+}
+else {
+  return false;
+}
+}
+else {
+  // TODO: non-object components
+  return true;
+}
 }
 
 static bool AreCompatibleDerivedTypes(const semantics::DerivedTypeSpec *x,

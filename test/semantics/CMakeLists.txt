@@ -154,6 +154,10 @@ set(ERROR_TESTS
   expr-errors01.f90
   expr-errors02.f90
   null01.f90
+  omp-resolve01.f90
+  omp-resolve02.f90
+  omp-resolve03.f90
+  omp-resolve04.f90
   omp-clause-validity01.f90
   omp-loop-association.f90
 #  omp-nested01.f90
@@ -170,7 +174,14 @@ set(ERROR_TESTS
   blockconstruct03.f90
   call01.f90
   call02.f90
+  call03.f90
+  call04.f90
+  call05.f90
+  call06.f90
+  call07.f90
   call13.f90
+  call14.f90
+  misc-declarations.f90
 )
 
 # These test files have expected symbols in the source
@@ -190,6 +201,12 @@ set(SYMBOL_TESTS
   symbol14.f90
   symbol15.f90
   symbol16.f90
+  omp-symbol01.f90
+  omp-symbol02.f90
+  omp-symbol03.f90
+  omp-symbol04.f90
+  omp-symbol05.f90
+  omp-symbol06.f90
   kinds01.f90
   kinds03.f90
   procinterface01.f90
@@ -240,7 +257,6 @@ set(DOCONCURRENT_TESTS
   doconcurrent03.f90
   doconcurrent04.f90
   doconcurrent07.f90
-  doconcurrent08.f90
 )
 
 set(CANONDO_TESTS
@@ -284,7 +300,7 @@ foreach(test ${MODFILE_TESTS})
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_modfile.sh ${test} ${F18})
 endforeach()
 
-foreach(test ${LABEL_TESTS} ${CANONDO_TESTS} ${DOCONCURRENT_TESTS} 
+foreach(test ${LABEL_TESTS} ${CANONDO_TESTS} ${DOCONCURRENT_TESTS}
              ${FORALL_TESTS} ${GETSYMBOLS_TESTS} ${GETDEFINITION_TESTS})
   add_test(NAME ${test}
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_any.sh ${test} ${F18})
