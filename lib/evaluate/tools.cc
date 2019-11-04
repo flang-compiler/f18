@@ -287,21 +287,21 @@ std::optional<Expr<SomeType>> NumericOperation(
             return Package(PromoteAndCombine<OPR, TypeCategory::Complex>(
                 std::move(zx), std::move(zy)));
           },
-          [&](Expr<SomeComplex> &&zx, Expr<SomeInteger> &&zy) {
+          [&](Expr<SomeComplex> &&zx, Expr<SomeInteger> &&iy) {
             return MixedComplexLeft<OPR>(
-                messages, std::move(zx), std::move(zy), defaultRealKind);
+                messages, std::move(zx), std::move(iy), defaultRealKind);
           },
-          [&](Expr<SomeComplex> &&zx, Expr<SomeReal> &&zy) {
+          [&](Expr<SomeComplex> &&zx, Expr<SomeReal> &&ry) {
             return MixedComplexLeft<OPR>(
-                messages, std::move(zx), std::move(zy), defaultRealKind);
+                messages, std::move(zx), std::move(ry), defaultRealKind);
           },
-          [&](Expr<SomeInteger> &&zx, Expr<SomeComplex> &&zy) {
+          [&](Expr<SomeInteger> &&ix, Expr<SomeComplex> &&zy) {
             return MixedComplexRight<OPR>(
-                messages, std::move(zx), std::move(zy), defaultRealKind);
+                messages, std::move(ix), std::move(zy), defaultRealKind);
           },
-          [&](Expr<SomeReal> &&zx, Expr<SomeComplex> &&zy) {
+          [&](Expr<SomeReal> &&rx, Expr<SomeComplex> &&zy) {
             return MixedComplexRight<OPR>(
-                messages, std::move(zx), std::move(zy), defaultRealKind);
+                messages, std::move(rx), std::move(zy), defaultRealKind);
           },
           // Operations with one typeless operand
           [&](BOZLiteralConstant &&bx, Expr<SomeInteger> &&iy) {
@@ -495,17 +495,7 @@ std::optional<Expr<LogicalResult>> Relate(parser::ContextualMessages &messages,
           },
           // Default case
           [&](auto &&, auto &&) {
-            // TODO: defined operator
-            auto xtype{x.GetType()};
-            auto ytype{y.GetType()};
-            if (xtype.has_value() && ytype.has_value()) {
-              messages.Say(
-                  "Relational operands do not have comparable types (%s vs. %s)"_err_en_US,
-                  xtype->AsFortran(), ytype->AsFortran());
-            } else {
-              messages.Say(
-                  "Relational operands do not have comparable types"_err_en_US);
-            }
+            DIE("invalid types for relational operator");
             return std::optional<Expr<LogicalResult>>{};
           },
       },
@@ -676,24 +666,30 @@ bool IsNullPointer(const Expr<SomeType> &expr) {
   return IsNullPointerHelper{}(expr);
 }
 
-// GetLastTarget()
-auto GetLastTargetHelper::operator()(const Symbol &x) const -> Result {
-  if (x.attrs().HasAny({semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    return &x;
-  } else {
-    return nullptr;
-  }
+// GetSymbolVector()
+auto GetSymbolVectorHelper::operator()(const Symbol &x) const -> Result {
+  return {x};
 }
-auto GetLastTargetHelper::operator()(const Component &x) const -> Result {
-  const Symbol &symbol{x.GetLastSymbol()};
-  if (symbol.attrs().HasAny(
-          {semantics::Attr::POINTER, semantics::Attr::TARGET})) {
-    return &symbol;
-  } else if (symbol.attrs().test(semantics::Attr::ALLOCATABLE)) {
-    return nullptr;
-  } else {
-    return std::nullopt;
-  }
+auto GetSymbolVectorHelper::operator()(const Component &x) const -> Result {
+  Result result{(*this)(x.base())};
+  result.emplace_back(x.GetLastSymbol());
+  return result;
+}
+auto GetSymbolVectorHelper::operator()(const ArrayRef &x) const -> Result {
+  return GetSymbolVector(x.base());
+}
+auto GetSymbolVectorHelper::operator()(const CoarrayRef &x) const -> Result {
+  return x.base();
+}
+
+const Symbol *GetLastTarget(const SymbolVector &symbols) {
+  auto end{std::crend(symbols)};
+  // N.B. Neither clang nor g++ recognizes "symbols.crbegin()" here.
+  auto iter{std::find_if(std::crbegin(symbols), end, [](const Symbol &x) {
+    return x.attrs().HasAny(
+        {semantics::Attr::POINTER, semantics::Attr::TARGET});
+  })};
+  return iter == end ? nullptr : &**iter;
 }
 
 const Symbol &ResolveAssociations(const Symbol &symbol) {
@@ -736,5 +732,25 @@ struct HasVectorSubscriptHelper : public AnyTraverse<HasVectorSubscriptHelper> {
 
 bool HasVectorSubscript(const Expr<SomeType> &expr) {
   return HasVectorSubscriptHelper{}(expr);
+}
+
+parser::Message *AttachDeclaration(
+    parser::Message *message, const Symbol *symbol) {
+  if (message && symbol) {
+    const Symbol *unhosted{symbol};
+    while (
+        const auto *assoc{unhosted->detailsIf<semantics::HostAssocDetails>()}) {
+      unhosted = &assoc->symbol();
+    }
+    if (const auto *use{symbol->detailsIf<semantics::UseDetails>()}) {
+      message->Attach(use->location(),
+          "'%s' is USE-associated with '%s' in module '%s'"_en_US,
+          symbol->name(), unhosted->name(), use->module().name());
+    } else {
+      message->Attach(
+          unhosted->name(), "Declaration of '%s'"_en_US, symbol->name());
+    }
+  }
+  return message;
 }
 }
