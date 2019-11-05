@@ -16,6 +16,7 @@
 #define FORTRAN_COMMON_FORMAT_H_
 
 #include "Fortran.h"
+#include "enum-set.h"
 #include <cstring>
 
 // Define a FormatValidator class template to validate a format expression
@@ -41,6 +42,16 @@ struct FormatMessage {
   bool isError;  // vs. warning
 };
 
+// This declaration is logically private to class FormatValidator.
+// It is placed here to work around a clang compilation problem.
+ENUM_CLASS(TokenKind, None, A, B, BN, BZ, D, DC, DP, DT, E, EN, ES, EX, F, G, I,
+    L, O, P, RC, RD, RN, RP, RU, RZ, S, SP, SS, T, TL, TR, X, Z, Colon, Slash,
+    Backslash,  // nonstandard: inhibit newline on output
+    Dollar,  // nonstandard: inhibit newline on output on terminals
+    Star, LParen, RParen, Comma, Point, Sign,
+    UnsignedInteger,  // value in integerValue_
+    String)  // char-literal-constant or Hollerith constant
+
 template<typename CHAR = char> class FormatValidator {
 public:
   using Reporter = std::function<bool(const FormatMessage &)>;
@@ -54,77 +65,11 @@ public:
   bool Check();
 
 private:
-  enum class TokenKind {
-    None,
-    A,
-    B,
-    BN,
-    BZ,
-    D,
-    DC,
-    DP,
-    DT,
-    E,
-    EN,
-    ES,
-    EX,
-    F,
-    G,
-    I,
-    L,
-    O,
-    P,
-    RC,
-    RD,
-    RN,
-    RP,
-    RU,
-    RZ,
-    S,
-    SP,
-    SS,
-    T,
-    TL,
-    TR,
-    X,
-    Z,
-    Colon,
-    Slash,
-    Backslash,  // nonstandard: inhibit newline on output
-    Dollar,  // nonstandard: inhibit newline on output on terminals
-    Star,
-    LParen,
-    RParen,
-    Comma,
-    Point,
-    Sign,
-    UnsignedInteger,  // value in integerValue_
-    String,  // char-literal-constant or Hollerith constant
-  };
-
-  bool mayHaveLeadingInt(TokenKind desc) {
-    switch (desc) {
-    case TokenKind::A:
-    case TokenKind::B:
-    case TokenKind::D:
-    case TokenKind::DT:
-    case TokenKind::E:
-    case TokenKind::EN:
-    case TokenKind::ES:
-    case TokenKind::EX:
-    case TokenKind::F:
-    case TokenKind::G:
-    case TokenKind::I:
-    case TokenKind::L:
-    case TokenKind::O:
-    case TokenKind::P:
-    case TokenKind::X:
-    case TokenKind::Z:
-    case TokenKind::Slash:
-    case TokenKind::LParen: return true;
-    default: return false;
-    }
-  }
+  common::EnumSet<TokenKind, TokenKind_enumSize> itemsWithLeadingInts_{
+      TokenKind::A, TokenKind::B, TokenKind::D, TokenKind::DT, TokenKind::E,
+      TokenKind::EN, TokenKind::ES, TokenKind::EX, TokenKind::F, TokenKind::G,
+      TokenKind::I, TokenKind::L, TokenKind::O, TokenKind::P, TokenKind::X,
+      TokenKind::Z, TokenKind::Slash, TokenKind::LParen};
 
   struct Token {
     Token &set_kind(TokenKind kind) {
@@ -800,7 +745,7 @@ template<typename CHAR> bool FormatValidator<CHAR>::Check() {
       // Possible first token of the next format item; token not yet processed.
       if (commaRequired) {
         const char *s{"Expected ',' or ')' in format expression"};  // C1302
-        if (previousTokenWasInt_ && mayHaveLeadingInt(token_.kind())) {
+        if (previousTokenWasInt_ && itemsWithLeadingInts_.test(token_.kind())) {
           ReportError(s);
         } else {
           ReportWarning(s);
