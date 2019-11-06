@@ -30,7 +30,7 @@ steps:
   - apt update -y && apt install -y llvm-8 build-essential cmake ninja-build clang-8 libc++-8-dev libc++abi-8-dev lld-8
   - mkdir build && cd build
   - env CC=clang-8 CXX=clang++-8 CXXFLAGS="-stdlib=libc++ -UNDEBUG" LDFLAGS="-fuse-ld=lld" cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-  - ninja
+  - ninja -j24
   - ctest -j24
 
 ---
