@@ -13,7 +13,7 @@ steps:
   - mkdir build && cd build
   - env CXXFLAGS="-UNDEBUG" LDFLAGS="-fuse-ld=gold" cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
   - ninja -j24
-  - ninja test
+  - ctest -j24
 
 ---
 kind: pipeline
@@ -31,7 +31,7 @@ steps:
   - mkdir build && cd build
   - env CC=clang-8 CXX=clang++-8 CXXFLAGS="-stdlib=libc++ -UNDEBUG" LDFLAGS="-fuse-ld=lld" cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
   - ninja
-  - ninja test
+  - ctest -j24
 
 ---
 
@@ -50,5 +50,5 @@ steps:
   - mkdir build && cd build
   - env LDFLAGS="-fuse-ld=gold" CXXFLAGS="-UNDEBUG" cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
   - ninja -j24
-  - ninja test
+  - ctest -j24
 
