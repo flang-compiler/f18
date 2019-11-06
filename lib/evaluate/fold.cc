@@ -2459,6 +2459,7 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
     case LogicalOperator::Or: result = xt || yt; break;
     case LogicalOperator::Eqv: result = xt == yt; break;
     case LogicalOperator::Neqv: result = xt != yt; break;
+    case LogicalOperator::Not: DIE("not a binary operator");
     }
     return Expr<LOGICAL>{Constant<LOGICAL>{result}};
   }

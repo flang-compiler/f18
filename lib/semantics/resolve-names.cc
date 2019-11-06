@@ -2317,7 +2317,8 @@ void ModuleVisitor::AddUse(
 void ModuleVisitor::AddUse(const GenericSpecInfo &info) {
   if (useModuleScope_) {
     const auto &name{info.symbolName()};
-    auto rename{AddUse(name, name, info.FindInScope(*useModuleScope_))};
+    auto rename{
+        AddUse(name, name, info.FindInScope(context(), *useModuleScope_))};
     info.Resolve(rename.use);
   }
 }
@@ -2396,7 +2397,7 @@ void InterfaceVisitor::Post(const parser::EndInterfaceStmt &) {
 
 // Create a symbol in genericSymbol_ for this GenericSpec.
 bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
-  if (auto *symbol{GenericSpecInfo{x}.FindInScope(currScope())}) {
+  if (auto *symbol{GenericSpecInfo{x}.FindInScope(context(), currScope())}) {
     SetGenericSymbol(*symbol);
   }
   return false;
@@ -3866,7 +3867,7 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   SourceName symbolName{info.symbolName()};
   bool isPrivate{accessSpec ? accessSpec->v == parser::AccessSpec::Kind::Private
                             : derivedTypeInfo_.privateBindings};
-  auto *genericSymbol{info.FindInScope(currScope())};
+  auto *genericSymbol{info.FindInScope(context(), currScope())};
   if (genericSymbol) {
     if (!genericSymbol->has<GenericBindingDetails>()) {
       genericSymbol = nullptr;  // MakeTypeSymbol will report the error below
@@ -3874,7 +3875,7 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   } else {
     // look in parent types:
     Symbol *inheritedSymbol{nullptr};
-    for (const auto &name : info.GetAllNames()) {
+    for (const auto &name : info.GetAllNames(context())) {
       inheritedSymbol = FindInTypeOrParents(currScope(), SourceName{name});
       if (inheritedSymbol) {
         break;
@@ -5609,7 +5610,7 @@ bool ModuleVisitor::Pre(const parser::AccessStmt &x) {
               [=](const Indirection<parser::GenericSpec> &y) {
                 auto info{GenericSpecInfo{y.value()}};
                 const auto &symbolName{info.symbolName()};
-                if (auto *symbol{info.FindInScope(currScope())}) {
+                if (auto *symbol{info.FindInScope(context(), currScope())}) {
                   info.Resolve(&SetAccess(symbolName, accessAttr, symbol));
                 } else if (info.kind() == GenericKind::Name) {
                   info.Resolve(&SetAccess(symbolName, accessAttr));
@@ -5708,7 +5709,7 @@ void ResolveNamesVisitor::CreateGeneric(const parser::GenericSpec &x) {
     return;
   }
   GenericDetails genericDetails;
-  if (Symbol * existing{info.FindInScope(currScope())}) {
+  if (Symbol * existing{info.FindInScope(context(), currScope())}) {
     if (existing->has<GenericDetails>()) {
       info.Resolve(existing);
       return;  // already have generic, add to it
