@@ -52,29 +52,30 @@ steps:
   - ninja -j24
   - ctest -j24
 
----
-kind: pipeline
-name: after
+# ---
+# kind: pipeline
+# name: after
 
-steps:
-- name: github
-  image: plugins/webhook
-  settings:
-    username:
-      from_secret: github-username
-    password:
-      from_secret: github-password
-    urls: https://api.github.com/repos/Trubydoor/f18/statuses/${DRONE_COMMIT_SHA}
-    content_type: application/json
-    template: |
-      {
-      "state": "${DRONE_BUILD_STATUS}",
-      "target_url": "https://cloud.drone.io/DavidTruby/f18/${DRONE_BUILD_NUMBER}",
-      "context": "continuous-integration/drone"
-      }
-    debug: true
+# steps:
+# - name: github
+#   image: plugins/webhook
+#   settings:
+#     urls: https://api.github.com/repos/DavidTruby/f18/statuses/${DRONE_COMMIT_SHA}
+#     content_type: application/json
+#     environment:
+#       GITHUB_TOKEN:
+#         from_secret: github-token
+#     headers:
+#       - "Authorization: token  ${GITHUB_TOKEN}"
+#     template: |
+#       {
+#       "state": "${DRONE_BUILD_STATUS}",
+#       "target_url": "https://cloud.drone.io/DavidTruby/f18/${DRONE_BUILD_NUMBER}",
+#       "context": "continuous-integration/drone"
+#       }
+#     debug: true
 
-depends_on:
-- arm64-gcc
-- arm64-clang
-- amd64
+# depends_on:
+# - arm64-gcc
+# - arm64-clang
+# - amd64
