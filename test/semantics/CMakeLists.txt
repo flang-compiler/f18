@@ -99,6 +99,8 @@ set(ERROR_TESTS
   resolve60.f90
   resolve61.f90
   resolve62.f90
+  resolve63.f90
+  resolve64.f90
   stop01.f90
   structconst01.f90
   structconst02.f90
@@ -179,6 +181,7 @@ set(ERROR_TESTS
   call05.f90
   call06.f90
   call07.f90
+  call08.f90
   call13.f90
   call14.f90
   misc-declarations.f90
@@ -246,6 +249,7 @@ set(MODFILE_TESTS
   modfile30.f90
   modfile31.f90
   modfile32.f90
+  modfile33.f90
 )
 
 set(LABEL_TESTS

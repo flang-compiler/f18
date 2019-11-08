@@ -41,6 +41,7 @@
 
 namespace Fortran::evaluate {
 
+using common::LogicalOperator;
 using common::RelationalOperator;
 
 // Expressions are represented by specializations of the class template Expr.
@@ -346,11 +347,9 @@ template<typename A> struct Extremum : public Operation<Extremum<A>, A, A, A> {
   using Operand = A;
   using Base = Operation<Extremum, A, A, A>;
   CLASS_BOILERPLATE(Extremum)
-  Extremum(const Expr<Operand> &x, const Expr<Operand> &y,
-      Ordering ord = Ordering::Greater)
+  Extremum(Ordering ord, const Expr<Operand> &x, const Expr<Operand> &y)
     : Base{x, y}, ordering{ord} {}
-  Extremum(
-      Expr<Operand> &&x, Expr<Operand> &&y, Ordering ord = Ordering::Greater)
+  Extremum(Ordering ord, Expr<Operand> &&x, Expr<Operand> &&y)
     : Base{std::move(x), std::move(y)}, ordering{ord} {}
 
   const char *Prefix() const {
@@ -387,8 +386,6 @@ struct Concat
   using Base::Base;
   static const char *Infix() { return "//"; }
 };
-
-ENUM_CLASS(LogicalOperator, And, Or, Eqv, Neqv)
 
 template<int KIND>
 struct LogicalOperation

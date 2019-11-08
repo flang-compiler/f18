@@ -246,8 +246,8 @@ void ModFileWriter::PutSymbol(
           [&](const CommonBlockDetails &x) {
             decls_ << "common/" << symbol.name();
             char sep = '/';
-            for (const auto *object : x.objects()) {
-              decls_ << sep << DEREF(object).name();
+            for (const Symbol &object : x.objects()) {
+              decls_ << sep << object.name();
               sep = ',';
             }
             decls_ << '\n';
@@ -759,7 +759,7 @@ Scope *ModFileReader::Read(const SourceName &name, Scope *ancestor) {
   parser::Parsing parsing{context_.allSources()};
   parser::Options options;
   options.isModuleFile = true;
-  options.features.Enable(parser::LanguageFeature::BackslashEscapes);
+  options.features.Enable(common::LanguageFeature::BackslashEscapes);
   options.searchDirectories = context_.searchDirectories();
   auto path{ModFileName(name, ancestorName, context_.moduleFileSuffix())};
   const auto *sourceFile{parsing.Prescan(path, options)};
@@ -889,8 +889,8 @@ void SubprogramSymbolCollector::DoSymbol(
             }
           },
           [this](const CommonBlockDetails &details) {
-            for (const Symbol *object : details.objects()) {
-              DoSymbol(*object);
+            for (const Symbol &object : details.objects()) {
+              DoSymbol(object);
             }
           },
           [](const auto &) {},

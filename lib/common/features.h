@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_PARSER_FEATURES_H_
-#define FORTRAN_PARSER_FEATURES_H_
+#ifndef FORTRAN_COMMON_FEATURES_H_
+#define FORTRAN_COMMON_FEATURES_H_
 
-#include "../common/enum-set.h"
-#include "../common/idioms.h"
+#include "Fortran.h"
+#include "enum-set.h"
+#include "idioms.h"
 
-namespace Fortran::parser {
+namespace Fortran::common {
 
 ENUM_CLASS(LanguageFeature, BackslashEscapes, OldDebugLines,
     FixedFormContinuationWithColumn1Ampersand, LogicalAbbreviations,
@@ -34,8 +35,7 @@ ENUM_CLASS(LanguageFeature, BackslashEscapes, OldDebugLines,
     RealDoControls, EquivalenceNumericWithCharacter, AdditionalIntrinsics,
     AnonymousParents, OldLabelDoEndStatements)
 
-using LanguageFeatures =
-    common::EnumSet<LanguageFeature, LanguageFeature_enumSize>;
+using LanguageFeatures = EnumSet<LanguageFeature, LanguageFeature_enumSize>;
 
 class LanguageFeatureControl {
 public:
@@ -57,6 +57,9 @@ public:
   bool ShouldWarn(LanguageFeature f) const {
     return (warnAll_ && f != LanguageFeature::OpenMP) || warn_.test(f);
   }
+  // Return all spellings of operators names, depending on features enabled
+  std::vector<const char *> GetNames(LogicalOperator) const;
+  std::vector<const char *> GetNames(RelationalOperator) const;
 
 private:
   LanguageFeatures disable_;
@@ -64,4 +67,4 @@ private:
   bool warnAll_{false};
 };
 }
-#endif  // FORTRAN_PARSER_FEATURES_H_
+#endif  // FORTRAN_COMMON_FEATURES_H_

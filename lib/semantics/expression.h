@@ -283,7 +283,6 @@ private:
   MaybeExpr Analyze(const parser::Expr::OR &);
   MaybeExpr Analyze(const parser::Expr::EQV &);
   MaybeExpr Analyze(const parser::Expr::NEQV &);
-  MaybeExpr Analyze(const parser::Expr::XOR &);
   MaybeExpr Analyze(const parser::Expr::DefinedBinary &);
   template<typename A> MaybeExpr Analyze(const A &x) {
     return Analyze(x.u);  // default case
@@ -311,6 +310,8 @@ private:
   MaybeExpr TopLevelChecks(DataRef &&);
   std::optional<Expr<SubscriptInteger>> GetSubstringBound(
       const std::optional<parser::ScalarIntExpr> &);
+  MaybeExpr AnalyzeDefinedOp(
+      parser::Messages &, const parser::Name &, ActualArguments &&);
 
   struct CalleeAndArguments {
     ProcedureDesignator procedureDesignator;
@@ -344,6 +345,7 @@ private:
   FoldingContext &foldingContext_{context_.foldingContext()};
   std::map<parser::CharBlock, int> acImpliedDos_;  // values are INTEGER kinds
   bool fatalErrors_{false};
+  friend class ArgumentAnalyzer;
 };
 
 template<typename L, typename R>

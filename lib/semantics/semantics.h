@@ -16,9 +16,9 @@
 #define FORTRAN_SEMANTICS_SEMANTICS_H_
 
 #include "scope.h"
+#include "../common/features.h"
 #include "../evaluate/common.h"
 #include "../evaluate/intrinsics.h"
-#include "../parser/features.h"
 #include "../parser/message.h"
 #include <iosfwd>
 #include <string>
@@ -60,19 +60,22 @@ using ConstructStack = std::vector<ConstructNode>;
 class SemanticsContext {
 public:
   SemanticsContext(const common::IntrinsicTypeDefaultKinds &,
-      const parser::LanguageFeatureControl &, parser::AllSources &);
+      const common::LanguageFeatureControl &, parser::AllSources &);
   ~SemanticsContext();
 
   const common::IntrinsicTypeDefaultKinds &defaultKinds() const {
     return defaultKinds_;
   }
+  const common::LanguageFeatureControl &languageFeatures() const {
+    return languageFeatures_;
+  };
   int GetDefaultKind(TypeCategory) const;
   int doublePrecisionKind() const {
     return defaultKinds_.doublePrecisionKind();
   }
   int quadPrecisionKind() const { return defaultKinds_.quadPrecisionKind(); }
-  bool IsEnabled(parser::LanguageFeature) const;
-  bool ShouldWarn(parser::LanguageFeature) const;
+  bool IsEnabled(common::LanguageFeature) const;
+  bool ShouldWarn(common::LanguageFeature) const;
   const std::optional<parser::CharBlock> &location() const { return location_; }
   const std::vector<std::string> &searchDirectories() const {
     return searchDirectories_;
@@ -147,7 +150,7 @@ public:
 
 private:
   const common::IntrinsicTypeDefaultKinds &defaultKinds_;
-  const parser::LanguageFeatureControl languageFeatures_;
+  const common::LanguageFeatureControl languageFeatures_;
   parser::AllSources &allSources_;
   std::optional<parser::CharBlock> location_;
   std::vector<std::string> searchDirectories_;

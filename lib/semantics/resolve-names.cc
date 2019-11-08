@@ -1105,7 +1105,7 @@ private:
   static constexpr Symbol::Flags ompFlagsRequireMark{
       Symbol::Flag::OmpThreadprivate};
 
-  void AddDataSharingAttributeObject(const Symbol *object) {
+  void AddDataSharingAttributeObject(SymbolRef object) {
     dataSharingAttributeObjects_.insert(object);
   }
   void ClearDataSharingAttributeObjects() {
@@ -1126,11 +1126,11 @@ private:
   void CheckMultipleAppearances(
       const parser::Name &, const Symbol &, Symbol::Flag);
 
-  std::set<const Symbol *> dataSharingAttributeObjects_;  // on one directive
+  SymbolSet dataSharingAttributeObjects_;  // on one directive
 };
 
 bool OmpVisitor::HasDataSharingAttributeObject(const Symbol &object) {
-  auto it{dataSharingAttributeObjects_.find(&object)};
+  auto it{dataSharingAttributeObjects_.find(object)};
   return it != dataSharingAttributeObjects_.end();
 }
 
@@ -1190,9 +1190,10 @@ void OmpVisitor::ResolveOmpObject(
               // 2.15.3 When a named common block appears in a list, it has the
               // same meaning as if every explicit member of the common block
               // appeared in the list
-              for (Symbol *object :
+              for (const Symbol &object :
                   symbol->get<CommonBlockDetails>().objects()) {
-                ResolveOmp(*object, ompFlag);
+                Symbol &mutableObject{const_cast<Symbol &>(object)};
+                ResolveOmp(mutableObject, ompFlag);
               }
             } else {
               Say(name.source,  // 2.15.3
@@ -1288,7 +1289,7 @@ void OmpVisitor::CheckMultipleAppearances(
         "on the same OpenMP directive"_err_en_US,
         name.ToString());
   } else {
-    AddDataSharingAttributeObject(target);
+    AddDataSharingAttributeObject(*target);
   }
 }
 
@@ -1867,10 +1868,10 @@ void ScopeHandler::SayLocalMustBeVariable(
 
 void ScopeHandler::SayDerivedType(
     const SourceName &name, MessageFixedText &&msg, const Scope &type) {
-  const Symbol *typeSymbol{type.GetSymbol()};
-  Say(name, std::move(msg), name, DEREF(typeSymbol).name())
-      .Attach(typeSymbol->name(), "Declaration of derived type '%s'"_en_US,
-          typeSymbol->name());
+  const Symbol &typeSymbol{DEREF(type.GetSymbol())};
+  Say(name, std::move(msg), name, typeSymbol.name())
+      .Attach(typeSymbol.name(), "Declaration of derived type '%s'"_en_US,
+          typeSymbol.name());
 }
 void ScopeHandler::Say2(const SourceName &name1, MessageFixedText &&msg1,
     const SourceName &name2, MessageFixedText &&msg2) {
@@ -2317,7 +2318,8 @@ void ModuleVisitor::AddUse(
 void ModuleVisitor::AddUse(const GenericSpecInfo &info) {
   if (useModuleScope_) {
     const auto &name{info.symbolName()};
-    auto rename{AddUse(name, name, info.FindInScope(*useModuleScope_))};
+    auto rename{
+        AddUse(name, name, info.FindInScope(context(), *useModuleScope_))};
     info.Resolve(rename.use);
   }
 }
@@ -2396,7 +2398,7 @@ void InterfaceVisitor::Post(const parser::EndInterfaceStmt &) {
 
 // Create a symbol in genericSymbol_ for this GenericSpec.
 bool InterfaceVisitor::Pre(const parser::GenericSpec &x) {
-  if (auto *symbol{GenericSpecInfo{x}.FindInScope(currScope())}) {
+  if (auto *symbol{GenericSpecInfo{x}.FindInScope(context(), currScope())}) {
     SetGenericSymbol(*symbol);
   }
   return false;
@@ -3866,7 +3868,7 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   SourceName symbolName{info.symbolName()};
   bool isPrivate{accessSpec ? accessSpec->v == parser::AccessSpec::Kind::Private
                             : derivedTypeInfo_.privateBindings};
-  auto *genericSymbol{info.FindInScope(currScope())};
+  auto *genericSymbol{info.FindInScope(context(), currScope())};
   if (genericSymbol) {
     if (!genericSymbol->has<GenericBindingDetails>()) {
       genericSymbol = nullptr;  // MakeTypeSymbol will report the error below
@@ -3874,7 +3876,7 @@ bool DeclarationVisitor::Pre(const parser::TypeBoundGenericStmt &x) {
   } else {
     // look in parent types:
     Symbol *inheritedSymbol{nullptr};
-    for (const auto &name : info.GetAllNames()) {
+    for (const auto &name : info.GetAllNames(context())) {
       inheritedSymbol = FindInTypeOrParents(currScope(), SourceName{name});
       if (inheritedSymbol) {
         break;
@@ -4184,8 +4186,9 @@ void DeclarationVisitor::CheckSaveStmts() {
               " common block name '%s'"_err_en_US);
         }
       } else {
-        for (Symbol *object : symbol->get<CommonBlockDetails>().objects()) {
-          SetSaveAttr(*object);
+        for (const Symbol &object :
+            symbol->get<CommonBlockDetails>().objects()) {
+          SetSaveAttr(*const_cast<Symbol *>(&object));
         }
       }
     }
@@ -5609,7 +5612,7 @@ bool ModuleVisitor::Pre(const parser::AccessStmt &x) {
               [=](const Indirection<parser::GenericSpec> &y) {
                 auto info{GenericSpecInfo{y.value()}};
                 const auto &symbolName{info.symbolName()};
-                if (auto *symbol{info.FindInScope(currScope())}) {
+                if (auto *symbol{info.FindInScope(context(), currScope())}) {
                   info.Resolve(&SetAccess(symbolName, accessAttr, symbol));
                 } else if (info.kind() == GenericKind::Name) {
                   info.Resolve(&SetAccess(symbolName, accessAttr));
@@ -5708,7 +5711,7 @@ void ResolveNamesVisitor::CreateGeneric(const parser::GenericSpec &x) {
     return;
   }
   GenericDetails genericDetails;
-  if (Symbol * existing{info.FindInScope(currScope())}) {
+  if (Symbol * existing{info.FindInScope(context(), currScope())}) {
     if (existing->has<GenericDetails>()) {
       info.Resolve(existing);
       return;  // already have generic, add to it
