@@ -48,7 +48,7 @@ ENUM_CLASS(OmpClause, ALIGNED, COLLAPSE, COPYIN, COPYPRIVATE, DEFAULT,
     GRAINSIZE, IF, INBRANCH, IS_DEVICE_PTR, LASTPRIVATE, LINEAR, LINK, MAP,
     MERGEABLE, NOGROUP, NOTINBRANCH, NOWAIT, NUM_TASKS, NUM_TEAMS, NUM_THREADS,
     ORDERED, PRIORITY, PRIVATE, PROC_BIND, REDUCTION, SAFELEN, SCHEDULE, SHARED,
-    SIMD, SIMDLEN, THREAD_LIMIT, THREADS, TO, UNIFORM, UNTIED, USE_DEVICE_PTR)
+    SIMD, SIMDLEN, THREAD_LIMIT, THREADS, TO, UNIFORM, UNTIED, USE_DEVICE_PTR, SEQ_CST)
 
 using OmpClauseSet = common::EnumSet<OmpClause, OmpClause_enumSize>;
 
@@ -60,6 +60,17 @@ public:
   void Enter(const parser::OpenMPLoopConstruct &);
   void Leave(const parser::OpenMPLoopConstruct &);
   void Enter(const parser::OmpEndLoopDirective &);
+  
+  void Enter(const parser::OmpAtomicRead &);
+  void Leave(const parser::OmpAtomicRead &);
+  // void Enter(const parser::OpenMPWrite &);
+  // void Leave(const parser::OpenMPWrite &);
+  // void Enter(const parser::OpenMPCapture &);
+  // void Leave(const parser::OpenMPCapture &);
+  // void Enter(const parser::OpenMPUpdate &);
+  // void Leave(const parser::OpenMPUpdate &);
+  // void Enter(const parser::OpenMPAtomic &);
+  // void Leave(const parser::OpenMPAtomic &);
 
   void Enter(const parser::OpenMPBlockConstruct &);
   void Leave(const parser::OpenMPBlockConstruct &);

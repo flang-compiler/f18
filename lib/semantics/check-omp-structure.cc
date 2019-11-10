@@ -61,6 +61,9 @@ static constexpr OmpDirectiveSet targetSet{OmpDirective::TARGET,
     OmpDirective::TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO,
     OmpDirective::TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD,
     OmpDirective::TARGET_TEAMS_DISTRIBUTE_SIMD};
+static constexpr OmpDirectiveSet atomicSet{
+	OmpDirective::ATOMIC
+};
 
 std::string OmpStructureChecker::ContextDirectiveAsFortran() {
   auto dir{EnumToString(GetContext().directive)};
@@ -348,6 +351,17 @@ void OmpStructureChecker::Enter(const parser::OmpEndLoopDirective &x) {
     // no clauses are allowed
     break;
   }
+}
+
+void OmpStructureChecker::Enter(const parser::OmpAtomicRead &x){
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  PushContext(dir.source, OmpDirective::ATOMIC);
+  OmpClauseSet allowedOnce{OmpClause::SEQ_CST};
+  SetContextAllowedOnce(allowedOnce);
+}
+
+void OmpStructureChecker::Leave(const parser::OmpAtomicRead &){
+  ompContext_.pop_back();
 }
 
 void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
