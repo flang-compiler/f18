@@ -1059,4 +1059,7 @@ void OmpStructureChecker::Enter(const parser::OmpScheduleClause &x) {
     }
   }
 }
+void OmpStructureChecker::Enter(const parser::OmpMemoryClause &){
+		CheckAllowed(OmpClause::SEQ_CST);
+}
 }
