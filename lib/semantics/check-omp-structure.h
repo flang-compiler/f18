@@ -78,6 +78,8 @@ public:
   void Leave(const parser::OpenMPSimpleStandaloneConstruct &);
   void Enter(const parser::OpenMPFlushConstruct &);
   void Leave(const parser::OpenMPFlushConstruct &);
+  void Enter(const parser::OpenMPThreadprivate &);
+  void Leave(const parser::OpenMPThreadprivate &);
   void Enter(const parser::OpenMPCancelConstruct &);
   void Leave(const parser::OpenMPCancelConstruct &);
   void Enter(const parser::OpenMPCancellationPointConstruct &);

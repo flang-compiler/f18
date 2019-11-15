@@ -619,7 +619,13 @@ void OmpStructureChecker::Enter(const parser::OpenMPFlushConstruct &x) {
 void OmpStructureChecker::Leave(const parser::OpenMPFlushConstruct &) {
   ompContext_.pop_back();
 }
-
+void OmpStructureChecker::Enter(const parser::OpenMPThreadprivate &x){
+  const auto &dir{std::get<parser::Verbatim>(x.t)};
+  PushContext(dir.source, OmpDirective::THREADPRIVATE);
+}
+void OmpStructureChecker::Leave(const parser::OpenMPThreadprivate &){
+  ompContext_.pop_back();
+}
 void OmpStructureChecker::Enter(const parser::OpenMPCancelConstruct &x) {
   const auto &dir{std::get<parser::Verbatim>(x.t)};
   PushContext(dir.source, OmpDirective::CANCEL);
