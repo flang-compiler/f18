@@ -2801,15 +2801,20 @@ bool SubprogramVisitor::BeginMpSubprogram(const parser::Name &name) {
   return true;
 }
 
+// A subprogram declared with SUBROUTINE or function
 bool SubprogramVisitor::BeginSubprogram(
     const parser::Name &name, Symbol::Flag subpFlag, bool hasModulePrefix) {
   if (hasModulePrefix && !inInterfaceBlock()) {
-    Say(name, "'%s' was not declared a separate module procedure"_err_en_US);
-    return false;
+    auto *symbol{FindSymbol(currScope().parent(), name)};
+    if (!symbol || !symbol->IsSeparateModuleProc()) {
+      Say(name, "'%s' was not declared a separate module procedure"_err_en_US);
+      return false;
+    }
   }
   PushSubprogramScope(name, subpFlag);
   return true;
 }
+
 void SubprogramVisitor::EndSubprogram() { PopScope(); }
 
 Symbol &SubprogramVisitor::PushSubprogramScope(
