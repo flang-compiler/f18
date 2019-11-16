@@ -26,6 +26,7 @@
   integer :: c = 32
   integer, parameter :: num = 16
   real(8) :: arrayA(256), arrayB(512)
+  common /cb1/ arrayA, arrayB
 
   arrayA = 1.414
   arrayB = 3.14
@@ -406,6 +407,8 @@
   !$omp flush (c)
   !$omp cancel DO
   !$omp cancellation point parallel
+  !$omp threadprivate(b)
+  !$omp threadprivate(/cb1/)
 
 ! 2.13.2 critical Construct
 
