@@ -576,15 +576,13 @@ class ExprLowering {
     auto unwrapTy{arrTy.cast<fir::ReferenceType>().getEleTy()};
     auto seqTy{unwrapTy.cast<fir::SequenceType>()};
     auto shape = seqTy.getShape();
-    if (shape.hasValue()) {
-      if (dims < shape->size()) {
-        fir::SequenceType::Bounds newBnds;
-        // follow Fortran semantics and remove columns
-        for (unsigned i = 0; i < dims; ++i) {
-          newBnds.push_back((*shape)[i]);
-        }
-        return fir::SequenceType::get({newBnds}, seqTy.getEleTy());
+    if ((shape.size() > 0) && (dims < shape.size())) {
+      fir::SequenceType::Shape newBnds;
+      // follow Fortran semantics and remove columns
+      for (unsigned i = 0; i < dims; ++i) {
+        newBnds.push_back(shape[i]);
       }
+      return fir::SequenceType::get(newBnds, seqTy.getEleTy());
     }
     return seqTy.getEleTy();
   }

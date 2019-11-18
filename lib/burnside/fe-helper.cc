@@ -222,7 +222,7 @@ public:
 
   fir::SequenceType::Shape genSeqShape(Se::SymbolRef symbol) {
     assert(symbol->IsObjectArray());
-    fir::SequenceType::Bounds bounds;
+    fir::SequenceType::Shape bounds;
     auto &details = symbol->get<Se::ObjectEntityDetails>();
     const auto size = details.shape().size();
     for (auto &ss : details.shape()) {
@@ -239,13 +239,13 @@ public:
           bounds.emplace_back(
               toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
         } else {
-          bounds.emplace_back(0);
+          bounds.emplace_back(-1);
         }
       } else {
-        bounds.emplace_back(0);
+        bounds.emplace_back(-1);
       }
     }
-    return {bounds};
+    return bounds;
   }
 
   /// Type consing from a symbol. A symbol's type must be created from the type
@@ -307,9 +307,9 @@ public:
   }
 
   fir::SequenceType::Shape trivialShape(int size) {
-    fir::SequenceType::Bounds bounds;
+    fir::SequenceType::Shape bounds;
     bounds.emplace_back(size);
-    return {bounds};
+    return bounds;
   }
 
   // some sequence of `n` bytes
