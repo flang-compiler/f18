@@ -50,3 +50,11 @@ One can, for example, do this with make as follows.
 ```
 
 Or, of course, use their favorite build tool (such as ninja).
+
+### Problems
+
+Despite best efforts, there may be situations where the above repos will
+get out of sync, and the build will fail.  One may want to try using the
+alternate MLIR fork at `git@github.com:schweitzpgi/mlir.git` instead of the
+one at `git@github.com:flang-compiler/f18-mlir.git` (see step 1) and repeat
+the above process.
