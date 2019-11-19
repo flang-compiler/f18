@@ -20,6 +20,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
+#include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/Parser.h"
@@ -68,7 +69,13 @@ int compileFIR() {
   mlir::PassManager pm{context.get()};
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
+  // convert fir dialect to affine
+  pm.addPass(fir::createPromoteToAffinePass());
+  // convert fir dialect to loop
+  pm.addPass(fir::createLowerToLoopPass());
   pm.addPass(fir::createFIRToStdPass());
+  // convert loop dialect to standard
+  pm.addPass(mlir::createLowerToCFGPass());
   pm.addPass(fir::createFIRToLLVMPass());
   pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
   if (mlir::succeeded(pm.run(*owningRef))) {

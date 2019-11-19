@@ -1385,19 +1385,6 @@ struct LoadOpConversion : public FIROpConversion<fir::LoadOp> {
   }
 };
 
-// abstract loop construct
-struct LoopOpConversion : public FIROpConversion<fir::LoopOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto loop = M::cast<fir::LoopOp>(op);
-    TODO(loop);
-    return matchSuccess();
-  }
-};
-
 // FIXME: how do we want to enforce this in LLVM-IR?
 struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
   using FIROpConversion::FIROpConversion;
@@ -1663,19 +1650,6 @@ struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
     L::SmallVector<OperandTy, 1> destOperands;  // none
     rewriter.replaceOpWithNewOp<M::LLVM::UnreachableOp>(
         unreach, operands, destinations, destOperands, unreach.getAttrs());
-    return matchSuccess();
-  }
-};
-
-// abstract conditional construct
-struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto where = M::cast<fir::WhereOp>(op);
-    TODO(where);
     return matchSuccess();
   }
 };
@@ -1948,13 +1922,13 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
         FirEndOpConversion, ExtractValueOpConversion, FreeMemOpConversion,
         GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
         GlobalOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
-        LoadOpConversion, LoopOpConversion, ModfOpConversion, MulcOpConversion,
-        MulfOpConversion, NegcOpConversion, NegfOpConversion,
-        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
-        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
-        SubcOpConversion, SubfOpConversion, UnboxCharOpConversion,
-        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
-        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
+        LoadOpConversion, ModfOpConversion, MulcOpConversion, MulfOpConversion,
+        NegcOpConversion, NegfOpConversion, NoReassocOpConversion,
+        SelectCaseOpConversion, SelectOpConversion, SelectRankOpConversion,
+        SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
+        SubfOpConversion, UnboxCharOpConversion, UnboxOpConversion,
+        UnboxProcOpConversion, UndefOpConversion, UnreachableOpConversion>(
+        &context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();

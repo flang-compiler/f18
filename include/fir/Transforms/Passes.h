@@ -21,6 +21,7 @@ namespace mlir {
 class FuncOp;
 template <typename>
 class OpPassBase;
+class Pass;
 } // namespace mlir
 
 namespace fir {
@@ -28,10 +29,13 @@ namespace fir {
 /// Effects aware CSE pass
 std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>> createCSEPass();
 
+/// Convert FIR loop constructs to the Affine dialect
+std::unique_ptr<mlir::Pass> createPromoteToAffinePass();
+
 /// Convert `fir.loop` and `fir.where` to `loop.for` and `loop.if`.  This
 /// conversion enables the `createLowerToCFGPass` to transform these to CFG
 /// form.
-std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>> createFirToLoopPass();
+std::unique_ptr<mlir::Pass> createLowerToLoopPass();
 
 /// A pass to convert the FIR dialect from "Mem-SSA" form to "Reg-SSA"
 /// form. This pass is a port of LLVM's mem2reg pass, but modified for the FIR
