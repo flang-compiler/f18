@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_FE_HELPER_H_
-#define FORTRAN_BURNSIDE_FE_HELPER_H_
+#ifndef FORTRAN_BURNSIDE_CONVERT_TYPE_H_
+#define FORTRAN_BURNSIDE_CONVERT_TYPE_H_
 
 /// Traversal and conversion of Fortran type data structures into the FIR
 /// dialect of MLIR.
+///
+/// Lowering of parse tree TYPE, KIND, ATTRIBUTE information to the FIR type
+/// system.
 ///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
@@ -108,4 +111,5 @@ mlir::Type convertReal(mlir::MLIRContext *context, int KIND);
 
 }  // burnside
 }  // Fortran
-#endif  // FORTRAN_BURNSIDE_FE_HELPER_H_
+
+#endif  // FORTRAN_BURNSIDE_CONVERT_TYPE_H_

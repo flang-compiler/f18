@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_COMPLEX_H_
-#define FORTRAN_BURNSIDE_COMPLEX_H_
+#ifndef FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_
+#define FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-#include "fe-helper.h"
+#include "convert-type.h"
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
 
@@ -107,4 +107,4 @@ private:
 };
 
 }
-#endif  // FORTRAN_BURNSIDE_COMPLEX_H_
+#endif  // FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_

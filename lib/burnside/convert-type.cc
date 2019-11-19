@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fe-helper.h"
+#include "convert-type.h"
 #include "bridge.h"
-#include "fir/FIRType.h"
 #include "../semantics/expression.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"
+#include "fir/FIRType.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
@@ -288,7 +288,7 @@ public:
         case DerivedCat: TODO(); break;
         }
       } else if (auto *tySpec{type->AsDerived()}) {
-        (void)tySpec; // FIXME
+        (void)tySpec;  // FIXME
         TODO();
       } else {
         assert(false && "type spec not found");

@@ -18,7 +18,7 @@ add_library(FortranBurnside
   bridge.cc
   builder.cc
   convert-expr.cc
-  fe-helper.cc
+  convert-type.cc
   flattened.cc
   intrinsics.cc
   runtime.cc

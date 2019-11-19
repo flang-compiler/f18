@@ -14,7 +14,7 @@
 
 #include "builder.h"
 #include "bridge.h"
-#include "fe-helper.h"
+#include "convert-type.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
