@@ -117,11 +117,19 @@ class ExprLowering {
   }
 
   /// Generate a logical/boolean constant of `value`
+  M::Type getMLIRlogicalType() {
+    return M::IntegerType::get(1, builder.getContext());
+  }
+  M::Value *genMLIRLogicalConstant(M::MLIRContext *context, bool value) {
+    auto attr{builder.getIntegerAttr(getMLIRlogicalType(), value ? 1 : 0)};
+    return builder.create<M::ConstantOp>(getLoc(), getMLIRlogicalType(), attr)
+        .getResult();
+  }
   template<int KIND>
   M::Value *genLogicalConstant(M::MLIRContext *context, bool value) {
-    auto attr{builder.getBoolAttr(value)};
-    M::Type logTy{getFIRType(context, defaults, LogicalCat, KIND)};
-    auto res{builder.create<M::ConstantOp>(getLoc(), logTy, attr)};
+    auto mlirCst{genMLIRLogicalConstant(context, value)};
+    M::Type firLogicalTy{getFIRType(context, defaults, LogicalCat, KIND)};
+    auto res{builder.create<fir::ConvertOp>(getLoc(), firLogicalTy, mlirCst)};
     return res.getResult();
   }
 
@@ -394,9 +402,15 @@ class ExprLowering {
     return builder.create<fir::ConvertOp>(getLoc(), ty, genval(convert.left()));
   }
   template<typename A> M::Value *genval(Ev::Parentheses<A> const &) { TODO(); }
+
   template<int KIND> M::Value *genval(const Ev::Not<KIND> &op) {
     auto *context{builder.getContext()};
-    return createBinaryOp<M::XOrOp>(op, genLogicalConstant<KIND>(context, 1));
+    auto mlirLogical{builder.create<fir::ConvertOp>(
+        getLoc(), getMLIRlogicalType(), genval(op.left()))};
+    auto i1One{genMLIRLogicalConstant(context, 1)};
+    auto mlirRes{builder.create<M::XOrOp>(getLoc(), mlirLogical, i1One)};
+    auto firTy{getFIRType(builder.getContext(), defaults, LogicalCat, KIND)};
+    return builder.create<fir::ConvertOp>(getLoc(), firTy, mlirRes).getResult();
   }
 
   template<int KIND> M::Value *genval(Ev::LogicalOperation<KIND> const &op) {
@@ -411,6 +425,11 @@ class ExprLowering {
       break;
     case Ev::LogicalOperator::Neqv:
       result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::ne);
+      break;
+    case Ev::LogicalOperator::Not:
+      // LogicalOperations are binary operations. Expr for Not is
+      // evaluate::Not<KIND>.
+      assert(false);
       break;
     }
     if (!result) {
