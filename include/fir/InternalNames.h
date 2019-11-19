@@ -32,7 +32,7 @@ namespace fir {
 struct NameMangler {
   enum class IntrinsicType { CHARACTER, COMPLEX, INTEGER, LOGICAL, REAL };
 
-  NameMangler();
+  NameMangler() = default;
 
   /// Mangle a common block name
   llvm::Twine doCommonBlock(llvm::StringRef name);

@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "fir/FIRDialect.h"
+#include "fir/InternalNames.h"
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Transforms/Passes.h"
 #include "fir/Transforms/StdConverter.h"
@@ -66,6 +67,7 @@ int compileFIR() {
   owningRef->dump();
 
   // run passes
+  fir::NameMangler mangler;
   mlir::PassManager pm{context.get()};
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
@@ -77,7 +79,7 @@ int compileFIR() {
   // convert loop dialect to standard
   pm.addPass(mlir::createLowerToCFGPass());
   pm.addPass(fir::createFIRToLLVMPass());
-  pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
+  pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput, mangler));
   if (mlir::succeeded(pm.run(*owningRef))) {
     errs() << ";== output ==\n";
     owningRef->dump();

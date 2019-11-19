@@ -25,6 +25,7 @@
 #include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
+#include "fir/InternalNames.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
@@ -48,8 +49,6 @@ using namespace Fortran::burnside;
 namespace {
 
 using SomeExpr = Ev::Expr<Ev::SomeType>;
-
-std::unique_ptr<BurnsideBridge> bridgeInstance;
 
 constexpr bool isStopStmt(Pa::StopStmt::Kind kind) {
   return kind == Pa::StopStmt::Kind::Stop;
@@ -1028,7 +1027,8 @@ void FIRConverter::translateRoutine(
 
 }  // namespace
 
-void Br::crossBurnsideBridge(BurnsideBridge &bridge, const Pa::Program &prg) {
+void Br::crossBurnsideBridge(
+    BurnsideBridge &bridge, const Pa::Program &prg, fir::NameMangler &mangler) {
   FIRConverter converter{bridge};
   Walk(prg, converter);
 }
@@ -1052,11 +1052,8 @@ Br::BurnsideBridge::BurnsideBridge(
       M::ModuleOp::create(M::UnknownLoc::get(context.get())));
 }
 
-void Br::instantiateBurnsideBridge(
+BurnsideBridge Br::getBurnsideBridge(
     const Co::IntrinsicTypeDefaultKinds &defaultKinds,
     const Pa::CookedSource *cooked) {
-  auto p{BurnsideBridge::create(defaultKinds, cooked)};
-  bridgeInstance.swap(p);
+  return BurnsideBridge::create(defaultKinds, cooked);
 }
-
-BurnsideBridge &Br::getBridge() { return *bridgeInstance.get(); }

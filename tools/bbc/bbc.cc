@@ -14,16 +14,12 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
-#include "fir/FIRDialect.h"
-#include "fir/Tilikum/Tilikum.h"
-#include "fir/Transforms/Passes.h"
-#include "fir/Transforms/StdConverter.h"
 #include "../../lib/burnside/bridge.h"
 #include "../../lib/burnside/convert-expr.h"
+#include "../../lib/common/Fortran-features.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
-#include "../../lib/common/Fortran-features.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
 #include "../../lib/parser/parse-tree.h"
@@ -33,6 +29,11 @@
 #include "../../lib/semantics/expression.h"
 #include "../../lib/semantics/semantics.h"
 #include "../../lib/semantics/unparse-with-symbols.h"
+#include "fir/FIRDialect.h"
+#include "fir/InternalNames.h"
+#include "fir/Tilikum/Tilikum.h"
+#include "fir/Transforms/Passes.h"
+#include "fir/Transforms/StdConverter.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
@@ -267,10 +268,11 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
 
   // MLIR+FIR
-  Br::instantiateBurnsideBridge(
+  fir::NameMangler nameMangler;
+  auto burnside = Br::getBurnsideBridge(
       semanticsContext.defaultKinds(), &parsing.cooked());
-  Br::crossBurnsideBridge(Br::getBridge(), parseTree);
-  mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
+  Br::crossBurnsideBridge(burnside, parseTree, nameMangler);
+  mlir::ModuleOp mlirModule{burnside.getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
     llvm::errs() << ";== 1 ==\n";
@@ -286,7 +288,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToLLVMPass());
   }
   if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll"));
+    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll", nameMangler));
   }
   if (mlir::succeeded(pm.run(mlirModule))) {
     if (driver.dumpFIR) {

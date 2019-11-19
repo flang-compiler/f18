@@ -12,30 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-string-conversion")
-
-add_executable(bbc
-  bbc.cc
-)
-
 set(LIBS
   FIR
-  FIRTransforms
   MLIRAffineOps
   MLIRLLVMIR
   MLIRLoopOps
   MLIRStandardOps
 )
 
-whole_archive_link(bbc ${LIBS})
-target_link_libraries(bbc
+add_llvm_library(FirBbcLib bbc.cc)
+target_link_libraries(FirBbcLib ${LIBS} FIRTransforms)
+
+set(EXE_LIBS
+  ${LIBS}
+  FIRTransforms
   FortranCommon
   FortranParser
   FortranEvaluate
   FortranSemantics
   FortranBurnside
-  FIRTransforms
-  ${LIBS}
 )
 
-install(TARGETS bbc DESTINATION bin)
+add_llvm_tool(bbc bbc.cc)
+llvm_update_compile_flags(bbc)
+whole_archive_link(bbc ${LIBS})
+target_link_libraries(bbc PRIVATE FIR MLIRIR FirBbcLib ${EXE_LIBS} LLVMSupport)

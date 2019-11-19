@@ -38,17 +38,18 @@ class Module;
 class SourceMgr;
 }
 
+namespace fir {
+struct NameMangler;
+}
+
 namespace Fortran::burnside {
 
-/// An instance of BurnsideBridge is a singleton that owns the state of the
-/// bridge
 class BurnsideBridge {
 public:
-  static std::unique_ptr<BurnsideBridge> create(
+  static BurnsideBridge create(
       const common::IntrinsicTypeDefaultKinds &defaultKinds,
       const parser::CookedSource *cooked) {
-    BurnsideBridge *p = new BurnsideBridge{defaultKinds, cooked};
-    return std::unique_ptr<BurnsideBridge>{p};
+    return BurnsideBridge{defaultKinds, cooked};
   }
 
   mlir::MLIRContext &getMLIRContext() { return *context.get(); }
@@ -77,19 +78,16 @@ private:
 };
 
 /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
-void crossBurnsideBridge(
-    BurnsideBridge &bridge, const parser::Program &program);
+void crossBurnsideBridge(BurnsideBridge &bridge, const parser::Program &program,
+    fir::NameMangler &mangler);
 
 /// Bridge from MLIR to LLVM-IR
 std::unique_ptr<llvm::Module> LLVMBridge(mlir::ModuleOp &module);
 
-/// instantiate the BURNSIDE bridge singleton
-void instantiateBurnsideBridge(
+/// Get an instance of the Burnside bridge
+BurnsideBridge getBurnsideBridge(
     const common::IntrinsicTypeDefaultKinds &defaultKinds,
     const parser::CookedSource *cooked = nullptr);
-
-/// get the burnside bridge singleton
-BurnsideBridge &getBridge();
 
 }  // Fortran::burnside
 

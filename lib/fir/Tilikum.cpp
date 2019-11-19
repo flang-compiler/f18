@@ -17,6 +17,7 @@
 #include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
+#include "fir/InternalNames.h"
 #include "fir/KindMapping.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -1951,6 +1952,9 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
 
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
 struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
+  LLVMIRLoweringPass(L::StringRef outputName, NameMangler &mangler)
+      : outputName{outputName}, mangler{mangler} {}
+
   void runOnModule() override {
     if (ClDisableLLVM)
       return;
@@ -1970,14 +1974,13 @@ struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
     signalPassFailure();
   }
 
-  void setOutputName(L::StringRef output) { outputName = output; }
-
 private:
   void genDispatchTableMap() {
     // TODO
   }
 
   L::StringRef outputName;
+  NameMangler &mangler;
 };
 
 } // namespace
@@ -1986,8 +1989,8 @@ std::unique_ptr<M::Pass> fir::createFIRToLLVMPass() {
   return std::make_unique<FIRToLLVMLoweringPass>();
 }
 
-std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass(L::StringRef output) {
-  auto pass = std::make_unique<LLVMIRLoweringPass>();
-  pass->setOutputName(output);
-  return pass;
+std::unique_ptr<M::Pass>
+fir::createLLVMDialectToLLVMPass(L::StringRef output,
+                                 fir::NameMangler &nameMangler) {
+  return std::make_unique<LLVMIRLoweringPass>(output, nameMangler);
 }

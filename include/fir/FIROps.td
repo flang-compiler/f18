@@ -493,7 +493,7 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     llvm::SmallVector<M::Block *, 4> dests;
     llvm::SmallVector<llvm::SmallVector<M::Value *, 4>, 4> destArgs;
     while (true) {
-      M::IntegerAttr ivalue;
+      M::Attribute ivalue; // Integer or Unit
       M::Block *dest;
       llvm::SmallVector<M::Value *, 4> destArg;
       llvm::SmallVector<M::NamedAttribute, 1> temp;
@@ -789,6 +789,7 @@ def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
   let parser = [{
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName();
   }];
@@ -1281,7 +1282,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
     if (!recty.dyn_cast<RecordType>())
       return M::failure();
     result.addAttribute(typeAttrName(), M::TypeAttr::get(recty));
-    if (!parser.parseLParen()) {
+    if (!parser.parseOptionalLParen()) {
       L::SmallVector<M::OpAsmParser::OperandType, 8> operands;
       L::SmallVector<M::Type, 8> types;
       auto loc = parser.getNameLoc();
@@ -1549,6 +1550,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
     }
     p.printOptionalAttrDict(getAttrs());
   }];
+
   let verifier = [{
     for (auto &region : getOperation()->getRegions()) {
       if (region.empty())
