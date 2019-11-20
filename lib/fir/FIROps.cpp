@@ -29,8 +29,15 @@ namespace fir {
 // AllocaOp
 
 M::Type AllocaOp::getAllocatedType() {
-  // return getAttrOfType<M::TypeAttr>("in_type").getType();
   return getType().cast<ReferenceType>().getEleTy();
+}
+
+/// Create a legal memory reference as return type
+M::Type AllocaOp::wrapResultType(M::Type intype) {
+  // FIR semantics: memory references to memory references are disallowed
+  if (intype.dyn_cast<ReferenceType>())
+    return {};
+  return ReferenceType::get(intype);
 }
 
 M::Type AllocaOp::getRefTy(M::Type ty) { return ReferenceType::get(ty); }
@@ -38,11 +45,21 @@ M::Type AllocaOp::getRefTy(M::Type ty) { return ReferenceType::get(ty); }
 // AllocMemOp
 
 M::Type AllocMemOp::getAllocatedType() {
-  // return getAttrOfType<M::TypeAttr>("in_type").getType();
   return getType().cast<HeapType>().getEleTy();
 }
 
 M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
+
+/// Create a legal heap reference as return type
+M::Type AllocMemOp::wrapResultType(M::Type intype) {
+  // Fortran semantics: C852 an entity cannot be both ALLOCATABLE and POINTER
+  // 8.5.3 note 1 prohibits ALLOCATABLE procedures as well
+  // FIR semantics: one may not allocate a memory reference value
+  if (intype.dyn_cast<ReferenceType>() || intype.dyn_cast<HeapType>() ||
+      intype.dyn_cast<PointerType>() || intype.dyn_cast<FunctionType>())
+    return {};
+  return HeapType::get(intype);
+}
 
 // BoxDimsOp
 

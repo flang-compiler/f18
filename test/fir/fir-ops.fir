@@ -45,13 +45,13 @@ func @nop()
 func @get_func() -> (() -> ())
 
 func @instructions() {
-  %0 = fir.alloca !fir.array<10xi32> : !fir.ref<!fir.array<10xi32>>
+  %0 = fir.alloca !fir.array<10xi32>
   %1 = fir.load %0 : !fir.ref<!fir.array<10xi32>>
-  %2 = fir.alloca i32 : !fir.ref<i32>
+  %2 = fir.alloca i32
   %3 = constant 22 : i32
   fir.store %3 to %2 : !fir.ref<i32>
   %4 = fir.undefined i32
-  %5 = fir.allocmem !fir.array<100xf32> : !fir.heap<!fir.array<100xf32>>
+  %5 = fir.allocmem !fir.array<100xf32>
   %6 = fir.embox %5 : (!fir.heap<!fir.array<100xf32>>) -> !fir.box<!fir.array<100xf32>>
   %7 = fir.box_addr %6 : (!fir.box<!fir.array<100xf32>>) -> !fir.ref<!fir.array<100xf32>>
   %c0 = constant 0 : index
@@ -93,15 +93,15 @@ func @instructions() {
 }
 
 func @boxing_match() {
-  %0 = fir.alloca i32 : !fir.ref<i32>
+  %0 = fir.alloca i32
   %1 = fir.embox %0 : (!fir.ref<i32>) -> !fir.box<i32>
   %2:6 = fir.unbox %1 : (!fir.box<i32>) -> (!fir.ref<i32>,i32,i32,!fir.tdesc<i32>,i32,!fir.dims<0>)
   %c8 = constant 8 : i32
-  %3 = fir.alloca !fir.char<1> : !fir.ref<!fir.char<1>>
+  %3 = fir.alloca !fir.char<1>
   %b3 = fir.undefined !fir.char<1>
   %4 = fir.emboxchar %3, %c8 : (!fir.ref<!fir.char<1>>, i32) -> !fir.boxchar<1>
   %5:2 = fir.unboxchar %4 : (!fir.boxchar<1>) -> (!fir.ref<!fir.char<1>>, i32)
-  %6 = fir.alloca !fir.type<qq2{f1:i32,f2:f64}> : !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>
+  %6 = fir.alloca !fir.type<qq2{f1:i32,f2:f64}>
   %a1 = fir.undefined !fir.type<qq2{f1:i32,f2:f64}>
   %z = constant 0 : i32
   %c12 = constant 12 : i32

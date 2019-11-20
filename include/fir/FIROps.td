@@ -211,9 +211,13 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
         parser.resolveOperands(operands, builder.getIndexType(),
             parser.getNameLoc(), result.operands))
       return M::failure();
-    M::Type restype;
+    M::Type restype = wrapResultType(intype);
+    if (!restype) {
+      parser.emitError(parser.getNameLoc(), "invalid allocate type: ")
+          << intype;
+      return M::failure();
+    }
     if (parser.parseOptionalAttrDict(result.attributes) ||
-        parser.parseColonType(restype) ||
         parser.addTypeToList(restype, result.types))
       return M::failure();
     return M::success();
@@ -231,10 +235,9 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
       p.printOperand(sh);
     }
     p.printOptionalAttrDict(getAttrs(), {"in_type", lenpName()});
-    p << " : " << getType();
   }];
 
-  let extraClassDeclaration = [{
+  string extraAllocClassDeclaration = [{
     constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
     mlir::Type getAllocatedType();
     bool hasLenParams() { return bool{getAttr(lenpName())}; }
@@ -264,18 +267,20 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
     object has an undefined state.  The allocation can be given an optional
     name.  The allocation may have a dynamic repetition count for allocating
     a sequence of locations for the specified type.
+
+      %0 = fir.alloca !fir.array<10xf32>
+      %1 = fir.coordinate_of %0, %c0 : (!fir.ref<!fir.array<10xf32>>, index) -> !fir.ref<f32>
   }];
 
   let verifier = [{
-    M::Type inType = getAttrOfType<M::TypeAttr>("in_type").getValue();
     M::Type outType = getType();
-    if (auto ref = outType.dyn_cast<fir::ReferenceType>()) {
-      if (inType != ref.getEleTy())
-        return emitOpError("input type and !fir.ref element type mismatch");
-    } else {
+    if (!outType.dyn_cast<fir::ReferenceType>())
       return emitOpError("must be a !fir.ref type");
-    }
     return M::success();
+  }];
+
+  let extraClassDeclaration = extraAllocClassDeclaration#[{
+    static mlir::Type wrapResultType(mlir::Type intype);
   }];
 }
 
@@ -399,18 +404,20 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     given type, T.  The heap refernce returned has type `!fir.heap<T>`.
     The memory object is in an undefined state.  `allocmem` operations must
     be paired with `freemem` operations to avoid memory leaks.
+
+      %0 = fir.allocmem !fir.array<10xf32>
+      fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
   }];
 
   let verifier = [{
-    M::Type inType = getAttrOfType<M::TypeAttr>("in_type").getValue();
     M::Type outType = getType();
-    if (auto ref = outType.dyn_cast<fir::HeapType>()) {
-      if (inType != ref.getEleTy())
-        return emitOpError("input type and !fir.heap element type mismatch");
-    } else {
+    if (!outType.dyn_cast<fir::HeapType>())
       return emitOpError("must be a !fir.heap type");
-    }
     return M::success();
+  }];
+
+  let extraClassDeclaration = extraAllocClassDeclaration#[{
+    static mlir::Type wrapResultType(mlir::Type intype);
   }];
 }
 
@@ -422,7 +429,11 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
     Deallocates a heap memory reference that was allocated by an `allocmem`.
     The memory object that is deallocated is placed in an undefined state
     after `fir.freemem`.  Optimizations may treat the loading of an object
-    in the undefined state as undefined behavior.
+    in the undefined state as undefined behavior.  This includes aliasing
+    references, such as the result of an `fir.embox`.
+
+      %0 = fir.allocmem !fir.array<10xf32>
+      fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
   }];
 
   let parser = [{
@@ -440,7 +451,7 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
     p << getOperationName() << ' ';
     p.printOperand(heapref());
     p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << getOperand()->getType();    
+    p << " : " << getOperand()->getType();
   }];
 }
 
@@ -1256,7 +1267,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
     lowered into exact offsets when the layout of a Fortran derived type is
     known at compile-time. The type of a field value is `!fir.field` and
     these values can be used with the `fir.coordinate_of`, `fir.extract_value`,
-    or `fir.insert_value` instructions to compute (abstract) addresses of 
+    or `fir.insert_value` instructions to compute (abstract) addresses of
     subobjects.
   }];
 
@@ -1323,7 +1334,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
   }];
 }
 
-def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>, 
+def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
     Arguments<(ins Variadic<AnyIntegerType>:$triples)> {
   let summary = "generate a value of type `!fir.dims`";
 
@@ -1515,9 +1526,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     void setStep(mlir::Value *step) {
       getOperation()->setOperand(2, step);
     }
-    static char const* getStepKeyword() {
-      return "step";
-    }
+    static char const* getStepKeyword() { return "step"; }
   }];
 }
 
@@ -1626,7 +1635,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
     return M::success();
   }];
 
-  let printer = [{ 
+  let printer = [{
     p << getOperationName() << ' ' << getAttr("method") << '(';
     p.printOperand(object());
     if (arg_operand_begin() != arg_operand_end()) {
@@ -1959,7 +1968,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
     result.addAttribute("in_type", M::TypeAttr::get(type));
     return M::success();
   }];
-  let printer = [{ 
+  let printer = [{
     p << getOperationName() << ' ' << getAttr("field") << ", ";
     p.printOperand(constant());
     p.printOptionalAttrDict(getAttrs(), {"in_type", "field"});
@@ -1995,7 +2004,7 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []>,
       return M::failure();
     return M::success();
   }];
-  let printer = [{ 
+  let printer = [{
     p << getOperationName() << ' ' << getAttr("method") << ", "
       << getAttr("proc");
   }];
