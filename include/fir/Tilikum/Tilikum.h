@@ -29,11 +29,11 @@ namespace fir {
 struct NameMangler;
 
 /// Convert FIR to the LLVM IR dialect
-std::unique_ptr<mlir::Pass> createFIRToLLVMPass();
+std::unique_ptr<mlir::Pass> createFIRToLLVMPass(NameMangler &mangler);
 
 /// Convert the LLVM IR dialect to LLVM-IR proper
 std::unique_ptr<mlir::Pass>
-createLLVMDialectToLLVMPass(llvm::StringRef output, NameMangler &mangler);
+createLLVMDialectToLLVMPass(llvm::StringRef output);
 
 } // namespace fir
 

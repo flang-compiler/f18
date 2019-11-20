@@ -78,8 +78,8 @@ int compileFIR() {
   pm.addPass(fir::createFIRToStdPass());
   // convert loop dialect to standard
   pm.addPass(mlir::createLowerToCFGPass());
-  pm.addPass(fir::createFIRToLLVMPass());
-  pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput, mangler));
+  pm.addPass(fir::createFIRToLLVMPass(mangler));
+  pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
   if (mlir::succeeded(pm.run(*owningRef))) {
     errs() << ";== output ==\n";
     owningRef->dump();

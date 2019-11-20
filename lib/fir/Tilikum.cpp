@@ -78,8 +78,8 @@ class FIRToLLVMTypeConverter : public M::LLVMTypeConverter {
   static L::StringMap<M::LLVM::LLVMType> identStructCache;
 
 public:
-  FIRToLLVMTypeConverter(M::MLIRContext *context)
-      : LLVMTypeConverter(context), kindMapping(context) {}
+  FIRToLLVMTypeConverter(M::MLIRContext *context, NameMangler &mangler)
+      : LLVMTypeConverter(context), kindMapping(context), mangler(mangler) {}
 
   // This returns the type of a single column. Rows are added by the caller.
   // fir.dims<r>  -->  llvm<"[r x [3 x i64]]">
@@ -310,6 +310,8 @@ public:
                 "conversion resulted in a non-LLVM type");
     return wrappedLLVMType;
   }
+
+  NameMangler &mangler;
 };
 
 // instantiate static data member
@@ -721,7 +723,6 @@ struct ConstantOpConversion : public FIROpConversion<fir::ConstantOp> {
     auto attr = constop.getValue();
     auto attr_ = attr.cast<M::StringAttr>();
     if (auto ft = ty_.dyn_cast<fir::RealType>()) {
-      auto kind = ft.getFKind();
       L::APFloat f{L::APFloat::IEEEdouble(), attr_.getValue()};
       attr = M::FloatAttr::get(M::FloatType::getF64(constop.getContext()), f);
     }
@@ -1902,12 +1903,14 @@ struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
+  FIRToLLVMLoweringPass(NameMangler &mangler) : mangler{mangler} {}
+
   void runOnModule() override {
     if (ClDisableFirToLLVMIR)
       return;
 
-    auto &context{getContext()};
-    FIRToLLVMTypeConverter typeConverter{&context};
+    auto *context{&getContext()};
+    FIRToLLVMTypeConverter typeConverter{context, mangler};
     M::OwningRewritePatternList patterns;
     patterns.insert<
         AddcOpConversion, AddfOpConversion, AddrOfOpConversion,
@@ -1929,9 +1932,9 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
         SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
         SubfOpConversion, UnboxCharOpConversion, UnboxOpConversion,
         UnboxProcOpConversion, UndefOpConversion, UnreachableOpConversion>(
-        &context, typeConverter);
+        context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
-    M::ConversionTarget target{context};
+    M::ConversionTarget target{*context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();
 
     // required NOP stubs for applying a full conversion
@@ -1940,26 +1943,34 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
     target.addDynamicallyLegalOp<M::ModuleTerminatorOp>(
         [&](M::ModuleTerminatorOp) { return true; });
 
+    genDispatchTableMap();
+
     // apply the patterns
     if (M::failed(M::applyFullConversion(
             getModule(), target, std::move(patterns), &typeConverter))) {
-      M::emitError(M::UnknownLoc::get(&context),
+      M::emitError(M::UnknownLoc::get(context),
                    "error in converting to LLVM-IR dialect\n");
       signalPassFailure();
     }
   }
+
+private:
+  void genDispatchTableMap() {
+    for (auto dt : getModule().getOps<DispatchTableOp>()) {
+      // xxx
+    }
+  }
+
+  NameMangler &mangler;
 };
 
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
 struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
-  LLVMIRLoweringPass(L::StringRef outputName, NameMangler &mangler)
-      : outputName{outputName}, mangler{mangler} {}
+  LLVMIRLoweringPass(L::StringRef outputName) : outputName{outputName} {}
 
   void runOnModule() override {
     if (ClDisableLLVM)
       return;
-
-    genDispatchTableMap();
 
     if (auto llvmModule{M::translateModuleToLLVMIR(getModule())}) {
       std::error_code ec;
@@ -1975,22 +1986,16 @@ struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
   }
 
 private:
-  void genDispatchTableMap() {
-    // TODO
-  }
-
   L::StringRef outputName;
-  NameMangler &mangler;
 };
 
 } // namespace
 
-std::unique_ptr<M::Pass> fir::createFIRToLLVMPass() {
-  return std::make_unique<FIRToLLVMLoweringPass>();
+std::unique_ptr<M::Pass>
+fir::createFIRToLLVMPass(fir::NameMangler &nameMangler) {
+  return std::make_unique<FIRToLLVMLoweringPass>(nameMangler);
 }
 
-std::unique_ptr<M::Pass>
-fir::createLLVMDialectToLLVMPass(L::StringRef output,
-                                 fir::NameMangler &nameMangler) {
-  return std::make_unique<LLVMIRLoweringPass>(output, nameMangler);
+std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass(L::StringRef output) {
+  return std::make_unique<LLVMIRLoweringPass>(output);
 }
