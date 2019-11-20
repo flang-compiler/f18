@@ -92,22 +92,13 @@ public:
 // `fir.loop` operations.  These can be converted to `loop.for` operations. MLIR
 // includes a pass to lower `loop.for` operations to a CFG.
 
-template <typename FROM>
-class OpConversion : public M::ConversionPattern {
-public:
-  explicit OpConversion(M::MLIRContext *ctx)
-      : ConversionPattern(FROM::getOperationName(), 1, ctx) {}
-};
-
 /// Convert `fir.loop` to `loop.for`
-class LoopLoopConv : public OpConversion<LoopOp> {
+class LoopLoopConv : public M::OpRewritePattern<LoopOp> {
 public:
-  using OpConversion::OpConversion;
+  using OpRewritePattern::OpRewritePattern;
 
   M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, llvm::ArrayRef<M::Value *> operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto loop = M::cast<LoopOp>(op);
+  matchAndRewrite(LoopOp loop, M::PatternRewriter &rewriter) const override {
     auto *low = loop.lowerBound();
     auto *high = loop.upperBound();
     auto optStep = loop.optstep();
@@ -123,31 +114,41 @@ public:
     auto f = rewriter.create<M::loop::ForOp>(loc, low, high, step);
     f.region().getBlocks().clear();
     rewriter.inlineRegionBefore(loop.region(), f.region(), f.region().end());
-    rewriter.eraseOp(op);
+    rewriter.eraseOp(loop);
     return matchSuccess();
   }
 };
 
 /// Convert `fir.where` to `loop.if`
-class LoopWhereConv : public OpConversion<WhereOp> {
+class LoopWhereConv : public M::OpRewritePattern<WhereOp> {
 public:
-  using OpConversion::OpConversion;
+  using OpRewritePattern::OpRewritePattern;
 
   M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, llvm::ArrayRef<M::Value *> operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto where = M::cast<WhereOp>(op);
+  matchAndRewrite(WhereOp where, M::PatternRewriter &rewriter) const override {
+    auto loc = where.getLoc();
+    bool hasOtherRegion = !where.otherRegion().empty();
+    auto cond = where.condition();
+    auto ifOp = rewriter.create<M::loop::IfOp>(loc, cond, hasOtherRegion);
+    rewriter.inlineRegionBefore(where.whereRegion(), &ifOp.thenRegion().back());
+    ifOp.thenRegion().back().erase();
+    if (hasOtherRegion) {
+      rewriter.inlineRegionBefore(where.otherRegion(),
+                                  &ifOp.elseRegion().back());
+      ifOp.elseRegion().back().erase();
+    }
+    rewriter.eraseOp(where);
     return matchSuccess();
   }
 };
 
-class LoopFirEndConv : public OpConversion<FirEndOp> {
+/// Replace FirEndOp with TerminatorOp
+class LoopFirEndConv : public M::OpRewritePattern<FirEndOp> {
 public:
-  using OpConversion::OpConversion;
+  using OpRewritePattern::OpRewritePattern;
 
   M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, llvm::ArrayRef<M::Value *> operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
+  matchAndRewrite(FirEndOp op, M::PatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<M::loop::TerminatorOp>(op);
     return matchSuccess();
   }

@@ -268,8 +268,8 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
     name.  The allocation may have a dynamic repetition count for allocating
     a sequence of locations for the specified type.
 
-      %0 = fir.alloca !fir.array<10xf32>
-      %1 = fir.coordinate_of %0, %c0 : (!fir.ref<!fir.array<10xf32>>, index) -> !fir.ref<f32>
+      %0 = fir.alloca f32
+      %1 = fir.call @foo(%0) : (!fir.ref<f32>) -> i32
   }];
 
   let verifier = [{
