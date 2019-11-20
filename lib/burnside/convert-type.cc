@@ -388,3 +388,7 @@ M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
 M::Type Br::convertReal(M::MLIRContext *context, int kind) {
   return genFIRType<RealCat>(context, kind);
 }
+
+M::Type Br::getMLIRlogicalType(M::MLIRContext *context) {
+  return M::IntegerType::get(1, context);
+}

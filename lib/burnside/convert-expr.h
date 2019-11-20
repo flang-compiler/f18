@@ -50,6 +50,12 @@ mlir::Value *createSomeExpression(mlir::Location loc, mlir::OpBuilder &builder,
     evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
     common::IntrinsicTypeDefaultKinds const &defaults,
     IntrinsicLibrary const &intrinsics);
+
+mlir::Value *createI1LogicalExpression(mlir::Location loc,
+    mlir::OpBuilder &builder, evaluate::Expr<evaluate::SomeType> const &expr,
+    SymMap &symMap, common::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics);
+
 mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
     evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
     common::IntrinsicTypeDefaultKinds const &defaults,
