@@ -27,6 +27,7 @@
 // scaffolding compiler driver that can test some semantic passes of the
 // F18 compiler under development.
 
+#include "flang/Config/config.h"
 #include "../../lib/common/Fortran-features.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
@@ -47,9 +48,13 @@
 #include <optional>
 #include <stdlib.h>
 #include <string>
+#ifdef HAVE_SYS_WAIT_H
 #include <sys/wait.h>
+#endif
 #include <time.h>
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <vector>
 
 static std::list<std::string> argList(int argc, char *const argv[]) {

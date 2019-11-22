@@ -14,6 +14,7 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
+#include "flang/Config/config.h"
 #include "../../lib/common/Fortran-features.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/evaluate/expression.h"
@@ -38,8 +39,12 @@
 #include <optional>
 #include <stdlib.h>
 #include <string>
+#ifdef HAVE_SYS_WAIT_H
 #include <sys/wait.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <vector>
 
 static std::list<std::string> argList(int argc, char *const argv[]) {

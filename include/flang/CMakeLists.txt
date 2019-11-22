@@ -12,3 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+include(CheckIncludeFileCXX)
+
+check_include_file_cxx(sys/file.h HAVE_SYS_FILE_H)
+check_include_file_cxx(sys/mman.h HAVE_SYS_MMAN_H)
+check_include_file_cxx(sys/stat.h HAVE_SYS_STAT_H)
+check_include_file_cxx(sys/types.h HAVE_SYS_TYPES_H)
+check_include_file_cxx(sys/wait.h HAVE_SYS_WAIT_H)
+check_include_file_cxx(unistd.h HAVE_UNISTD_H)
