@@ -277,26 +277,6 @@ template<typename A, typename B> std::string GetSource(const B *s) {
   return GetSource(&std::get<parser::Statement<A>>(s->t));
 }
 
-static bool meetsBlockConstraints(const parser::Block &block) { return false; }
-
-static bool meetsLoopConstraints(const parser::DoConstruct &loop) {
-  return meetsBlockConstraints(std::get<parser::Block>(loop.t));
-}
-
-static bool meetsWhereConstraints(const parser::IfConstruct &w) {
-  // we can do better, but for now don't allow ELSE IF constructs
-  if (std::get<std::list<parser::IfConstruct::ElseIfBlock>>(w.t).empty()) {
-    const auto &optElse{
-        std::get<std::optional<parser::IfConstruct::ElseBlock>>(w.t)};
-    if (optElse.has_value() &&
-        !meetsBlockConstraints(std::get<parser::Block>(optElse->t))) {
-      return false;
-    }
-    return meetsBlockConstraints(std::get<parser::Block>(w.t));
-  }
-  return false;
-}
-
 void Op::Build(std::list<Op> &ops,
     const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
   std::visit(
@@ -504,9 +484,6 @@ struct ControlFlowAnalyzer {
   /// `DO` constructs can be lowered to `fir.loop` if they meet some
   /// constraints, otherwise they are lowered to a CFG.
   bool Pre(const parser::DoConstruct &construct) {
-    if (meetsLoopConstraints(construct)) {
-      // use `fir.loop`
-    }
     std::list<Op> ops;
     LabelOp backedgeLab{buildNewLabel()};
     LabelOp incrementLab{buildNewLabel()};
@@ -543,9 +520,6 @@ struct ControlFlowAnalyzer {
   /// `IF` constructs can be lowered to `fir.where` if they meet some
   /// constraints, otherwise they are lowered to a CFG.
   bool Pre(const parser::IfConstruct &construct) {
-    if (meetsWhereConstraints(construct)) {
-      // use `fir.where`
-    }
     std::list<Op> ops;
     LabelOp thenLab{buildNewLabel()};
     LabelOp elseLab{buildNewLabel()};
