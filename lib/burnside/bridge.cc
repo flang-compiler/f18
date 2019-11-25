@@ -1027,14 +1027,10 @@ void FIRConverter::translateRoutine(
 
 }  // namespace
 
-void Br::crossBurnsideBridge(
-    BurnsideBridge &bridge, const Pa::Program &prg, fir::NameMangler &mangler) {
-  FIRConverter converter{bridge};
+void Br::BurnsideBridge::lower(
+    const Pa::Program &prg, fir::NameMangler &mangler) {
+  FIRConverter converter{*this};
   Walk(prg, converter);
-}
-
-std::unique_ptr<llvm::Module> Br::LLVMBridge(M::ModuleOp &module) {
-  return M::translateModuleToLLVMIR(module);
 }
 
 void Br::BurnsideBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
@@ -1050,10 +1046,4 @@ Br::BurnsideBridge::BurnsideBridge(
   context = std::make_unique<M::MLIRContext>();
   module = std::make_unique<M::ModuleOp>(
       M::ModuleOp::create(M::UnknownLoc::get(context.get())));
-}
-
-BurnsideBridge Br::getBurnsideBridge(
-    const Co::IntrinsicTypeDefaultKinds &defaultKinds,
-    const Pa::CookedSource *cooked) {
-  return BurnsideBridge::create(defaultKinds, cooked);
 }

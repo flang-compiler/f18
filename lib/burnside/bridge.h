@@ -65,6 +65,9 @@ public:
 
   const parser::CookedSource *getCookedSource() const { return cooked; }
 
+  /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
+  void lower(const parser::Program &program, fir::NameMangler &mangler);
+
 private:
   explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
       const parser::CookedSource *cooked);
@@ -76,18 +79,6 @@ private:
   std::unique_ptr<mlir::MLIRContext> context;
   std::unique_ptr<mlir::ModuleOp> module;
 };
-
-/// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
-void crossBurnsideBridge(BurnsideBridge &bridge, const parser::Program &program,
-    fir::NameMangler &mangler);
-
-/// Bridge from MLIR to LLVM-IR
-std::unique_ptr<llvm::Module> LLVMBridge(mlir::ModuleOp &module);
-
-/// Get an instance of the Burnside bridge
-BurnsideBridge getBurnsideBridge(
-    const common::IntrinsicTypeDefaultKinds &defaultKinds,
-    const parser::CookedSource *cooked = nullptr);
 
 }  // Fortran::burnside
 

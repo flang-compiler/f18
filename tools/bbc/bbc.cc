@@ -269,9 +269,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 
   // MLIR+FIR
   fir::NameMangler nameMangler;
-  auto burnside =
-      Br::getBurnsideBridge(semanticsContext.defaultKinds(), &parsing.cooked());
-  Br::crossBurnsideBridge(burnside, parseTree, nameMangler);
+  auto burnside = Br::BurnsideBridge::create(
+      semanticsContext.defaultKinds(), &parsing.cooked());
+  burnside.lower(parseTree, nameMangler);
   mlir::ModuleOp mlirModule{burnside.getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
