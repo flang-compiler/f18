@@ -153,6 +153,8 @@ common::IfNoLvalue<Expr<SomeKind<ResultType<A>::category>>, A> AsCategoryExpr(
 
 inline Expr<SomeType> AsGenericExpr(Expr<SomeType> &&x) { return std::move(x); }
 
+Expr<SomeType> Parenthesize(Expr<SomeType> &&);
+
 Expr<SomeReal> GetComplexPart(
     const Expr<SomeComplex> &, bool isImaginary = false);
 
@@ -810,11 +812,11 @@ bool HasVectorSubscript(const Expr<SomeType> &);
 // Utilities for attaching the location of the declaration of a symbol
 // of interest to a message, if both pointers are non-null.  Handles
 // the case of USE association gracefully.
-parser::Message *AttachDeclaration(parser::Message &, const Symbol *);
-parser::Message *AttachDeclaration(parser::Message *, const Symbol *);
+parser::Message *AttachDeclaration(parser::Message &, const Symbol &);
+parser::Message *AttachDeclaration(parser::Message *, const Symbol &);
 template<typename MESSAGES, typename... A>
 parser::Message *SayWithDeclaration(
-    MESSAGES &messages, const Symbol *symbol, A &&... x) {
+    MESSAGES &messages, const Symbol &symbol, A &&... x) {
   return AttachDeclaration(messages.Say(std::forward<A>(x)...), symbol);
 }
 

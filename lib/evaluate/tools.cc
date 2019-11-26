@@ -24,6 +24,25 @@ using namespace Fortran::parser::literals;
 
 namespace Fortran::evaluate {
 
+Expr<SomeType> Parenthesize(Expr<SomeType> &&expr) {
+  return std::visit(
+      [&](auto &&x) {
+        using T = std::decay_t<decltype(x)>;
+        if constexpr (common::HasMember<T, TypelessExpression> ||
+            std::is_same_v<T, Expr<SomeDerived>>) {
+          return expr;  // no parentheses around typeless or derived type
+        } else {
+          return std::visit(
+              [](auto &&y) {
+                using T = ResultType<decltype(y)>;
+                return AsGenericExpr(Parentheses<T>{std::move(y)});
+              },
+              std::move(x.u));
+        }
+      },
+      std::move(expr.u));
+}
+
 // IsVariable()
 auto IsVariableHelper::operator()(const ProcedureDesignator &x) const
     -> Result {
@@ -739,27 +758,35 @@ bool HasVectorSubscript(const Expr<SomeType> &expr) {
 }
 
 parser::Message *AttachDeclaration(
-    parser::Message &message, const Symbol *symbol) {
-  if (symbol) {
-    const Symbol *unhosted{symbol};
-    while (
-        const auto *assoc{unhosted->detailsIf<semantics::HostAssocDetails>()}) {
-      unhosted = &assoc->symbol();
+    parser::Message &message, const Symbol &symbol) {
+  const Symbol *unhosted{&symbol};
+  while (
+      const auto *assoc{unhosted->detailsIf<semantics::HostAssocDetails>()}) {
+    unhosted = &assoc->symbol();
+  }
+  if (const auto *binding{
+          unhosted->detailsIf<semantics::ProcBindingDetails>()}) {
+    if (binding->symbol().name() != symbol.name()) {
+      message.Attach(binding->symbol().name(),
+          "Procedure '%s' is bound to '%s'"_en_US, symbol.name(),
+          binding->symbol().name());
+      return &message;
     }
-    if (const auto *use{symbol->detailsIf<semantics::UseDetails>()}) {
-      message.Attach(use->location(),
-          "'%s' is USE-associated with '%s' in module '%s'"_en_US,
-          symbol->name(), unhosted->name(), use->module().name());
-    } else {
-      message.Attach(
-          unhosted->name(), "Declaration of '%s'"_en_US, symbol->name());
-    }
+    unhosted = &binding->symbol();
+  }
+  if (const auto *use{symbol.detailsIf<semantics::UseDetails>()}) {
+    message.Attach(use->location(),
+        "'%s' is USE-associated with '%s' in module '%s'"_en_US, symbol.name(),
+        unhosted->name(), use->module().name());
+  } else {
+    message.Attach(
+        unhosted->name(), "Declaration of '%s'"_en_US, unhosted->name());
   }
   return &message;
 }
 
 parser::Message *AttachDeclaration(
-    parser::Message *message, const Symbol *symbol) {
+    parser::Message *message, const Symbol &symbol) {
   if (message) {
     AttachDeclaration(*message, symbol);
   }

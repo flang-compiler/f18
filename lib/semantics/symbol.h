@@ -270,26 +270,6 @@ private:
   SymbolRef symbol_;  // procedure bound to; may be forward
 };
 
-ENUM_CLASS(GenericKind,  // Kinds of generic-spec
-    Name, DefinedOp,  // these have a Name associated with them
-    Assignment,  // user-defined assignment
-    OpPower, OpMultiply, OpDivide, OpAdd, OpSubtract, OpConcat, OpLT, OpLE,
-    OpEQ, OpNE, OpGE, OpGT, OpNOT, OpAND, OpOR, OpEQV, OpNEQV,  //
-    ReadFormatted, ReadUnformatted, WriteFormatted, WriteUnformatted)
-
-class GenericBindingDetails {
-public:
-  GenericBindingDetails() {}
-  GenericKind kind() const { return kind_; }
-  void set_kind(GenericKind kind) { kind_ = kind; }
-  const SymbolVector &specificProcs() const { return specificProcs_; }
-  void add_specificProc(const Symbol &proc) { specificProcs_.push_back(proc); }
-
-private:
-  GenericKind kind_{GenericKind::Name};
-  SymbolVector specificProcs_;
-};
-
 class NamelistDetails {
 public:
   const SymbolVector &objects() const { return objects_; }
@@ -384,6 +364,30 @@ private:
   SymbolRef symbol_;
 };
 
+// A GenericKind is one of: generic name, defined operator,
+// defined assignment, intrinsic operator, or defined I/O.
+struct GenericKind {
+  ENUM_CLASS(OtherKind, Name, DefinedOp, Assignment, Concat)
+  ENUM_CLASS(DefinedIo,  // defined io
+      ReadFormatted, ReadUnformatted, WriteFormatted, WriteUnformatted)
+  GenericKind() : u{OtherKind::Name} {}
+  template<typename T> GenericKind(const T &x) { u = x; }
+  bool IsName() const { return Is(OtherKind::Name); }
+  bool IsAssignment() const { return Is(OtherKind::Assignment); }
+  bool IsDefinedOperator() const { return Is(OtherKind::DefinedOp); }
+  bool IsIntrinsicOperator() const;
+  bool IsOperator() const;
+  std::string ToString() const;
+  std::variant<OtherKind, common::NumericOperator, common::LogicalOperator,
+      common::RelationalOperator, DefinedIo>
+      u;
+
+private:
+  template<typename T> bool Has() const { return std::holds_alternative<T>(u); }
+  bool Is(OtherKind) const;
+};
+
+// A generic interface or type-bound generic.
 class GenericDetails {
 public:
   GenericDetails() {}
@@ -393,7 +397,8 @@ public:
   void set_kind(GenericKind kind) { kind_ = kind; }
 
   const SymbolVector &specificProcs() const { return specificProcs_; }
-  void add_specificProc(const Symbol &proc) { specificProcs_.push_back(proc); }
+  const std::vector<SourceName> &bindingNames() const { return bindingNames_; }
+  void AddSpecificProc(const Symbol &, SourceName bindingName);
 
   // specific and derivedType indicate a specific procedure or derived type
   // with the same name as this generic. Only one of them may be set.
@@ -416,9 +421,10 @@ public:
   void set_useDetails(const UseDetails &details) { useDetails_ = details; }
 
 private:
-  GenericKind kind_{GenericKind::Name};
+  GenericKind kind_;
   // all of the specific procedures for this generic
   SymbolVector specificProcs_;
+  std::vector<SourceName> bindingNames_;
   // a specific procedure with the same name as this generic, if any
   Symbol *specific_{nullptr};
   // a derived type with the same name as this generic, if any
@@ -434,8 +440,8 @@ using Details = std::variant<UnknownDetails, MainProgramDetails, ModuleDetails,
     SubprogramDetails, SubprogramNameDetails, EntityDetails,
     ObjectEntityDetails, ProcEntityDetails, AssocEntityDetails,
     DerivedTypeDetails, UseDetails, UseErrorDetails, HostAssocDetails,
-    GenericDetails, ProcBindingDetails, GenericBindingDetails, NamelistDetails,
-    CommonBlockDetails, FinalProcDetails, TypeParamDetails, MiscDetails>;
+    GenericDetails, ProcBindingDetails, NamelistDetails, CommonBlockDetails,
+    FinalProcDetails, TypeParamDetails, MiscDetails>;
 std::ostream &operator<<(std::ostream &, const Details &);
 std::string DetailsToString(const Details &);
 
