@@ -150,6 +150,11 @@ UseErrorDetails &UseErrorDetails::add_occurrence(
 GenericDetails::GenericDetails(const SymbolVector &specificProcs)
   : specificProcs_{specificProcs} {}
 
+void GenericDetails::AddSpecificProc(
+    const Symbol &proc, SourceName bindingName) {
+  specificProcs_.push_back(proc);
+  bindingNames_.push_back(bindingName);
+}
 void GenericDetails::set_specific(Symbol &specific) {
   CHECK(!specific_);
   CHECK(!derivedType_);
@@ -214,7 +219,6 @@ std::string DetailsToString(const Details &details) {
           [](const HostAssocDetails &) { return "HostAssoc"; },
           [](const GenericDetails &) { return "Generic"; },
           [](const ProcBindingDetails &) { return "ProcBinding"; },
-          [](const GenericBindingDetails &) { return "GenericBinding"; },
           [](const NamelistDetails &) { return "Namelist"; },
           [](const CommonBlockDetails &) { return "CommonBlockDetails"; },
           [](const FinalProcDetails &) { return "FinalProc"; },
@@ -427,7 +431,7 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
           },
           [](const HostAssocDetails &) {},
           [&](const GenericDetails &x) {
-            os << ' ' << EnumToString(x.kind());
+            os << ' ' << x.kind().ToString();
             DumpBool(os, "(specific)", x.specific() != nullptr);
             DumpBool(os, "(derivedType)", x.derivedType() != nullptr);
             os << " procs:";
@@ -436,10 +440,6 @@ std::ostream &operator<<(std::ostream &os, const Details &details) {
           [&](const ProcBindingDetails &x) {
             os << " => " << x.symbol().name();
             DumpOptional(os, "passName", x.passName());
-          },
-          [&](const GenericBindingDetails &x) {
-            os << " =>";
-            DumpSymbolVector(os, x.specificProcs());
           },
           [&](const NamelistDetails &x) {
             os << ':';
@@ -584,6 +584,30 @@ const Symbol *DerivedTypeDetails::GetParentComponent(const Scope &scope) const {
 void TypeParamDetails::set_type(const DeclTypeSpec &type) {
   CHECK(!type_);
   type_ = &type;
+}
+
+bool GenericKind::IsIntrinsicOperator() const {
+  return Is(OtherKind::Concat) || Has<common::LogicalOperator>() ||
+      Has<common::NumericOperator>() || Has<common::RelationalOperator>();
+}
+
+bool GenericKind::IsOperator() const {
+  return IsDefinedOperator() || IsIntrinsicOperator();
+}
+
+std::string GenericKind::ToString() const {
+  return std::visit(
+      common::visitors{
+          [](const OtherKind &x) { return EnumToString(x); },
+          [](const DefinedIo &x) { return EnumToString(x); },
+          [](const auto &x) { return common::EnumToString(x); },
+      },
+      u);
+}
+
+bool GenericKind::Is(GenericKind::OtherKind x) const {
+  const OtherKind *y{std::get_if<OtherKind>(&u)};
+  return y && *y == x;
 }
 
 }

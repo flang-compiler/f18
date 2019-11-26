@@ -82,9 +82,30 @@ const Scope *FindPureProcedureContaining(const Scope &start) {
   return nullptr;
 }
 
+Tristate IsDefinedAssignment(
+    const std::optional<evaluate::DynamicType> &lhsType, int lhsRank,
+    const std::optional<evaluate::DynamicType> &rhsType, int rhsRank) {
+  if (!lhsType || !rhsType) {
+    return Tristate::No;  // error or rhs is untyped
+  }
+  TypeCategory lhsCat{lhsType->category()};
+  TypeCategory rhsCat{rhsType->category()};
+  if (rhsRank > 0 && lhsRank != rhsRank) {
+    return Tristate::Yes;
+  } else if (lhsCat != TypeCategory::Derived) {
+    return ToTristate(lhsCat != rhsCat &&
+        (!IsNumericTypeCategory(lhsCat) || !IsNumericTypeCategory(rhsCat)));
+  } else if (rhsCat == TypeCategory::Derived &&
+      lhsType->GetDerivedTypeSpec() == rhsType->GetDerivedTypeSpec()) {
+    return Tristate::Maybe;  // TYPE(t) = TYPE(t) can be defined or intrinsic
+  } else {
+    return Tristate::Yes;
+  }
+}
+
 bool IsGenericDefinedOp(const Symbol &symbol) {
   const auto *details{symbol.GetUltimate().detailsIf<GenericDetails>()};
-  return details && details->kind() == GenericKind::DefinedOp;
+  return details && details->kind().IsDefinedOperator();
 }
 
 bool IsCommonBlockContaining(const Symbol &block, const Symbol &object) {
@@ -313,6 +334,11 @@ bool ExprTypeKindIsDefault(
   return dynamicType &&
       dynamicType->category() != common::TypeCategory::Derived &&
       dynamicType->kind() == context.GetDefaultKind(dynamicType->category());
+}
+
+const evaluate::Assignment *GetAssignment(const parser::AssignmentStmt &x) {
+  const auto &typed{x.typedAssignment};
+  return typed && typed->v ? &*typed->v : nullptr;
 }
 
 const Symbol *FindInterface(const Symbol &symbol) {
