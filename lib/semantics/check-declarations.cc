@@ -65,7 +65,7 @@ private:
   std::optional<std::vector<Procedure>> Characterize(const SymbolVector &);
   bool CheckDefinedOperator(const SourceName &, const GenericKind &,
       const Symbol &, const Procedure &);
-  bool CheckNumberOfArgs(std::optional<parser::MessageFixedText> &,
+  std::optional<parser::MessageFixedText> CheckNumberOfArgs(
       const GenericKind &, std::size_t);
   bool CheckDefinedOperatorArg(
       const SourceName &, const Symbol &, const Procedure &, std::size_t);
@@ -516,8 +516,8 @@ bool CheckHelper::CheckDefinedOperator(const SourceName &opName,
   } else if (proc.functionResult->IsAssumedLengthCharacter()) {
     msg = "%s function '%s' may not have assumed-length CHARACTER(*)"
           " result"_err_en_US;
-  } else if (!CheckNumberOfArgs(msg, kind, proc.dummyArguments.size())) {
-    // error is in msg
+  } else if (auto m{CheckNumberOfArgs(kind, proc.dummyArguments.size())}) {
+    msg = std::move(m);
   } else if (!CheckDefinedOperatorArg(opName, specific, proc, 0) |
       !CheckDefinedOperatorArg(opName, specific, proc, 1)) {
     return false;  // error was reported
@@ -533,9 +533,8 @@ bool CheckHelper::CheckDefinedOperator(const SourceName &opName,
 
 // If the number of arguments is wrong for this intrinsic operator, return
 // false and return the error message in msg.
-bool CheckHelper::CheckNumberOfArgs(
-    std::optional<parser::MessageFixedText> &msg, const GenericKind &kind,
-    std::size_t nargs) {
+std::optional<parser::MessageFixedText> CheckHelper::CheckNumberOfArgs(
+    const GenericKind &kind, std::size_t nargs) {
   std::size_t min{2}, max{2};  // allowed number of args; default is binary
   std::visit(
       common::visitors{
@@ -561,16 +560,14 @@ bool CheckHelper::CheckNumberOfArgs(
       },
       kind.u);
   if (nargs >= min && nargs <= max) {
-    return true;
-  }
-  if (max == 1) {
-    msg = "%s function '%s' must have one dummy argument"_err_en_US;
+    return std::nullopt;
+  } else if (max == 1) {
+    return "%s function '%s' must have one dummy argument"_err_en_US;
   } else if (min == 2) {
-    msg = "%s function '%s' must have two dummy arguments"_err_en_US;
+    return "%s function '%s' must have two dummy arguments"_err_en_US;
   } else {
-    msg = "%s function '%s' must have one or two dummy arguments"_err_en_US;
+    return "%s function '%s' must have one or two dummy arguments"_err_en_US;
   }
-  return false;
 }
 
 bool CheckHelper::CheckDefinedOperatorArg(const SourceName &opName,
