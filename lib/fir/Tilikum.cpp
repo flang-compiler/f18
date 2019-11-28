@@ -1957,7 +1957,8 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
 private:
   void genDispatchTableMap() {
     for (auto dt : getModule().getOps<DispatchTableOp>()) {
-      // xxx
+      // FIXME
+      (void)dt;
     }
   }
 
