@@ -24,11 +24,7 @@ add_llvm_library(FIR
   KindMapping.cpp
   StdConverter.cpp
   Tilikum.cpp
-)
-
-add_dependencies(FIR FIROpsIncGen)
-
-target_link_libraries(FIR
+  LINK_LIBS
   MLIRTargetLLVMIR
   MLIRTargetLLVMIRModuleTranslation
   MLIREDSC
@@ -41,6 +37,8 @@ target_link_libraries(FIR
   LLVMAsmPrinter
   LLVMRemarks
 )
+
+add_dependencies(FIR FIROpsIncGen)
 
 install (TARGETS FIR
   ARCHIVE DESTINATION lib

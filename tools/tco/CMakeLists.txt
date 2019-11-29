@@ -20,8 +20,11 @@ set(LIBS
   MLIRStandardOps
 )
 
-add_llvm_library(FirTcoLib tco.cpp)
-target_link_libraries(FirTcoLib ${LIBS} FIRTransforms)
+add_llvm_library(FirTcoLib
+  tco.cpp
+  LINK_LIBS
+  ${LIBS}
+)
 
 set(EXE_LIBS
   ${LIBS}
@@ -37,10 +40,9 @@ set(EXE_LIBS
   MLIRSupport
   MLIRTransforms
   MLIRVectorOps
-  MLIRVectorToLLVM
 )
 
 add_llvm_tool(tco tco.cpp)
 llvm_update_compile_flags(tco)
-whole_archive_link(tco ${LIBS})
+whole_archive_link(tco ${EXE_LIBS})
 target_link_libraries(tco PRIVATE FIR MLIRIR FirTcoLib ${EXE_LIBS} LLVMSupport)
