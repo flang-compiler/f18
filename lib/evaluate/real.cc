@@ -460,7 +460,7 @@ std::string Real<W, P, IM>::DumpHexadecimal() const {
 
 template<typename W, int P, bool IM>
 std::ostream &Real<W, P, IM>::AsFortran(
-    std::ostream &o, int kind, bool minimal) const {
+    std::ostream &o, int kind, bool minimal, bool parenthesizeNegative) const {
   if (IsNotANumber()) {
     o << "(0._" << kind << "/0.)";
   } else if (IsInfinite()) {
@@ -470,7 +470,7 @@ std::ostream &Real<W, P, IM>::AsFortran(
       o << "(1._" << kind << "/0.)";
     }
   } else {
-    bool parenthesize{IsNegative()};
+    bool parenthesize{parenthesizeNegative && IsNegative()};
     if (parenthesize) {
       o << "(";
     }

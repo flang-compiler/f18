@@ -97,8 +97,11 @@ template<typename R> std::string Complex<R>::DumpHexadecimal() const {
 
 template<typename R>
 std::ostream &Complex<R>::AsFortran(std::ostream &o, int kind) const {
-  re_.AsFortran(o << '(', kind);
-  im_.AsFortran(o << ',', kind);
+  // Do not emit parenthesis around negative parts because it prevents compilers
+  // that do not support the complex constructor extension from parsing it.
+  re_.AsFortran(
+      o << '(', kind, /* minimal */ false, /* parenthesizeNegative */ false);
+  im_.AsFortran(o << ',', kind, false, false);
   return o << ')';
 }
 
