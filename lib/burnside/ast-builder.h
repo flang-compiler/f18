@@ -74,11 +74,11 @@ struct Evaluation {
   Evaluation(const A &a, const parser::CharBlock &pos,
       const std::optional<parser::Label> &lab)
     : u{&a}, ux{StmtExtra{pos, lab}} {
-    static_assert(!isConstruct<A>() && "must be a statement");
-    if constexpr (isAction<A>()) {
+    static_assert(!isConstruct(a) && "must be a statement");
+    if constexpr (isAction(a)) {
       isActionStmt = true;
     }
-    if constexpr (isAction<A>() || isOther<A>()) {
+    if constexpr (isAction(a) || isOther(a)) {
       isStatement = true;
     }
   }
@@ -86,12 +86,12 @@ struct Evaluation {
   /// Construct ctor
   template<typename A>
   Evaluation(const A &a) : u{&a}, ux{std::list<Evaluation>{}} {
-    static_assert(isConstruct<A>() && "must be a construct");
+    static_assert(isConstruct(a) && "must be a construct");
   }
 
   /// statements that are executable (actions)
-  template<typename A> constexpr static bool isAction() {
-    if constexpr (!isConstruct<A>() && !isOther<A>()) {
+  template<typename A> constexpr static bool isAction(const A &a) {
+    if constexpr (!isConstruct(a) && !isOther(a)) {
       return true;
     } else {
       return false;
@@ -99,7 +99,7 @@ struct Evaluation {
   }
 
   /// constructs (and directives)
-  template<typename A> constexpr static bool isConstruct() {
+  template<typename A> constexpr static bool isConstruct(const A &) {
     if constexpr (std::is_same_v<A, parser::AssociateConstruct> ||
         std::is_same_v<A, parser::BlockConstruct> ||
         std::is_same_v<A, parser::CaseConstruct> ||
@@ -121,7 +121,7 @@ struct Evaluation {
   }
 
   /// statements that are not executable
-  template<typename A> constexpr static bool isOther() {
+  template<typename A> constexpr static bool isOther(const A &) {
     if constexpr (std::is_same_v<A, parser::FormatStmt> ||
         std::is_same_v<A, parser::EntryStmt> ||
         std::is_same_v<A, parser::DataStmt> ||
