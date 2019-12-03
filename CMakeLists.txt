@@ -78,79 +78,9 @@ if( NOT DEFINED PACKAGE_VERSION )
   # that we wish to use
   llvm_map_components_to_libnames(llvm_libs support core irreader)
 
-# FIXME?? No Python bindings...
-
-# The libdir suffix must exactly match whatever LLVM's configuration used.
-set(FLANG_LIBDIR_SUFFIX "${LLVM_LIBDIR_SUFFIX}")
-
-set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-
-if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
-  message(FATAL_ERROR "In-source builds are not allowed. "
-"Please create a directory and run cmake "
-"from there, passing the path to this source directory as the last argument. "
-"This process created the file `CMakeCache.txt' and the directory "
-"`CMakeFiles'. Please delete them.")
-endif()
-
-# Override version information to reflect early stages of flang vs.
-# following LLVM's versioning info...
-set(FLANG_VERSION_MAJOR      "0")
-set(FLANG_VERSION_MINOR      "1")
-set(FLANG_VERSION_PATCHLEVEL "0")
-
-# If FLANG_VERSION_* is specified, use it, if not use LLVM_VERSION_*.
-if (NOT DEFINED FLANG_VERSION_MAJOR)
-  set(FLANG_VERSION_MAJOR ${LLVM_VERSION_MAJOR})
-endif()
-if (NOT DEFINED FLANG_VERSION_MINOR)
-  set(FLANG_VERSION_MINOR ${LLVM_VERSION_MINOR})
-endif()
-if (NOT DEFINED FLANG_VERSION_PATCHLEVEL)
-  set(FLANG_VERSION_PATCHLEVEL ${LLVM_VERSION_PATCH})
-endif()
-# Unlike PACKAGE_VERSION, FLANG_VERSION does not include LLVM_VERSION_SUFFIX.
-set(FLANG_VERSION "${FLANG_VERSION_MAJOR}.${FLANG_VERSION_MINOR}.${FLANG_VERSION_PATCHLEVEL}")
-message(STATUS "Flang version: ${FLANG_VERSION}")
-
-# Configure the Version.inc file.
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/flang/Version.inc.in
-  ${CMAKE_CURRENT_BINARY_DIR}/include/flang/Version.inc)
-
-if (FLANG_LINK_WITH_FIR)
-  message(STATUS "Linking Flang driver with FIR and LLVM")
-  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support)
-  message(STATUS "Flang using LLVM libraries: ${LLVM_COMMON_LIBS}")
-endif()
-
-#set(FLANG_CXX_FLAGS "-std=c++17")
-
-# Add appropriate flags for GCC
-if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fno-rtti -fno-exceptions -Wall")
-  if (NOT "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing -fno-semantic-interposition")
-  endif ()
-
-  # Enable -pedantic for Flang even if it's not enabled for LLVM.
-  if (NOT LLVM_ENABLE_PEDANTIC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pedantic")
-  endif ()
-
-  if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-    if (APPLE)
-      # don't add --gcc-toolchain
-    else()
-      #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${CMAKE_CXX_COMPILER}")
-    endif()
-  endif()
-  
-  check_cxx_compiler_flag("-Werror -Wnested-anon-types" CXX_SUPPORTS_NO_NESTED_ANON_TYPES_FLAG)
-  if (CXX_SUPPORTS_NO_NESTED_ANON_TYPES_FLAG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-nested-anon-types")
-  endif()
+  list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
+  include(AddLLVM)
+  include(TableGen)
 
   set(MLIR_SOURCE_DIR ${LLVM_INCLUDE_DIR})
   set(MLIR_MAIN_SRC_DIR ${MLIR_SOURCE_DIR})
