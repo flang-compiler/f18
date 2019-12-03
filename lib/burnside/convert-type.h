@@ -15,11 +15,11 @@
 #ifndef FORTRAN_BURNSIDE_CONVERT_TYPE_H_
 #define FORTRAN_BURNSIDE_CONVERT_TYPE_H_
 
-/// Traversal and conversion of Fortran type data structures into the FIR
-/// dialect of MLIR.
-///
-/// Lowering of parse tree TYPE, KIND, ATTRIBUTE information to the FIR type
-/// system.
+/// Conversion of front-end TYPE, KIND, ATTRIBUTE (TKA) information to FIR/MLIR.
+/// This is meant to be the single point of truth (SPOT) for all type
+/// conversions when lowering to FIR.  This implements all lowering of parse
+/// tree TKA to the FIR type system. If one is converting front-end types and
+/// not using one of the routines provided here, it's being done wrong.
 ///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 

@@ -34,6 +34,7 @@ class CookedSource;
 namespace burnside {
 
 /// Miscellaneous helper routines for building MLIR
+///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 class SymMap {
@@ -43,6 +44,8 @@ public:
   void addSymbol(semantics::SymbolRef symbol, mlir::Value *value);
 
   mlir::Value *lookupSymbol(semantics::SymbolRef symbol);
+
+  void clear() { symbolMap.clear(); }
 };
 
 std::string applyNameMangling(llvm::StringRef parserName);

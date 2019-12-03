@@ -75,6 +75,11 @@ struct NameMangler {
   llvm::Twine doVariable(llvm::ArrayRef<llvm::StringRef> modules,
                          llvm::StringRef name);
 
+  /// Entry point for the PROGRAM (called by the runtime)
+  constexpr static llvm::StringRef getProgramEntry() {
+    return "__MAIN";
+  }
+
 private:
   llvm::Twine addAsString(std::int64_t i);
   llvm::Twine doKind(std::int64_t kind);

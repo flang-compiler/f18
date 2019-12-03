@@ -41,10 +41,13 @@ namespace {
 /// the bridge to one such instantiation.
 class ASTBuilder {
 public:
-  ASTBuilder() = default;
+  ASTBuilder() {
+    pgm = new AST::Program;
+    parents.push_back(pgm);
+  }
 
   /// Get the result
-  AST::Program result() { return pgm; }
+  AST::Program *result() { return pgm; }
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
   template<typename A> constexpr void Post(const A &) {}
@@ -72,15 +75,25 @@ public:
   // Block data
 
   void Post(const Pa::BlockData &x) {
-    AST::BlockDataUnit unit{x};
+    AST::BlockDataUnit unit{x, parents.back()};
     addUnit(unit);
   }
 
-  // Evaluation
+  //
+  // Action statements
+  //
 
   void Post(const Pa::Statement<Pa::ActionStmt> &s) {
     addEval(makeEvalAction(s));
   }
+  void Post(const Pa::UnlabeledStatement<Pa::ActionStmt> &s) {
+    addEval(makeEvalAction(s));
+  }
+
+  //
+  // Non-executable statements
+  //
+
   void Post(const Pa::Statement<Co::Indirection<Pa::FormatStmt>> &s) {
     addEval(makeEvalIndirect(s));
   }
@@ -93,6 +106,111 @@ public:
   void Post(const Pa::Statement<Co::Indirection<Pa::NamelistStmt>> &s) {
     addEval(makeEvalIndirect(s));
   }
+
+  //
+  // Construct statements
+  //
+
+  void Post(const Pa::Statement<parser::AssociateStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndAssociateStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::BlockStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndBlockStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::SelectCaseStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::CaseStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndSelectStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::ChangeTeamStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndChangeTeamStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::CriticalStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndCriticalStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::NonLabelDoStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndDoStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::IfThenStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::ElseIfStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::ElseStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndIfStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::SelectRankStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::SelectRankCaseStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::SelectTypeStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::TypeGuardStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::WhereConstructStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::MaskedElsewhereStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::ElsewhereStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndWhereStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::ForallConstructStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  void Post(const Pa::Statement<parser::EndForallStmt> &s) {
+    addEval(makeEvalDirect(s));
+  }
+  // Get rid of production wrapper
+  void Post(const Pa::UnlabeledStatement<parser::ForallAssignmentStmt> &s) {
+    addEval(std::visit(
+        [&](const auto &x) {
+          return AST::Evaluation{x, s.source, {}, parents.back()};
+        },
+        s.statement.u));
+  }
+  void Post(const Pa::Statement<parser::ForallAssignmentStmt> &s) {
+    addEval(std::visit(
+        [&](const auto &x) {
+          return AST::Evaluation{x, s.source, s.label, parents.back()};
+        },
+        s.statement.u));
+  }
+
+  //
+  // Constructs (enter and exit)
+  //
 
   bool Pre(const Pa::AssociateConstruct &c) { return enterConstruct(c); }
   bool Pre(const Pa::BlockConstruct &c) { return enterConstruct(c); }
@@ -132,13 +250,30 @@ private:
     return std::visit(
         common::visitors{
             [&](const Pa::ContinueStmt &x) {
-              return AST::Evaluation{x, s.source, s.label};
+              return AST::Evaluation{x, s.source, s.label, parents.back()};
             },
             [&](const Pa::FailImageStmt &x) {
-              return AST::Evaluation{x, s.source, s.label};
+              return AST::Evaluation{x, s.source, s.label, parents.back()};
             },
             [&](const auto &x) {
-              return AST::Evaluation{x.value(), s.source, s.label};
+              return AST::Evaluation{
+                  x.value(), s.source, s.label, parents.back()};
+            },
+        },
+        s.statement.u);
+  }
+  AST::Evaluation makeEvalAction(
+      const Pa::UnlabeledStatement<Pa::ActionStmt> &s) {
+    return std::visit(
+        common::visitors{
+            [&](const Pa::ContinueStmt &x) {
+              return AST::Evaluation{x, s.source, {}, parents.back()};
+            },
+            [&](const Pa::FailImageStmt &x) {
+              return AST::Evaluation{x, s.source, {}, parents.back()};
+            },
+            [&](const auto &x) {
+              return AST::Evaluation{x.value(), s.source, {}, parents.back()};
             },
         },
         s.statement.u);
@@ -146,75 +281,98 @@ private:
 
   template<typename A>
   AST::Evaluation makeEvalIndirect(const Pa::Statement<Co::Indirection<A>> &s) {
-    return AST::Evaluation{s.statement.value(), s.source, s.label};
+    return AST::Evaluation{
+        s.statement.value(), s.source, s.label, parents.back()};
+  }
+
+  template<typename A>
+  AST::Evaluation makeEvalDirect(const Pa::Statement<A> &s) {
+    return AST::Evaluation{s.statement, s.source, s.label, parents.back()};
   }
 
   // When we enter a function-like structure, we want to build a new unit and
   // set the builder's cursors to point to it.
   template<typename A> bool enterFunc(const A &f) {
-    AST::FunctionLikeUnit unit{f};
+    auto &unit = addFunc(AST::FunctionLikeUnit{f, parents.back()});
     funclist = &unit.funcs;
     pushEval(&unit.evals);
-    addFunc(unit);
+    parents.emplace_back(&unit);
     return true;
   }
 
   void exitFunc() {
-    funclist = nullptr;
     popEval();
+    funclist = nullptr;
+    parents.pop_back();
   }
 
   // When we enter a construct structure, we want to build a new construct and
   // set the builder's evaluation cursor to point to it.
   template<typename A> bool enterConstruct(const A &c) {
-    AST::Evaluation con{c};
-    addEval(con);
-    pushEval(con.getConstructEvals());
+    auto &con = addEval(AST::Evaluation{c, parents.back()});
+    con.subs = new std::list<AST::Evaluation>();
+    pushEval(con.subs);
+    parents.emplace_back(&con);
     return true;
   }
 
-  void exitConstruct() { popEval(); }
+  void exitConstruct() {
+    popEval();
+    parents.pop_back();
+  }
 
   // When we enter a module structure, we want to build a new module and
   // set the builder's function cursor to point to it.
   template<typename A> bool enterModule(const A &f) {
-    AST::ModuleLikeUnit unit{f};
+    auto &unit = addUnit(AST::ModuleLikeUnit{f, parents.back()});
     funclist = &unit.funcs;
-    addUnit(unit);
+    parents.emplace_back(&unit);
     return true;
   }
 
-  void exitModule() { funclist = nullptr; }
-
-  template<typename A> void addUnit(const A &unit) {
-    pgm.units.emplace_back(unit);
+  void exitModule() {
+    funclist = nullptr;
+    parents.pop_back();
   }
 
-  template<typename A> void addFunc(const A &func) {
-    if (funclist)
+  template<typename A> A &addUnit(const A &unit) {
+    pgm->getUnits().emplace_back(unit);
+    return std::get<A>(pgm->getUnits().back());
+  }
+
+  template<typename A> A &addFunc(const A &func) {
+    if (funclist) {
       funclist->emplace_back(func);
-    else
-      addUnit(func);
+      return funclist->back();
+    }
+    return addUnit(func);
   }
 
-  void addEval(const AST::Evaluation &eval) {
-    assert(funclist);
-    evallist.back()->emplace_back(eval);
+  /// move the Evaluation to the end of the current list
+  AST::Evaluation &addEval(AST::Evaluation &&eval) {
+    assert(funclist && "not in a function");
+    assert(evallist.size() > 0);
+    evallist.back()->emplace_back(std::move(eval));
+    return evallist.back()->back();
   }
 
+  /// push a new list on the stack of Evaluation lists
   void pushEval(std::list<AST::Evaluation> *eval) {
-    assert(funclist);
-    evallist.push_back(eval);
+    assert(funclist && "not in a function");
+    assert(eval && eval->empty() && "evaluation list isn't correct");
+    evallist.emplace_back(eval);
   }
 
+  /// pop the current list and return to the last Evaluation list
   void popEval() {
-    assert(funclist);
+    assert(funclist && "not in a function");
     evallist.pop_back();
   }
 
-  AST::Program pgm;
+  AST::Program *pgm;
   std::list<AST::FunctionLikeUnit> *funclist{nullptr};
   std::vector<std::list<AST::Evaluation> *> evallist;
+  std::vector<AST::ParentType> parents;
 };
 
 template<typename A> constexpr bool hasErrLabel(const A &stmt) {
@@ -315,57 +473,126 @@ void ioLabel(AST::Evaluation &e, const A *s, AST::Evaluation *cstr) {
 void annotateEvalListCFG(
     std::list<AST::Evaluation> &evals, AST::Evaluation *cstr) {
   bool nextIsTarget = false;
-  for (auto e : evals) {
+  for (auto &e : evals) {
     e.isTarget = nextIsTarget;
     nextIsTarget = false;
     if (e.isConstruct()) {
       annotateEvalListCFG(*e.getConstructEvals(), &e);
       // assume that the entry and exit are both possible branch targets
-      e.isTarget = nextIsTarget = true;
-      continue;
+      nextIsTarget = true;
+    }
+    if (e.isActionStmt() && e.lab.has_value()) {
+      e.isTarget = true;
     }
     std::visit(
         common::visitors{
-            [&](Pa::BackspaceStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::CallStmt *s) { altRet(e, s, cstr); },
-            [&](Pa::CloseStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::CycleStmt *) { e.setCFG(AST::CFGAnnotation::Goto, cstr); },
-            [&](Pa::EndfileStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::ExitStmt *) { e.setCFG(AST::CFGAnnotation::Goto, cstr); },
-            [&](Pa::FailImageStmt *) {
+            [&](const Pa::BackspaceStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::CallStmt *s) { altRet(e, s, cstr); },
+            [&](const Pa::CloseStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::CycleStmt *) {
+              e.setCFG(AST::CFGAnnotation::Goto, cstr);
+            },
+            [&](const Pa::EndfileStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::ExitStmt *) {
+              e.setCFG(AST::CFGAnnotation::Goto, cstr);
+            },
+            [&](const Pa::FailImageStmt *) {
+              e.setCFG(AST::CFGAnnotation::Terminate, cstr);
+            },
+            [&](const Pa::FlushStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::GotoStmt *) {
+              e.setCFG(AST::CFGAnnotation::Goto, cstr);
+            },
+            [&](const Pa::IfStmt *) {
+              e.setCFG(AST::CFGAnnotation::CondGoto, cstr);
+            },
+            [&](const Pa::InquireStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::OpenStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::ReadStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::ReturnStmt *) {
               e.setCFG(AST::CFGAnnotation::Return, cstr);
             },
-            [&](Pa::FlushStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::GotoStmt *) { e.setCFG(AST::CFGAnnotation::Goto, cstr); },
-            [&](Pa::IfStmt *) { e.setCFG(AST::CFGAnnotation::CondGoto, cstr); },
-            [&](Pa::InquireStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::OpenStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::ReadStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::ReturnStmt *) {
-              e.setCFG(AST::CFGAnnotation::Return, cstr);
+            [&](const Pa::RewindStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::StopStmt *) {
+              e.setCFG(AST::CFGAnnotation::Terminate, cstr);
             },
-            [&](Pa::RewindStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::StopStmt *) { e.setCFG(AST::CFGAnnotation::Return, cstr); },
-            [&](Pa::WaitStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::WriteStmt *s) { ioLabel(e, s, cstr); },
-            [&](Pa::ArithmeticIfStmt *) {
+            [&](const Pa::WaitStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::WriteStmt *s) { ioLabel(e, s, cstr); },
+            [&](const Pa::ArithmeticIfStmt *) {
               e.setCFG(AST::CFGAnnotation::Switch, cstr);
             },
-            [&](Pa::AssignedGotoStmt *) {
+            [&](const Pa::AssignedGotoStmt *) {
               e.setCFG(AST::CFGAnnotation::IndGoto, cstr);
             },
-            [&](Pa::ComputedGotoStmt *) {
+            [&](const Pa::ComputedGotoStmt *) {
               e.setCFG(AST::CFGAnnotation::Switch, cstr);
             },
-            [](auto *) { /* do nothing */ },
+            [&](const Pa::WhereStmt *) {
+              // fir.loop + fir.where around the next stmt
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Iterative, cstr);
+            },
+            [&](const Pa::ForallStmt *) {
+              // fir.loop around the next stmt
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Iterative, cstr);
+            },
+            [&](AST::CGJump &) { e.setCFG(AST::CFGAnnotation::Goto, cstr); },
+            [&](const Pa::EndAssociateStmt *) { e.isTarget = true; },
+            [&](const Pa::EndBlockStmt *) { e.isTarget = true; },
+            [&](const Pa::SelectCaseStmt *) {
+              e.setCFG(AST::CFGAnnotation::Switch, cstr);
+            },
+            [&](const Pa::CaseStmt *) { e.isTarget = true; },
+            [&](const Pa::EndSelectStmt *) { e.isTarget = true; },
+            [&](const Pa::EndChangeTeamStmt *) { e.isTarget = true; },
+            [&](const Pa::EndCriticalStmt *) { e.isTarget = true; },
+            [&](const Pa::NonLabelDoStmt *) {
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Iterative, cstr);
+            },
+            [&](const Pa::EndDoStmt *) {
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Goto, cstr);
+            },
+            [&](const Pa::IfThenStmt *) {
+              e.setCFG(AST::CFGAnnotation::CondGoto, cstr);
+            },
+            [&](const Pa::ElseIfStmt *) {
+              e.setCFG(AST::CFGAnnotation::CondGoto, cstr);
+            },
+            [&](const Pa::ElseStmt *) { e.isTarget = true; },
+            [&](const Pa::EndIfStmt *) { e.isTarget = true; },
+            [&](const Pa::SelectRankStmt *) {
+              e.setCFG(AST::CFGAnnotation::Switch, cstr);
+            },
+            [&](const Pa::SelectRankCaseStmt *) { e.isTarget = true; },
+            [&](const Pa::SelectTypeStmt *) {
+              e.setCFG(AST::CFGAnnotation::Switch, cstr);
+            },
+            [&](const Pa::TypeGuardStmt *) { e.isTarget = true; },
+            [&](const Pa::WhereConstruct *) {
+              // mark the WHERE as if it were a DO loop
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Iterative, cstr);
+            },
+            [&](const Pa::WhereConstructStmt *) {
+              e.setCFG(AST::CFGAnnotation::CondGoto, cstr);
+            },
+            [&](const Pa::MaskedElsewhereStmt *) {
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::CondGoto, cstr);
+            },
+            [&](const Pa::ElsewhereStmt *) { e.isTarget = true; },
+            [&](const Pa::EndWhereStmt *) { e.isTarget = true; },
+            [&](const Pa::ForallConstructStmt *) {
+              e.isTarget = true;
+              e.setCFG(AST::CFGAnnotation::Iterative, cstr);
+            },
+            [&](const Pa::EndForallStmt *) { e.isTarget = true; },
+            [](const auto *) { /* do nothing */ },
         },
         e.u);
-    if (e.isActionStmt &&
-        std::get<std::optional<parser::Label>>(
-            std::get<AST::Evaluation::StmtExtra>(e.ux))
-            .has_value()) {
-      e.isTarget = true;
-    }
   }
 }
 
@@ -375,8 +602,9 @@ inline void annotateFuncCFG(AST::FunctionLikeUnit &flu) {
 
 }  // namespace
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::MainProgram &f)
-  : ProgramUnit{&f} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(
+    const Pa::MainProgram &f, const AST::ParentType &parent)
+  : ProgramUnit{&f, parent} {
   auto &ps{std::get<std::optional<Pa::Statement<Pa::ProgramStmt>>>(f.t)};
   if (ps.has_value()) {
     const Pa::Statement<Pa::ProgramStmt> &s{ps.value()};
@@ -385,57 +613,63 @@ Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::MainProgram &f)
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndProgramStmt>>(f.t));
 }
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::FunctionSubprogram &f)
-  : ProgramUnit{&f} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(
+    const Pa::FunctionSubprogram &f, const AST::ParentType &parent)
+  : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::FunctionStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndFunctionStmt>>(f.t));
 }
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::SubroutineSubprogram &f)
-  : ProgramUnit{&f} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(
+    const Pa::SubroutineSubprogram &f, const AST::ParentType &parent)
+  : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::SubroutineStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndSubroutineStmt>>(f.t));
 }
 
 Br::AST::FunctionLikeUnit::FunctionLikeUnit(
-    const Pa::SeparateModuleSubprogram &f)
-  : ProgramUnit{&f} {
+    const Pa::SeparateModuleSubprogram &f, const AST::ParentType &parent)
+  : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::MpSubprogramStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndMpSubprogramStmt>>(f.t));
 }
 
-Br::AST::ModuleLikeUnit::ModuleLikeUnit(const Pa::Module &m) : ProgramUnit{&m} {
+Br::AST::ModuleLikeUnit::ModuleLikeUnit(
+    const Pa::Module &m, const AST::ParentType &parent)
+  : ProgramUnit{&m, parent} {
   modStmts.push_back(&std::get<Pa::Statement<Pa::ModuleStmt>>(m.t));
   modStmts.push_back(&std::get<Pa::Statement<Pa::EndModuleStmt>>(m.t));
 }
 
-Br::AST::ModuleLikeUnit::ModuleLikeUnit(const Pa::Submodule &m)
-  : ProgramUnit{&m} {
+Br::AST::ModuleLikeUnit::ModuleLikeUnit(
+    const Pa::Submodule &m, const AST::ParentType &parent)
+  : ProgramUnit{&m, parent} {
   modStmts.push_back(&std::get<Pa::Statement<Pa::SubmoduleStmt>>(m.t));
   modStmts.push_back(&std::get<Pa::Statement<Pa::EndSubmoduleStmt>>(m.t));
 }
 
-Br::AST::BlockDataUnit::BlockDataUnit(const Pa::BlockData &db)
-  : ProgramUnit{&db} {}
+Br::AST::BlockDataUnit::BlockDataUnit(
+    const Pa::BlockData &db, const AST::ParentType &parent)
+  : ProgramUnit{&db, parent} {}
 
-AST::Program Br::createAST(const Pa::Program &root) {
+AST::Program *Br::createAST(const Pa::Program &root) {
   ASTBuilder walker;
   Walk(root, walker);
   return walker.result();
 }
 
 void Br::annotateControl(AST::Program &ast) {
-  for (auto unit : ast.units) {
+  for (auto &unit : ast.getUnits()) {
     std::visit(common::visitors{
                    [](AST::BlockDataUnit &) {},
                    [](AST::FunctionLikeUnit &f) {
                      annotateFuncCFG(f);
-                     for (auto s : f.funcs) {
+                     for (auto &s : f.funcs) {
                        annotateFuncCFG(s);
                      }
                    },
                    [](AST::ModuleLikeUnit &u) {
-                     for (auto f : u.funcs) {
+                     for (auto &f : u.funcs) {
                        annotateFuncCFG(f);
                      }
                    },
