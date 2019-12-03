@@ -118,11 +118,10 @@ class ExprLowering {
   }
 
   /// Generate a logical/boolean constant of `value`
-  M::Value *genMLIRLogicalConstant(M::MLIRContext *context, bool value) {
-    M::Type mlirLogicalType{getMLIRlogicalType(builder.getContext())};
-    auto attr{builder.getIntegerAttr(mlirLogicalType, value ? 1 : 0)};
-    return builder.create<M::ConstantOp>(getLoc(), mlirLogicalType, attr)
-        .getResult();
+  M::Value *genLogicalConstantAsI1(M::MLIRContext *context, bool value) {
+    M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
+    auto attr{builder.getIntegerAttr(i1Type, value ? 1 : 0)};
+    return builder.create<M::ConstantOp>(getLoc(), i1Type, attr).getResult();
   }
 
   template<int KIND>
@@ -382,9 +381,8 @@ class ExprLowering {
       // If an i1 result is needed, it does not make sens to convert between
       // `fir.logical` types to later convert back to the result to i1.
       return operand;
-    } else {
-      return builder.create<fir::ConvertOp>(getLoc(), ty, operand);
     }
+    return builder.create<fir::ConvertOp>(getLoc(), ty, operand);
   }
 
   template<typename A> M::Value *genval(Ev::Parentheses<A> const &) { TODO(); }
@@ -394,7 +392,7 @@ class ExprLowering {
     auto restorer{common::ScopedSet(genLogicalAsI1, true)};
     auto *context{builder.getContext()};
     auto logical{genval(op.left())};
-    auto one{genMLIRLogicalConstant(context, 1)};
+    auto one{genLogicalConstantAsI1(context, true)};
     return builder.create<M::XOrOp>(getLoc(), logical, one).getResult();
   }
 
@@ -437,7 +435,7 @@ class ExprLowering {
     } else if constexpr (TC == LogicalCat) {
       auto opt{con.GetScalarValue()};
       if (opt.has_value())
-        return genMLIRLogicalConstant(builder.getContext(), opt->IsTrue());
+        return genLogicalConstantAsI1(builder.getContext(), opt->IsTrue());
       assert(false && "logical constant has no value");
       return {};
     } else if constexpr (TC == RealCat) {
@@ -647,6 +645,12 @@ class ExprLowering {
       M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
       L::SmallVector<M::Value *, 2> operands;
       // Lower arguments
+      // For now, logical arguments for intrinsic are lowered to `fir.logical`
+      // so that TRANSFER can work. For some arguments, it could lead to useless
+      // conversions (e.g scalar MASK of MERGE will be converted to `i1`), but
+      // the generated code is at least correct. To improve this, the intrinsic
+      // lowering facility should control argument lowering.
+      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
           operands.push_back(genval(*expr));
@@ -662,6 +666,9 @@ class ExprLowering {
       // TODO: explicit interface
       L::SmallVector<M::Type, 2> argTypes;
       L::SmallVector<M::Value *, 2> operands;
+      // Logical arguments of user functions must be lowered to `fir.logical`
+      // and not `i1`.
+      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         assert(
             arg.has_value() && "optional argument requires explicit interface");
@@ -681,7 +688,12 @@ class ExprLowering {
       M::FunctionType funTy{
           M::FunctionType::get(argTypes, resultType, builder.getContext())};
       M::FuncOp func{getFunction(funRef.proc().GetName(), funTy)};
-      return builder.create<M::CallOp>(getLoc(), func, operands).getResult(0);
+      auto call{builder.create<M::CallOp>(getLoc(), func, operands)};
+      // For now, Fortran return value are implemented with a single MLIR
+      // function return value.
+      assert(call.getNumResults() == 1 &&
+          "Expected exactly one result in FUNCTION call");
+      return call.getResult(0);
     }
   }
 
@@ -698,24 +710,21 @@ class ExprLowering {
 
   template<int KIND>
   M::Value *genval(Ev::Expr<Ev::Type<LogicalCat, KIND>> const &exp) {
-    auto *rawResult{
-        std::visit([&](const auto &e) { return genval(e); }, exp.u)};
+    auto *result{std::visit([&](const auto &e) { return genval(e); }, exp.u)};
     // Handle the `i1` to `fir.logical` conversions as needed.
-    auto *typedResult{rawResult};
-    if (rawResult) {
-      M::Type type{rawResult->getType()};
+    if (result) {
+      M::Type type{result->getType()};
       if (type.isa<fir::LogicalType>()) {
         if (genLogicalAsI1) {
-          M::Type mlirLogicalType{getMLIRlogicalType(builder.getContext())};
-          typedResult = builder.create<fir::ConvertOp>(
-              getLoc(), mlirLogicalType, rawResult);
+          M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
+          result = builder.create<fir::ConvertOp>(getLoc(), i1Type, result);
         }
       } else if (type.isa<M::IntegerType>()) {
         if (!genLogicalAsI1) {
           M::Type firLogicalType{
               getFIRType(builder.getContext(), defaults, LogicalCat, KIND)};
-          typedResult = builder.create<fir::ConvertOp>(
-              getLoc(), firLogicalType, rawResult);
+          result =
+              builder.create<fir::ConvertOp>(getLoc(), firLogicalType, result);
         }
       } else if (auto seqType{type.dyn_cast_or_null<fir::SequenceType>()}) {
         // TODO: Conversions at array level should probably be avoided.
@@ -725,7 +734,7 @@ class ExprLowering {
         assert(false && "unexpected logical type in expression");
       }
     }
-    return typedResult;
+    return result;
   }
 
   template<typename A> M::Value *gendef(const A &) {

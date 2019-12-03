@@ -109,8 +109,6 @@ mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
 
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 
-mlir::Type getMLIRlogicalType(mlir::MLIRContext *ctxt);
-
 }  // burnside
 }  // Fortran
 
