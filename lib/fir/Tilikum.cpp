@@ -1355,19 +1355,14 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto global = M::cast<fir::GlobalOp>(op);
-    auto tyAttr = M::TypeAttr::get(convertType(global.getType()));
-    M::UnitAttr isConst;
-    if (global.getAttr("constant"))
-      isConst = M::UnitAttr::get(global.getContext());
-    auto name = M::StringAttr::get(
+    auto tyAttr = unwrap(convertType(global.getType()));
+    bool isConst = global.getAttr("constant") ? true : false;
+    auto name =
         global.getAttrOfType<M::StringAttr>(M::SymbolTable::getSymbolAttrName())
-            .getValue(),
-        global.getContext());
+            .getValue();
     M::Attribute value;
-    auto addrSpace = /* FIXME: hard-coded i32 here; is that ok? */
-        rewriter.getI32IntegerAttr(0);
-    rewriter.replaceOpWithNewOp<M::LLVM::GlobalOp>(global, tyAttr, isConst,
-                                                   name, value, addrSpace);
+    rewriter.replaceOpWithNewOp<M::LLVM::GlobalOp>(
+        global, tyAttr, isConst, M::LLVM::Linkage::External, name, value);
     return matchSuccess();
   }
 };
