@@ -349,7 +349,7 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
     if (APPLE)
       # don't add --gcc-toolchain
     else()
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${CMAKE_CXX_COMPILER}")
+      #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${CMAKE_CXX_COMPILER}")
     endif()
   endif()
   
