@@ -596,6 +596,8 @@ void annotateEvalListCFG(
   }
 }
 
+/// Annotate the AST with CFG source decorations (see CFGAnnotation) and mark
+/// potential branch targets
 inline void annotateFuncCFG(AST::FunctionLikeUnit &flu) {
   annotateEvalListCFG(flu.evals, nullptr);
 }

@@ -52,6 +52,10 @@ using namespace Fortran::burnside;
 
 namespace {
 
+using SelectCaseConstruct = Pa::CaseConstruct;
+using SelectRankConstruct = Pa::SelectRankConstruct;
+using SelectTypeConstruct = Pa::SelectTypeConstruct;
+
 using CFGSinkListType = L::SmallVector<AST::Evaluation *, 2>;
 using CFGMapType = L::DenseMap<AST::Evaluation *, CFGSinkListType *>;
 
@@ -111,8 +115,61 @@ class CfgBuilder {
     }
   }
 
+  void deannotate(std::list<AST::Evaluation> &evals) {
+    for (auto &e : evals) {
+      e.cfg = AST::CFGAnnotation::None;
+      if (e.subs) {
+        deannotate(*e.subs);
+      }
+    }
+  }
+
+  bool structuredCheck(std::list<AST::Evaluation> &evals) {
+    for (auto &e : evals) {
+      if (std::holds_alternative<const Pa::DoConstruct *>(e.u)) {
+        return structuredCheck(*e.subs);
+      }
+      if (std::holds_alternative<const Pa::IfConstruct *>(e.u)) {
+        return structuredCheck(*e.subs);
+      }
+      if (e.subs) {
+        return false;
+      }
+      switch (e.cfg) {
+      case AST::CFGAnnotation::None: break;
+      case AST::CFGAnnotation::Goto: break;
+      case AST::CFGAnnotation::Iterative: break;
+      case AST::CFGAnnotation::FirStructuredOp: break;
+      case AST::CFGAnnotation::CondGoto:
+        if (!std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
+          return false;
+        }
+        break;
+      case AST::CFGAnnotation::IndGoto: return false;
+      case AST::CFGAnnotation::IoSwitch: return false;
+      case AST::CFGAnnotation::Switch: return false;
+      case AST::CFGAnnotation::Return: return false;
+      case AST::CFGAnnotation::Terminate: return false;
+      }
+    }
+    return true;
+  }
+
   void wrapIterationSpaces(std::list<AST::Evaluation> &evals) {
     for (auto &e : evals) {
+      if (std::holds_alternative<const Pa::DoConstruct *>(e.u))
+        if (structuredCheck(*e.subs)) {
+          deannotate(*e.subs);
+          e.cfg = AST::CFGAnnotation::FirStructuredOp;
+          continue;
+        }
+      if (std::holds_alternative<const Pa::IfConstruct *>(e.u))
+        if (structuredCheck(*e.subs)) {
+          deannotate(*e.subs);
+          e.cfg = AST::CFGAnnotation::FirStructuredOp;
+          continue;
+        }
+      // FIXME: ForallConstruct? WhereConstruct?
       if (e.subs) {
         wrapIterationSpaces(*e.subs);
       }
@@ -290,6 +347,7 @@ class CfgBuilder {
                    },
             e.u);
         break;
+      case AST::CFGAnnotation::FirStructuredOp: continue;
       case AST::CFGAnnotation::Return:
         // do nothing - exits the function
         break;
@@ -301,6 +359,13 @@ class CfgBuilder {
         reachabilityAnalysis(*e.subs);
       }
     }
+  }
+
+  void setActualTargets(std::list<AST::Evaluation> &evals) {
+    for (auto &lst1 : cfgEdgeSetPool)
+      for (auto *e : lst1) {
+        e->isTarget = true;
+      }
   }
 
   CFGMapType &cfgMap;
@@ -318,6 +383,7 @@ public:
     cacheAssigns(func.evals);
     wrapIterationSpaces(func.evals);
     reachabilityAnalysis(func.evals);
+    setActualTargets(func.evals);
   }
 };
 
@@ -590,6 +656,11 @@ class FirConverter {
     // FIXME
   }
 
+  // Structured control op (fir.loop, fir.where)
+  void genFIREvalStructuredOp(AST::Evaluation &eval) {
+    // FIXME
+  }
+
   // Return from subprogram control-flow semantics
   void genFIREvalReturn(AST::Evaluation &eval) {
     // Handled case-by-case
@@ -639,7 +710,7 @@ class FirConverter {
 
   void genFIR(const Pa::AssociateConstruct &) { TODO(); }
   void genFIR(const Pa::BlockConstruct &) { TODO(); }
-  void genFIR(const Pa::CaseConstruct &) { TODO(); }
+  void genFIR(const SelectCaseConstruct &) { TODO(); }
   void genFIR(const Pa::ChangeTeamConstruct &) { TODO(); }
   void genFIR(const Pa::CriticalConstruct &) { TODO(); }
   void genFIR(const Pa::DoConstruct &d) {
@@ -656,8 +727,8 @@ class FirConverter {
     TODO();
   }
   void genFIR(const Pa::IfConstruct &cst) { TODO(); }
-  void genFIR(const Pa::SelectRankConstruct &) { TODO(); }
-  void genFIR(const Pa::SelectTypeConstruct &) { TODO(); }
+  void genFIR(const SelectRankConstruct &) { TODO(); }
+  void genFIR(const SelectTypeConstruct &) { TODO(); }
   void genFIR(const Pa::WhereConstruct &) { TODO(); }
 
   /// Lower FORALL construct (See 10.2.4)
@@ -709,19 +780,22 @@ class FirConverter {
   void genFIR(const parser::EndChangeTeamStmt &) { TODO(); }
   void genFIR(const parser::CriticalStmt &) { TODO(); }
   void genFIR(const parser::EndCriticalStmt &) { TODO(); }
-  void genFIR(const parser::NonLabelDoStmt &) { TODO(); }
-  void genFIR(const parser::EndDoStmt &) { TODO(); }
 
-  // If-Then-Else is handled by genFIREvalCondGoto()
-  void genFIR(const parser::IfThenStmt &) {} /* do nothing */
-  void genFIR(const parser::ElseIfStmt &) {} /* do nothing */
-  void genFIR(const parser::ElseStmt &) {} /* do nothing */
-  void genFIR(const parser::EndIfStmt &) {} /* do nothing */
+  // Do loop is handled by EvalIterative(), EvalStructuredOp()
+  void genFIR(const parser::NonLabelDoStmt &) {}  // do nothing
+  void genFIR(const parser::EndDoStmt &) {}  // do nothing
+
+  // If-Then-Else is handled by EvalCondGoto(), EvalStructuredOp()
+  void genFIR(const parser::IfThenStmt &) {}  // do nothing
+  void genFIR(const parser::ElseIfStmt &) {}  // do nothing
+  void genFIR(const parser::ElseStmt &) {}  // do nothing
+  void genFIR(const parser::EndIfStmt &) {}  // do nothing
 
   void genFIR(const parser::SelectRankStmt &) { TODO(); }
   void genFIR(const parser::SelectRankCaseStmt &) { TODO(); }
   void genFIR(const parser::SelectTypeStmt &) { TODO(); }
   void genFIR(const parser::TypeGuardStmt &) { TODO(); }
+
   void genFIR(const parser::WhereConstructStmt &) { TODO(); }
   void genFIR(const parser::MaskedElsewhereStmt &) { TODO(); }
   void genFIR(const parser::ElsewhereStmt &) { TODO(); }
@@ -770,19 +844,31 @@ class FirConverter {
     genPrintStatement(*builder, toLocation(), args);
   }
 
-  void genFIR(const Pa::ReadStmt &) { TODO(); }
+  void genFIR(const Pa::ReadStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
   void genFIR(const Pa::RewindStmt &) { TODO(); }
   void genFIR(const Pa::SyncAllStmt &) { TODO(); }
   void genFIR(const Pa::SyncImagesStmt &) { TODO(); }
   void genFIR(const Pa::SyncMemoryStmt &) { TODO(); }
   void genFIR(const Pa::SyncTeamStmt &) { TODO(); }
-  void genFIR(const Pa::UnlockStmt &) { TODO(); }
+  void genFIR(const Pa::UnlockStmt &) {
+    // call some runtime routine
+    TODO();
+  }
 
-  void genFIR(const Pa::WriteStmt &) { TODO(); }
+  void genFIR(const Pa::WriteStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
   void genFIR(const Pa::AssignStmt &) { TODO(); }
   void genFIR(const Pa::FormatStmt &) { TODO(); }
   void genFIR(const Pa::EntryStmt &) { TODO(); }
-  void genFIR(const Pa::PauseStmt &) { TODO(); }
+  void genFIR(const Pa::PauseStmt &) {
+    // call some runtime routine
+    TODO();
+  }
   void genFIR(const Pa::DataStmt &) { TODO(); }
   void genFIR(const Pa::NamelistStmt &) { TODO(); }
 
@@ -803,31 +889,25 @@ class FirConverter {
     builder->create<M::CallOp>(toLocation(), callee, operands);
   }
 
-  // gen expression, if any
+  // gen expression, if any; share code with END of procedure
   void genFIR(const Pa::ReturnStmt &stmt) {
     if (inMainProgram(currentEvaluation)) {
       builder->create<M::ReturnOp>(toLocation());
-      return;
-    }
-    if (auto *stmt = inSubroutine(currentEvaluation)) {
+    } else if (auto *stmt = inSubroutine(currentEvaluation)) {
       genFIRProcedureExit(stmt);
-      return;
-    }
-    if (auto *stmt = inFunction(currentEvaluation)) {
+    } else if (auto *stmt = inFunction(currentEvaluation)) {
       genFIRFunctionReturn(stmt);
-      return;
-    }
-    if (auto *stmt = inMPSubp(currentEvaluation)) {
+    } else if (auto *stmt = inMPSubp(currentEvaluation)) {
       genFIRProcedureExit(stmt);
-      return;
+    } else {
+      assert(false && "unknown subprogram type");
     }
-    assert(false && "unknown subprogram type");
   }
 
-  // stubs for generic goto statements; see genFIREvalGoto
-  void genFIR(const Pa::CycleStmt &) { assert(false && "invalid"); }
-  void genFIR(const Pa::ExitStmt &) { assert(false && "invalid"); }
-  void genFIR(const Pa::GotoStmt &) { assert(false && "invalid"); }
+  // stubs for generic goto statements; see genFIREvalGoto()
+  void genFIR(const Pa::CycleStmt &) {}  // do nothing
+  void genFIR(const Pa::ExitStmt &) {}  // do nothing
+  void genFIR(const Pa::GotoStmt &) {}  // do nothing
 
   void genFIR(AST::Evaluation &eval) {
     currentEvaluation = &eval;
@@ -851,6 +931,9 @@ class FirConverter {
     case AST::CFGAnnotation::IoSwitch: genFIREvalIoSwitch(eval); break;
     case AST::CFGAnnotation::Switch: genFIREvalSwitch(eval); break;
     case AST::CFGAnnotation::Iterative: genFIREvalIterative(eval); break;
+    case AST::CFGAnnotation::FirStructuredOp:
+      genFIREvalStructuredOp(eval);
+      break;
     case AST::CFGAnnotation::Return: genFIREvalReturn(eval); break;
     case AST::CFGAnnotation::Terminate: genFIREvalTerminate(eval); break;
     }

@@ -37,6 +37,7 @@ enum class CFGAnnotation {
   IoSwitch,
   Switch,
   Iterative,
+  FirStructuredOp,
   Return,
   Terminate
 };
