@@ -31,6 +31,10 @@ namespace parser {
 class CookedSource;
 }
 
+namespace evaluate {
+struct ProcedureDesignator;
+}
+
 namespace burnside {
 
 /// Miscellaneous helper routines for building MLIR
@@ -49,6 +53,8 @@ public:
 };
 
 std::string applyNameMangling(llvm::StringRef parserName);
+std::string applyNameMangling(const evaluate::ProcedureDesignator &proc);
+std::string applyNameMangling(semantics::SymbolRef symbol);
 
 /// Get the current Module
 inline mlir::ModuleOp getModule(mlir::OpBuilder *bldr) {

@@ -30,6 +30,46 @@ std::string B::applyNameMangling(llvm::StringRef parserName) {
   return "_Qp_"s + parserName.str();
 }
 
+std::string B::applyNameMangling(const evaluate::ProcedureDesignator &proc) {
+  if (const auto *symbol{proc.GetSymbol()}) {
+    return applyNameMangling(*symbol);
+  } else {
+    // Do not mangle intrinsic for now
+    assert(proc.GetSpecificIntrinsic() &&
+        "expected intrinsic procedure in designator");
+    return proc.GetName();
+  }
+}
+
+std::string B::applyNameMangling(semantics::SymbolRef symbol) {
+  // FIXME: this is fake for now, add type info, etc.
+  // For now, only works for external procedures
+  // TODO: apply binding
+  // TODO: determine if procedure are:
+  //   - external, internal or  module
+  // TODO: Apply proposed mangling with _Qp_ ....
+  return std::visit(
+      common::visitors{
+          [&](const semantics::MainProgramDetails &) { return "MAIN_"s; },
+          [&](const semantics::SubprogramDetails &) {
+            return symbol->name().ToString() + "_";
+          },
+          [&](const semantics::ProcEntityDetails &) {
+            return symbol->name().ToString() + "_";
+          },
+          [&](const semantics::SubprogramNameDetails &) {
+            assert(false &&
+                "SubprogramNameDetails not expected after semantic analysis");
+            return ""s;
+          },
+          [&](const auto &) {
+            assert(false && "Symbol mangling TODO");
+            return ""s;
+          },
+      },
+      symbol->details());
+}
+
 mlir::FuncOp B::createFunction(mlir::ModuleOp module, llvm::StringRef name,
     mlir::FunctionType funcTy, parser::CookedSource const *cooked,
     parser::CharBlock const *cb) {

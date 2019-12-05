@@ -260,8 +260,18 @@ class ExprLowering {
   }
 
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &) {
-    TODO();
+  M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &op) {
+    auto input{genval(op.left())};
+    if constexpr (TC == IntegerCat) {
+      // Currently no Standard/FIR op for integer negation.
+      auto zero{genIntegerConstant<KIND>(builder.getContext(), 0)};
+      return builder.create<M::SubIOp>(getLoc(), zero, input);
+    } else if constexpr (TC == RealCat) {
+      return builder.create<fir::NegfOp>(getLoc(), input);
+    } else {
+      static_assert(TC == ComplexCat, "Expected numeric type");
+      return createBinaryOp<fir::NegcOp>(op);
+    }
   }
 
   template<Co::TypeCategory TC, int KIND>
@@ -687,7 +697,7 @@ class ExprLowering {
       M::Type resultType{getFIRType(builder.getContext(), defaults, TC, KIND)};
       M::FunctionType funTy{
           M::FunctionType::get(argTypes, resultType, builder.getContext())};
-      M::FuncOp func{getFunction(funRef.proc().GetName(), funTy)};
+      M::FuncOp func{getFunction(applyNameMangling(funRef.proc()), funTy)};
       auto call{builder.create<M::CallOp>(getLoc(), func, operands)};
       // For now, Fortran return value are implemented with a single MLIR
       // function return value.

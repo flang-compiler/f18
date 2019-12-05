@@ -21,6 +21,7 @@
 #include "fir/FIRType.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -118,7 +119,7 @@ private:
 
   /// Define the different FIR generators that can be mapped to intrinsic to
   /// generate the related code.
-  using Generator = mlir::Value *(Implementation::*)(Context &) const;
+  using Generator = mlir::Value *(Implementation::*)(Context &)const;
   /// Search a runtime function that is associated to the generic intrinsic name
   /// and whose signature matches the intrinsic arguments and result types.
   /// If no such runtime function is found but a runtime function associated
@@ -276,29 +277,135 @@ mlir::FuncOp MathRuntimeLibrary::getFuncOp(
   return function;
 }
 
+// This helper class computes a "distance" between two function types.
+// The distance represents the argument and result conversions
+// that are required if one use "to" instead of "from".
+// Note that this is not a reflexive distance, and it does not
+// define a total order at all.
+class FunctionDistance {
+public:
+  FunctionDistance() : infinite{true} {}
+  FunctionDistance(mlir::FunctionType from, mlir::FunctionType to) {
+    auto nInputs{from.getNumInputs()};
+    auto nResults{from.getNumResults()};
+    if (nResults != to.getNumResults() || nInputs != to.getNumInputs()) {
+      infinite = true;
+    } else {
+      for (unsigned int i{0}; i < nInputs; ++i) {
+        addArgumentDistance(from.getInput(i), to.getInput(i));
+      }
+      for (unsigned int i{0}; i < nResults; ++i) {
+        addResultDistance(to.getResult(i), from.getResult(i));
+      }
+    }
+  }
+  bool isSmallerThan(const FunctionDistance &d) const {
+    return d.infinite ||
+        (!infinite &&
+            std::lexicographical_compare(conversions.begin(), conversions.end(),
+                d.conversions.begin(), d.conversions.end()));
+  }
+  bool isLoosingPrecision() const {
+    return conversions[narrowingArg] != 0 || conversions[extendingResult] != 0;
+  }
+  bool isInfinite() const { return infinite; }
+
+private:
+  enum class Conversion { Forbidden, None, Narrow, Extend };
+
+  void addArgumentDistance(mlir::Type from, mlir::Type to) {
+    switch (conversionBetweenTypes(from, to)) {
+    case Conversion::Forbidden: infinite = true; break;
+    case Conversion::None: break;
+    case Conversion::Narrow: conversions[narrowingArg]++; break;
+    case Conversion::Extend: conversions[nonNarrowingArg]++; break;
+    }
+  }
+  void addResultDistance(mlir::Type from, mlir::Type to) {
+    switch (conversionBetweenTypes(from, to)) {
+    case Conversion::Forbidden: infinite = true; break;
+    case Conversion::None: break;
+    case Conversion::Narrow: conversions[nonExtendingResult]++; break;
+    case Conversion::Extend: conversions[extendingResult]++; break;
+    }
+  }
+
+  static Conversion conversionBetweenTypes(mlir::Type from, mlir::Type to) {
+    if (from == to) {
+      return Conversion::None;
+    }
+    if (auto fromIntTy{from.dyn_cast<mlir::IntegerType>()}) {
+      if (auto toIntTy{to.dyn_cast<mlir::IntegerType>()}) {
+        return fromIntTy.getWidth() > toIntTy.getWidth() ? Conversion::Narrow
+                                                         : Conversion::Extend;
+      }
+    }
+    if (auto fromRealTy{from.dyn_cast<fir::RealType>()}) {
+      if (auto toRealTy{to.dyn_cast<fir::RealType>()}) {
+        // FIXME: With the current runtime (no functions with f16 and bf16
+        // types), and the current kinds to representation mapping, that
+        // just works, but that is not that simple:
+        //    - conversions between f16 and bf16 destroy information in both
+        //    ways.
+        //    - No assumptions regarding kind <-> representation should be made
+        //    here.
+        return fromRealTy.getFKind() > toRealTy.getFKind() ? Conversion::Narrow
+                                                           : Conversion::Extend;
+      }
+    }
+    if (auto fromCplxTy{from.dyn_cast<fir::CplxType>()}) {
+      if (auto toCplxTy{to.dyn_cast<fir::RealType>()}) {
+        // FIXME: Same as for Real.
+        return fromCplxTy.getFKind() > toCplxTy.getFKind() ? Conversion::Narrow
+                                                           : Conversion::Extend;
+      }
+    }
+    // Notes:
+    // - No conversion between character types, specialization of runtime
+    // functions should be made instead.
+    // - It is not clear there is a use case for automatic conversions
+    // around Logical and it may damage hidden information in the physical
+    // storage so do not do it.
+    return Conversion::Forbidden;
+  }
+
+  // Below are indexes to access data in conversions.
+  // The order in data does matter for lexicographical_compare
+  enum {
+    narrowingArg = 0,  // usually bad
+    extendingResult,  // usually bad
+    nonExtendingResult,  // usually ok
+    nonNarrowingArg,  // usually ok
+    dataSize
+  };
+  std::array<int, dataSize> conversions{/* zero init*/};
+  bool infinite{false};  // When forbidden conversion or wrong argument number
+};
+
+// Select runtime function that has the smallest distance to the intrinsic
+// function type and that will not imply narrowing arguments or extending the
+// result.
 llvm::Optional<mlir::FuncOp> MathRuntimeLibrary::getFunction(
     mlir::OpBuilder &builder, llvm::StringRef name,
     mlir::FunctionType funcType) const {
   auto range{library.equal_range(name)};
   const RuntimeFunction *bestNearMatch{nullptr};
+  FunctionDistance bestMatchDistance{};
   for (auto iter{range.first}; iter != range.second; ++iter) {
     const RuntimeFunction &impl{iter->second};
     if (funcType == impl.type) {
       return getFuncOp(builder, impl);  // exact match
     } else {
-      if (!bestNearMatch &&
-          impl.type.getNumResults() == funcType.getNumResults() &&
-          impl.type.getNumInputs() == funcType.getNumInputs()) {
+      FunctionDistance distance(funcType, impl.type);
+      if (distance.isSmallerThan(bestMatchDistance)) {
         bestNearMatch = &impl;
-      } else {
-        // TODO the best near match should not be the first hit.
-        // It should apply rules:
-        //  -> Non narrowing argument conversion are better
-        //  -> The "nearest" conversions are better
+        bestMatchDistance = std::move(distance);
       }
     }
   }
   if (bestNearMatch != nullptr) {
+    assert(!bestMatchDistance.isLoosingPrecision() &&
+        "runtime selection looses precision");
     return getFuncOp(builder, *bestNearMatch);
   } else {
     return {};
@@ -334,26 +441,35 @@ static mlir::FunctionType getFunctionType(mlir::Type resultType,
       argumentTypes, resultType, getModule(&builder).getContext());
 }
 
+// TODO find nicer type to string infra or move this in a mangling utility
+// mlir as Type::dump(ostream) methods but it may adds !
+static std::string typeToString(mlir::Type t) {
+  if (auto i{t.dyn_cast<mlir::IntegerType>()}) {
+    return "i" + std::to_string(i.getWidth());
+  } else if (auto cplx{t.dyn_cast<fir::CplxType>()}) {
+    return "z" + std::to_string(cplx.getFKind());
+  } else if (auto real{t.dyn_cast<fir::RealType>()}) {
+    return "r" + std::to_string(real.getFKind());
+  } else if (auto f{t.dyn_cast<mlir::FloatType>()}) {
+    return "f" + std::to_string(f.getWidth());
+  } else if (auto logical{t.dyn_cast<fir::LogicalType>()}) {
+    return "l" + std::to_string(logical.getFKind());
+  } else if (auto character{t.dyn_cast<fir::CharacterType>()}) {
+    return "c" + std::to_string(character.getFKind());
+  } else {
+    assert(false && "no mangling for type");
+    return ""s;
+  }
+}
 static std::string getIntrinsicWrapperName(
     const llvm::StringRef &intrinsic, mlir::FunctionType funTy) {
-  // TODO find nicer type to string infra or move this in a mangling utility
-  auto addSuffix{[&](const llvm::Twine &suffix) -> std::string {
-    return ("fir." + intrinsic + suffix).str();
-  }};
+  std::string name{"fir." + intrinsic.str() + "."};
   assert(funTy.getNumResults() == 1 && "only function mangling supported");
-  mlir::Type resultType{funTy.getResult(0)};
-  if (auto f{resultType.dyn_cast<mlir::FloatType>()}) {
-    return addSuffix(".f" + llvm::Twine(f.getWidth()));
-  } else if (auto i{resultType.dyn_cast<mlir::IntegerType>()}) {
-    return addSuffix(".i" + llvm::Twine(i.getWidth()));
-  } else if (auto cplx{resultType.dyn_cast<fir::CplxType>()}) {
-    return addSuffix(".c" + llvm::Twine(cplx.getFKind()));
-  } else if (auto real{resultType.dyn_cast<fir::RealType>()}) {
-    return addSuffix(".r" + llvm::Twine(real.getFKind()));
-  } else {
-    assert(false);
-    return addSuffix(".unknown");
+  name += typeToString(funTy.getResult(0));
+  for (std::size_t i{0}; i < funTy.getNumInputs(); ++i) {
+    name += "." + typeToString(funTy.getInput(i));
   }
+  return name;
 }
 
 mlir::Value *IntrinsicLibrary::Implementation::outlineInWrapper(
