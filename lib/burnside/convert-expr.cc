@@ -571,27 +571,17 @@ class ExprLowering {
   // Determine the result type after removing `dims` dimensions from the array
   // type `arrTy`
   M::Type genSubType(M::Type arrTy, unsigned dims) {
-    if (auto memRef{arrTy.dyn_cast<M::MemRefType>()}) {
-      if (dims < memRef.getRank()) {
-        auto shape{memRef.getShape()};
-        llvm::SmallVector<int64_t, 4> newShape;
-        // TODO: should we really remove rows here?
-        for (unsigned i = dims, e = memRef.getRank(); i < e; ++i) {
-          newShape.push_back(shape[i]);
-        }
-        return M::MemRefType::get(newShape, memRef.getElementType());
-      }
-      return memRef.getElementType();
-    }
     auto unwrapTy{arrTy.cast<fir::ReferenceType>().getEleTy()};
     auto seqTy{unwrapTy.cast<fir::SequenceType>()};
     auto shape = seqTy.getShape();
-    if ((shape.size() > 0) && (dims < shape.size())) {
-      fir::SequenceType::Shape newBnds;
-      // follow Fortran semantics and remove columns
-      for (unsigned i = 0; i < dims; ++i) {
-        newBnds.push_back(shape[i]);
-      }
+    assert(shape.size() > 0 && "removing columns for sequence sans shape");
+    assert(dims <= shape.size() && "removing more columns than exist");
+    fir::SequenceType::Shape newBnds;
+    // follow Fortran semantics and remove columns (from right)
+    for (unsigned i = 0, e = shape.size() - dims; i < e; ++i) {
+      newBnds.push_back(shape[i]);
+    }
+    if (!newBnds.empty()) {
       return fir::SequenceType::get(newBnds, seqTy.getEleTy());
     }
     return seqTy.getEleTy();
@@ -608,7 +598,7 @@ class ExprLowering {
     for (auto &subsc : aref.subscript()) {
       args.push_back(genval(subsc));
     }
-    auto ty{genSubType(base->getType(), args.size() - 1)};
+    auto ty{genSubType(base->getType(), args.size())};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, base, args);
   }
