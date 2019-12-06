@@ -139,6 +139,8 @@ mlir::ParseResult parseCmpcOp(mlir::OpAsmParser &parser,
 
 LoopOp getForInductionVarOwner(mlir::Value *val);
 
+bool isReferenceLike(mlir::Type type);
+
 } // namespace fir
 
 #endif // FIR_FIROPS_H

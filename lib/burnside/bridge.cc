@@ -94,6 +94,7 @@ class FirConverter {
         loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
 
+  // TODO: we need a map for the various Fortran runtime entry points
   M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
     return genFunctionFIR(
         getRuntimeEntryName(rec), getRuntimeEntryType(rec, mlirContext, kind));
@@ -106,7 +107,7 @@ class FirConverter {
     return createFunction(module, callee, funcTy);
   }
 
-  bool inMainProgram(AST::Evaluation *cstr) {
+  static bool inMainProgram(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
             [](AST::FunctionLikeUnit *c) { return c->isMainProgram(); },
@@ -115,7 +116,7 @@ class FirConverter {
         },
         cstr->parent);
   }
-  const Pa::SubroutineStmt *inSubroutine(AST::Evaluation *cstr) {
+  static const Pa::SubroutineStmt *inSubroutine(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
             [](AST::FunctionLikeUnit *c) { return c->isSubroutine(); },
@@ -124,7 +125,7 @@ class FirConverter {
         },
         cstr->parent);
   }
-  const Pa::FunctionStmt *inFunction(AST::Evaluation *cstr) {
+  static const Pa::FunctionStmt *inFunction(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
             [](AST::FunctionLikeUnit *c) { return c->isFunction(); },
@@ -133,7 +134,7 @@ class FirConverter {
         },
         cstr->parent);
   }
-  const Pa::MpSubprogramStmt *inMPSubp(AST::Evaluation *cstr) {
+  static const Pa::MpSubprogramStmt *inMPSubp(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
             [](AST::FunctionLikeUnit *c) { return c->isMPSubp(); },
@@ -144,36 +145,37 @@ class FirConverter {
   }
 
   template<typename A>
-  const Se::SomeExpr *getScalarExprOfTuple(const A &tuple) {
+  static const Se::SomeExpr *getScalarExprOfTuple(const A &tuple) {
     return Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(tuple));
   }
-  template<typename A> const Se::SomeExpr *getExprOfTuple(const A &tuple) {
+  template<typename A>
+  static const Se::SomeExpr *getExprOfTuple(const A &tuple) {
     return Se::GetExpr(std::get<Pa::LogicalExpr>(tuple));
   }
   /// Get the condition expression for a CondGoto evaluation
   const Se::SomeExpr *getEvaluationCondition(AST::Evaluation &eval) {
-    return std::visit(Co::visitors{
-                          [&](const Pa::IfStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::IfThenStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::ElseIfStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::WhereConstructStmt *stmt) {
-                            return getExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::MaskedElsewhereStmt *stmt) {
-                            return getExprOfTuple(stmt->t);
-                          },
-                          [](auto) -> const Se::SomeExpr * {
-                            assert(
-                                false && "unexpected conditional branch case");
-                            return nullptr;
-                          },
-                      },
+    return std::visit(
+        Co::visitors{
+            [&](const Pa::IfStmt *stmt) {
+              return getScalarExprOfTuple(stmt->t);
+            },
+            [&](const Pa::IfThenStmt *stmt) {
+              return getScalarExprOfTuple(stmt->t);
+            },
+            [&](const Pa::ElseIfStmt *stmt) {
+              return getScalarExprOfTuple(stmt->t);
+            },
+            [&](const Pa::WhereConstructStmt *stmt) {
+              return getExprOfTuple(stmt->t);
+            },
+            [&](const Pa::MaskedElsewhereStmt *stmt) {
+              return getExprOfTuple(stmt->t);
+            },
+            [&](auto) -> const Se::SomeExpr * {
+              M::emitError(toLocation(), "unexpected conditional branch case");
+              return nullptr;
+            },
+        },
         eval.u);
   }
 
@@ -346,7 +348,7 @@ class FirConverter {
     builder->setInsertionPointToStart(&where.otherRegion().front());
   }
   template<typename A>
-  void handleCondition(fir::WhereOp &where, const A *stmt) {
+  void genWhereCondition(fir::WhereOp &where, const A *stmt) {
     auto *cond{createLogicalExprAsI1(
         toLocation(), Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(stmt->t)))};
     where = builder->create<fir::WhereOp>(toLocation(), cond, true);
@@ -359,10 +361,16 @@ class FirConverter {
         createFIRExpr(toLocation(), Se::GetExpr(x)));
   }
 
-  // Structured control op (fir.loop, fir.where)
+  /// Structured control op (`fir.loop`, `fir.where`)
+  ///
+  /// Convert a DoConstruct to a `fir.loop` op.
+  /// Convert an IfConstruct to a `fir.where` op.
+  ///
   void genFIREvalStructuredOp(AST::Evaluation &eval) {
+    // TODO: array expressions, FORALL, WHERE ...
+
     // process the list of Evaluations
-    assert(eval.subs);
+    assert(eval.subs && "eval must have a body");
     auto *insPt = builder->getInsertionBlock();
 
     if (std::holds_alternative<const Pa::DoConstruct *>(eval.u)) {
@@ -371,34 +379,45 @@ class FirConverter {
       for (auto &e : *eval.subs) {
         if (auto **s = std::get_if<const Pa::NonLabelDoStmt *>(&e.u)) {
           // do bounds, fir.loop op
-          std::visit(Co::visitors{
-                         [&](const Pa::LoopControl::Bounds &x) {
-                           M::Value *lo = genFIRLoopIndex(x.lower);
-                           M::Value *hi = genFIRLoopIndex(x.upper);
-                           L::SmallVector<M::Value *, 1> step;
-                           if (x.step.has_value()) {
-                             step.emplace_back(createFIRExpr(
-                                 toLocation(), Se::GetExpr(*x.step)));
-                           }
-                           doLoop = builder->create<fir::LoopOp>(
-                               toLocation(), lo, hi, step);
-                           builder->setInsertionPointToStart(doLoop.getBody());
-                         },
-                         [](const Pa::ScalarLogicalExpr &) {
-                           assert(false && "loop lacks iteration space");
-                         },
-                         [&](const Pa::LoopControl::Concurrent &x) {
-                           // FIXME: can project a multi-dimensional space
-                           doLoop = builder->create<fir::LoopOp>(toLocation(),
-                               (M::Value *)nullptr, (M::Value *)nullptr,
-                               L::ArrayRef<M::Value *>{});
-                           builder->setInsertionPointToStart(doLoop.getBody());
-                         },
-                     },
+          std::visit(
+              Co::visitors{
+                  [&](const Pa::LoopControl::Bounds &x) {
+                    // create the fir.loop op
+                    M::Value *lo = genFIRLoopIndex(x.lower);
+                    M::Value *hi = genFIRLoopIndex(x.upper);
+                    L::SmallVector<M::Value *, 1> step;
+                    if (x.step.has_value()) {
+                      step.emplace_back(
+                          createFIRExpr(toLocation(), Se::GetExpr(*x.step)));
+                    }
+                    doLoop = builder->create<fir::LoopOp>(
+                        toLocation(), lo, hi, step);
+                    builder->setInsertionPointToStart(doLoop.getBody());
+                    auto *sym{x.name.thing.symbol};
+                    auto ty{
+                        translateSymbolToFIRType(&mlirContext, defaults, *sym)};
+                    // TODO: should push this cast down to the uses
+                    auto cvt{builder->create<fir::ConvertOp>(
+                        toLocation(), ty, doLoop.getInductionVar())};
+                    localSymbols.pushShadowSymbol(*sym, cvt);
+                  },
+                  [&](const Pa::ScalarLogicalExpr &) {
+                    // we should never reach here
+                    M::emitError(toLocation(), "loop lacks iteration space");
+                  },
+                  [&](const Pa::LoopControl::Concurrent &x) {
+                    // FIXME: can project a multi-dimensional space
+                    doLoop = builder->create<fir::LoopOp>(toLocation(),
+                        (M::Value *)nullptr, (M::Value *)nullptr,
+                        L::ArrayRef<M::Value *>{});
+                    builder->setInsertionPointToStart(doLoop.getBody());
+                  },
+              },
               std::get<std::optional<Pa::LoopControl>>((*s)->t)->u);
         } else if (std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
           // close fir.loop op
           builder->clearInsertionPoint();
+          localSymbols.popShadowSymbol();
         } else {
           genFIR(e);
         }
@@ -409,11 +428,11 @@ class FirConverter {
       for (auto &e : *eval.subs) {
         if (auto **s = std::get_if<const Pa::IfThenStmt *>(&e.u)) {
           // fir.where op
-          handleCondition(where, *s);
+          genWhereCondition(where, *s);
         } else if (auto **s = std::get_if<const Pa::ElseIfStmt *>(&e.u)) {
           // otherwise block, then nested fir.where
           switchInsertionPointToOtherwise(where);
-          handleCondition(where, *s);
+          genWhereCondition(where, *s);
         } else if (std::holds_alternative<const Pa::ElseStmt *>(e.u)) {
           // otherwise block
           switchInsertionPointToOtherwise(where);
@@ -580,13 +599,12 @@ class FirConverter {
   // Statements that do not have control-flow semantics
   //
 
-  void genFIR(const Pa::AllocateStmt &) { TODO(); }
+  void genFIR(const Pa::AllocateStmt &) { SOFT_TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
-    auto loc{toLocation()};
-    builder->create<fir::StoreOp>(
-        loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
+    builder->create<fir::StoreOp>(toLocation(),
+        createFIRExpr(toLocation(), rhs), createFIRAddr(toLocation(), lhs));
   }
 
   void genFIR(const Pa::BackspaceStmt &) {
@@ -598,7 +616,7 @@ class FirConverter {
     TODO();
   }
   void genFIR(const Pa::ContinueStmt &) {}  // do nothing
-  void genFIR(const Pa::DeallocateStmt &) { TODO(); }
+  void genFIR(const Pa::DeallocateStmt &) { SOFT_TODO(); }
   void genFIR(const Pa::EndfileStmt &) {
     // call some IO runtime routine(s)
     TODO();
@@ -624,12 +642,36 @@ class FirConverter {
     // call some runtime routine
     TODO();
   }
-  void genFIR(const Pa::NullifyStmt &) { TODO(); }
+
+  /// Nullify pointer object list
+  ///
+  /// For each pointer object, reset the pointer to a disassociated status.
+  /// We do this by setting each pointer to null.
+  void genFIR(const Pa::NullifyStmt &stmt) {
+    for (auto &po : stmt.v) {
+      std::visit(Co::visitors{
+                     [&](const Pa::Name &sym) {
+                       auto ty{translateSymbolToFIRType(
+                           &mlirContext, defaults, *sym.symbol)};
+                       auto load{builder->create<fir::LoadOp>(toLocation(),
+                           localSymbols.lookupSymbol(*sym.symbol))};
+                       auto idxTy{M::IndexType::get(&mlirContext)};
+                       auto zero{builder->create<M::ConstantOp>(toLocation(),
+                           idxTy, builder->getIntegerAttr(idxTy, 0))};
+                       auto cast{builder->create<fir::ConvertOp>(
+                           toLocation(), ty, zero)};
+                       builder->create<fir::StoreOp>(toLocation(), cast, load);
+                     },
+                     [&](const Pa::StructureComponent &) { TODO(); },
+                 },
+          po.u);
+    }
+  }
   void genFIR(const Pa::OpenStmt &) {
     // call some IO runtime routine(s)
     TODO();
   }
-  void genFIR(const Pa::PointerAssignmentStmt &) { TODO(); }
+  void genFIR(const Pa::PointerAssignmentStmt &) { SOFT_TODO(); }
 
   void genFIR(const Pa::PrintStmt &stmt) {
     L::SmallVector<mlir::Value *, 4> args;
@@ -715,7 +757,7 @@ class FirConverter {
     } else if (auto *stmt = inMPSubp(currentEvaluation)) {
       genFIRProcedureExit(stmt);
     } else {
-      assert(false && "unknown subprogram type");
+      M::emitError(toLocation(), "unknown subprogram type");
     }
   }
 
@@ -940,7 +982,7 @@ class FirConverter {
       // FIXME
       // return builder->create<M::CallOp>(lhs->getLoc(), );
     }
-    assert(false && "cannot generate operation on this type");
+    M::emitError(toLocation(), "cannot generate operation on this type");
     return {};
   }
   M::Value *genGE(M::Value *lhs, M::Value *rhs) {

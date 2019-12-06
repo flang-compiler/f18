@@ -582,6 +582,11 @@ void printUnaryOp(Operation *op, OpAsmPrinter &p) {
   p << " : " << op->getResult(0)->getType();
 }
 
+bool isReferenceLike(M::Type type) {
+  return type.isa<fir::ReferenceType>() || type.isa<fir::HeapType>() ||
+         type.isa<fir::PointerType>();
+}
+
 // Tablegen operators
 
 #define GET_OP_CLASSES

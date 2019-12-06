@@ -43,13 +43,20 @@ namespace burnside {
 
 class SymMap {
   llvm::DenseMap<const semantics::Symbol *, mlir::Value *> symbolMap;
+  std::vector<std::pair<const semantics::Symbol *, mlir::Value *>> shadowStack;
 
 public:
   void addSymbol(semantics::SymbolRef symbol, mlir::Value *value);
 
   mlir::Value *lookupSymbol(semantics::SymbolRef symbol);
 
-  void clear() { symbolMap.clear(); }
+  void pushShadowSymbol(semantics::SymbolRef symbol, mlir::Value *value);
+  void popShadowSymbol() { shadowStack.pop_back(); }
+
+  void clear() {
+    symbolMap.clear();
+    shadowStack.clear();
+  }
 };
 
 std::string applyNameMangling(llvm::StringRef parserName);

@@ -296,8 +296,11 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, Value *refVal",
     [{
-      fir::ReferenceType refTy =
-        refVal->getType().cast<fir::ReferenceType>();
+      if (!refVal) {
+        mlir::emitError(result.location, "LoadOp has null argument");
+        return;
+      }
+      fir::ReferenceType refTy = refVal->getType().cast<fir::ReferenceType>();
       result.addOperands(refVal);
       result.addTypes(refTy.getEleTy());
     }]

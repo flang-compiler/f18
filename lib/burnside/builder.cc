@@ -93,3 +93,22 @@ mlir::Value *B::SymMap::lookupSymbol(semantics::SymbolRef symbol) {
   auto iter{symbolMap.find(&*symbol)};
   return (iter == symbolMap.end()) ? nullptr : iter->second;
 }
+
+void B::SymMap::pushShadowSymbol(
+    semantics::SymbolRef symbol, mlir::Value *value) {
+  // find any existing mapping for symbol
+  auto iter{symbolMap.find(&*symbol)};
+  const semantics::Symbol *sym{nullptr};
+  mlir::Value *val{nullptr};
+  // if mapping exists, save it on the shadow stack
+  if (iter != symbolMap.end()) {
+    sym = iter->first;
+    val = iter->second;
+    symbolMap.erase(iter);
+  }
+  shadowStack.emplace_back(sym, val);
+  // insert new shadow mapping
+  auto r{symbolMap.try_emplace(&*symbol, value)};
+  assert(r.second && "unexpected insertion failure");
+  (void)r;
+}
