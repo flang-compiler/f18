@@ -124,9 +124,25 @@ class CfgBuilder {
     }
   }
 
+  bool structuredLoop(const std::optional<Pa::LoopControl> &optLoopCtrl) {
+    if (optLoopCtrl.has_value())
+      return std::visit(
+          Co::visitors{
+              [](const Pa::LoopControl::Bounds &) { return true; },
+              [](const Pa::ScalarLogicalExpr &) { return false; },
+              [](const Pa::LoopControl::Concurrent &) { return true; },
+          },
+          optLoopCtrl->u);
+    return false;
+  }
+
   bool structuredCheck(std::list<AST::Evaluation> &evals) {
     for (auto &e : evals) {
-      if (std::holds_alternative<const Pa::DoConstruct *>(e.u)) {
+      if (auto **s = std::get_if<const Pa::DoConstruct *>(&e.u)) {
+        if (!structuredLoop(std::get<std::optional<Pa::LoopControl>>(
+                std::get<Pa::Statement<Pa::NonLabelDoStmt>>((*s)->t)
+                    .statement.t)))
+          return false;
         return structuredCheck(*e.subs);
       }
       if (std::holds_alternative<const Pa::IfConstruct *>(e.u)) {
@@ -656,9 +672,95 @@ class FirConverter {
     // FIXME
   }
 
+  void switchInsertionPointToWhere(fir::WhereOp &where) {
+    // FIXME
+  }
+  void switchInsertionPointToOtherwise(fir::WhereOp &where) {
+    // FIXME
+  }
+  template<typename A>
+  void handleCondition(fir::WhereOp &where, const A *stmt) {
+    auto *cond{createLogicalExprAsI1(
+        toLocation(), Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(stmt->t)))};
+    where = builder->create<fir::WhereOp>(toLocation(), cond, true);
+    switchInsertionPointToWhere(where);
+  }
+
   // Structured control op (fir.loop, fir.where)
   void genFIREvalStructuredOp(AST::Evaluation &eval) {
-    // FIXME
+    // process the list of Evaluations
+    assert(eval.subs);
+    auto *insPt = builder->getInsertionBlock();
+
+    if (std::holds_alternative<const Pa::DoConstruct *>(eval.u)) {
+      // Construct fir.loop
+      fir::LoopOp doLoop;
+      for (auto &e : *eval.subs) {
+        if (auto **s = std::get_if<const Pa::NonLabelDoStmt *>(&e.u)) {
+          // do bounds, fir.loop op
+          std::visit(
+              Co::visitors{
+                  [&](const Pa::LoopControl::Bounds &x) {
+                    auto *lo =
+                        createFIRExpr(toLocation(), Se::GetExpr(x.lower));
+                    auto *hi =
+                        createFIRExpr(toLocation(), Se::GetExpr(x.upper));
+                    L::SmallVector<M::Value *, 1> step;
+                    if (x.step.has_value()) {
+                      step.emplace_back(
+                          createFIRExpr(toLocation(), Se::GetExpr(*x.step)));
+                    }
+                    doLoop = builder->create<fir::LoopOp>(
+                        toLocation(), lo, hi, step);
+                  },
+                  [](const Pa::ScalarLogicalExpr &) {
+                    assert(false && "loop lacks iteration space");
+                  },
+                  [&](const Pa::LoopControl::Concurrent &x) {
+                    // FIXME: can project a multi-dimensional space
+                    doLoop = builder->create<fir::LoopOp>(toLocation(),
+                        (M::Value *)nullptr, (M::Value *)nullptr,
+                        L::ArrayRef<M::Value *>{});
+                  },
+              },
+              std::get<std::optional<Pa::LoopControl>>((*s)->t)->u);
+        } else if (std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
+          // close fir.loop op
+          builder->clearInsertionPoint();
+        } else {
+          genFIR(e);
+        }
+      }
+    } else if (std::holds_alternative<const Pa::IfConstruct *>(eval.u)) {
+      // Construct fir.where
+      fir::WhereOp where;
+      bool hasElse = false;
+      for (auto &e : *eval.subs) {
+        if (auto **s = std::get_if<const Pa::IfThenStmt *>(&e.u)) {
+          // fir.where op
+          handleCondition(where, *s);
+        } else if (auto **s = std::get_if<const Pa::ElseIfStmt *>(&e.u)) {
+          // otherwise block, then nested fir.where
+          switchInsertionPointToOtherwise(where);
+          handleCondition(where, *s);
+        } else if (std::holds_alternative<const Pa::ElseStmt *>(e.u)) {
+          // otherwise block
+          switchInsertionPointToOtherwise(where);
+          hasElse = true;
+        } else if (std::holds_alternative<const Pa::EndIfStmt *>(e.u)) {
+          // close all open fir.where ops
+          if (!hasElse) {
+            switchInsertionPointToOtherwise(where);
+          }
+          builder->clearInsertionPoint();
+        } else {
+          genFIR(e);
+        }
+      }
+    } else {
+      assert(false && "not yet implemented");
+    }
+    builder->setInsertionPointToEnd(insPt);
   }
 
   // Return from subprogram control-flow semantics
@@ -815,20 +917,47 @@ class FirConverter {
     builder->create<fir::StoreOp>(
         loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
   }
-  void genFIR(const Pa::BackspaceStmt &) { TODO(); }
 
-  void genFIR(const Pa::CloseStmt &) { TODO(); }
-  void genFIR(const Pa::ContinueStmt &) { TODO(); }
+  void genFIR(const Pa::BackspaceStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
+  void genFIR(const Pa::CloseStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
+  void genFIR(const Pa::ContinueStmt &) {}  // do nothing
   void genFIR(const Pa::DeallocateStmt &) { TODO(); }
-  void genFIR(const Pa::EndfileStmt &) { TODO(); }
-  void genFIR(const Pa::EventPostStmt &) { TODO(); }
-  void genFIR(const Pa::EventWaitStmt &) { TODO(); }
-  void genFIR(const Pa::FlushStmt &) { TODO(); }
+  void genFIR(const Pa::EndfileStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
+  void genFIR(const Pa::EventPostStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(const Pa::EventWaitStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(const Pa::FlushStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
   void genFIR(const Pa::FormTeamStmt &) { TODO(); }
-  void genFIR(const Pa::InquireStmt &) { TODO(); }
-  void genFIR(const Pa::LockStmt &) { TODO(); }
+  void genFIR(const Pa::InquireStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
+  void genFIR(const Pa::LockStmt &) {
+    // call some runtime routine
+    TODO();
+  }
   void genFIR(const Pa::NullifyStmt &) { TODO(); }
-  void genFIR(const Pa::OpenStmt &) { TODO(); }
+  void genFIR(const Pa::OpenStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
   void genFIR(const Pa::PointerAssignmentStmt &) { TODO(); }
 
   void genFIR(const Pa::PrintStmt &stmt) {
@@ -848,11 +977,26 @@ class FirConverter {
     // call some IO runtime routine(s)
     TODO();
   }
-  void genFIR(const Pa::RewindStmt &) { TODO(); }
-  void genFIR(const Pa::SyncAllStmt &) { TODO(); }
-  void genFIR(const Pa::SyncImagesStmt &) { TODO(); }
-  void genFIR(const Pa::SyncMemoryStmt &) { TODO(); }
-  void genFIR(const Pa::SyncTeamStmt &) { TODO(); }
+  void genFIR(const Pa::RewindStmt &) {
+    // call some IO runtime routine(s)
+    TODO();
+  }
+  void genFIR(const Pa::SyncAllStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(const Pa::SyncImagesStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(const Pa::SyncMemoryStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(const Pa::SyncTeamStmt &) {
+    // call some runtime routine
+    TODO();
+  }
   void genFIR(const Pa::UnlockStmt &) {
     // call some runtime routine
     TODO();
@@ -913,11 +1057,16 @@ class FirConverter {
     currentEvaluation = &eval;
     std::visit(Co::visitors{
                    [&](const auto *p) { genFIR(*p); },
-                   [](const AST::CGJump &) { assert(false && "invalid"); },
+                   [](const AST::CGJump &) { /* do nothing */ },
                },
         eval.u);
   }
 
+  /// Lower an Evaluation
+  ///
+  /// If the Evaluation is annotated, we can attempt to lower it by the class of
+  /// annotation. Otherwise, attempt to lower the Evaluation on a case-by-case
+  /// basis.
   void lowerEval(AST::Evaluation &eval) {
     setCurrentPosition(eval.pos);
     if (eval.isControlTarget()) {

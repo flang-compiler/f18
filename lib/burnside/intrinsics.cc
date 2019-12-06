@@ -438,6 +438,7 @@ mlir::Value *IntrinsicLibrary::Implementation::genRuntimeCall(
     // TODO: better error handling ?
     //  - Try to have compile time check of runtime compltness ?
   }
+  return {}; // gets rid of warnings
 }
 
 // CONJG
