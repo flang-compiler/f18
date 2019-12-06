@@ -20,7 +20,7 @@ set(LIBS
   MLIRStandardOps
 )
 
-add_llvm_library(FirBbcLib bbc.cc)
+add_llvm_library(FirBbcLib bbc.cpp)
 target_link_libraries(FirBbcLib ${LIBS} FIRTransforms)
 
 set(EXE_LIBS
@@ -33,7 +33,7 @@ set(EXE_LIBS
   FortranBurnside
 )
 
-add_llvm_tool(bbc bbc.cc)
+add_llvm_tool(bbc bbc.cpp)
 llvm_update_compile_flags(bbc)
 whole_archive_link(bbc ${LIBS})
 target_link_libraries(bbc PRIVATE FIR MLIRIR FirBbcLib ${EXE_LIBS} LLVMSupport)

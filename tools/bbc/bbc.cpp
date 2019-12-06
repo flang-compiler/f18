@@ -38,6 +38,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
+#include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/Parser.h"
@@ -285,6 +286,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToStdPass());
   }
   if (driver.lowerToLLVM) {
+    pm.addPass(fir::createLowerToLoopPass());
+    pm.addPass(fir::createFIRToStdPass());
+    pm.addPass(mlir::createLowerToCFGPass());
     pm.addPass(fir::createFIRToLLVMPass(nameMangler));
   }
   if (driver.lowerToLLVMIR) {
