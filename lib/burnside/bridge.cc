@@ -538,8 +538,9 @@ class FirConverter {
       Se::Symbol const *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
-    name = n.ToString();
     symbol = n.symbol;
+    assert(symbol && "Name resolution failure");
+    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
       Se::Symbol const *&) {
@@ -550,8 +551,9 @@ class FirConverter {
       Se::Symbol const *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
-    name = n.ToString();
     symbol = n.symbol;
+    assert(symbol && "Name resolution failure");
+    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
       Se::Symbol const *&) {
