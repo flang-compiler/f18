@@ -184,17 +184,17 @@ class FirConverter {
   //
 
   void genFIR(const Pa::Statement<Pa::ProgramStmt> &stmt, std::string &name,
-      Se::Symbol const *&) {
+      const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
     name = mangler.getProgramEntry();
   }
   void genFIR(const Pa::Statement<Pa::EndProgramStmt> &stmt, std::string &,
-      Se::Symbol const *&) {
+      const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
     genFIR(stmt.statement);
   }
   void genFIR(const Pa::Statement<Pa::FunctionStmt> &stmt, std::string &name,
-      Se::Symbol const *&symbol) {
+      const Se::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
@@ -202,12 +202,12 @@ class FirConverter {
     name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
-      Se::Symbol const *&) {
+      const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
     genFIR(stmt.statement);
   }
   void genFIR(const Pa::Statement<Pa::SubroutineStmt> &stmt, std::string &name,
-      Se::Symbol const *&symbol) {
+      const Se::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
@@ -215,19 +215,19 @@ class FirConverter {
     name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
-      Se::Symbol const *&) {
+      const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
     genFIR(stmt.statement);
   }
   void genFIR(const Pa::Statement<Pa::MpSubprogramStmt> &stmt,
-      std::string &name, Se::Symbol const *&symbol) {
+      std::string &name, const Se::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{stmt.statement.v};
     name = n.ToString();
     symbol = n.symbol;
   }
   void genFIR(const Pa::Statement<Pa::EndMpSubprogramStmt> &stmt, std::string &,
-      Se::Symbol const *&) {
+      const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
     genFIR(stmt.statement);
   }
@@ -472,12 +472,74 @@ class FirConverter {
   // No control-flow
   void genFIREvalNone(AST::Evaluation &eval) { genFIR(eval); }
 
-  void genFIR(const Pa::CallStmt &stmt) {
-    // FIXME handle alternate return
-    auto loc{toLocation()};
-    (void)loc;
-    TODO();
+  M::FuncOp getFunc(L::StringRef name, M::FunctionType ty) {
+    if (auto func = getNamedFunction(module, name)) {
+      assert(func.getType() == ty);
+      return func;
+    }
+    return createFunction(module, name, ty);
   }
+
+  /// Lowering of CALL statement
+  ///
+  /// 1. Determine what function is being called/dispatched to
+  /// 2. Build a tuple of arguments to be passed to that function
+  /// 3. Emit fir.call/fir.dispatch on arguments
+  void genFIR(const Pa::CallStmt &stmt) {
+    L::SmallVector<M::Type, 8> argTy;
+    L::SmallVector<M::Type, 2> resTy;
+    L::StringRef funName;
+    std::vector<Se::Symbol *> argsList;
+    setCurrentPosition(stmt.v.source);
+    std::visit(Co::visitors{
+                   [&](const Pa::Name &name) {
+                     auto *sym = name.symbol;
+                     auto n{sym->name()};
+                     funName = L::StringRef{n.begin(), n.size()};
+                     auto &details = sym->get<Se::SubprogramDetails>();
+                     // TODO ProcEntityDetails?
+                     // TODO bindName()?
+                     argsList = details.dummyArgs();
+                   },
+                   [](const Pa::ProcComponentRef &) { TODO(); },
+               },
+        std::get<Pa::ProcedureDesignator>(stmt.v.t).u);
+    for (auto *d : argsList) {
+      Se::SymbolRef sr{*d};
+      // FIXME:
+      argTy.push_back(fir::ReferenceType::get(
+          translateSymbolToFIRType(&mlirContext, defaults, sr)));
+    }
+    auto funTy{M::FunctionType::get(argTy, resTy, builder->getContext())};
+    // FIXME: mangle name
+    M::FuncOp func{getFunc(funName, funTy)};
+    std::vector<M::Value *> actuals;
+    for (auto &aa : std::get<std::list<Pa::ActualArgSpec>>(stmt.v.t)) {
+      auto &kw = std::get<std::optional<Pa::Keyword>>(aa.t);
+      auto &arg = std::get<Pa::ActualArg>(aa.t);
+      M::Value *fe{nullptr};
+      std::visit(Co::visitors{
+                     [&](const Co::Indirection<Pa::Expr> &e) {
+                       auto *exp{Se::GetExpr(e)};
+                       // FIXME: needs to match argument, assumes trivial by-ref
+                       fe = createFIRAddr(toLocation(), exp);
+                     },
+                     [](const Pa::AltReturnSpec &) { TODO(); },
+                     [](const Pa::ActualArg::PercentRef &) { TODO(); },
+                     [](const Pa::ActualArg::PercentVal &) { TODO(); },
+                 },
+          arg.u);
+      if (kw.has_value()) {
+        TODO();
+        continue;
+      }
+      actuals.push_back(fe);
+    }
+
+    builder->create<fir::CallOp>(
+        toLocation(), resTy, builder->getSymbolRefAttr(funName), actuals);
+  }
+
   void genFIR(const Pa::IfStmt &) { TODO(); }
   void genFIR(const Pa::WaitStmt &) { TODO(); }
   void genFIR(const Pa::WhereStmt &) { TODO(); }
@@ -1002,7 +1064,7 @@ private:
   M::MLIRContext &mlirContext;
   const Pa::CookedSource *cooked;
   M::ModuleOp &module;
-  Co::IntrinsicTypeDefaultKinds const &defaults;
+  const Co::IntrinsicTypeDefaultKinds &defaults;
   IntrinsicLibrary intrinsics;
   M::OpBuilder *builder{nullptr};
   fir::NameMangler &mangler;
