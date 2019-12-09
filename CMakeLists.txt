@@ -50,7 +50,6 @@ message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
 
-list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
 
 include(AddLLVM)
 
@@ -135,6 +134,7 @@ add_subdirectory(include/flang)
 add_subdirectory(lib)
 add_subdirectory(runtime)
 add_subdirectory(test)
+add_subdirectory(test-lit)
 add_subdirectory(tools)
 add_subdirectory(test-lit)
 
