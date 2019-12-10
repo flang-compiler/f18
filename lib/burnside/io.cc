@@ -13,9 +13,11 @@
 // limitations under the License.
 
 #include "io.h"
+#include "bridge.h"
 #include "builder.h"
 #include "runtime.h"
 #include "../parser/parse-tree.h"
+#include "../semantics/tools.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 #include <cassert>
@@ -105,40 +107,8 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   return {};
 }
 
-}  // namespace
-
-void Br::genBackspaceStatement(
-    M::OpBuilder &, M::Location loc, const Pa::BackspaceStmt &) {
-  assert(false);
-}
-
-void Br::genCloseStatement(
-    M::OpBuilder &, M::Location loc, const Pa::CloseStmt &) {
-  assert(false);
-}
-
-void Br::genEndfileStatement(
-    M::OpBuilder &, M::Location loc, const Pa::EndfileStmt &) {
-  assert(false);
-}
-
-void Br::genFlushStatement(
-    M::OpBuilder &, M::Location loc, const Pa::FlushStmt &) {
-  assert(false);
-}
-
-void Br::genInquireStatement(
-    M::OpBuilder &, M::Location loc, const Pa::InquireStmt &) {
-  assert(false);
-}
-
-void Br::genOpenStatement(
-    M::OpBuilder &, M::Location loc, const Pa::OpenStmt &) {
-  assert(false);
-}
-
 /// Lower print statement assuming a dummy runtime interface for now.
-void Br::genPrintStatement(
+void lowerPrintStatement(
     M::OpBuilder &builder, M::Location loc, M::ValueRange args) {
   M::ModuleOp module{getModule(&builder)};
   M::MLIRContext *mlirContext{module.getContext()};
@@ -167,17 +137,55 @@ void Br::genPrintStatement(
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
-void Br::genReadStatement(
-    M::OpBuilder &, M::Location loc, const Pa::ReadStmt &) {
+}  // namespace
+
+void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
   assert(false);
 }
 
-void Br::genRewindStatement(
-    M::OpBuilder &, M::Location loc, const Pa::RewindStmt &) {
+void Br::genCloseStatement(AbstractConverter &, const Pa::CloseStmt &) {
   assert(false);
 }
 
-void Br::genWriteStatement(
-    M::OpBuilder &, M::Location loc, const Pa::WriteStmt &) {
+void Br::genEndfileStatement(AbstractConverter &, const Pa::EndfileStmt &) {
+  assert(false);
+}
+
+void Br::genFlushStatement(AbstractConverter &, const Pa::FlushStmt &) {
+  assert(false);
+}
+
+void Br::genInquireStatement(AbstractConverter &, const Pa::InquireStmt &) {
+  assert(false);
+}
+
+void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) {
+  assert(false);
+}
+
+void Br::genPrintStatement(
+    Br::AbstractConverter &converter, const Pa::PrintStmt &stmt) {
+  llvm::SmallVector<M::Value *, 4> args;
+  for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
+    if (auto *pe{std::get_if<Pa::Expr>(&item.u)}) {
+      auto loc{converter.genLocation(pe->source)};
+      args.push_back(converter.genExprValue(*semantics::GetExpr(*pe), &loc));
+    } else {
+      assert(false);  // TODO implied do
+    }
+  }
+  lowerPrintStatement(
+      converter.getOpBuilder(), converter.getCurrentLocation(), args);
+}
+
+void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) {
+  assert(false);
+}
+
+void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
+  assert(false);
+}
+
+void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
   assert(false);
 }

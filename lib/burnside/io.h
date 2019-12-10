@@ -44,27 +44,19 @@ struct WriteStmt;
 /// will provide enough information for complex IO statements).
 namespace burnside {
 
+class AbstractConverter;
 class BridgeImpl;
 
-void genBackspaceStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::BackspaceStmt &);
-void genCloseStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::CloseStmt &);
-void genEndfileStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::EndfileStmt &);
-void genFlushStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::FlushStmt &);
-void genInquireStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::InquireStmt &);
-void genOpenStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::OpenStmt &);
-void genPrintStatement(mlir::OpBuilder &, mlir::Location, mlir::ValueRange);
-void genReadStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::ReadStmt &);
-void genRewindStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::RewindStmt &);
-void genWriteStatement(
-    mlir::OpBuilder &, mlir::Location, const parser::WriteStmt &);
+void genBackspaceStatement(AbstractConverter &, const parser::BackspaceStmt &);
+void genCloseStatement(AbstractConverter &, const parser::CloseStmt &);
+void genEndfileStatement(AbstractConverter &, const parser::EndfileStmt &);
+void genFlushStatement(AbstractConverter &, const parser::FlushStmt &);
+void genInquireStatement(AbstractConverter &, const parser::InquireStmt &);
+void genOpenStatement(AbstractConverter &, const parser::OpenStmt &);
+void genPrintStatement(AbstractConverter &, const parser::PrintStmt &);
+void genReadStatement(AbstractConverter &, const parser::ReadStmt &);
+void genRewindStatement(AbstractConverter &, const parser::RewindStmt &);
+void genWriteStatement(AbstractConverter &, const parser::WriteStmt &);
 
 }
 }
