@@ -661,6 +661,45 @@ class FirConverter {
   // Statements that do not have control-flow semantics
   //
 
+  // IO statements (see io.h)
+
+  void genFIR(const Pa::BackspaceStmt &stmt) {
+    genBackspaceStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::CloseStmt &stmt) {
+    genCloseStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::EndfileStmt &stmt) {
+    genEndfileStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::FlushStmt &stmt) {
+    genFlushStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::OpenStmt &stmt) {
+    genOpenStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::PrintStmt &stmt) {
+    llvm::SmallVector<M::Value *, 4> args;
+    for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
+      if (auto *parserExpr{std::get_if<Pa::Expr>(&item.u)}) {
+        auto loc{toLocation(parserExpr->source)};
+        args.push_back(createFIRExpr(loc, Se::GetExpr(*parserExpr)));
+      } else {
+        assert(false);  // TODO implied do
+      }
+    }
+    genPrintStatement(*builder, toLocation(), args);
+  }
+  void genFIR(const Pa::ReadStmt &stmt) {
+    genReadStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::RewindStmt &stmt) {
+    genRewindStatement(*builder, toLocation(), stmt);
+  }
+  void genFIR(const Pa::WriteStmt &stmt) {
+    genWriteStatement(*builder, toLocation(), stmt);
+  }
+
   void genFIR(const Pa::AllocateStmt &) { SOFT_TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
@@ -669,20 +708,8 @@ class FirConverter {
         createFIRExpr(toLocation(), rhs), createFIRAddr(toLocation(), lhs));
   }
 
-  void genFIR(const Pa::BackspaceStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
-  void genFIR(const Pa::CloseStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
   void genFIR(const Pa::ContinueStmt &) {}  // do nothing
   void genFIR(const Pa::DeallocateStmt &) { SOFT_TODO(); }
-  void genFIR(const Pa::EndfileStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
   void genFIR(const Pa::EventPostStmt &) {
     // call some runtime routine
     TODO();
@@ -691,14 +718,10 @@ class FirConverter {
     // call some runtime routine
     TODO();
   }
-  void genFIR(const Pa::FlushStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
+
   void genFIR(const Pa::FormTeamStmt &) { TODO(); }
-  void genFIR(const Pa::InquireStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
+  void genFIR(const Pa::InquireStmt &stmt) {
+    genInquireStatement(*builder, toLocation(), stmt);
   }
   void genFIR(const Pa::LockStmt &) {
     // call some runtime routine
@@ -729,33 +752,8 @@ class FirConverter {
           po.u);
     }
   }
-  void genFIR(const Pa::OpenStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
   void genFIR(const Pa::PointerAssignmentStmt &) { SOFT_TODO(); }
 
-  void genFIR(const Pa::PrintStmt &stmt) {
-    L::SmallVector<mlir::Value *, 4> args;
-    for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
-      if (auto *parserExpr{std::get_if<Pa::Expr>(&item.u)}) {
-        auto loc{toLocation(parserExpr->source)};
-        args.push_back(createFIRExpr(loc, Se::GetExpr(*parserExpr)));
-      } else {
-        TODO();  // implied do
-      }
-    }
-    genPrintStatement(*builder, toLocation(), args);
-  }
-
-  void genFIR(const Pa::ReadStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
-  void genFIR(const Pa::RewindStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
   void genFIR(const Pa::SyncAllStmt &) {
     // call some runtime routine
     TODO();
@@ -777,10 +775,6 @@ class FirConverter {
     TODO();
   }
 
-  void genFIR(const Pa::WriteStmt &) {
-    // call some IO runtime routine(s)
-    TODO();
-  }
   void genFIR(const Pa::AssignStmt &) { TODO(); }
   void genFIR(const Pa::FormatStmt &) { TODO(); }
   void genFIR(const Pa::EntryStmt &) { TODO(); }

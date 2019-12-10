@@ -1403,9 +1403,8 @@ void genCaseLadderStep(M::Location loc, M::Value *cmp, M::Block *dest,
   auto *newBlock = rewriter.createBlock(dest);
   rewriter.setInsertionPointToEnd(thisBlock);
   L::SmallVector<M::Block *, 2> dest_{dest, newBlock};
-  L::SmallVector<L::ArrayRef<M::Value *>, 2> destOps_{destOps, {}};
-  rewriter.create<M::LLVM::CondBrOp>(loc, L::ArrayRef<M::Value *>{cmp}, dest_,
-                                     destOps_);
+  L::SmallVector<M::ValueRange, 2> destOps_{destOps, {}};
+  rewriter.create<M::LLVM::CondBrOp>(loc, M::ValueRange{cmp}, dest_, destOps_);
   rewriter.setInsertionPointToEnd(newBlock);
 }
 
@@ -1460,24 +1459,24 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
         auto *newBlock2 = rewriter.createBlock(destinations[t]);
         rewriter.setInsertionPointToEnd(thisBlock);
         L::SmallVector<M::Block *, 2> dests{newBlock1, newBlock2};
-        L::SmallVector<L::ArrayRef<M::Value *>, 2> destOps{{}, {}};
-        rewriter.create<M::LLVM::CondBrOp>(loc, L::ArrayRef<M::Value *>{cmp},
-                                           dests, destOps);
+        L::SmallVector<M::ValueRange, 2> destOps{{}, {}};
+        rewriter.create<M::LLVM::CondBrOp>(loc, M::ValueRange{cmp}, dests,
+                                           destOps);
         rewriter.setInsertionPointToEnd(newBlock1);
-        auto cmp2 = rewriter.create<M::LLVM::ICmpOp>(
+        auto cmp_ = rewriter.create<M::LLVM::ICmpOp>(
             loc, M::LLVM::ICmpPredicate::sle, selector, operands[nextOp++]);
         L::SmallVector<M::Block *, 2> dest2{destinations[t], newBlock2};
-        L::SmallVector<L::ArrayRef<M::Value *>, 2> destOp2{destOperands[t], {}};
-        rewriter.create<M::LLVM::CondBrOp>(loc, L::ArrayRef<M::Value *>{cmp2},
-                                           dest2, destOp2);
+        L::SmallVector<M::ValueRange, 2> destOp2{destOperands[t], {}};
+        rewriter.create<M::LLVM::CondBrOp>(loc, M::ValueRange{cmp_}, dest2,
+                                           destOp2);
         rewriter.setInsertionPointToEnd(newBlock2);
         continue;
       }
       assert(attr.dyn_cast_or_null<M::UnitAttr>());
       assert((t + 1 == conds) && "unit must be last");
-      L::SmallVector<M::Value *, 1> empty;
       rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(
-          selectcase, empty, destinations[t], destOperands[t]);
+          selectcase, M::ValueRange{}, destinations[t],
+          M::ValueRange{destOperands[t]});
     }
     return matchSuccess();
   }
@@ -1514,9 +1513,9 @@ void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering, M::Operation *op,
     }
     assert(attr.template dyn_cast_or_null<M::UnitAttr>());
     assert((t + 1 == conds) && "unit must be last");
-    L::SmallVector<M::Value *, 1> empty;
-    rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(select, empty, destinations[t],
-                                               destOperands[t]);
+    rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(
+        select, M::ValueRange{}, destinations[t],
+        M::ValueRange{destOperands[t]});
   }
 }
 
@@ -1643,10 +1642,9 @@ struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unreach = M::cast<UnreachableOp>(op);
-    L::SmallVector<M::Block *, 1> destinations; // none
-    L::SmallVector<OperandTy, 1> destOperands;  // none
     rewriter.replaceOpWithNewOp<M::LLVM::UnreachableOp>(
-        unreach, operands, destinations, destOperands, unreach.getAttrs());
+        unreach, operands, L::ArrayRef<M::Block *>{},
+        L::ArrayRef<M::ValueRange>{}, unreach.getAttrs());
     return matchSuccess();
   }
 };

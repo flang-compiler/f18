@@ -18,10 +18,22 @@
 namespace mlir {
 class OpBuilder;
 class Location;
-class Value;
+class ValueRange;
 }
-namespace llvm {
-template<typename T> class ArrayRef;
+
+namespace Fortran {
+
+namespace parser {
+struct BackspaceStmt;
+struct CloseStmt;
+struct EndfileStmt;
+struct FlushStmt;
+struct InquireStmt;
+struct OpenStmt;
+struct PrintStmt;
+struct ReadStmt;
+struct RewindStmt;
+struct WriteStmt;
 }
 
 /// Experimental IO lowering to FIR + runtime. The Runtime design is under
@@ -30,9 +42,31 @@ template<typename T> class ArrayRef;
 /// nodes and lower expressions as needed or should it get every expression
 /// already lowered as mlir::Value* ? (currently second options, not sure it
 /// will provide enough information for complex IO statements).
-namespace Fortran::burnside {
-void genPrintStatement(
-    mlir::OpBuilder &, mlir::Location loc, llvm::ArrayRef<mlir::Value *>);
+namespace burnside {
+
+class BridgeImpl;
+
+void genBackspaceStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::BackspaceStmt &);
+void genCloseStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::CloseStmt &);
+void genEndfileStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::EndfileStmt &);
+void genFlushStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::FlushStmt &);
+void genInquireStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::InquireStmt &);
+void genOpenStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::OpenStmt &);
+void genPrintStatement(mlir::OpBuilder &, mlir::Location, mlir::ValueRange);
+void genReadStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::ReadStmt &);
+void genRewindStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::RewindStmt &);
+void genWriteStatement(
+    mlir::OpBuilder &, mlir::Location, const parser::WriteStmt &);
+
+}
 }
 
 #endif  // FORTRAN_BURNSIDE_IO_H_

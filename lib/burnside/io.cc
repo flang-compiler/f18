@@ -15,10 +15,19 @@
 #include "io.h"
 #include "builder.h"
 #include "runtime.h"
+#include "../parser/parse-tree.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
+#include <cassert>
 
-namespace Fortran::burnside {
+namespace Br = Fortran::burnside;
+namespace M = mlir;
+namespace Pa = Fortran::parser;
+
+using namespace Fortran;
+using namespace Fortran::burnside;
+
+namespace {
 
 /// Define actions to sort runtime functions. One actions
 /// may be associated to one or more runtime function.
@@ -32,7 +41,7 @@ public:
   constexpr IORuntimeDescription(
       IOAction act, const char *s, MaybeTypeCode r, TypeCodeVector a)
     : RuntimeStaticDescription{s, r, a}, key{act} {}
-  static mlir::Type getIOCookieType(mlir::MLIRContext *context) {
+  static M::Type getIOCookieType(M::MLIRContext *context) {
     return getMLIRType(TypeCode::IOCookie, context);
   }
   IOAction key;
@@ -66,7 +75,7 @@ static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
 /// exactly one runtime function. This constraint is enforced
 /// at compile time. This search is resolved at compile time.
 template<IORuntimeDescription::Key key>
-static mlir::FuncOp getIORuntimeFunction(mlir::OpBuilder &builder) {
+static M::FuncOp getIORuntimeFunction(M::OpBuilder &builder) {
   static constexpr auto runtimeDescription{ioRuntimeMap.find(key)};
   static_assert(runtimeDescription != ioRuntimeMap.end());
   return runtimeDescription->getFuncOp(builder);
@@ -76,18 +85,17 @@ static mlir::FuncOp getIORuntimeFunction(mlir::OpBuilder &builder) {
 /// are mapped to Output IOAction that must be mapped to at least one
 /// runtime function but can be mapped to more functions.
 /// This helper returns the function that has the same
-/// mlir::FunctionType as the one seeked. It may therefore dynamically fail
-/// if no function mapped to the Action has the seeked mlir::FunctionType.
-static mlir::FuncOp getOutputRuntimeFunction(
-    mlir::OpBuilder &builder, mlir::Type type) {
+/// M::FunctionType as the one seeked. It may therefore dynamically fail
+/// if no function mapped to the Action has the seeked M::FunctionType.
+static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   static constexpr auto descriptionRange{ioRuntimeMap.getRange(IOA::Output)};
   static_assert(!descriptionRange.empty());
 
-  mlir::MLIRContext *context{getModule(&builder).getContext()};
-  llvm::SmallVector<mlir::Type, 2> argTypes{
+  M::MLIRContext *context{getModule(&builder).getContext()};
+  llvm::SmallVector<M::Type, 2> argTypes{
       IORuntimeDescription::getIOCookieType(context), type};
 
-  mlir::FunctionType seekedType{mlir::FunctionType::get(argTypes, {}, context)};
+  M::FunctionType seekedType{M::FunctionType::get(argTypes, {}, context)};
   for (const auto &description : descriptionRange) {
     if (description.getMLIRFunctionType(context) == seekedType) {
       return description.getFuncOp(builder);
@@ -97,34 +105,79 @@ static mlir::FuncOp getOutputRuntimeFunction(
   return {};
 }
 
-/// Lower print statement assuming a dummy runtime interface for now.
-void genPrintStatement(mlir::OpBuilder &builder, mlir::Location loc,
-    llvm::ArrayRef<mlir::Value *> args) {
-  mlir::ModuleOp module{getModule(&builder)};
-  mlir::MLIRContext *mlirContext{module.getContext()};
+}  // namespace
 
-  mlir::FuncOp beginFunc{
+void Br::genBackspaceStatement(
+    M::OpBuilder &, M::Location loc, const Pa::BackspaceStmt &) {
+  assert(false);
+}
+
+void Br::genCloseStatement(
+    M::OpBuilder &, M::Location loc, const Pa::CloseStmt &) {
+  assert(false);
+}
+
+void Br::genEndfileStatement(
+    M::OpBuilder &, M::Location loc, const Pa::EndfileStmt &) {
+  assert(false);
+}
+
+void Br::genFlushStatement(
+    M::OpBuilder &, M::Location loc, const Pa::FlushStmt &) {
+  assert(false);
+}
+
+void Br::genInquireStatement(
+    M::OpBuilder &, M::Location loc, const Pa::InquireStmt &) {
+  assert(false);
+}
+
+void Br::genOpenStatement(
+    M::OpBuilder &, M::Location loc, const Pa::OpenStmt &) {
+  assert(false);
+}
+
+/// Lower print statement assuming a dummy runtime interface for now.
+void Br::genPrintStatement(
+    M::OpBuilder &builder, M::Location loc, M::ValueRange args) {
+  M::ModuleOp module{getModule(&builder)};
+  M::MLIRContext *mlirContext{module.getContext()};
+
+  M::FuncOp beginFunc{
       getIORuntimeFunction<IOAction::BeginExternalList>(builder)};
 
   // Initiate io
-  mlir::Type externalUnitType{mlir::IntegerType::get(32, mlirContext)};
-  mlir::Value *defaultUnit{builder.create<mlir::ConstantOp>(
+  M::Type externalUnitType{M::IntegerType::get(32, mlirContext)};
+  M::Value *defaultUnit{builder.create<M::ConstantOp>(
       loc, builder.getIntegerAttr(externalUnitType, 1))};
-  llvm::SmallVector<mlir::Value *, 1> beginArgs{defaultUnit};
-  mlir::Value *cookie{
-      builder.create<mlir::CallOp>(loc, beginFunc, beginArgs).getResult(0)};
+  llvm::SmallVector<M::Value *, 1> beginArgs{defaultUnit};
+  M::Value *cookie{
+      builder.create<M::CallOp>(loc, beginFunc, beginArgs).getResult(0)};
 
   // Call data transfer runtime function
-  for (mlir::Value *arg : args) {
-    llvm::SmallVector<mlir::Value *, 1> operands{cookie, arg};
-    mlir::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg->getType())};
-    builder.create<mlir::CallOp>(loc, outputFunc, operands);
+  for (M::Value *arg : args) {
+    llvm::SmallVector<M::Value *, 1> operands{cookie, arg};
+    M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg->getType())};
+    builder.create<M::CallOp>(loc, outputFunc, operands);
   }
 
   // Terminate IO
-  mlir::FuncOp endIOFunc{getIORuntimeFunction<IOAction::EndIO>(builder)};
-  llvm::SmallVector<mlir::Value *, 1> endArgs{cookie};
-  builder.create<mlir::CallOp>(loc, endIOFunc, endArgs);
+  M::FuncOp endIOFunc{getIORuntimeFunction<IOAction::EndIO>(builder)};
+  llvm::SmallVector<M::Value *, 1> endArgs{cookie};
+  builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
+void Br::genReadStatement(
+    M::OpBuilder &, M::Location loc, const Pa::ReadStmt &) {
+  assert(false);
+}
+
+void Br::genRewindStatement(
+    M::OpBuilder &, M::Location loc, const Pa::RewindStmt &) {
+  assert(false);
+}
+
+void Br::genWriteStatement(
+    M::OpBuilder &, M::Location loc, const Pa::WriteStmt &) {
+  assert(false);
 }
