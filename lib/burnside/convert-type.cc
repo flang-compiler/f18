@@ -338,24 +338,6 @@ public:
 
 }  // namespace
 
-M::Location Br::dummyLoc(M::MLIRContext &context) {
-  return M::UnknownLoc::get(&context);
-}
-
-M::Location Br::parserPosToLoc(M::MLIRContext &context,
-    const Pa::CookedSource *cooked, const Pa::CharBlock &position) {
-  if (cooked) {
-    auto loc{cooked->GetSourcePositionRange(position)};
-    if (loc.has_value()) {
-      // loc is a pair (begin, end); use the beginning position
-      auto &filePos{loc->first};
-      return M::FileLineColLoc::get(
-          filePos.file.path(), filePos.line, filePos.column, &context);
-    }
-  }
-  return dummyLoc(context);
-}
-
 M::Type Br::getFIRType(M::MLIRContext *context,
     Co::IntrinsicTypeDefaultKinds const &defaults, Co::TypeCategory tc,
     int kind) {
@@ -381,7 +363,7 @@ M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
 // This entry point avoids gratuitously wrapping the Symbol instance in layers
 // of Expr<T> that will then be immediately peeled back off and discarded.
 M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
-    Co::IntrinsicTypeDefaultKinds const &defaults, Se::SymbolRef symbol) {
+    Co::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol) {
   return TypeBuilder{context, defaults}.gen(symbol);
 }
 

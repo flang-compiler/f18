@@ -21,6 +21,7 @@ add_library(FortranBurnside
   convert-expr.cc
   convert-type.cc
   intrinsics.cc
+  mangler.cc
   runtime.cc
   io.cc
 )

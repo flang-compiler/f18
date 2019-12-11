@@ -20,17 +20,22 @@
 #include "mlir/IR/Value.h"
 
 namespace B = Fortran::burnside;
+namespace Ev = Fortran::evaluate;
+namespace M = mlir;
+namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace B;
+using namespace Fortran::burnside;
 
+#if 0
 // This will need to be extended to consider the type of what is being mangled
 std::string B::applyNameMangling(llvm::StringRef parserName) {
   // FIXME: this is fake for now, add type info, etc.
   return "_Qp_"s + parserName.str();
 }
+#endif
 
-std::string B::applyNameMangling(const evaluate::ProcedureDesignator &proc) {
+std::string B::applyNameMangling(const Ev::ProcedureDesignator &proc) {
   if (const auto *symbol{proc.GetSymbol()}) {
     return applyNameMangling(*symbol);
   } else {
@@ -41,7 +46,7 @@ std::string B::applyNameMangling(const evaluate::ProcedureDesignator &proc) {
   }
 }
 
-std::string B::applyNameMangling(semantics::SymbolRef symbol) {
+std::string B::applyNameMangling(Se::SymbolRef symbol) {
   // FIXME: this is fake for now, add type info, etc.
   // For now, only works for external procedures
   // TODO: apply binding
@@ -50,14 +55,14 @@ std::string B::applyNameMangling(semantics::SymbolRef symbol) {
   // TODO: Apply proposed mangling with _Qp_ ....
   return std::visit(
       common::visitors{
-          [&](const semantics::MainProgramDetails &) { return "MAIN_"s; },
-          [&](const semantics::SubprogramDetails &) {
+          [&](const Se::MainProgramDetails &) { return "MAIN_"s; },
+          [&](const Se::SubprogramDetails &) {
             return symbol->name().ToString() + "_";
           },
-          [&](const semantics::ProcEntityDetails &) {
+          [&](const Se::ProcEntityDetails &) {
             return symbol->name().ToString() + "_";
           },
-          [&](const semantics::SubprogramNameDetails &) {
+          [&](const Se::SubprogramNameDetails &) {
             assert(false &&
                 "SubprogramNameDetails not expected after semantic analysis");
             return ""s;
@@ -70,36 +75,39 @@ std::string B::applyNameMangling(semantics::SymbolRef symbol) {
       symbol->details());
 }
 
-mlir::FuncOp B::createFunction(mlir::ModuleOp module, llvm::StringRef name,
-    mlir::FunctionType funcTy, parser::CookedSource const *cooked,
-    parser::CharBlock const *cb) {
-  mlir::MLIRContext *ctxt{module.getContext()};
-  mlir::Location loc{
-      (cooked && cb) ? parserPosToLoc(*ctxt, cooked, *cb) : dummyLoc(*ctxt)};
-  auto func{mlir::FuncOp::create(loc, name, funcTy)};
+M::FuncOp B::createFunction(B::AbstractConverter &converter,
+    llvm::StringRef name, M::FunctionType funcTy) {
+  auto func{M::FuncOp::create(converter.getCurrentLocation(), name, funcTy)};
+  converter.getModuleOp().push_back(func);
+  return func;
+}
+
+M::FuncOp B::createFunction(
+    M::ModuleOp module, llvm::StringRef name, M::FunctionType funcTy) {
+  auto loc{M::UnknownLoc::get(module.getContext())};
+  auto func{M::FuncOp::create(loc, name, funcTy)};
   module.push_back(func);
   return func;
 }
 
-mlir::FuncOp B::getNamedFunction(mlir::ModuleOp module, llvm::StringRef name) {
-  return module.lookupSymbol<mlir::FuncOp>(name);
+M::FuncOp B::getNamedFunction(M::ModuleOp module, llvm::StringRef name) {
+  return module.lookupSymbol<M::FuncOp>(name);
 }
 
-void B::SymMap::addSymbol(semantics::SymbolRef symbol, mlir::Value *value) {
+void B::SymMap::addSymbol(Se::SymbolRef symbol, M::Value *value) {
   symbolMap.try_emplace(&*symbol, value);
 }
 
-mlir::Value *B::SymMap::lookupSymbol(semantics::SymbolRef symbol) {
+M::Value *B::SymMap::lookupSymbol(Se::SymbolRef symbol) {
   auto iter{symbolMap.find(&*symbol)};
   return (iter == symbolMap.end()) ? nullptr : iter->second;
 }
 
-void B::SymMap::pushShadowSymbol(
-    semantics::SymbolRef symbol, mlir::Value *value) {
+void B::SymMap::pushShadowSymbol(Se::SymbolRef symbol, M::Value *value) {
   // find any existing mapping for symbol
   auto iter{symbolMap.find(&*symbol)};
-  const semantics::Symbol *sym{nullptr};
-  mlir::Value *val{nullptr};
+  const Se::Symbol *sym{nullptr};
+  M::Value *val{nullptr};
   // if mapping exists, save it on the shadow stack
   if (iter != symbolMap.end()) {
     sym = iter->first;

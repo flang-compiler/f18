@@ -99,6 +99,8 @@ public:
 
   /// Get the OpBuilder
   virtual mlir::OpBuilder &getOpBuilder() = 0;
+  /// Get the ModuleOp
+  virtual mlir::ModuleOp &getModuleOp() = 0;
 
   virtual ~AbstractConverter() = default;
 };

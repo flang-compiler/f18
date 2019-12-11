@@ -19,6 +19,7 @@
 #include "convert-type.h"
 #include "intrinsics.h"
 #include "io.h"
+#include "mangler.h"
 #include "runtime.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
@@ -94,6 +95,10 @@ class FirConverter : public AbstractConverter {
         loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
 
+  std::string mangledName(SymbolRef symbol) {
+    return mangle::mangleName(mangler, symbol);
+  }
+
   // TODO: we need a map for the various Fortran runtime entry points
   M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
     return genFunctionFIR(
@@ -104,7 +109,7 @@ class FirConverter : public AbstractConverter {
     if (auto func{getNamedFunction(module, callee)}) {
       return func;
     }
-    return createFunction(module, callee, funcTy);
+    return createFunction(*this, callee, funcTy);
   }
 
   static bool inMainProgram(AST::Evaluation *cstr) {
@@ -186,7 +191,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::Statement<Pa::ProgramStmt> &stmt, std::string &name,
       const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
-    name = mangler.getProgramEntry();
+    name = mangler.doProgramEntry();
   }
   void genFIR(const Pa::Statement<Pa::EndProgramStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -199,7 +204,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
+    name = mangledName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -212,7 +217,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
+    name = mangledName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -257,17 +262,17 @@ class FirConverter : public AbstractConverter {
     builder->create<M::ReturnOp>(toLocation(), r);
   }
   void genFIR(const Pa::EndFunctionStmt &stmt) {
-    genFIRFunctionReturn(inFunction(currentEvaluation));
+    genFIRFunctionReturn(static_cast<const Pa::FunctionStmt *>(nullptr));
   }
   template<typename A> void genFIRProcedureExit(const A *) {
     // FIXME: alt-returns
     builder->create<M::ReturnOp>(toLocation());
   }
   void genFIR(const Pa::EndSubroutineStmt &stmt) {
-    genFIRProcedureExit(inSubroutine(currentEvaluation));
+    genFIRProcedureExit(static_cast<const Pa::SubroutineStmt *>(nullptr));
   }
   void genFIR(const Pa::EndMpSubprogramStmt &stmt) {
-    genFIRProcedureExit(inMPSubp(currentEvaluation));
+    genFIRProcedureExit(static_cast<const Pa::MpSubprogramStmt *>(nullptr));
   }
 
   //
@@ -474,7 +479,7 @@ class FirConverter : public AbstractConverter {
       assert(func.getType() == ty);
       return func;
     }
-    return createFunction(module, name, ty);
+    return createFunction(*this, name, ty);
   }
 
   /// Lowering of CALL statement
@@ -844,7 +849,7 @@ class FirConverter : public AbstractConverter {
       }
     }
     auto funcTy{M::FunctionType::get(args, results, &mlirContext)};
-    return createFunction(module, name, funcTy);
+    return createFunction(*this, name, funcTy);
   }
 
   /// Prepare to translate a new function
@@ -901,10 +906,11 @@ class FirConverter : public AbstractConverter {
 
     assert((size == 1 || size == 2) && "ill-formed subprogram");
     if (size == 2) {
+      currentEvaluation = nullptr;
       std::visit(
           [&](auto *p) { genFIR(*p, name, symbol); }, func.funStmts.front());
     } else {
-      name = mangler.getProgramEntry();
+      name = mangler.doProgramEntry();
     }
 
     startNewFunction(func, name, symbol);
@@ -913,6 +919,7 @@ class FirConverter : public AbstractConverter {
     for (auto &e : func.evals) {
       lowerEval(e);
     }
+    currentEvaluation = nullptr;
     std::visit(
         [&](auto *p) { genFIR(*p, name, symbol); }, func.funStmts.back());
 
@@ -983,9 +990,7 @@ class FirConverter : public AbstractConverter {
   //
 
   /// Convert a parser CharBlock to a Location
-  M::Location toLocation(const Pa::CharBlock &cb) {
-    return parserPosToLoc(mlirContext, cooked, cb);
-  }
+  M::Location toLocation(const Pa::CharBlock &cb) { return genLocation(cb); }
 
   M::Location toLocation() { return toLocation(currentPosition); }
 
@@ -1034,7 +1039,7 @@ private:
   Pa::CharBlock currentPosition;
   CFGMapType cfgMap;
   std::list<CFGSinkListType> cfgEdgeSetPool;
-  AST::Evaluation *currentEvaluation;  // FIXME: this is a hack
+  AST::Evaluation *currentEvaluation{nullptr};  // FIXME: this is a hack
 
 public:
   FirConverter() = delete;
@@ -1095,12 +1100,24 @@ public:
   }
 
   M::Location getCurrentLocation() override { return toLocation(); }
-  M::Location genLocation() override { return dummyLoc(mlirContext); }
+  M::Location genLocation() override {
+    return M::UnknownLoc::get(&mlirContext);
+  }
   M::Location genLocation(const Pa::CharBlock &block) override {
-    return parserPosToLoc(mlirContext, cooked, block);
+    if (cooked) {
+      auto loc{cooked->GetSourcePositionRange(block)};
+      if (loc.has_value()) {
+        // loc is a pair (begin, end); use the beginning position
+        auto &filePos{loc->first};
+        return M::FileLineColLoc::get(
+            filePos.file.path(), filePos.line, filePos.column, &mlirContext);
+      }
+    }
+    return genLocation();
   }
 
   M::OpBuilder &getOpBuilder() override { return *builder; }
+  M::ModuleOp &getModuleOp() override { return module; }
 };
 
 }  // namespace

@@ -35,56 +35,56 @@ struct NameMangler {
   NameMangler() = default;
 
   /// Mangle a common block name
-  llvm::Twine doCommonBlock(llvm::StringRef name);
+  std::string doCommonBlock(llvm::StringRef name);
 
   /// Mangle a (global) constant name
-  llvm::Twine doConstant(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doConstant(llvm::ArrayRef<llvm::StringRef> modules,
                          llvm::StringRef name);
 
   /// Mangle a dispatch table name
-  llvm::Twine doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
                               llvm::Optional<llvm::StringRef> host,
                               llvm::StringRef name,
                               llvm::ArrayRef<std::int64_t> kinds);
 
   /// Mangle a compiler generated name
-  llvm::Twine doGenerated(llvm::StringRef name);
+  std::string doGenerated(llvm::StringRef name);
 
   /// Mangle an intrinsic type descriptor
-  llvm::Twine doIntrinsicTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doIntrinsicTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                         llvm::Optional<llvm::StringRef> host,
                                         IntrinsicType type, std::int64_t kind);
 
   /// Mangle a procedure name
-  llvm::Twine doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
                           llvm::Optional<llvm::StringRef> host,
                           llvm::StringRef name);
 
   /// Mangle a derived type name
-  llvm::Twine doType(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doType(llvm::ArrayRef<llvm::StringRef> modules,
                      llvm::Optional<llvm::StringRef> host, llvm::StringRef name,
                      llvm::ArrayRef<std::int64_t> kinds);
 
   /// Mangle a (derived) type descriptor name
-  llvm::Twine doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                llvm::Optional<llvm::StringRef> host,
                                llvm::StringRef name,
                                llvm::ArrayRef<std::int64_t> kinds);
 
   /// Mangle a (global) variable name
-  llvm::Twine doVariable(llvm::ArrayRef<llvm::StringRef> modules,
+  std::string doVariable(llvm::ArrayRef<llvm::StringRef> modules,
                          llvm::StringRef name);
 
   /// Entry point for the PROGRAM (called by the runtime)
-  constexpr static llvm::StringRef getProgramEntry() {
-    return "__MAIN";
+  constexpr static llvm::StringRef doProgramEntry() {
+    return "MAIN_";
   }
 
 private:
-  llvm::Twine addAsString(std::int64_t i);
-  llvm::Twine doKind(std::int64_t kind);
-  llvm::Twine doKinds(llvm::ArrayRef<std::int64_t> kinds);
-  llvm::Twine toLower(llvm::StringRef name);
+  llvm::StringRef addAsString(std::int64_t i);
+  std::string doKind(std::int64_t kind);
+  std::string doKinds(llvm::ArrayRef<std::int64_t> kinds);
+  llvm::StringRef toLower(llvm::StringRef name);
 
   llvm::StringSet<> cache;
 };

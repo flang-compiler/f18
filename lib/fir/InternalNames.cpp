@@ -22,74 +22,84 @@ namespace L = llvm;
 
 namespace {
 
-inline L::Twine prefix() { return "_Q"; }
+inline L::StringRef prefix() { return "_Q"; }
 
-L::Twine doModules(L::ArrayRef<L::StringRef> mods) {
-  L::Twine result;
+std::string doModules(L::ArrayRef<L::StringRef> mods) {
+  std::string result;
   auto *token = "M";
   for (auto mod : mods) {
-    result.concat(token).concat(mod);
+    L::Twine t = result + token + mod;
+    result = t.str();
     token = "S";
   }
   return result;
 }
 
-L::Twine doModulesHost(L::ArrayRef<L::StringRef> mods,
-                       L::Optional<L::StringRef> host) {
-  L::Twine result = doModules(mods);
-  if (host.hasValue())
-    result.concat("F").concat(*host);
+std::string doModulesHost(L::ArrayRef<L::StringRef> mods,
+                          L::Optional<L::StringRef> host) {
+  auto result = doModules(mods);
+  if (host.hasValue()) {
+    L::Twine t = result + "F" + *host;
+    result = t.str();
+  }
   return result;
 }
 
 } // namespace
 
-L::Twine fir::NameMangler::toLower(L::StringRef name) {
+L::StringRef fir::NameMangler::toLower(L::StringRef name) {
   auto lo = name.lower();
   if (name.equals(lo))
     return name;
   return cache.insert(lo).first->getKey();
 }
 
-L::Twine fir::NameMangler::addAsString(std::int64_t i) {
+L::StringRef fir::NameMangler::addAsString(std::int64_t i) {
   return cache.insert(std::to_string(i)).first->getKey();
 }
 
-L::Twine fir::NameMangler::doKind(std::int64_t kind) {
-  if (kind < 0)
-    return "KN" + addAsString(-kind);
-  return "K" + addAsString(kind);
+std::string fir::NameMangler::doKind(std::int64_t kind) {
+  if (kind < 0) {
+    L::Twine result = "KN" + addAsString(-kind);
+    return result.str();
+  }
+  L::Twine result = "K" + addAsString(kind);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doKinds(L::ArrayRef<std::int64_t> kinds) {
+std::string fir::NameMangler::doKinds(L::ArrayRef<std::int64_t> kinds) {
   L::Twine result;
   for (auto i : kinds)
     result.concat(doKind(i));
-  return result;
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doCommonBlock(L::StringRef name) {
-  return prefix() + "B" + toLower(name);
+std::string fir::NameMangler::doCommonBlock(L::StringRef name) {
+  L::Twine result = prefix() + "B" + toLower(name);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doConstant(L::ArrayRef<L::StringRef> modules,
-                                      L::StringRef name) {
-  return prefix() + doModules(modules) + "EC" + toLower(name);
+std::string fir::NameMangler::doConstant(L::ArrayRef<L::StringRef> modules,
+                                         L::StringRef name) {
+  L::Twine result = prefix() + doModules(modules) + "EC" + toLower(name);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doDispatchTable(L::ArrayRef<L::StringRef> modules,
-                                           L::Optional<L::StringRef> host,
-                                           L::StringRef name,
-                                           L::ArrayRef<std::int64_t> kinds) {
-  return prefix() + doModulesHost(modules, host) + "DT" + toLower(name) +
-         doKinds(kinds);
+std::string fir::NameMangler::doDispatchTable(L::ArrayRef<L::StringRef> modules,
+                                              L::Optional<L::StringRef> host,
+                                              L::StringRef name,
+                                              L::ArrayRef<std::int64_t> kinds) {
+  L::Twine result = prefix() + doModulesHost(modules, host) + "DT" +
+                    toLower(name) + doKinds(kinds);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doGenerated(L::StringRef name) {
-  return prefix() + "Q" + toLower(name);
+std::string fir::NameMangler::doGenerated(L::StringRef name) {
+  L::Twine result = prefix() + "Q" + toLower(name);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doIntrinsicTypeDescriptor(
+std::string fir::NameMangler::doIntrinsicTypeDescriptor(
     L::ArrayRef<L::StringRef> modules, L::Optional<L::StringRef> host,
     IntrinsicType type, std::int64_t kind) {
   char const *name;
@@ -110,32 +120,38 @@ L::Twine fir::NameMangler::doIntrinsicTypeDescriptor(
     name = "real";
     break;
   }
-  return prefix() + doModulesHost(modules, host) + "C" + name + doKind(kind);
+  L::Twine result =
+      prefix() + doModulesHost(modules, host) + "C" + name + doKind(kind);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doProcedure(L::ArrayRef<L::StringRef> modules,
-                                       L::Optional<L::StringRef> host,
-                                       L::StringRef name) {
-  return prefix() + doModulesHost(modules, host) + "P" + toLower(name);
+std::string fir::NameMangler::doProcedure(L::ArrayRef<L::StringRef> modules,
+                                          L::Optional<L::StringRef> host,
+                                          L::StringRef name) {
+  L::Twine result =
+      prefix() + doModulesHost(modules, host) + "P" + toLower(name);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doType(L::ArrayRef<L::StringRef> modules,
-                                  L::Optional<L::StringRef> host,
-                                  L::StringRef name,
-                                  L::ArrayRef<std::int64_t> kinds) {
-  return prefix() + doModulesHost(modules, host) + "T" + toLower(name) +
-         doKinds(kinds);
+std::string fir::NameMangler::doType(L::ArrayRef<L::StringRef> modules,
+                                     L::Optional<L::StringRef> host,
+                                     L::StringRef name,
+                                     L::ArrayRef<std::int64_t> kinds) {
+  L::Twine result = prefix() + doModulesHost(modules, host) + "T" +
+                    toLower(name) + doKinds(kinds);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doTypeDescriptor(L::ArrayRef<L::StringRef> modules,
-                                            L::Optional<L::StringRef> host,
-                                            L::StringRef name,
-                                            L::ArrayRef<std::int64_t> kinds) {
-  return prefix() + doModulesHost(modules, host) + "CT" + toLower(name) +
-         doKinds(kinds);
+std::string fir::NameMangler::doTypeDescriptor(
+    L::ArrayRef<L::StringRef> modules, L::Optional<L::StringRef> host,
+    L::StringRef name, L::ArrayRef<std::int64_t> kinds) {
+  L::Twine result = prefix() + doModulesHost(modules, host) + "CT" +
+                    toLower(name) + doKinds(kinds);
+  return result.str();
 }
 
-L::Twine fir::NameMangler::doVariable(L::ArrayRef<L::StringRef> modules,
-                                      L::StringRef name) {
-  return prefix() + doModules(modules) + "E" + toLower(name);
+std::string fir::NameMangler::doVariable(L::ArrayRef<L::StringRef> modules,
+                                         L::StringRef name) {
+  L::Twine result = prefix() + doModules(modules) + "E" + toLower(name);
+  return result.str();
 }

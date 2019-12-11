@@ -35,7 +35,7 @@ class Type;
 namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
-template<typename T> class Reference;
+template<typename> class Reference;
 }  // common
 
 namespace evaluate {
@@ -54,12 +54,12 @@ class CookedSource;
 
 namespace semantics {
 class Symbol;
-using SymbolRef = common::Reference<const Symbol>;
 }  // semantics
 
 namespace burnside {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
+using SymbolRef = common::Reference<const semantics::Symbol>;
 
 constexpr common::TypeCategory IntegerCat{common::TypeCategory::Integer};
 constexpr common::TypeCategory RealCat{common::TypeCategory::Real};
@@ -67,14 +67,6 @@ constexpr common::TypeCategory ComplexCat{common::TypeCategory::Complex};
 constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
 constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
 constexpr common::TypeCategory DerivedCat{common::TypeCategory::Derived};
-
-/// Generate a dummy location when there is no origin
-mlir::Location dummyLoc(mlir::MLIRContext &context);
-
-/// Convert a `CharBlock` front-end position pointer into the `(file, line,
-/// column)` triple for use in MLIR, LLVM, and ultimately DWARF.
-mlir::Location parserPosToLoc(mlir::MLIRContext &context,
-    parser::CookedSource const *cooked, parser::CharBlock const &position);
 
 mlir::Type getFIRType(mlir::MLIRContext *ctxt,
     common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc,
@@ -104,8 +96,7 @@ mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
     common::IntrinsicTypeDefaultKinds const &defaults, const SomeExpr *expr);
 
 mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults,
-    const semantics::SymbolRef symbol);
+    common::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol);
 
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 

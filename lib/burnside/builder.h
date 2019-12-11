@@ -41,6 +41,8 @@ namespace burnside {
 ///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
+class AbstractConverter;
+
 class SymMap {
   llvm::DenseMap<const semantics::Symbol *, mlir::Value *> symbolMap;
   std::vector<std::pair<const semantics::Symbol *, mlir::Value *>> shadowStack;
@@ -59,7 +61,6 @@ public:
   }
 };
 
-std::string applyNameMangling(llvm::StringRef parserName);
 std::string applyNameMangling(const evaluate::ProcedureDesignator &proc);
 std::string applyNameMangling(semantics::SymbolRef symbol);
 
@@ -90,12 +91,14 @@ inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
 /// Get a function by name (or null)
 mlir::FuncOp getNamedFunction(mlir::ModuleOp, llvm::StringRef name);
 
-/// Create a new Function
-/// Both the `CookedSource` and `CharBlock` position should be provided to
-/// properly track source position information.
-mlir::FuncOp createFunction(mlir::ModuleOp module, llvm::StringRef name,
-    mlir::FunctionType funcTy, parser::CookedSource const *cooked = nullptr,
-    parser::CharBlock const *cb = nullptr);
+/// Create a new FuncOp
+mlir::FuncOp createFunction(AbstractConverter &converter, llvm::StringRef name,
+    mlir::FunctionType funcTy);
+
+/// Create a new FuncOp
+/// The function is created with no Location information
+mlir::FuncOp createFunction(
+    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy);
 
 }  // burnside
 }  // Fortran
