@@ -278,10 +278,15 @@ mlir::FuncOp MathRuntimeLibrary::getFuncOp(
 }
 
 // This helper class computes a "distance" between two function types.
-// The distance represents the argument and result conversions
-// that are required if one use "to" instead of "from".
-// Note that this is not a reflexive distance, and it does not
-// define a total order at all.
+// The distance measures how many narrowing conversions of actual arguments
+// and result of "from" must be made in order to use "to" instead of "from".
+// For instance, the distance between ACOS(REAL(10)) and ACOS(REAL(8)) is
+// greater than the one between ACOS(REAL(10)) and ACOS(REAL(16)). This means
+// if no implementation of ACOS(REAL(10)) is available, it is better to use
+// ACOS(REAL(16)) with casts rather than ACOS(REAL(8)).
+// Note that this is not a symmetric distance and the order of "from" and "to"
+// arguments matters, d(foo, bar) may not be the same as d(bar, foo) because it
+// may be safe to replace foo by bar, but not the opposite.
 class FunctionDistance {
 public:
   FunctionDistance() : infinite{true} {}
@@ -329,7 +334,20 @@ private:
     case Conversion::Extend: conversions[extendingResult]++; break;
     }
   }
-
+  // Floating point can be mlir::FloatType or fir::real
+  static unsigned getFloatingPointWidth(mlir::Type t) {
+    if (auto f{t.dyn_cast<mlir::FloatType>()}) return f.getWidth();
+    // FIXME: Get width another way for fir.real/complex
+    // - use fir/KindMapping.h and LLVM::Type
+    // - or use evaluate/type.h
+    if (auto r{t.dyn_cast<fir::RealType>()}) return r.getFKind() * 4;
+    if (auto cplx{t.dyn_cast<fir::CplxType>()}) return cplx.getFKind() * 4;
+    assert(false && "not a floating-point type");
+    return 0;
+  }
+  static bool isFloatingPointType(mlir::Type t) {
+    return t.isa<mlir::FloatType>() || t.isa<fir::RealType>();
+  }
   static Conversion conversionBetweenTypes(mlir::Type from, mlir::Type to) {
     if (from == to) {
       return Conversion::None;
@@ -340,24 +358,17 @@ private:
                                                          : Conversion::Extend;
       }
     }
-    if (auto fromRealTy{from.dyn_cast<fir::RealType>()}) {
-      if (auto toRealTy{to.dyn_cast<fir::RealType>()}) {
-        // FIXME: With the current runtime (no functions with f16 and bf16
-        // types), and the current kinds to representation mapping, that
-        // just works, but that is not that simple:
-        //    - conversions between f16 and bf16 destroy information in both
-        //    ways.
-        //    - No assumptions regarding kind <-> representation should be made
-        //    here.
-        return fromRealTy.getFKind() > toRealTy.getFKind() ? Conversion::Narrow
-                                                           : Conversion::Extend;
-      }
+    if (isFloatingPointType(from) && isFloatingPointType(to)) {
+      return getFloatingPointWidth(from) > getFloatingPointWidth(to)
+          ? Conversion::Narrow
+          : Conversion::Extend;
     }
     if (auto fromCplxTy{from.dyn_cast<fir::CplxType>()}) {
-      if (auto toCplxTy{to.dyn_cast<fir::RealType>()}) {
-        // FIXME: Same as for Real.
-        return fromCplxTy.getFKind() > toCplxTy.getFKind() ? Conversion::Narrow
-                                                           : Conversion::Extend;
+      if (auto toCplxTy{to.dyn_cast<fir::CplxType>()}) {
+        return getFloatingPointWidth(fromCplxTy) >
+                getFloatingPointWidth(toCplxTy)
+            ? Conversion::Narrow
+            : Conversion::Extend;
       }
     }
     // Notes:
@@ -554,7 +565,7 @@ mlir::Value *IntrinsicLibrary::Implementation::genRuntimeCall(
     // TODO: better error handling ?
     //  - Try to have compile time check of runtime compltness ?
   }
-  return {}; // gets rid of warnings
+  return {};  // gets rid of warnings
 }
 
 // CONJG

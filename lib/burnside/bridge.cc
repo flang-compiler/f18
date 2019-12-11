@@ -94,6 +94,10 @@ class FirConverter : public AbstractConverter {
     return createI1LogicalExpression(
         loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
+  M::Value *createTemporary(M::Location loc, const Se::Symbol &sym) {
+    return ::createTemporary(loc, *builder, localSymbols,
+        translateSymbolToFIRType(builder->getContext(), defaults, sym), &sym);
+  }
 
   std::string mangledName(SymbolRef symbol) {
     return mangle::mangleName(mangler, symbol);
@@ -207,9 +211,10 @@ class FirConverter : public AbstractConverter {
     name = mangledName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
-      const Se::Symbol *&) {
+      const Se::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
-    genFIR(stmt.statement);
+    assert(symbol);
+    genFIRFunctionReturn(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::SubroutineStmt> &stmt, std::string &name,
       const Se::Symbol *&symbol) {
@@ -250,19 +255,11 @@ class FirConverter : public AbstractConverter {
   /// END of procedure-like constructs
   ///
   /// Generate the cleanup block before the procedure exits
-  void genFIRFunctionReturn(const Pa::FunctionStmt *stmt) {
-    auto &name = std::get<Pa::Name>(stmt->t);
-    assert(name.symbol);
-    const auto &details{name.symbol->get<Se::SubprogramDetails>()};
+  void genFIRFunctionReturn(const Se::Symbol &functionSymbol) {
+    const auto &details{functionSymbol.get<Se::SubprogramDetails>()};
     M::Value *resultRef{localSymbols.lookupSymbol(details.result())};
-    // FIXME: what happens if result was never referenced before and hence no
-    // temp was created?
-    assert(resultRef);
     M::Value *r{builder->create<fir::LoadOp>(toLocation(), resultRef)};
     builder->create<M::ReturnOp>(toLocation(), r);
-  }
-  void genFIR(const Pa::EndFunctionStmt &stmt) {
-    genFIRFunctionReturn(static_cast<const Pa::FunctionStmt *>(nullptr));
   }
   template<typename A> void genFIRProcedureExit(const A *) {
     // FIXME: alt-returns
@@ -775,13 +772,15 @@ class FirConverter : public AbstractConverter {
   }
 
   // gen expression, if any; share code with END of procedure
-  void genFIR(const Pa::ReturnStmt &stmt) {
+  void genFIR(const Pa::ReturnStmt &) {
     if (inMainProgram(currentEvaluation)) {
       builder->create<M::ReturnOp>(toLocation());
     } else if (auto *stmt = inSubroutine(currentEvaluation)) {
       genFIRProcedureExit(stmt);
     } else if (auto *stmt = inFunction(currentEvaluation)) {
-      genFIRFunctionReturn(stmt);
+      auto *symbol = std::get<Pa::Name>(stmt->t).symbol;
+      assert(symbol);
+      genFIRFunctionReturn(*symbol);
     } else if (auto *stmt = inMPSubp(currentEvaluation)) {
       genFIRProcedureExit(stmt);
     } else {
@@ -877,6 +876,9 @@ class FirConverter : public AbstractConverter {
         } else {
           TODO();  // handle alternate return
         }
+      }
+      if (details->isFunction()) {
+        createTemporary(toLocation(), details->result());
       }
     }
   }
