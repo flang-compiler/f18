@@ -21,6 +21,7 @@ add_library(FortranEvaluate
   constant.cc
   expression.cc
   fold.cc
+  fold-intrinsics.cc
   formatting.cc
   host.cc
   integer.cc
