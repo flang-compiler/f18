@@ -27,54 +27,6 @@ namespace Se = Fortran::semantics;
 using namespace Fortran;
 using namespace Fortran::burnside;
 
-#if 0
-// This will need to be extended to consider the type of what is being mangled
-std::string B::applyNameMangling(llvm::StringRef parserName) {
-  // FIXME: this is fake for now, add type info, etc.
-  return "_Qp_"s + parserName.str();
-}
-#endif
-
-std::string B::applyNameMangling(const Ev::ProcedureDesignator &proc) {
-  if (const auto *symbol{proc.GetSymbol()}) {
-    return applyNameMangling(*symbol);
-  } else {
-    // Do not mangle intrinsic for now
-    assert(proc.GetSpecificIntrinsic() &&
-        "expected intrinsic procedure in designator");
-    return proc.GetName();
-  }
-}
-
-std::string B::applyNameMangling(Se::SymbolRef symbol) {
-  // FIXME: this is fake for now, add type info, etc.
-  // For now, only works for external procedures
-  // TODO: apply binding
-  // TODO: determine if procedure are:
-  //   - external, internal or  module
-  // TODO: Apply proposed mangling with _Qp_ ....
-  return std::visit(
-      common::visitors{
-          [&](const Se::MainProgramDetails &) { return "MAIN_"s; },
-          [&](const Se::SubprogramDetails &) {
-            return symbol->name().ToString() + "_";
-          },
-          [&](const Se::ProcEntityDetails &) {
-            return symbol->name().ToString() + "_";
-          },
-          [&](const Se::SubprogramNameDetails &) {
-            assert(false &&
-                "SubprogramNameDetails not expected after semantic analysis");
-            return ""s;
-          },
-          [&](const auto &) {
-            assert(false && "Symbol mangling TODO");
-            return ""s;
-          },
-      },
-      symbol->details());
-}
-
 M::FuncOp B::createFunction(B::AbstractConverter &converter,
     llvm::StringRef name, M::FunctionType funcTy) {
   auto func{M::FuncOp::create(converter.getCurrentLocation(), name, funcTy)};

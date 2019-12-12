@@ -13,10 +13,10 @@
 // limitations under the License.
 
 #include "convert-expr.h"
+#include "bridge.h"
 #include "builder.h"
 #include "complex-handler.h"
 #include "convert-type.h"
-#include "intrinsics.h"
 #include "runtime.h"
 #include "../common/default-kinds.h"
 #include "../common/unwrap.h"
@@ -36,12 +36,8 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Attributes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -67,13 +63,13 @@ namespace {
 /// Lowering of Fortran::evaluate::Expr<T> expressions
 class ExprLowering {
   M::Location location;
+  AbstractConverter &converter;
   M::OpBuilder &builder;
   SomeExpr const &expr;
   SymMap &symMap;
 #if 0
   SymMap loadedSymbols;
 #endif
-  Co::IntrinsicTypeDefaultKinds const &defaults;
   IntrinsicLibrary const &intrinsics;
   bool genLogicalAsI1{false};
 
@@ -113,7 +109,7 @@ class ExprLowering {
   /// Generate an integral constant of `value`
   template<int KIND>
   M::Value *genIntegerConstant(M::MLIRContext *context, std::int64_t value) {
-    M::Type type{getFIRType(context, defaults, IntegerCat, KIND)};
+    M::Type type{converter.genType(IntegerCat, KIND)};
     auto attr{builder.getIntegerAttr(type, value)};
     auto res{builder.create<M::ConstantOp>(getLoc(), type, attr)};
     return res.getResult();
@@ -170,8 +166,7 @@ class ExprLowering {
   // FIXME binary operation :: ('a, 'a) -> 'a
   template<Co::TypeCategory TC, int KIND> M::FunctionType createFunctionType() {
     if constexpr (TC == IntegerCat) {
-      M::Type output{
-          getFIRType(builder.getContext(), defaults, IntegerCat, KIND)};
+      M::Type output{converter.genType(IntegerCat, KIND)};
       L::SmallVector<M::Type, 2> inputs;
       inputs.push_back(output);
       inputs.push_back(output);
@@ -227,8 +222,8 @@ class ExprLowering {
 
   M::Value *gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
-    return createTemporary(getLoc(), builder, symMap,
-        translateSymbolToFIRType(builder.getContext(), defaults, sym), &*sym);
+    return createTemporary(
+        getLoc(), builder, symMap, converter.genType(sym), &*sym);
   }
   M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
 
@@ -334,7 +329,7 @@ class ExprLowering {
   M::Value *genval(Ev::Power<Ev::Type<TC, KIND>> const &op) {
     llvm::SmallVector<mlir::Value *, 2> operands{
         genval(op.left()), genval(op.right())};
-    M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
+    M::Type ty{converter.genType(TC, KIND)};
     return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
   template<Co::TypeCategory TC, int KIND>
@@ -343,7 +338,7 @@ class ExprLowering {
     // are ok
     llvm::SmallVector<mlir::Value *, 2> operands{
         genval(op.left()), genval(op.right())};
-    M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
+    M::Type ty{converter.genType(TC, KIND)};
     return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
 
@@ -397,7 +392,7 @@ class ExprLowering {
 
   template<Co::TypeCategory TC1, int KIND, Co::TypeCategory TC2>
   M::Value *genval(Ev::Convert<Ev::Type<TC1, KIND>, TC2> const &convert) {
-    auto ty{getFIRType(builder.getContext(), defaults, TC1, KIND)};
+    auto ty{converter.genType(TC1, KIND)};
     M::Value *operand{genval(convert.left())};
     if (TC1 == LogicalCat && genLogicalAsI1) {
       // If an i1 result is needed, it does not make sens to convert between
@@ -563,7 +558,7 @@ class ExprLowering {
     L::SmallVector<M::Value *, 2> coorArgs;
     auto obj{gen(*base)};
     const Se::Symbol *sym{nullptr};
-    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, *sym)};
+    M::Type ty{converter.genType(*sym)};
     for (auto *field : list) {
       sym = &field->GetLastSymbol();
       auto name{sym->name().ToString()};
@@ -654,7 +649,7 @@ class ExprLowering {
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(const Ev::FunctionRef<Ev::Type<TC, KIND>> &funRef) {
     if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
-      M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
+      M::Type ty{converter.genType(TC, KIND)};
       L::SmallVector<M::Value *, 2> operands;
       // Lower arguments
       // For now, logical arguments for intrinsic are lowered to `fir.logical`
@@ -696,7 +691,7 @@ class ExprLowering {
           TODO();
         }
       }
-      M::Type resultType{getFIRType(builder.getContext(), defaults, TC, KIND)};
+      M::Type resultType{converter.genType(TC, KIND)};
       M::FunctionType funTy{
           M::FunctionType::get(argTypes, resultType, builder.getContext())};
       M::FuncOp func{getFunction(applyNameMangling(funRef.proc()), funTy)};
@@ -733,8 +728,7 @@ class ExprLowering {
         }
       } else if (type.isa<M::IntegerType>()) {
         if (!genLogicalAsI1) {
-          M::Type firLogicalType{
-              getFIRType(builder.getContext(), defaults, LogicalCat, KIND)};
+          M::Type firLogicalType{converter.genType(LogicalCat, KIND)};
           result =
               builder.create<fir::ConvertOp>(getLoc(), firLogicalType, result);
         }
@@ -754,13 +748,23 @@ class ExprLowering {
     return {};
   }
 
+  std::string applyNameMangling(const Ev::ProcedureDesignator &proc) {
+    if (const auto *symbol{proc.GetSymbol()}) {
+      return converter.mangleName(*symbol);
+    } else {
+      // Do not mangle intrinsic for now
+      assert(proc.GetSpecificIntrinsic() &&
+          "expected intrinsic procedure in designator");
+      return proc.GetName();
+    }
+  }
+
 public:
-  explicit ExprLowering(M::Location loc, M::OpBuilder &bldr,
-      SomeExpr const &vop, SymMap &map,
-      Co::IntrinsicTypeDefaultKinds const &defaults,
-      IntrinsicLibrary const &intr, bool logicalAsI1 = false)
-    : location{loc}, builder{bldr}, expr{vop}, symMap{map}, defaults{defaults},
-      intrinsics{intr}, genLogicalAsI1{logicalAsI1} {}
+  explicit ExprLowering(M::Location loc, AbstractConverter &converter,
+      SomeExpr const &vop, SymMap &map, IntrinsicLibrary const &intr,
+      bool logicalAsI1 = false)
+    : location{loc}, converter{converter}, builder{converter.getOpBuilder()},
+      expr{vop}, symMap{map}, intrinsics{intr}, genLogicalAsI1{logicalAsI1} {}
 
   /// Lower the expression `expr` into MLIR standard dialect
   M::Value *gen() { return gen(expr); }
@@ -769,27 +773,22 @@ public:
 
 }  // namespace
 
-M::Value *Br::createSomeExpression(M::Location loc, M::OpBuilder &builder,
-    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
-    Co::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics) {
-  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics, false}
-      .genval();
+M::Value *Br::createSomeExpression(M::Location loc,
+    Br::AbstractConverter &converter, Ev::Expr<Ev::SomeType> const &expr,
+    SymMap &symMap, IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, converter, expr, symMap, intrinsics, false}.genval();
 }
 
-M::Value *Br::createI1LogicalExpression(M::Location loc, M::OpBuilder &builder,
-    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
-    Co::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics) {
-  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics, true}
-      .genval();
+M::Value *Br::createI1LogicalExpression(M::Location loc,
+    Br::AbstractConverter &converter, Ev::Expr<Ev::SomeType> const &expr,
+    SymMap &symMap, IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, converter, expr, symMap, intrinsics, true}.genval();
 }
 
-M::Value *Br::createSomeAddress(M::Location loc, M::OpBuilder &builder,
-    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
-    Co::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics) {
-  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics}.gen();
+M::Value *Br::createSomeAddress(M::Location loc,
+    Br::AbstractConverter &converter, Ev::Expr<Ev::SomeType> const &expr,
+    SymMap &symMap, IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, converter, expr, symMap, intrinsics}.gen();
 }
 
 /// Create a temporary variable

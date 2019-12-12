@@ -34,9 +34,7 @@
 #include "mlir/Target/LLVMIR.h"
 
 #undef TODO
-#define TODO() \
-  llvm::errs() << __FILE__ << ":" << __LINE__ << " not yet implemented\n"; \
-  std::exit(1)
+#define TODO() assert(false && "not yet implemented");
 
 #undef SOFT_TODO
 #define SOFT_TODO() \
@@ -82,25 +80,18 @@ class FirConverter : public AbstractConverter {
   //
 
   M::Value *createFIRAddr(M::Location loc, const Se::SomeExpr *expr) {
-    return createSomeAddress(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+    return createSomeAddress(loc, *this, *expr, localSymbols, intrinsics);
   }
 
   M::Value *createFIRExpr(M::Location loc, const Se::SomeExpr *expr) {
-    return createSomeExpression(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+    return createSomeExpression(loc, *this, *expr, localSymbols, intrinsics);
   }
   M::Value *createLogicalExprAsI1(M::Location loc, const Se::SomeExpr *expr) {
     return createI1LogicalExpression(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+        loc, *this, *expr, localSymbols, intrinsics);
   }
   M::Value *createTemporary(M::Location loc, const Se::Symbol &sym) {
-    return ::createTemporary(loc, *builder, localSymbols,
-        translateSymbolToFIRType(builder->getContext(), defaults, sym), &sym);
-  }
-
-  std::string mangledName(SymbolRef symbol) {
-    return mangle::mangleName(mangler, symbol);
+    return Br::createTemporary(loc, *builder, localSymbols, genType(sym), &sym);
   }
 
   // TODO: we need a map for the various Fortran runtime entry points
@@ -195,7 +186,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::Statement<Pa::ProgramStmt> &stmt, std::string &name,
       const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
-    name = mangler.doProgramEntry();
+    name = uniquer.doProgramEntry();
   }
   void genFIR(const Pa::Statement<Pa::EndProgramStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -208,7 +199,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = mangledName(*symbol);
+    name = mangleName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
       const Se::Symbol *&symbol) {
@@ -222,7 +213,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = mangledName(*symbol);
+    name = mangleName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -912,7 +903,7 @@ class FirConverter : public AbstractConverter {
       std::visit(
           [&](auto *p) { genFIR(*p, name, symbol); }, func.funStmts.front());
     } else {
-      name = mangler.doProgramEntry();
+      name = uniquer.doProgramEntry();
     }
 
     startNewFunction(func, name, symbol);
@@ -1034,7 +1025,7 @@ private:
   const Co::IntrinsicTypeDefaultKinds &defaults;
   IntrinsicLibrary intrinsics;
   M::OpBuilder *builder{nullptr};
-  fir::NameMangler &mangler;
+  fir::NameUniquer &uniquer;
   SymMap localSymbols;
   std::list<Closure> localEdgeQ;
   LabelMapType localBlockMap;
@@ -1049,12 +1040,12 @@ public:
   FirConverter &operator=(const FirConverter &) = delete;
   virtual ~FirConverter() = default;
 
-  explicit FirConverter(BurnsideBridge &bridge, fir::NameMangler &mangler)
+  explicit FirConverter(BurnsideBridge &bridge, fir::NameUniquer &uniquer)
     : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
       module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
       intrinsics{IntrinsicLibrary::create(
           IntrinsicLibrary::Version::LLVM, bridge.getMLIRContext())},
-      mangler{mangler} {}
+      uniquer{uniquer} {}
 
   /// Convert the AST to FIR
   void run(AST::Program &ast) {
@@ -1083,29 +1074,35 @@ public:
   // AbstractConverter overrides
 
   M::Value *genExprAddr(
-      const SomeExpr &expr, M::Location *loc = nullptr) override {
+      const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRAddr(loc ? *loc : toLocation(), &expr);
   }
   M::Value *genExprValue(
-      const SomeExpr &expr, M::Location *loc = nullptr) override {
+      const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRExpr(loc ? *loc : toLocation(), &expr);
   }
 
-  M::Type genType(const Ev::DataRef &data) override {
+  M::Type genType(const Ev::DataRef &data) override final {
     return translateDataRefToFIRType(&mlirContext, defaults, data);
   }
-  M::Type genType(const SomeExpr &expr) override {
+  M::Type genType(const SomeExpr &expr) override final {
     return translateSomeExprToFIRType(&mlirContext, defaults, &expr);
   }
-  M::Type genType(const SymbolRef &sym) override {
+  M::Type genType(SymbolRef sym) override final {
     return translateSymbolToFIRType(&mlirContext, defaults, sym);
   }
+  M::Type genType(common::TypeCategory tc, int kind) override final {
+    return getFIRType(&mlirContext, defaults, tc, kind);
+  }
+  M::Type genType(common::TypeCategory tc) override final {
+    return getFIRType(&mlirContext, defaults, tc);
+  }
 
-  M::Location getCurrentLocation() override { return toLocation(); }
-  M::Location genLocation() override {
+  M::Location getCurrentLocation() override final { return toLocation(); }
+  M::Location genLocation() override final {
     return M::UnknownLoc::get(&mlirContext);
   }
-  M::Location genLocation(const Pa::CharBlock &block) override {
+  M::Location genLocation(const Pa::CharBlock &block) override final {
     if (cooked) {
       auto loc{cooked->GetSourcePositionRange(block)};
       if (loc.has_value()) {
@@ -1118,17 +1115,21 @@ public:
     return genLocation();
   }
 
-  M::OpBuilder &getOpBuilder() override { return *builder; }
-  M::ModuleOp &getModuleOp() override { return module; }
+  M::OpBuilder &getOpBuilder() override final { return *builder; }
+  M::ModuleOp &getModuleOp() override final { return module; }
+
+  std::string mangleName(SymbolRef symbol) override final {
+    return mangle::mangleName(uniquer, symbol);
+  }
 };
 
 }  // namespace
 
 void Br::BurnsideBridge::lower(
-    const Pa::Program &prg, fir::NameMangler &mangler) {
+    const Pa::Program &prg, fir::NameUniquer &uniquer) {
   AST::Program *ast{Br::createAST(prg)};
   Br::annotateControl(*ast);
-  FirConverter converter{*this, mangler};
+  FirConverter converter{*this, uniquer};
   converter.run(*ast);
   delete ast;
 }

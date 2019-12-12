@@ -13,9 +13,8 @@
 // limitations under the License.
 
 #include "fir/InternalNames.h"
-#include "llvm/ADT/ArrayRef.h"
+#include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
 namespace L = llvm;
@@ -47,18 +46,18 @@ std::string doModulesHost(L::ArrayRef<L::StringRef> mods,
 
 } // namespace
 
-L::StringRef fir::NameMangler::toLower(L::StringRef name) {
+L::StringRef fir::NameUniquer::toLower(L::StringRef name) {
   auto lo = name.lower();
   if (name.equals(lo))
     return name;
   return cache.insert(lo).first->getKey();
 }
 
-L::StringRef fir::NameMangler::addAsString(std::int64_t i) {
+L::StringRef fir::NameUniquer::addAsString(std::int64_t i) {
   return cache.insert(std::to_string(i)).first->getKey();
 }
 
-std::string fir::NameMangler::doKind(std::int64_t kind) {
+std::string fir::NameUniquer::doKind(std::int64_t kind) {
   if (kind < 0) {
     L::Twine result = "KN" + addAsString(-kind);
     return result.str();
@@ -67,25 +66,25 @@ std::string fir::NameMangler::doKind(std::int64_t kind) {
   return result.str();
 }
 
-std::string fir::NameMangler::doKinds(L::ArrayRef<std::int64_t> kinds) {
+std::string fir::NameUniquer::doKinds(L::ArrayRef<std::int64_t> kinds) {
   L::Twine result;
   for (auto i : kinds)
     result.concat(doKind(i));
   return result.str();
 }
 
-std::string fir::NameMangler::doCommonBlock(L::StringRef name) {
+std::string fir::NameUniquer::doCommonBlock(L::StringRef name) {
   L::Twine result = prefix() + "B" + toLower(name);
   return result.str();
 }
 
-std::string fir::NameMangler::doConstant(L::ArrayRef<L::StringRef> modules,
+std::string fir::NameUniquer::doConstant(L::ArrayRef<L::StringRef> modules,
                                          L::StringRef name) {
   L::Twine result = prefix() + doModules(modules) + "EC" + toLower(name);
   return result.str();
 }
 
-std::string fir::NameMangler::doDispatchTable(L::ArrayRef<L::StringRef> modules,
+std::string fir::NameUniquer::doDispatchTable(L::ArrayRef<L::StringRef> modules,
                                               L::Optional<L::StringRef> host,
                                               L::StringRef name,
                                               L::ArrayRef<std::int64_t> kinds) {
@@ -94,12 +93,12 @@ std::string fir::NameMangler::doDispatchTable(L::ArrayRef<L::StringRef> modules,
   return result.str();
 }
 
-std::string fir::NameMangler::doGenerated(L::StringRef name) {
+std::string fir::NameUniquer::doGenerated(L::StringRef name) {
   L::Twine result = prefix() + "Q" + toLower(name);
   return result.str();
 }
 
-std::string fir::NameMangler::doIntrinsicTypeDescriptor(
+std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
     L::ArrayRef<L::StringRef> modules, L::Optional<L::StringRef> host,
     IntrinsicType type, std::int64_t kind) {
   char const *name;
@@ -125,7 +124,7 @@ std::string fir::NameMangler::doIntrinsicTypeDescriptor(
   return result.str();
 }
 
-std::string fir::NameMangler::doProcedure(L::ArrayRef<L::StringRef> modules,
+std::string fir::NameUniquer::doProcedure(L::ArrayRef<L::StringRef> modules,
                                           L::Optional<L::StringRef> host,
                                           L::StringRef name) {
   L::Twine result =
@@ -133,7 +132,7 @@ std::string fir::NameMangler::doProcedure(L::ArrayRef<L::StringRef> modules,
   return result.str();
 }
 
-std::string fir::NameMangler::doType(L::ArrayRef<L::StringRef> modules,
+std::string fir::NameUniquer::doType(L::ArrayRef<L::StringRef> modules,
                                      L::Optional<L::StringRef> host,
                                      L::StringRef name,
                                      L::ArrayRef<std::int64_t> kinds) {
@@ -142,7 +141,7 @@ std::string fir::NameMangler::doType(L::ArrayRef<L::StringRef> modules,
   return result.str();
 }
 
-std::string fir::NameMangler::doTypeDescriptor(
+std::string fir::NameUniquer::doTypeDescriptor(
     L::ArrayRef<L::StringRef> modules, L::Optional<L::StringRef> host,
     L::StringRef name, L::ArrayRef<std::int64_t> kinds) {
   L::Twine result = prefix() + doModulesHost(modules, host) + "CT" +
@@ -150,8 +149,14 @@ std::string fir::NameMangler::doTypeDescriptor(
   return result.str();
 }
 
-std::string fir::NameMangler::doVariable(L::ArrayRef<L::StringRef> modules,
+std::string fir::NameUniquer::doVariable(L::ArrayRef<L::StringRef> modules,
                                          L::StringRef name) {
   L::Twine result = prefix() + doModules(modules) + "E" + toLower(name);
   return result.str();
+}
+
+std::pair<fir::NameUniquer::NameKind, fir::NameUniquer::DeconstructedName>
+fir::NameUniquer::deconstruct(L::StringRef uniquedName) {
+  assert(false && "not yet implemented");
+  return {};
 }

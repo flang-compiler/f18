@@ -78,8 +78,8 @@ class FIRToLLVMTypeConverter : public M::LLVMTypeConverter {
   static L::StringMap<M::LLVM::LLVMType> identStructCache;
 
 public:
-  FIRToLLVMTypeConverter(M::MLIRContext *context, NameMangler &mangler)
-      : LLVMTypeConverter(context), kindMapping(context), mangler(mangler) {}
+  FIRToLLVMTypeConverter(M::MLIRContext *context, NameUniquer &uniquer)
+      : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {}
 
   // This returns the type of a single column. Rows are added by the caller.
   // fir.dims<r>  -->  llvm<"[r x [3 x i64]]">
@@ -311,7 +311,7 @@ public:
     return wrappedLLVMType;
   }
 
-  NameMangler &mangler;
+  NameUniquer &uniquer;
 };
 
 // instantiate static data member
@@ -1330,7 +1330,7 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto gentypedesc = M::cast<GenTypeDescOp>(op);
     auto ty = unwrap(convertType(gentypedesc.getInType())).getPointerTo();
-    std::string name = "fixme"; // FIXME: get the mangled name
+    std::string name = "fixme"; // FIXME: get the uniqued name
     rewriter.replaceOpWithNewOp<M::LLVM::AddressOfOp>(gentypedesc, ty, name);
     return matchSuccess();
   }
@@ -1896,14 +1896,14 @@ struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
-  FIRToLLVMLoweringPass(NameMangler &mangler) : mangler{mangler} {}
+  FIRToLLVMLoweringPass(NameUniquer &uniquer) : uniquer{uniquer} {}
 
   void runOnModule() override {
     if (ClDisableFirToLLVMIR)
       return;
 
     auto *context{&getContext()};
-    FIRToLLVMTypeConverter typeConverter{context, mangler};
+    FIRToLLVMTypeConverter typeConverter{context, uniquer};
     M::OwningRewritePatternList patterns;
     patterns.insert<
         AddcOpConversion, AddfOpConversion, AddrOfOpConversion,
@@ -1955,7 +1955,7 @@ private:
     }
   }
 
-  NameMangler &mangler;
+  NameUniquer &uniquer;
 };
 
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
@@ -1986,8 +1986,8 @@ private:
 } // namespace
 
 std::unique_ptr<M::Pass>
-fir::createFIRToLLVMPass(fir::NameMangler &nameMangler) {
-  return std::make_unique<FIRToLLVMLoweringPass>(nameMangler);
+fir::createFIRToLLVMPass(fir::NameUniquer &nameUniquer) {
+  return std::make_unique<FIRToLLVMLoweringPass>(nameUniquer);
 }
 
 std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass(L::StringRef output) {

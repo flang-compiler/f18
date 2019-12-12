@@ -15,6 +15,7 @@
 #ifndef FORTRAN_BURNSIDE_BRIDGE_H_
 #define FORTRAN_BURNSIDE_BRIDGE_H_
 
+#include "../common/Fortran.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include <memory>
@@ -52,7 +53,7 @@ namespace mlir {
 class OpBuilder;
 }
 namespace fir {
-struct NameMangler;
+struct NameUniquer;
 }
 
 namespace Fortran::burnside {
@@ -82,7 +83,11 @@ public:
   /// Generate the type of an Expr
   virtual mlir::Type genType(const SomeExpr &) = 0;
   /// Generate the type of a Symbol
-  virtual mlir::Type genType(const SymbolRef &) = 0;
+  virtual mlir::Type genType(SymbolRef) = 0;
+  /// Generate the type from a category
+  virtual mlir::Type genType(common::TypeCategory tc) = 0;
+  /// Generate the type from a category and kind
+  virtual mlir::Type genType(common::TypeCategory tc, int kind) = 0;
 
   //
   // Locations
@@ -101,6 +106,8 @@ public:
   virtual mlir::OpBuilder &getOpBuilder() = 0;
   /// Get the ModuleOp
   virtual mlir::ModuleOp &getModuleOp() = 0;
+  /// Unique a symbol
+  virtual std::string mangleName(SymbolRef) = 0;
 
   virtual ~AbstractConverter() = default;
 };
@@ -127,7 +134,7 @@ public:
   const parser::CookedSource *getCookedSource() const { return cooked; }
 
   /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
-  void lower(const parser::Program &program, fir::NameMangler &mangler);
+  void lower(const parser::Program &program, fir::NameUniquer &uniquer);
 
 private:
   explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,

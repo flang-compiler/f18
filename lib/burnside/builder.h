@@ -61,9 +61,6 @@ public:
   }
 };
 
-std::string applyNameMangling(const evaluate::ProcedureDesignator &proc);
-std::string applyNameMangling(semantics::SymbolRef symbol);
-
 /// Get the current Module
 inline mlir::ModuleOp getModule(mlir::OpBuilder *bldr) {
   return bldr->getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();

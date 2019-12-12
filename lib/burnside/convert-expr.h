@@ -44,22 +44,22 @@ class Symbol;
 
 namespace burnside {
 
+class AbstractConverter;
 class SymMap;
 
-mlir::Value *createSomeExpression(mlir::Location loc, mlir::OpBuilder &builder,
-    evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
-    common::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics);
+mlir::Value *createSomeExpression(mlir::Location loc,
+    AbstractConverter &converter,
+    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
+    const IntrinsicLibrary &intrinsics);
 
 mlir::Value *createI1LogicalExpression(mlir::Location loc,
-    mlir::OpBuilder &builder, evaluate::Expr<evaluate::SomeType> const &expr,
-    SymMap &symMap, common::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics);
+    AbstractConverter &converter,
+    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
+    const IntrinsicLibrary &intrinsics);
 
-mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
-    evaluate::Expr<evaluate::SomeType> const &expr, SymMap &symMap,
-    common::IntrinsicTypeDefaultKinds const &defaults,
-    IntrinsicLibrary const &intrinsics);
+mlir::Value *createSomeAddress(mlir::Location loc, AbstractConverter &converter,
+    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
+    const IntrinsicLibrary &intrinsics);
 
 mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);

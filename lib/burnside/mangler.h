@@ -18,7 +18,7 @@
 #include <string>
 
 namespace fir {
-struct NameMangler;
+struct NameUniquer;
 }
 
 namespace llvm {
@@ -40,7 +40,7 @@ using SymbolRef = common::Reference<const semantics::Symbol>;
 namespace mangle {
 
 /// Convert a front-end Symbol to an internal name
-std::string mangleName(fir::NameMangler &mangler, const SymbolRef symbol);
+std::string mangleName(fir::NameUniquer &uniquer, const SymbolRef symbol);
 
 std::string demangleName(llvm::StringRef name);
 

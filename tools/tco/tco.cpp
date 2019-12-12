@@ -67,7 +67,7 @@ int compileFIR() {
   owningRef->dump();
 
   // run passes
-  fir::NameMangler mangler;
+  fir::NameUniquer uniquer;
   mlir::PassManager pm{context.get()};
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
@@ -78,7 +78,7 @@ int compileFIR() {
   pm.addPass(fir::createFIRToStdPass());
   // convert loop dialect to standard
   pm.addPass(mlir::createLowerToCFGPass());
-  pm.addPass(fir::createFIRToLLVMPass(mangler));
+  pm.addPass(fir::createFIRToLLVMPass(uniquer));
   pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
   if (mlir::succeeded(pm.run(*owningRef))) {
     errs() << ";== output ==\n";

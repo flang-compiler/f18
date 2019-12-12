@@ -29,56 +29,87 @@ class Twine;
 namespace fir {
 
 /// Internal name mangling of identifiers
-struct NameMangler {
+///
+/// In order to generate symbolically referencable artifacts in a ModuleOp,
+/// it is required that those symbols be uniqued.  This is a simple interface
+/// for converting Fortran symbols into unique names.
+///
+/// This is intentionally bijective. Given a symbol's parse name, type, and
+/// scope-like information, we can generate a uniqued (mangled) name.  Given a
+/// uniqued name, we can return the symbol parse name, type of the symbol, and
+/// any scope-like information for that symbol.
+struct NameUniquer {
   enum class IntrinsicType { CHARACTER, COMPLEX, INTEGER, LOGICAL, REAL };
 
-  NameMangler() = default;
+  enum class NameKind {
+    NOT_UNIQUED,
+    COMMON,
+    CONSTANT,
+    DERIVED_TYPE,
+    DISPATCH_TABLE,
+    GENERATED,
+    INTRINSIC_TYPE_DESC,
+    PROCEDURE,
+    TYPE_DESC,
+    VARIABLE
+  };
 
-  /// Mangle a common block name
+  struct DeconstructedName {
+    llvm::SmallVector<std::string, 2> modules;
+    llvm::Optional<std::string> host;
+    std::string name;
+    llvm::SmallVector<std::int64_t, 4> kinds;
+  };
+
+  NameUniquer() = default;
+
+  /// Unique a common block name
   std::string doCommonBlock(llvm::StringRef name);
 
-  /// Mangle a (global) constant name
+  /// Unique a (global) constant name
   std::string doConstant(llvm::ArrayRef<llvm::StringRef> modules,
                          llvm::StringRef name);
 
-  /// Mangle a dispatch table name
+  /// Unique a dispatch table name
   std::string doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
                               llvm::Optional<llvm::StringRef> host,
                               llvm::StringRef name,
                               llvm::ArrayRef<std::int64_t> kinds);
 
-  /// Mangle a compiler generated name
+  /// Unique a compiler generated name
   std::string doGenerated(llvm::StringRef name);
 
-  /// Mangle an intrinsic type descriptor
+  /// Unique an intrinsic type descriptor
   std::string doIntrinsicTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                         llvm::Optional<llvm::StringRef> host,
                                         IntrinsicType type, std::int64_t kind);
 
-  /// Mangle a procedure name
+  /// Unique a procedure name
   std::string doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
                           llvm::Optional<llvm::StringRef> host,
                           llvm::StringRef name);
 
-  /// Mangle a derived type name
+  /// Unique a derived type name
   std::string doType(llvm::ArrayRef<llvm::StringRef> modules,
                      llvm::Optional<llvm::StringRef> host, llvm::StringRef name,
                      llvm::ArrayRef<std::int64_t> kinds);
 
-  /// Mangle a (derived) type descriptor name
+  /// Unique a (derived) type descriptor name
   std::string doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                llvm::Optional<llvm::StringRef> host,
                                llvm::StringRef name,
                                llvm::ArrayRef<std::int64_t> kinds);
 
-  /// Mangle a (global) variable name
+  /// Unique a (global) variable name
   std::string doVariable(llvm::ArrayRef<llvm::StringRef> modules,
                          llvm::StringRef name);
 
   /// Entry point for the PROGRAM (called by the runtime)
-  constexpr static llvm::StringRef doProgramEntry() {
-    return "MAIN_";
-  }
+  constexpr static llvm::StringRef doProgramEntry() { return "MAIN_"; }
+
+  /// Decompose `uniquedName` into the parse name, symbol type, and scope info
+  static std::pair<NameKind, DeconstructedName>
+  deconstruct(llvm::StringRef uniquedName);
 
 private:
   llvm::StringRef addAsString(std::int64_t i);

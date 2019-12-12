@@ -70,21 +70,21 @@ L::Optional<L::StringRef> hostName(const Se::Scope *scope) {
 // Mangle the name of `symbol` to make it unique within FIR's symbol table using
 // the FIR name mangler, `mangler`
 std::string Ma::mangleName(
-    fir::NameMangler &mangler, const Se::SymbolRef symbol) {
+    fir::NameUniquer &uniquer, const Se::SymbolRef symbol) {
   return std::visit(Co::visitors{
                         [&](const Se::MainProgramDetails &) {
-                          return mangler.doProgramEntry().str();
+                          return uniquer.doProgramEntry().str();
                         },
                         [&](const Se::SubprogramDetails &) {
                           auto &cb{symbol->name()};
                           auto modNames{moduleNames(symbol->scope())};
-                          return mangler.doProcedure(modNames,
+                          return uniquer.doProcedure(modNames,
                               hostName(symbol->scope()), toStringRef(cb));
                         },
                         [&](const Se::ProcEntityDetails &) {
                           auto &cb{symbol->name()};
                           auto modNames{moduleNames(symbol->scope())};
-                          return mangler.doProcedure(modNames,
+                          return uniquer.doProcedure(modNames,
                               hostName(symbol->scope()), toStringRef(cb));
                         },
                         [](const auto &) -> std::string {
@@ -96,5 +96,6 @@ std::string Ma::mangleName(
 }
 
 std::string Ma::demangleName(L::StringRef name) {
-  return name.str();
+  auto result{fir::NameUniquer::deconstruct(name)};
+  return result.second.name;
 }
