@@ -522,15 +522,25 @@ struct CodeGenerator {
   }
 
   void GenerateResultsComparison(std::ostream &s) const {
-    const auto *compareOp{
-        resultType.cat == TypeCategory::Logical ? ".EQV." : ".EQ."};
-    if (resultType.cat == TypeCategory::Real) {
+    auto compareReal{[&](const std::string &x, const std::string &y) {
       // TODO: This should not always be an absolute comparison (epsilon margin
-      // for fp.). Complex needs similar checks.
-      s << refResultName << compareOp << testResultName << " .OR. ";
-      s << "(IEEE_IS_NAN(" << refResultName << ") .AND. IEEE_IS_NAN("
-        << testResultName << "))";
+      // for fp.).
+      s << x << ".EQ." << y << " .OR. ";
+      s << "(IEEE_IS_NAN(" << x << ") .AND. IEEE_IS_NAN(" << y << "))";
+    }};
+    if (resultType.cat == TypeCategory::Real) {
+      compareReal(refResultName, testResultName);
+    } else if (resultType.cat == TypeCategory::Complex) {
+      s << "(";
+      compareReal(std::string{refResultName} + "%RE",
+          std::string{testResultName} + "%RE");
+      s << ") .AND. (";
+      compareReal(std::string{refResultName} + "%IM",
+          std::string{testResultName} + "%IM");
+      s << ")";
     } else {
+      const auto *compareOp{
+          resultType.cat == TypeCategory::Logical ? ".EQV." : ".EQ."};
       s << refResultName << compareOp << testResultName;
     }
   }
@@ -675,11 +685,10 @@ int main(int argc, char **argv) {
               {Integer8, {"3000001_8", "-2654637545_8"}},
               {Real4, {"1.03687448_4", "3.1254641_4"}},
               {Real8, {"1.036874168446448_8", "3.12254533554641_8"}},
-              // TODO: fix expression analysis bug with REAL(8)**COMPLEX(4)
-              //   {Complex4, {"(-0.5_4,10.35544_4)", "(-5._4, 0.15647_4)"}},
-              //   {Complex8,
-              //    {"(-0.5_8,10.35546579874_8)",
-              //     "(-5.64654654_8, 0.155876974647_8)"}},
+              {Complex4, {"(-0.5_4,10.35544_4)", "(-5._4, 0.15647_4)"}},
+              {Complex8,
+                  {"(-0.5_8,10.35546579874_8)",
+                      "(-5.64654654_8, 0.155876974647_8)"}},
               {DefaultLogical, {".false.", ".true."}},
           },
           refEvalMethod,
