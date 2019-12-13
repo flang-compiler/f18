@@ -37,7 +37,7 @@ set(EXE_LIBS
   MLIRSupport
   MLIRTransforms
   MLIRVectorOps
-  MLIRVectorConversions
+  MLIRVectorToLLVM
 )
 
 add_llvm_tool(tco tco.cpp)
