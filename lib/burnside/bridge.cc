@@ -27,18 +27,12 @@
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
 #include "fir/InternalNames.h"
+#include "llvm/Support/CommandLine.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
-
-#undef TODO
-#define TODO() assert(false && "not yet implemented");
-
-#undef SOFT_TODO
-#define SOFT_TODO() \
-  llvm::errs() << __FILE__ << ":" << __LINE__ << " not yet implemented\n";
 
 namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
@@ -53,6 +47,14 @@ using namespace Fortran::burnside;
 
 namespace {
 
+L::cl::opt<bool> ClDisableToDoAssert("disable-burnside-todo",
+    L::cl::desc("disable burnside bridge asserts"), L::cl::init(false),
+    L::cl::Hidden);
+
+#undef TODO
+#define TODO() \
+  assert(false && "not implemented yet")
+
 using SelectCaseConstruct = Pa::CaseConstruct;
 using SelectRankConstruct = Pa::SelectRankConstruct;
 using SelectTypeConstruct = Pa::SelectTypeConstruct;
@@ -66,6 +68,16 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
 
 // CfgBuilder implementation
 #include "cfg-builder.h"
+
+#undef TODO
+#define TODO() \
+  { \
+    if (ClDisableToDoAssert) \
+      mlir::emitError(toLocation(), __FILE__) \
+          << ":" << __LINE__ << " not implemented"; \
+    else \
+      assert(false && "not yet implemented"); \
+  }
 
 /// Converter from AST to FIR
 ///
@@ -491,7 +503,7 @@ class FirConverter : public AbstractConverter {
                      // TODO bindName()?
                      argsList = details.dummyArgs();
                    },
-                   [](const Pa::ProcComponentRef &) { TODO(); },
+                   [&](const Pa::ProcComponentRef &) { TODO(); },
                },
         std::get<Pa::ProcedureDesignator>(stmt.v.t).u);
     for (auto *d : argsList) {
@@ -512,9 +524,9 @@ class FirConverter : public AbstractConverter {
                        // FIXME: needs to match argument, assumes trivial by-ref
                        fe = genExprAddr(*Se::GetExpr(e));
                      },
-                     [](const Pa::AltReturnSpec &) { TODO(); },
-                     [](const Pa::ActualArg::PercentRef &) { TODO(); },
-                     [](const Pa::ActualArg::PercentVal &) { TODO(); },
+                     [&](const Pa::AltReturnSpec &) { TODO(); },
+                     [&](const Pa::ActualArg::PercentRef &) { TODO(); },
+                     [&](const Pa::ActualArg::PercentVal &) { TODO(); },
                  },
           arg.u);
       if (kw.has_value()) {
@@ -563,9 +575,9 @@ class FirConverter : public AbstractConverter {
       // pushDoContext(&ss);
     }
 #endif
-    SOFT_TODO();
+    TODO();
   }
-  void genFIR(const Pa::IfConstruct &) { SOFT_TODO(); }
+  void genFIR(const Pa::IfConstruct &) { TODO(); }
 
   void genFIR(const SelectCaseConstruct &) { TODO(); }
   void genFIR(const SelectRankConstruct &) { TODO(); }
@@ -664,7 +676,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::RewindStmt &stmt) { genRewindStatement(*this, stmt); }
   void genFIR(const Pa::WriteStmt &stmt) { genWriteStatement(*this, stmt); }
 
-  void genFIR(const Pa::AllocateStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::AllocateStmt &) { TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
@@ -673,7 +685,7 @@ class FirConverter : public AbstractConverter {
   }
 
   void genFIR(const Pa::ContinueStmt &) {}  // do nothing
-  void genFIR(const Pa::DeallocateStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::DeallocateStmt &) { TODO(); }
   void genFIR(const Pa::EventPostStmt &) {
     // call some runtime routine
     TODO();
@@ -712,7 +724,7 @@ class FirConverter : public AbstractConverter {
           po.u);
     }
   }
-  void genFIR(const Pa::PointerAssignmentStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::PointerAssignmentStmt &) { TODO(); }
 
   void genFIR(const Pa::SyncAllStmt &) {
     // call some runtime routine
@@ -1064,7 +1076,7 @@ public:
       std::visit(common::visitors{
                      [&](AST::FunctionLikeUnit &f) { lowerFunc(f, {}); },
                      [&](AST::ModuleLikeUnit &m) { lowerMod(m); },
-                     [](AST::BlockDataUnit &) { SOFT_TODO(); },
+                     [&](AST::BlockDataUnit &) { TODO(); },
                  },
           u);
     }
