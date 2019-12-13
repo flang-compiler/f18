@@ -240,8 +240,8 @@ class CfgBuilder {
                        [&](const Pa::ElseIfStmt *) {
                          doNextIfBlock(evals, e, iter, evals.end());
                        },
-                       [](const Pa::WhereConstructStmt *stmt) { TODO(); },
-                       [](const Pa::MaskedElsewhereStmt *stmt) { TODO(); },
+                       [](const Pa::WhereConstructStmt *) { TODO(); },
+                       [](const Pa::MaskedElsewhereStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled CGOTO case"); },
                    },
             e.u);
@@ -266,39 +266,39 @@ class CfgBuilder {
       case AST::CFGAnnotation::IoSwitch:
         std::visit(
             Co::visitors{
-                [](const Pa::BackspaceStmt *stmt) { TODO(); },
-                [](const Pa::CloseStmt *stmt) { TODO(); },
-                [](const Pa::EndfileStmt *stmt) { TODO(); },
-                [](const Pa::FlushStmt *stmt) { TODO(); },
-                [](const Pa::InquireStmt *stmt) { TODO(); },
-                [](const Pa::OpenStmt *stmt) { TODO(); },
-                [](const Pa::ReadStmt *stmt) { TODO(); },
-                [](const Pa::RewindStmt *stmt) { TODO(); },
-                [](const Pa::WaitStmt *stmt) { TODO(); },
-                [](const Pa::WriteStmt *stmt) { TODO(); },
+                [](const Pa::BackspaceStmt *) { TODO(); },
+                [](const Pa::CloseStmt *) { TODO(); },
+                [](const Pa::EndfileStmt *) { TODO(); },
+                [](const Pa::FlushStmt *) { TODO(); },
+                [](const Pa::InquireStmt *) { TODO(); },
+                [](const Pa::OpenStmt *) { TODO(); },
+                [](const Pa::ReadStmt *) { TODO(); },
+                [](const Pa::RewindStmt *) { TODO(); },
+                [](const Pa::WaitStmt *) { TODO(); },
+                [](const Pa::WriteStmt *) { TODO(); },
                 [](auto) { assert(false && "unhandled IO switch case"); },
             },
             e.u);
         break;
       case AST::CFGAnnotation::Switch:
         std::visit(Co::visitors{
-                       [](const Pa::CallStmt *stmt) { TODO(); },
-                       [](const Pa::ArithmeticIfStmt *stmt) { TODO(); },
-                       [](const Pa::ComputedGotoStmt *stmt) { TODO(); },
-                       [](const Pa::SelectCaseStmt *stmt) { TODO(); },
-                       [](const Pa::SelectRankStmt *stmt) { TODO(); },
-                       [](const Pa::SelectTypeStmt *stmt) { TODO(); },
+                       [](const Pa::CallStmt *) { TODO(); },
+                       [](const Pa::ArithmeticIfStmt *) { TODO(); },
+                       [](const Pa::ComputedGotoStmt *) { TODO(); },
+                       [](const Pa::SelectCaseStmt *) { TODO(); },
+                       [](const Pa::SelectRankStmt *) { TODO(); },
+                       [](const Pa::SelectTypeStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled switch case"); },
                    },
             e.u);
         break;
       case AST::CFGAnnotation::Iterative:
         std::visit(Co::visitors{
-                       [](const Pa::NonLabelDoStmt *stmt) { TODO(); },
-                       [](const Pa::WhereStmt *stmt) { TODO(); },
-                       [](const Pa::ForallStmt *stmt) { TODO(); },
-                       [](const Pa::WhereConstruct *stmt) { TODO(); },
-                       [](const Pa::ForallConstructStmt *stmt) { TODO(); },
+                       [](const Pa::NonLabelDoStmt *) { TODO(); },
+                       [](const Pa::WhereStmt *) { TODO(); },
+                       [](const Pa::ForallStmt *) { TODO(); },
+                       [](const Pa::WhereConstruct *) { TODO(); },
+                       [](const Pa::ForallConstructStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled loop case"); },
                    },
             e.u);
@@ -319,7 +319,7 @@ class CfgBuilder {
     }
   }
 
-  void setActualTargets(std::list<AST::Evaluation> &evals) {
+  void setActualTargets(std::list<AST::Evaluation> &) {
     for (auto &lst1 : cfgEdgeSetPool)
       for (auto *e : lst1) {
         e->isTarget = true;

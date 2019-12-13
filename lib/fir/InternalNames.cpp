@@ -101,7 +101,7 @@ std::string fir::NameUniquer::doGenerated(L::StringRef name) {
 std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
     L::ArrayRef<L::StringRef> modules, L::Optional<L::StringRef> host,
     IntrinsicType type, std::int64_t kind) {
-  char const *name;
+  const char *name{nullptr};
   switch (type) {
   case IntrinsicType::CHARACTER:
     name = "character";

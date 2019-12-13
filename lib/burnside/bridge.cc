@@ -268,10 +268,10 @@ class FirConverter : public AbstractConverter {
     // FIXME: alt-returns
     builder->create<M::ReturnOp>(toLocation());
   }
-  void genFIR(const Pa::EndSubroutineStmt &stmt) {
+  void genFIR(const Pa::EndSubroutineStmt &) {
     genFIRProcedureExit(static_cast<const Pa::SubroutineStmt *>(nullptr));
   }
-  void genFIR(const Pa::EndMpSubprogramStmt &stmt) {
+  void genFIR(const Pa::EndMpSubprogramStmt &) {
     genFIRProcedureExit(static_cast<const Pa::MpSubprogramStmt *>(nullptr));
   }
 
@@ -342,8 +342,8 @@ class FirConverter : public AbstractConverter {
   void genFIRIOSwitch(AST::Evaluation &) { TODO(); }
 
   // Iterative loop control-flow semantics
-  void genFIREvalIterative(AST::Evaluation &eval) {
-    // FIXME
+  void genFIREvalIterative(AST::Evaluation &) {
+    TODO();
   }
 
   void switchInsertionPointToWhere(fir::WhereOp &where) {
@@ -514,6 +514,7 @@ class FirConverter : public AbstractConverter {
     auto funTy{M::FunctionType::get(argTy, resTy, builder->getContext())};
     // FIXME: mangle name
     M::FuncOp func{getFunc(funName, funTy)};
+    (void)func; // FIXME
     std::vector<M::Value *> actuals;
     for (auto &aa : std::get<std::list<Pa::ActualArgSpec>>(stmt.v.t)) {
       auto &kw = std::get<std::optional<Pa::Keyword>>(aa.t);

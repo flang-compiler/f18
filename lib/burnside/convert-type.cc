@@ -51,8 +51,7 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
   return {}
 
 // one argument template, must be specialized
-template<Co::TypeCategory TC>
-M::Type genFIRType(M::MLIRContext *context, int kind) {
+template<Co::TypeCategory TC> M::Type genFIRType(M::MLIRContext *, int) {
   return {};
 }
 
