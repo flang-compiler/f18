@@ -53,6 +53,9 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
 
 include(AddLLVM)
 
+set(LLVM_TOOLS_BINARY ${LLVM_INSTALLATION_DIR}/bin)
+set(LLVM_LIT_TOOLS_DIR$ ${LLVM_INSTALLATION_DIR}/bin)
+
 # Get names for the LLVM libraries
 #
 # The full list of LLVM components can be obtained with
@@ -134,7 +137,6 @@ add_subdirectory(include/flang)
 add_subdirectory(lib)
 add_subdirectory(runtime)
 add_subdirectory(test)
-add_subdirectory(test-lit)
 add_subdirectory(tools)
 add_subdirectory(test-lit)
 
