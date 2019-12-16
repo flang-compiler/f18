@@ -402,6 +402,16 @@ template ConversionToBinaryResult<64> ConvertToBinary<64>(
 template ConversionToBinaryResult<112> ConvertToBinary<112>(
     const char *&, enum FortranRounding);
 
+#define INSTANTIATE_WALDO(X) \
+  template ConversionToBinaryResult<X>			\
+  BigRadixFloatingPointNumber<X,16>::ConvertToBinary()
+INSTANTIATE_WALDO(8);
+INSTANTIATE_WALDO(11);
+INSTANTIATE_WALDO(24);
+INSTANTIATE_WALDO(53);
+INSTANTIATE_WALDO(64);
+INSTANTIATE_WALDO(112);
+  
 extern "C" {
 enum ConversionResultFlags ConvertDecimalToFloat(
     const char **p, float *f, enum FortranRounding rounding) {

@@ -1,0 +1,36 @@
+//===-- lib/burnside/runtime.def ------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+// Define the various runtime entry points. At this point, these are entirely
+// bogons as we don't have a runtime library nor even a definition for one.
+
+// Fortran execution control primitive ops
+DEFINE_RUNTIME_ENTRY(STOP, "stop", (Intopt, Intopt), ())
+DEFINE_RUNTIME_ENTRY(ERROR_STOP, "error_stop", (Intopt, Intopt), ())
+DEFINE_RUNTIME_ENTRY(FAIL_IMAGE, "fail_image", (), ())
+
+// INTEGER ops
+DEFINE_RUNTIME_ENTRY(MAX, "int_max", (mlir::IntegerType, mlir::IntegerType), (mlir::IntegerType))
+DEFINE_RUNTIME_ENTRY(MIN, "int_min", (mlir::IntegerType, mlir::IntegerType), (mlir::IntegerType))
+DEFINE_RUNTIME_ENTRY(POW, "int_pow", (mlir::IntegerType, mlir::IntegerType), (mlir::IntegerType))
+
+// COMPLEX ops
+DEFINE_RUNTIME_ENTRY(CDIV, "complex_div", (Cplx, Cplx), (Cplx))
+
+// CHARACTER ops
+DEFINE_RUNTIME_ENTRY(CONCAT, "char_concat", (fir::CharacterType, fir::CharacterType), (fir::CharacterType))
+
+// TYPE descriptor queries
+DEFINE_RUNTIME_ENTRY(ISA_TYPE, "isa_type", (TypeDesc), (mlir::IntegerType))
+DEFINE_RUNTIME_ENTRY(ISA_SUBTYPE, "isa_subtype", (TypeDesc), (mlir::IntegerType))
+
+// ARRAY descriptor queries
+DEFINE_RUNTIME_ENTRY(GET_RANK, "get_rank", (TypeDesc), (mlir::IntegerType))
+DEFINE_RUNTIME_ENTRY(GET_ELETYPE, "get_element_type", (TypeDesc), (mlir::IntegerType))
+
+#undef DEFINE_RUNTIME_ENTRY
