@@ -1822,8 +1822,11 @@ MaybeExpr ExpressionAnalyzer::Analyze(
   return AnalyzeCall(funcRef.v, false);
 }
 
-void ExpressionAnalyzer::Analyze(const parser::CallStmt &call) {
-  AnalyzeCall(call.v, true);
+void ExpressionAnalyzer::Analyze(const parser::CallStmt &callStmt) {
+  auto expr{AnalyzeCall(callStmt.v, true)};
+  if (auto *procRef{UnwrapExpr<ProcedureRef>(expr)}) {
+    callStmt.typedCall.reset(new ProcedureRef{*procRef});
+  }
 }
 
 MaybeExpr ExpressionAnalyzer::AnalyzeCall(
@@ -2257,7 +2260,7 @@ static void FixMisparsedFunctionReference(
 // Common handling of parser::Expr and parser::Variable
 template<typename PARSED>
 MaybeExpr ExpressionAnalyzer::ExprOrVariable(const PARSED &x) {
-  if (!x.typedExpr) {  // not yet analyzed
+  if (!x.typedExpr) {
     FixMisparsedFunctionReference(context_, x.u);
     MaybeExpr result;
     if constexpr (std::is_same_v<PARSED, parser::Expr>) {
