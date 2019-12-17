@@ -53,8 +53,8 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
 
 include(AddLLVM)
 
-set(LLVM_TOOLS_BINARY ${LLVM_INSTALLATION_DIR}/bin)
-set(LLVM_LIT_TOOLS_DIR$ ${LLVM_INSTALLATION_DIR}/bin)
+set(LLVM_LIT_TOOLS_DIR ${LLVM_INSTALATION_DIR} CACHE STRING "Command used to spawn lit")
+set(LLVM_EXTERNAL_LIT ${LLVM_INTALATION_DIR}/llvm-lit CACHE STRING "Command used to spawn lit")
 
 # Get names for the LLVM libraries
 #
