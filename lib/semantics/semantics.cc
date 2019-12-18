@@ -29,6 +29,7 @@
 #include "check-purity.h"
 #include "check-return.h"
 #include "check-stop.h"
+#include "check-select-stmt.h"
 #include "expression.h"
 #include "mod-file.h"
 #include "resolve-labels.h"
@@ -118,7 +119,8 @@ using StatementSemanticsPass1 = ExprChecker;
 using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
     ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
     DeallocateChecker, DoChecker, IfStmtChecker, IoChecker, NullifyChecker,
-    OmpStructureChecker, PurityChecker, ReturnStmtChecker, StopChecker>;
+    OmpStructureChecker, PurityChecker, ReturnStmtChecker, StopChecker,
+    SelectStmtChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {

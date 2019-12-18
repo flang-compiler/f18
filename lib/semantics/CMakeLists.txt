@@ -31,6 +31,7 @@ add_library(FortranSemantics
   check-purity.cc
   check-return.cc
   check-stop.cc
+  check-select-stmt.cc
   expression.cc
   mod-file.cc
   program-tree.cc
