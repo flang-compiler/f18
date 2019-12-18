@@ -13,7 +13,7 @@ implicit none
    character :: grade1 = 'B'
    integer :: grade2 = 3
    logical :: grade3 = .false.
-   character (len = 10) :: name
+   character (len = 10) :: name = 'test'
    real :: grade4 = 2.0
 
    select case (grade1)
@@ -25,7 +25,6 @@ implicit none
       case default
          print*, "Invalid grade" 
    end select
-   print*, "Your grade is ", grade1
 
    select case (grade2)
       case (1) 
@@ -36,7 +35,6 @@ implicit none
       case default
          print*, "Invalid grade" 
    end select
-   print*, "Your grade is ", grade2 
 
    select case (grade3)
       case (.true.) 
@@ -46,7 +44,15 @@ implicit none
    end select
    print*, "Your grade is ", name
 
-   !ERROR: Select case expression shall be of type character, integer, or logical
+   select case (name)
+      case default
+         print*, "Invalid grade" 
+      case ('now')
+      case ('test')
+         print*, "Well done" 
+   end select
+
+   !ERROR: Select case expression must be of type character, integer, or logical
    select case (grade4)
       case (1.0) 
       print*, "Excellent!" 
@@ -56,6 +62,40 @@ implicit none
       case default
          print*, "Invalid grade" 
    end select
-   print*, "Your grade is ", grade4 
+
+   select case (grade3)
+      case default
+         print*, "Invalid grade" 
+      case (.true.)
+         print*, "Well done" 
+      !ERROR: Not more than one of the selectors of case statements must be default
+      case default
+         print*, "Invalid grade" 
+   end select
+
+   select case (grade3)
+      case default
+         print*, "Invalid grade" 
+      case (.true.)
+      !ERROR: Select case value type must be same as select case expression type
+      case (3) 
+         print*, "Well done" 
+   end select
+
+   select case (grade3)
+      case default
+         print*, "Invalid grade"
+      !ERROR: Select case expression of type logical must not have case value range using colon
+      case (.true. :)
+   end select
+
+   select case (grade2)
+      case default
+         print*, "Invalid grade" 
+      case (2 :)
+         print*, "Well done"
+      !ERROR: Select case value type must be same as select case expression type
+      case (.true. :)
+   end select
 
 end program selectCaseProg
