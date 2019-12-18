@@ -1,4 +1,5 @@
 //= check-select-stmt.cc - Checker for select-case, select-rank, select-type ==
+// TODO select-rank, select-type
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,88 +14,80 @@
 namespace Fortran::semantics {
 
 void SelectStmtChecker::Leave(
-    const parser::CaseConstruct &selectcaseConstruct) {
-  const auto &selectcaseStmt{
+    const parser::CaseConstruct &selectCaseConstruct) {
+  const auto &selectCaseStmt{
       std::get<parser::Statement<parser::SelectCaseStmt>>(
-          selectcaseConstruct.t)};
+          selectCaseConstruct.t)};
   const auto &parsedExpr{
-      std::get<parser::Scalar<parser::Expr>>(selectcaseStmt.statement.t).thing};
-  TypeCategory selectcasestmttype;
+      std::get<parser::Scalar<parser::Expr>>(selectCaseStmt.statement.t).thing};
+  std::optional<TypeCategory> selectCaseStmtType;
   if (const auto *expr{GetExpr(parsedExpr)}) {
     if (auto type{expr->GetType()}) {
-      selectcasestmttype = type->category();
-      if ((selectcasestmttype != TypeCategory::Integer) &&
-          (selectcasestmttype != TypeCategory::Character) &&
-          (selectcasestmttype != TypeCategory::Logical)) {
-        // C1145 case-expr shall be of type character, integer, or logical.
-        context_.Say(parsedExpr.source,
-            "Select case expression must be of type character, integer, or logical"_err_en_US);
-      }
+      selectCaseStmtType = type->category();
     }
   }
+  if (!selectCaseStmtType ||
+      ((selectCaseStmtType.value() != TypeCategory::Integer) &&
+          (selectCaseStmtType.value() != TypeCategory::Character) &&
+          (selectCaseStmtType.value() != TypeCategory::Logical))) {  // C1145
+    context_.Say(parsedExpr.source,
+        "SELECT CASE expression must be of type character, integer, or logical"_err_en_US);
+  }
 
-  const auto &caselist{
-      std::get<std::list<parser::CaseConstruct::Case>>(selectcaseConstruct.t)};
-  bool defaultcasefound = false;
-  for (const auto &cases : caselist) {
+  const auto &caseList{
+      std::get<std::list<parser::CaseConstruct::Case>>(selectCaseConstruct.t)};
+  bool defaultCaseFound{false};
+  for (const auto &cases : caseList) {
     const auto &casestmt{
         std::get<parser::Statement<parser::CaseStmt>>(cases.t)};
     const auto &caseselector{
         std::get<parser::CaseSelector>(casestmt.statement.t)};
     if (std::holds_alternative<parser::Default>(caseselector.u)) {
-      if (!defaultcasefound) {
-        defaultcasefound = true;
-      } else {
-        // C1146 (R1140) No more than one of the selectors of one of the CASE
-        //       statements shall be DEFAULT.
+      if (!defaultCaseFound) {
+        defaultCaseFound = true;
+      } else {  // C1146 (R1140)
         context_.Say(casestmt.source,
-            "Not more than one of the selectors of case statements must be default"_err_en_US);
+            "Not more than one of the selectors of case statements may be default"_err_en_US);
       }
-    } else {
-      const auto &casevaluerangelist{
+    } else if (selectCaseStmtType) {
+      const auto &caseValueRangeList{
           std::get<std::list<parser::CaseValueRange>>(caseselector.u)};
-      for (const auto &casevalues : casevaluerangelist) {
-        if (std::holds_alternative<parser::Scalar<parser::ConstantExpr>>(
-                casevalues.u)) {
-          const auto &constcase{
-              std::get<parser::Scalar<parser::ConstantExpr>>(casevalues.u)
-                  .thing};
-          CheckSelectCaseType(selectcasestmttype, constcase, casestmt.source);
+      for (const auto &caseValues : caseValueRangeList) {
+        if (const auto *constCase{
+                std::get_if<parser::Scalar<parser::ConstantExpr>>(
+                    &caseValues.u)}) {
+          CheckSelectCaseType(
+              selectCaseStmtType.value(), constCase->thing, casestmt.source);
         } else {
-          if (selectcasestmttype == TypeCategory::Logical) {
-            // C1148  (R1140) A case-value-range using a colon shall not be used
-            //        if case-expr is of type logical.
+          if (selectCaseStmtType.value() ==
+              TypeCategory::Logical) {  // C1148 (R1140)
             context_.Say(casestmt.source,
-                "Select case expression of type logical must not have case value range using colon"_err_en_US);
+                "SELECT CASE expression of type logical must not have case value range using colon"_err_en_US);
           }
-          const auto &rangecase{
-              std::get<parser::CaseValueRange::Range>(casevalues.u)};
-          if (const auto &lower{rangecase.lower}) {
-            CheckSelectCaseType(
-                selectcasestmttype, lower.value().thing, casestmt.source);
+          const auto &rangeCase{
+              std::get<parser::CaseValueRange::Range>(caseValues.u)};
+          if (const auto &lower{rangeCase.lower}) {
+            CheckSelectCaseType(selectCaseStmtType.value(), lower.value().thing,
+                casestmt.source);
           }
-          if (const auto &upper{rangecase.upper}) {
-            CheckSelectCaseType(
-                selectcasestmttype, upper.value().thing, casestmt.source);
+          if (const auto &upper{rangeCase.upper}) {
+            CheckSelectCaseType(selectCaseStmtType.value(), upper.value().thing,
+                casestmt.source);
           }
+          // TODO C1149
         }
       }
     }
   }
 }
 
-void SelectStmtChecker::CheckSelectCaseType(const TypeCategory &expectedtype,
-    const Fortran::parser::ConstantExpr &constcase,
-    const Fortran::parser::CharBlock &src) {
-  if (const auto *caseval{GetExpr(constcase)}) {
+void SelectStmtChecker::CheckSelectCaseType(const TypeCategory &expectedType,
+    const parser::ConstantExpr &constCase, const parser::CharBlock &src) {
+  if (const auto *caseval{GetExpr(constCase)}) {
     if (auto type{caseval->GetType()}) {
-      if (type->category() != expectedtype) {
-        // C1147  (R1140) For a given case-construct, each case-value shall be
-        //        of the same type as case-expr.
-        //        For character type, the kind type parameters shall be the
-        //        same; character length differences are allowed.
+      if (type->category() != expectedType) {  // C1147 (R1140)
         context_.Say(src,
-            "Select case value type must be same as select case expression type"_err_en_US);
+            "SELECT CASE value type must be same as SELECT CASE expression type"_err_en_US);
       }
     }
   }

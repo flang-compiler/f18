@@ -52,7 +52,7 @@ implicit none
          print*, "Well done" 
    end select
 
-   !ERROR: Select case expression must be of type character, integer, or logical
+   !ERROR: SELECT CASE expression must be of type character, integer, or logical
    select case (grade4)
       case (1.0) 
       print*, "Excellent!" 
@@ -68,7 +68,7 @@ implicit none
          print*, "Invalid grade" 
       case (.true.)
          print*, "Well done" 
-      !ERROR: Not more than one of the selectors of case statements must be default
+      !ERROR: Not more than one of the selectors of case statements may be default
       case default
          print*, "Invalid grade" 
    end select
@@ -77,7 +77,7 @@ implicit none
       case default
          print*, "Invalid grade" 
       case (.true.)
-      !ERROR: Select case value type must be same as select case expression type
+      !ERROR: SELECT CASE value type must be same as SELECT CASE expression type
       case (3) 
          print*, "Well done" 
    end select
@@ -85,7 +85,7 @@ implicit none
    select case (grade3)
       case default
          print*, "Invalid grade"
-      !ERROR: Select case expression of type logical must not have case value range using colon
+      !ERROR: SELECT CASE expression of type logical must not have case value range using colon
       case (.true. :)
    end select
 
@@ -94,7 +94,7 @@ implicit none
          print*, "Invalid grade" 
       case (2 :)
          print*, "Well done"
-      !ERROR: Select case value type must be same as select case expression type
+      !ERROR: SELECT CASE value type must be same as SELECT CASE expression type
       case (.true. :)
    end select
 
