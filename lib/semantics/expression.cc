@@ -1822,8 +1822,9 @@ MaybeExpr ExpressionAnalyzer::Analyze(
 }
 
 void ExpressionAnalyzer::Analyze(const parser::CallStmt &callStmt) {
-  if (auto expr{AnalyzeCall(callStmt.v, true)}) {
-    callStmt.typedCall.reset(new ProcedureRef{*UnwrapExpr<ProcedureRef>(expr)});
+  MaybeExpr expr{AnalyzeCall(callStmt.v, true)};
+  if (const auto *proc{UnwrapExpr<ProcedureRef>(expr)}) {
+    callStmt.typedCall.reset(new ProcedureRef{*proc});
   }
 }
 
