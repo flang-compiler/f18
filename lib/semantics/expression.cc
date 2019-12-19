@@ -1822,9 +1822,8 @@ MaybeExpr ExpressionAnalyzer::Analyze(
 }
 
 void ExpressionAnalyzer::Analyze(const parser::CallStmt &callStmt) {
-  auto expr{AnalyzeCall(callStmt.v, true)};
-  if (auto *procRef{UnwrapExpr<ProcedureRef>(expr)}) {
-    callStmt.typedCall.reset(new ProcedureRef{*procRef});
+  if (auto expr{AnalyzeCall(callStmt.v, true)}) {
+    callStmt.typedCall.reset(new ProcedureRef{*UnwrapExpr<ProcedureRef>(expr)});
   }
 }
 
@@ -1840,8 +1839,12 @@ MaybeExpr ExpressionAnalyzer::AnalyzeCall(
             GetCalleeAndArguments(std::get<parser::ProcedureDesignator>(call.t),
                 analyzer.GetActuals(), isSubroutine)}) {
       if (isSubroutine) {
-        CheckCall(call.source, callee->procedureDesignator, callee->arguments);
-        // TODO: Package the subroutine call as an expr in the parse tree
+        if (CheckCall(
+                call.source, callee->procedureDesignator, callee->arguments)) {
+          return Expr<SomeType>{
+              ProcedureRef{std::move(callee->procedureDesignator),
+                  std::move(callee->arguments)}};
+        }
       } else {
         return MakeFunctionRef(call.source,
             std::move(callee->procedureDesignator),
