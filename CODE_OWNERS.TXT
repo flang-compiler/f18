@@ -9,10 +9,6 @@ beautification by scripts. The fields are: name (N), email (E), web-address
 (S) and (I) IRC handle. Each entry should contain at least the (N), (E) and
 (D) fields.
 
-N: Kiran Chandramohan
-E: kiran.chandramohan@arm.com
-D: OpenMP lowering
-
 N: Tim Keith
 E: tkeith@nvidia.com
 D: Semantic Analysis (lib/semantics)
@@ -20,7 +16,3 @@ D: Semantic Analysis (lib/semantics)
 N: Peter Klausler
 E: pklausler@nvidia.com
 D: Parser (lib/parser)
-
-N: Eric Schweitz
-E: eschweitz@nvidia.com
-D: FIR (lib/fir), Fortran lowering (lib/burnside)
