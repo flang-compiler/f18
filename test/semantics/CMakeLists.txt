@@ -193,6 +193,7 @@ set(ERROR_TESTS
   bindings01.f90
   bad-forward-type.f90
   c_f_pointer.f90
+  select-case.f90
 )
 
 # These test files have expected symbols in the source
