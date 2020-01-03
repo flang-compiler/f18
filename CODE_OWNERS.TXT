@@ -12,7 +12,3 @@ beautification by scripts. The fields are: name (N), email (E), web-address
 N: Tim Keith
 E: tkeith@nvidia.com
 D: Semantic Analysis (lib/semantics)
-
-N: Peter Klausler
-E: pklausler@nvidia.com
-D: Parser (lib/parser)
