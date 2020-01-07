@@ -42,7 +42,7 @@ also review [how flang uses modern C++ features](documentation/C++17.md).
 
 ### Supported C++ compilers
 
-F18 is written in C++17.
+Flang is written in C++17.
 
 The code has been compiled and tested with
 GCC versions 7.2.0, 7.3.0, 8.1.0, and 8.2.0.
@@ -131,7 +131,7 @@ add
 to the cmake command.
 Release builds execute quickly.
 
-### Build F18
+### Build Flang
 ```
 cd ~/flang/build
 cmake -DLLVM_DIR=$LLVM -DMLIR_DIR=$MLIR ~/flang/src
