@@ -11,6 +11,9 @@
 ! C1120 -- DO variable (and associated expressions) must be INTEGER.
 ! This is extended by allowing REAL and DOUBLE PRECISION
 
+! RUN: not %flang -fdebug-resolve-names -fparse-only -Mstandard -Werror %s 2>&1 | FileCheck --check-prefixes=ERROR --implicit-check-not error: %s
+
+
 MODULE share
   INTEGER :: intvarshare
   REAL :: realvarshare
@@ -79,62 +82,62 @@ PROGRAM do_issue_458
   END DO
 
 ! CHARACTER DO variable
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO chvar = 1, 10, 3
     PRINT *, "chvar is: ", chvar
   END DO
 
 ! LOGICAL DO variable
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO lvar = 1, 10, 3
     PRINT *, "lvar is: ", lvar
   END DO
 
 ! COMPLEX DO variable
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO cvar = 1, 10, 3
     PRINT *, "cvar is: ", cvar
   END DO
 
 ! Derived type DO variable
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO devar = 1, 10, 3
     PRINT *, "devar is: ", devar
   END DO
 
 ! Pointer to LOGICAL DO variable
   ALLOCATE(plvar)
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO plvar = 1, 10, 3
     PRINT *, "plvar is: ", plvar
   END DO
 
 ! SUBROUTINE DO variable
-!ERROR: DO control must be an INTEGER variable
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO control must be an INTEGER variable
   DO sub = 1, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! FUNCTION DO variable
-!ERROR: DO control must be an INTEGER variable
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO control must be an INTEGER variable
   DO ifunc = 1, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! POINTER to FUNCTION DO variable
-!ERROR: DO control must be an INTEGER variable
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO control must be an INTEGER variable
   DO pifunc = 1, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Array DO variable
-!ERROR: Must be a scalar value, but is a rank-1 array
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Must be a scalar value, but is a rank-1 array
   DO avar = 1, 10, 3
     PRINT *, "plvar is: ", plvar
   END DO
 
 ! Undeclared DO variable
-!ERROR: No explicit type declared for 'undeclared'
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: No explicit type declared for 'undeclared'
   DO undeclared = 1, 10, 3
     PRINT *, "plvar is: ", plvar
   END DO
@@ -181,31 +184,31 @@ PROGRAM do_issue_458
   END DO
 
 ! LOGICAL initial expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = lvar, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! COMPLEX initial expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = cvar, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Derived type initial expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = devar, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Pointer to LOGICAL initial expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = plvar, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Invalid initial expression
-!ERROR: Integer literal is too large for INTEGER(KIND=4)
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Integer literal is too large for INTEGER(KIND=4)
   DO ivar = -2147483648_4, 10, 3
     PRINT *, "ivar is: ", ivar
   END DO
@@ -237,13 +240,13 @@ PROGRAM do_issue_458
   END DO
 
 ! COMPLEX final expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = 1, cvar, 3
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Invalid final expression
-!ERROR: Integer literal is too large for INTEGER(KIND=4)
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Integer literal is too large for INTEGER(KIND=4)
   DO ivar = 1, -2147483648_4, 3
     PRINT *, "ivar is: ", ivar
   END DO
@@ -275,13 +278,13 @@ PROGRAM do_issue_458
   END DO
 
 ! COMPLEX Step expression
-!ERROR: DO controls should be INTEGER
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: DO controls should be INTEGER
   DO ivar = 1, 10, cvar
     PRINT *, "ivar is: ", ivar
   END DO
 
 ! Invalid step expression
-!ERROR: Integer literal is too large for INTEGER(KIND=4)
+!ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Integer literal is too large for INTEGER(KIND=4)
   DO ivar = 1, 10, -2147483648_4
     PRINT *, "ivar is: ", ivar
   END DO

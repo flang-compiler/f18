@@ -1,5 +1,8 @@
 ! Test that NULLIFY works
 
+! RUN: %flang -fdebug-resolve-names -fparse-only %s 2>&1
+
+
 Module share
   Real, Pointer :: rp
   Procedure(Real), Pointer :: mprp

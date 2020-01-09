@@ -1,6 +1,9 @@
 ! Check for semantic errors in ALLOCATE statements
 
 ! Creating a symbol that allocate should accept
+! RUN: not %flang -fdebug-resolve-names -fparse-only %s 2>&1 | FileCheck --check-prefixes=ERROR --implicit-check-not error: %s
+
+
 module share
   real, pointer :: rp
 end module share
@@ -61,44 +64,44 @@ subroutine C932(ed1, ed5, ed7, edc9, edc10, okad1, okpd1, okacd5)
   real, allocatable, save :: oka3, okac4[:,:]
   real, allocatable :: okacd5(:, :)[:]
 
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(foo)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(bar)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(C932)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(proc_ptr1)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(proc_ptr2)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(a_var%foo)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(a_var%bar)
 
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed1)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(e2)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(e3)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(e4)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed5)
-  !ERROR: Name in ALLOCATE statement must be a variable name
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Name in ALLOCATE statement must be a variable name
   allocate(e6)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed7)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed7%nok(2))
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed8)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(ed8)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(edc9%nok)
-  !ERROR: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Entity in ALLOCATE statement must have the ALLOCATABLE or POINTER attribute
   allocate(edc10)
 
   ! No errors expected below:
