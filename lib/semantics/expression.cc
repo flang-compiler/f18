@@ -2061,19 +2061,21 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::PercentLoc &x) {
   // Represent %LOC() exactly as if it had been a call to the LOC() extension
   // intrinsic function.
   // Use the actual source for the name of the call for error reporting.
-  std::optional<ActualArgument> arg;
-  if (const Symbol * assumedTypeDummy{AssumedTypeDummy(x.v.value())}) {
-    arg = ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
-  } else if (MaybeExpr argExpr{Analyze(x.v.value())}) {
-    arg = ActualArgument{std::move(*argExpr)};
-  } else {
+  MaybeExpr argExpr{Analyze(x.v.value())};
+  if (!argExpr) {
     return std::nullopt;
+  }
+  ActualArguments args;
+  if (const Symbol * assumedTypeDummy{AssumedTypeDummy(x.v.value())}) {
+    args.emplace_back(ActualArgument::AssumedType{*assumedTypeDummy});
+  } else {
+    args.emplace_back(std::move(*argExpr));
   }
   parser::CharBlock at{GetContextualMessages().at()};
   CHECK(at.size() >= 4);
   parser::CharBlock loc{at.begin() + 1, 3};
   CHECK(loc == "loc");
-  return MakeFunctionRef(loc, ActualArguments{std::move(*arg)});
+  return MakeFunctionRef(loc, std::move(args));
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::DefinedUnary &x) {
@@ -2776,12 +2778,13 @@ std::optional<ProcedureRef> ArgumentAnalyzer::GetDefinedAssignmentProc() {
 std::optional<ActualArgument> ArgumentAnalyzer::AnalyzeExpr(
     const parser::Expr &expr) {
   source_.ExtendToCover(expr.source);
-  if (const Symbol * assumedTypeDummy{AssumedTypeDummy(expr)}) {
-    return ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
-  } else if (MaybeExpr argExpr{context_.Analyze(expr)}) {
-    return ActualArgument{context_.Fold(std::move(*argExpr))};
-  } else {
+  MaybeExpr argExpr{context_.Analyze(expr)};
+  if (!argExpr) {
     return std::nullopt;
+  } else if (const Symbol * assumedTypeDummy{AssumedTypeDummy(expr)}) {
+    return ActualArgument{ActualArgument::AssumedType{*assumedTypeDummy}};
+  } else {
+    return ActualArgument{context_.Fold(std::move(*argExpr))};
   }
 }
 
