@@ -40,10 +40,7 @@ std::string doModulesHost(L::ArrayRef<L::StringRef> mods,
 
 inline L::SmallVector<L::StringRef, 2>
 convertToStringRef(L::ArrayRef<std::string> from) {
-  L::SmallVector<L::StringRef, 2> to;
-  for (auto &f : from)
-    to.push_back(f);
-  return to;
+  return {from.begin(), from.end()};
 }
 
 inline L::Optional<L::StringRef>

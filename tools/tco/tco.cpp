@@ -95,8 +95,7 @@ int compileFIR() {
 }
 
 int main(int argc, char **argv) {
-  llvm::InitLLVM y(argc, argv);
-  (void)y;
+  [[maybe_unused]] llvm::InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
   cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");

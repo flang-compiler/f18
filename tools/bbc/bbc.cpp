@@ -163,8 +163,7 @@ void convertFortranSourceToMLIR(
 } // namespace
 
 int main(int argc, char **argv) {
-  InitLLVM y(argc, argv);
-  (void)y;
+  [[maybe_unused]] InitLLVM y(argc, argv);
 
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");

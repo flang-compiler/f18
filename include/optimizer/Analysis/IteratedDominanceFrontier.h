@@ -23,8 +23,6 @@
 #ifndef OPTIMIZER_ANALYSIS_IDF_H
 #define OPTIMIZER_ANALYSIS_IDF_H
 
-#include "mlir/Analysis/Dominance.h"
-#include "mlir/IR/Block.h"
 #include "mlir/Support/LLVM.h"
 
 namespace mlir {
@@ -63,7 +61,6 @@ public:
   /// not include blocks where any phi insertion would be dead.
   ///
   /// Note: This set *must* live for the entire lifetime of the IDF calculator.
-
   void setLiveInBlocks(const llvm::SmallPtrSetImpl<NodeTy *> &Blocks) {
     LiveInBlocks = &Blocks;
     useLiveIn = true;
