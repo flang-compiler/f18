@@ -63,7 +63,7 @@ include(AddLLVM)
 # components (default is 'all') can be obtained with
 #
 #   llvm-config --libs --link-static [component ...]
- #
+#
 # See also
 #  http://llvm.org/docs/CMake.html#embedding-llvm-in-your-project
 #  https://stackoverflow.com/questions/41924375/llvm-how-to-specify-all-link-libraries-as-input-to-llvm-map-components-to-libna

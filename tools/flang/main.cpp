@@ -15,8 +15,7 @@
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
-#include "clang/Frontend/CompilerInvocation.h"
-#include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "../../include/flang/frontend/TextDiagnosticPrinter.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/Option/ArgList.h"
@@ -36,13 +35,6 @@ std::string GetExecutablePath(const char *Argv0) {
 static clang::DiagnosticOptions *CreateAndPopulateDiagOpts(
     llvm::ArrayRef<const char *> argv) {
   auto *DiagOpts = new clang::DiagnosticOptions;
-  unsigned MissingArgIndex, MissingArgCount;
-  llvm::opt::InputArgList Args = clang::driver::getDriverOptTable().ParseArgs(
-      argv.slice(1), MissingArgIndex, MissingArgCount);
-  // We ignore MissingArgCount and the return value of ParseDiagnosticArgs.
-  // Any errors that would be diagnosed here will also be diagnosed later,
-  // when the DiagnosticsEngine actually exists.
-  (void)clang::ParseDiagnosticArgs(*DiagOpts, Args);
   return DiagOpts;
 }
 
@@ -54,12 +46,10 @@ int main(int argc_, const char **argv_) {
   clang::driver::ParsedClangName TargetandMode("flang", "--driver-mode=flang");
   std::string Path = GetExecutablePath(argv[0]);
 
-  llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> DiagOpts =
-      CreateAndPopulateDiagOpts(argv);
-  clang::TextDiagnosticPrinter *DiagClient =
-      new clang::TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
+  llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> DiagOpts = CreateAndPopulateDiagOpts(argv);
   llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> DiagID(
       new clang::DiagnosticIDs());
+  TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
   clang::DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
 
   clang::driver::Driver TheDriver(

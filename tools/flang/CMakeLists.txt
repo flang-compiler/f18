@@ -24,7 +24,7 @@ include_directories(${LLVM_DIR} ${LLVM_DIR}/../..)
 
 target_link_libraries(flang-tmp
   PRIVATE
-  clangFrontend
+  flangFrontend
   clangDriver
   clangBasic
   ${LLVM_COMMON_LIBS}
