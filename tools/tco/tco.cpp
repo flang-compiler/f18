@@ -31,42 +31,43 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace llvm;
+namespace {
 
-static cl::opt<std::string> ClInput(cl::Positional, cl::Required,
-                                    cl::desc("<input file>"));
+namespace Cl = llvm::cl;
 
-static cl::opt<std::string> ClOutput("o", cl::desc("Specify output filename"),
-                                     cl::value_desc("filename"),
-                                     cl::init("a.ll"));
+Cl::opt<std::string> ClInput(Cl::Positional, Cl::Required,
+                             Cl::desc("<input file>"));
+
+Cl::opt<std::string> ClOutput("o", Cl::desc("Specify output filename"),
+                              Cl::value_desc("filename"), Cl::init("a.ll"));
 
 // compile a .fir file
 int compileFIR() {
   // check that there is a file to load
-  ErrorOr<std::unique_ptr<MemoryBuffer>> fileOrErr =
-      MemoryBuffer::getFileOrSTDIN(ClInput);
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
+      llvm::MemoryBuffer::getFileOrSTDIN(ClInput);
 
   if (std::error_code EC = fileOrErr.getError()) {
-    errs() << "Could not open file: " << EC.message() << '\n';
+    llvm::errs() << "Could not open file: " << EC.message() << '\n';
     return 1;
   }
 
   // load the file into a module
-  SourceMgr sourceMgr;
-  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), SMLoc());
+  llvm::SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
   auto context = std::make_unique<mlir::MLIRContext>();
   auto owningRef = mlir::parseSourceFile(sourceMgr, context.get());
 
   if (!owningRef) {
-    errs() << "Error can't load file " << ClInput << '\n';
+    llvm::errs() << "Error can't load file " << ClInput << '\n';
     return 2;
   }
   if (mlir::failed(owningRef->verify())) {
-    errs() << "Error verifying FIR module\n";
+    llvm::errs() << "Error verifying FIR module\n";
     return 4;
   }
 
-  errs() << ";== input ==\n";
+  llvm::errs() << ";== input ==\n";
   owningRef->dump();
 
   // run passes
@@ -84,20 +85,17 @@ int compileFIR() {
   pm.addPass(mlir::createLowerToCFGPass());
   pm.addPass(fir::createFIRToLLVMPass(uniquer));
   pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
-  if (mlir::succeeded(pm.run(*owningRef))) {
-    errs() << ";== output ==\n";
-    owningRef->dump();
-  } else {
-    errs() << "FAILED: " << ClInput << '\n';
-    return 8;
-  }
-  return 0;
+  if (mlir::succeeded(pm.run(*owningRef)))
+    return 0;
+  llvm::errs() << "FAILED: " << ClInput << '\n';
+  return 8;
 }
+} // namespace
 
 int main(int argc, char **argv) {
   [[maybe_unused]] llvm::InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
-  cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
+  Cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
   return compileFIR();
 }

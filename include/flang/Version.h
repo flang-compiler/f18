@@ -8,7 +8,7 @@
 ///
 /// \file
 /// Defines version macros and version-related utility functions
-/// for Clang.
+/// for Flang.
 ///
 //===----------------------------------------------------------------------===//
 
@@ -20,40 +20,40 @@
 
 namespace flang {
   /// Retrieves the repository path (e.g., Subversion path) that
-  /// identifies the particular Clang branch, tag, or trunk from which this
-  /// Clang was built.
+  /// identifies the particular Flang branch, tag, or trunk from which this
+  /// Flang was built.
   std::string getFlangRepositoryPath();
 
   /// Retrieves the repository path from which LLVM was built.
   ///
-  /// This supports LLVM residing in a separate repository from clang.
+  /// This supports LLVM residing in a separate repository from flang.
   std::string getLLVMRepositoryPath();
 
   /// Retrieves the repository revision number (or identifier) from which
-  /// this Clang was built.
+  /// this Flang was built.
   std::string getFlangRevision();
 
   /// Retrieves the repository revision number (or identifier) from which
   /// LLVM was built.
   ///
-  /// If Clang and LLVM are in the same repository, this returns the same
-  /// string as getClangRevision.
+  /// If Flang and LLVM are in the same repository, this returns the same
+  /// string as getFlangRevision.
   std::string getLLVMRevision();
 
   /// Retrieves the full repository version that is an amalgamation of
-  /// the information in getClangRepositoryPath() and getClangRevision().
+  /// the information in getFlangRepositoryPath() and getFlangRevision().
   std::string getFlangFullRepositoryVersion();
 
-  /// Retrieves a string representing the complete clang version,
-  /// which includes the clang version number, the repository version,
+  /// Retrieves a string representing the complete flang version,
+  /// which includes the flang version number, the repository version,
   /// and the vendor tag.
   std::string getFlangFullVersion();
 
-  /// Like getClangFullVersion(), but with a custom tool name.
+  /// Like getFlangFullVersion(), but with a custom tool name.
   std::string getFlangToolFullVersion(llvm::StringRef ToolName);
 
-  /// Retrieves a string representing the complete clang version suitable
-  /// for use in the CPP __VERSION__ macro, which includes the clang version
+  /// Retrieves a string representing the complete flang version suitable
+  /// for use in the CPP __VERSION__ macro, which includes the flang version
   /// number, the repository version, and the vendor tag.
   std::string getFlangFullCPPVersion();
 }
