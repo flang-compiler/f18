@@ -61,9 +61,6 @@ class ExprLowering {
   M::OpBuilder &builder;
   SomeExpr const &expr;
   SymMap &symMap;
-#if 0
-  SymMap loadedSymbols;
-#endif
   IntrinsicLibrary const &intrinsics;
   bool genLogicalAsI1{false};
 
@@ -254,24 +251,11 @@ class ExprLowering {
   M::Value gendef(Se::SymbolRef sym) { return gen(sym); }
 
   M::Value genval(Se::SymbolRef sym) {
-#if 0
-    // Do not load the same symbols several time in one expression.
-    // Fortran guarantees variable value must be the same wherever it
-    // appears in one expression.
-    if (mlir::Value loaded = loadedSymbols.lookupSymbol(sym)) 
-      return loaded;
-    mlir::Value load = builder.create<fir::LoadOp>(getLoc(), gen(sym));
-    loadedSymbols.addSymbol(sym, load);
-    return load;
-#else
-    // Multiple loads should be CSEd. If they aren't, it's a bug in CSE that
-    // should not use a workaround here.
     auto var = gen(sym);
     if (fir::isReferenceLike(var->getType())) {
       return builder.create<fir::LoadOp>(getLoc(), var);
     }
     return var;
-#endif
   }
 
   M::Value genval(Ev::BOZLiteralConstant const &) { TODO(); }

@@ -560,21 +560,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::BlockConstruct &) { TODO(); }
   void genFIR(const Pa::ChangeTeamConstruct &) { TODO(); }
   void genFIR(const Pa::CriticalConstruct &) { TODO(); }
-  void genFIR(const Pa::DoConstruct &d) {
-#if 0
-    auto &stmt{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(d.t)};
-    const Pa::NonLabelDoStmt &ss{stmt.statement};
-    auto &ctrl{std::get<std::optional<Pa::LoopControl>>(ss.t)};
-    if (ctrl.has_value()) {
-      // std::visit([&](const auto &x) { genLoopEnterFIR(x, &ss, stmt.source);
-      // }, ctrl->u);
-    } else {
-      // loop forever (See 11.1.7.4.1, para. 2)
-      // pushDoContext(&ss);
-    }
-#endif
-    TODO();
-  }
+  void genFIR(const Pa::DoConstruct &) { TODO(); }
   void genFIR(const Pa::IfConstruct &) { TODO(); }
 
   void genFIR(const SelectCaseConstruct &) { TODO(); }
@@ -1186,8 +1172,8 @@ public:
   explicit FirConverter(BurnsideBridge &bridge, fir::NameUniquer &uniquer)
       : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
         module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
-        intrinsics{IntrinsicLibrary::create(IntrinsicLibrary::Version::LLVM,
-                                            bridge.getMLIRContext())},
+        intrinsics{IntrinsicLibrary(IntrinsicLibrary::Version::LLVM,
+                                    bridge.getMLIRContext())},
         uniquer{uniquer} {}
 
   /// Convert the AST to FIR
