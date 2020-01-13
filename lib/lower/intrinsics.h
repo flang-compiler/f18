@@ -11,6 +11,7 @@
 
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "llvm/ADT/StringRef.h"
+#include <memory>
 #include <optional>
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
@@ -38,6 +39,8 @@ public:
   /// Available runtime library versions.
   enum class Version { PgmathFast, PgmathRelaxed, PgmathPrecise, LLVM };
 
+  /// Create an IntrinsicLibrary targeting the desired runtime library version.
+  IntrinsicLibrary(Version, mlir::MLIRContext &);
   ~IntrinsicLibrary();
   /// Generate the FIR+MLIR operations for the generic intrinsic "name".
   /// On failure, returns a nullptr, else the returned mlir::Value is
@@ -54,13 +57,10 @@ public:
   // TODO: Error handling interface ?
   // TODO: Implementation is incomplete. Many intrinsics to tbd.
 
-  /// Create an IntrinsicLibrary targeting the desired runtime library version.
-  static IntrinsicLibrary create(Version, mlir::MLIRContext &);
-
 private:
   /// Actual implementation is hidden.
   class Implementation;
-  Implementation *impl{nullptr}; // owning pointer
+  std::unique_ptr<Implementation> impl;
 };
 
 } // namespace Fortran::lower

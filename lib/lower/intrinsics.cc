@@ -276,14 +276,10 @@ static constexpr MathsRuntimeStaticDescription pgmathPreciseRuntime[] = {
 
 // IntrinsicLibrary implementation
 
-IntrinsicLibrary IntrinsicLibrary::create(IntrinsicLibrary::Version v,
-                                          M::MLIRContext &context) {
-  IntrinsicLibrary lib{};
-  lib.impl = new Implementation(v, context);
-  return lib;
-}
-
-IntrinsicLibrary::~IntrinsicLibrary() { delete impl; }
+IntrinsicLibrary::IntrinsicLibrary(IntrinsicLibrary::Version v,
+                                   M::MLIRContext &context)
+    : impl{new Implementation(v, context)} {}
+IntrinsicLibrary::~IntrinsicLibrary() = default;
 
 M::Value IntrinsicLibrary::genval(M::Location loc, M::OpBuilder &builder,
                                   L::StringRef name, M::Type resultType,
