@@ -56,6 +56,17 @@ static constexpr OmpDirectiveSet targetSet{OmpDirective::TARGET,
     OmpDirective::TARGET_TEAMS_DISTRIBUTE_PARALLEL_DO_SIMD,
     OmpDirective::TARGET_TEAMS_DISTRIBUTE_SIMD};
 
+static constexpr inline OmpClauseSet targetAllowedClauses{OmpClause::IF,
+    OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE, OmpClause::MAP,
+    OmpClause::IS_DEVICE_PTR, OmpClause::DEPEND};
+static constexpr inline OmpClauseSet targetAllowedOnceClauses{
+    OmpClause::DEVICE, OmpClause::DEFAULTMAP, OmpClause::NOWAIT};
+
+static constexpr inline OmpClauseSet teamsAllowedClauses{OmpClause::PRIVATE,
+    OmpClause::FIRSTPRIVATE, OmpClause::SHARED, OmpClause::REDUCTION};
+static constexpr inline OmpClauseSet teamsAllowedOnceClauses{
+    OmpClause::NUM_TEAMS, OmpClause::THREAD_LIMIT, OmpClause::DEFAULT};
+
 std::string OmpStructureChecker::ContextDirectiveAsFortran() {
   auto dir{EnumToString(GetContext().directive)};
   std::replace(dir.begin(), dir.end(), '_', ' ');
@@ -412,13 +423,8 @@ void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
   //                         depend-clause
   case parser::OmpBlockDirective::Directive::Target: {
     PushContext(beginDir.source, OmpDirective::TARGET);
-    OmpClauseSet allowed{OmpClause::IF, OmpClause::PRIVATE,
-        OmpClause::FIRSTPRIVATE, OmpClause::MAP, OmpClause::IS_DEVICE_PTR,
-        OmpClause::DEPEND};
-    SetContextAllowed(allowed);
-    OmpClauseSet allowedOnce{
-        OmpClause::DEVICE, OmpClause::DEFAULTMAP, OmpClause::NOWAIT};
-    SetContextAllowedOnce(allowedOnce);
+    SetContextAllowed(targetAllowedClauses);
+    SetContextAllowedOnce(targetAllowedOnceClauses);
   } break;
   // 2.10.7 teams-clause -> num-teams-clause |
   //                        thread-limit-clause |
@@ -429,12 +435,13 @@ void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
   //                        reduction-clause
   case parser::OmpBlockDirective::Directive::Teams: {
     PushContext(beginDir.source, OmpDirective::TEAMS);
-    OmpClauseSet allowed{OmpClause::PRIVATE, OmpClause::FIRSTPRIVATE,
-        OmpClause::SHARED, OmpClause::REDUCTION};
-    SetContextAllowed(allowed);
-    OmpClauseSet allowedOnce{
-        OmpClause::NUM_TEAMS, OmpClause::THREAD_LIMIT, OmpClause::DEFAULT};
-    SetContextAllowedOnce(allowedOnce);
+    SetContextAllowed(teamsAllowedClauses);
+    SetContextAllowedOnce(teamsAllowedOnceClauses);
+  } break;
+  case parser::OmpBlockDirective::Directive::TargetTeams: {
+    PushContext(beginDir.source, OmpDirective::TARGET_TEAMS);
+    SetContextAllowed(targetAllowedClauses | teamsAllowedClauses);
+    SetContextAllowedOnce(targetAllowedOnceClauses | teamsAllowedOnceClauses);
   } break;
     // 2.10.1 target-data-clause -> if-clause |
     //                              device-clause |
