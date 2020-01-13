@@ -110,14 +110,14 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
                   L::ArrayRef<M::Block *> destinations,
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
-    auto selecttype = M::cast<SelectTypeOp>(op);
-    auto conds = selecttype.getNumConditions();
+    auto selectType = M::cast<SelectTypeOp>(op);
+    auto conds = selectType.getNumConditions();
     auto attrName = SelectTypeOp::AttrName;
-    auto caseAttr = selecttype.getAttrOfType<M::ArrayAttr>(attrName);
+    auto caseAttr = selectType.getAttrOfType<M::ArrayAttr>(attrName);
     auto cases = caseAttr.getValue();
     // Selector must be of type !fir.box<T>
     auto &selector = operands[0];
-    auto loc = selecttype.getLoc();
+    auto loc = selectType.getLoc();
     auto mod = op->getParentOfType<M::ModuleOp>();
     for (unsigned t = 0; t != conds; ++t) {
       auto &attr = cases[t];
@@ -133,7 +133,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
       }
       assert(attr.dyn_cast_or_null<M::UnitAttr>());
       assert((t + 1 == conds) && "unit must be last");
-      rewriter.replaceOpWithNewOp<M::BranchOp>(selecttype, destinations[t],
+      rewriter.replaceOpWithNewOp<M::BranchOp>(selectType, destinations[t],
                                                M::ValueRange{destOperands[t]});
     }
     return matchSuccess();

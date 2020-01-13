@@ -15,8 +15,6 @@
 #include "llvm/ADT/StringRef.h"
 
 using namespace mlir;
-using llvm::ArrayRef;
-using llvm::StringRef;
 
 namespace fir {
 

@@ -65,7 +65,7 @@ M::Type BoxDimsOp::getTupleType() {
   L::SmallVector<M::Type, 3> triple{getResult(0)->getType(),
                                     getResult(1)->getType(),
                                     getResult(2)->getType()};
-  return mlir::TupleType::get(triple, getContext());
+  return M::TupleType::get(triple, getContext());
 }
 
 // CallOp
@@ -435,7 +435,7 @@ M::ParseResult LoadOp::getElementOf(M::Type &ele, M::Type ref) {
 
 // LoopOp
 
-void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
+void LoopOp::build(M::Builder *builder, M::OperationState &result,
                    int64_t lowerBound, int64_t upperBound, int64_t step) {
   assert(false && "not implemented");
 }

@@ -195,15 +195,8 @@ bool verifyRecordMemberType(M::Type ty) {
 
 bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
                      L::ArrayRef<RecordType::TypePair> a2) {
-  if (a1.size() != a2.size())
-    return false;
-  auto iter = a1.begin();
-  for (auto lp : a2) {
-    if (!((iter->first == lp.first) && (iter->second == lp.second)))
-      return false;
-    ++iter;
-  }
-  return true;
+  // FIXME: do we need to allow for any variance here?
+  return a1 == a2;
 }
 
 RecordType verifyDerived(M::DialectAsmParser &parser, RecordType derivedTy,
