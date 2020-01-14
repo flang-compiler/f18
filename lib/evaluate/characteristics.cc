@@ -71,8 +71,10 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
             const semantics::ProcInterface &interface{proc.interface()};
             if (interface.type()) {
               return Characterize(*interface.type());
-            } else {
+            } else if (interface.symbol()) {
               return Characterize(*interface.symbol(), context);
+            } else {
+              return std::optional<TypeAndShape>{};
             }
           },
           [&](const semantics::UseDetails &use) {
@@ -636,7 +638,7 @@ std::optional<Procedure> Procedure::Characterize(
           [&](const semantics::ProcEntityDetails &proc)
               -> std::optional<Procedure> {
             if (symbol.attrs().test(semantics::Attr::INTRINSIC)) {
-              return intrinsics.IsUnrestrictedSpecificIntrinsicFunction(
+              return intrinsics.IsSpecificIntrinsicFunction(
                   symbol.name().ToString());
             }
             const semantics::ProcInterface &interface{proc.interface()};

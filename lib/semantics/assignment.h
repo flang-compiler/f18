@@ -10,6 +10,7 @@
 #define FORTRAN_SEMANTICS_ASSIGNMENT_H_
 
 #include "semantics.h"
+#include "tools.h"
 #include "../common/indirection.h"
 #include "../evaluate/expression.h"
 #include <string>
@@ -23,31 +24,13 @@ struct PointerAssignmentStmt;
 struct Program;
 struct WhereStmt;
 struct WhereConstruct;
-struct ForallStmt;
 struct ForallConstruct;
 }
 
-namespace Fortran::evaluate::characteristics {
-struct DummyDataObject;
-}
-
-namespace Fortran::evaluate {
-class FoldingContext;
-void CheckPointerAssignment(
-    FoldingContext &, const Symbol &lhs, const Expr<SomeType> &rhs);
-void CheckPointerAssignment(FoldingContext &, parser::CharBlock source,
-    const std::string &description, const characteristics::DummyDataObject &,
-    const Expr<SomeType> &rhs);
-}
-
 namespace Fortran::semantics {
+
 class AssignmentContext;
-}
 
-extern template class Fortran::common::Indirection<
-    Fortran::semantics::AssignmentContext>;
-
-namespace Fortran::semantics {
 // Applies checks from C1594(1-2) on definitions in pure subprograms
 void CheckDefinabilityInPureScope(parser::ContextualMessages &, const Symbol &,
     const Scope &context, const Scope &pure);
@@ -59,9 +42,6 @@ class AssignmentChecker : public virtual BaseChecker {
 public:
   explicit AssignmentChecker(SemanticsContext &);
   ~AssignmentChecker();
-  template<typename A> void Enter(const parser::Statement<A> &stmt) {
-    at_ = stmt.source;
-  }
   void Enter(const parser::AssignmentStmt &);
   void Enter(const parser::PointerAssignmentStmt &);
   void Enter(const parser::WhereStmt &);
@@ -71,22 +51,15 @@ public:
 
 private:
   common::Indirection<AssignmentContext> context_;
-  parser::CharBlock at_;
 };
-
-// Semantic analysis of an assignment statement or WHERE/FORALL construct.
-void AnalyzeAssignment(
-    SemanticsContext &, const parser::Statement<parser::AssignmentStmt> &);
-void AnalyzeAssignment(SemanticsContext &,
-    const parser::Statement<parser::PointerAssignmentStmt> &);
-void AnalyzeAssignment(
-    SemanticsContext &, const parser::Statement<parser::WhereStmt> &);
-void AnalyzeAssignment(
-    SemanticsContext &, const parser::Statement<parser::ForallStmt> &);
 
 // R1125 concurrent-header is used in FORALL statements & constructs as
 // well as in DO CONCURRENT loops.
 void AnalyzeConcurrentHeader(
     SemanticsContext &, const parser::ConcurrentHeader &);
+
 }
+
+extern template class Fortran::common::Indirection<
+    Fortran::semantics::AssignmentContext>;
 #endif  // FORTRAN_SEMANTICS_ASSIGNMENT_H_
