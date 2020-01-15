@@ -25,6 +25,9 @@ Intentional violations of the standard
   `SIZE` that (as mentioned below) may return non-default
   `INTEGER` results by default to be passed.  A warning is
   emitted when truncation is possible.
+* We are not strict on the contents of `BLOCK DATA` subprograms
+  so long as they contain no executable code, no internal subprograms,
+  and allocate no storage outside a named `COMMON` block.  (C1415)
 
 Extensions, deletions, and legacy features supported by default
 ===============================================================
@@ -115,6 +118,7 @@ Extensions, deletions, and legacy features supported by default
   allowed.  The values are normalized.
 * An effectively empty source file (no program unit) is accepted and
   produces an empty relocatable output file.
+* A `RETURN` statement may appear in a main program.
 
 Extensions supported when enabled by options
 --------------------------------------------

@@ -17,6 +17,7 @@
 #include "../evaluate/check-expression.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
+#include <algorithm>
 
 namespace Fortran::semantics {
 
@@ -71,6 +72,9 @@ private:
   bool CheckDefinedAssignmentArg(const Symbol &, const DummyArgument &, int);
   void CheckSpecificsAreDistinguishable(
       const Symbol &, const GenericDetails &, const std::vector<Procedure> &);
+  void CheckEquivalenceSet(const EquivalenceSet &);
+  void CheckBlockData(const Scope &);
+
   void SayNotDistinguishable(
       const SourceName &, GenericKind, const Symbol &, const Symbol &);
   bool CheckConflicting(const Symbol &, Attr, Attr);
@@ -347,6 +351,23 @@ void CheckHelper::CheckObjectEntity(
       } else if (!IsIntentInOut(symbol)) {  // C1586
         messages_.Say(
             "non-POINTER dummy argument of pure subroutine must have INTENT() or VALUE attribute"_err_en_US);
+      }
+    }
+  }
+  if (symbol.owner().kind() != Scope::Kind::DerivedType &&
+      IsInitialized(symbol)) {
+    if (details.commonBlock()) {
+      if (details.commonBlock()->name().empty()) {
+        messages_.Say(
+            "A variable in blank COMMON should not be initialized"_en_US);
+      }
+    } else if (symbol.owner().kind() == Scope::Kind::BlockData) {
+      if (IsAllocatable(symbol)) {
+        messages_.Say(
+            "An ALLOCATABLE variable may not appear in a BLOCK DATA subprogram"_err_en_US);
+      } else {
+        messages_.Say(
+            "An initialized variable in BLOCK DATA must be in a COMMON block"_err_en_US);
       }
     }
   }
@@ -1005,11 +1026,75 @@ void CheckHelper::Check(const Scope &scope) {
   } else if (scope.IsDerivedType()) {
     return;  // PDT instantiations have null symbol()
   }
+  for (const auto &set : scope.equivalenceSets()) {
+    CheckEquivalenceSet(set);
+  }
   for (const auto &pair : scope) {
     Check(*pair.second);
   }
   for (const Scope &child : scope.children()) {
     Check(child);
+  }
+  if (scope.kind() == Scope::Kind::BlockData) {
+    CheckBlockData(scope);
+  }
+}
+
+void CheckHelper::CheckEquivalenceSet(const EquivalenceSet &set) {
+  auto iter{
+      std::find_if(set.begin(), set.end(), [](const EquivalenceObject &object) {
+        return FindCommonBlockContaining(object.symbol) != nullptr;
+      })};
+  if (iter != set.end()) {
+    const Symbol &commonBlock{DEREF(FindCommonBlockContaining(iter->symbol))};
+    for (auto &object : set) {
+      if (&object != &*iter) {
+        if (auto *details{object.symbol.detailsIf<ObjectEntityDetails>()}) {
+          if (details->commonBlock()) {
+            if (details->commonBlock() != &commonBlock) {  // 8.10.3 paragraph 1
+              if (auto *msg{messages_.Say(object.symbol.name(),
+                      "Two objects in the same EQUIVALENCE set may not be members of distinct COMMON blocks"_err_en_US)}) {
+                msg->Attach(iter->symbol.name(),
+                       "Other object in EQUIVALENCE set"_en_US)
+                    .Attach(details->commonBlock()->name(),
+                        "COMMON block containing '%s'"_en_US,
+                        object.symbol.name())
+                    .Attach(commonBlock.name(),
+                        "COMMON block containing '%s'"_en_US,
+                        iter->symbol.name());
+              }
+            }
+          } else {
+            // Mark all symbols in the equivalence set with the same COMMON
+            // block to prevent spurious error messages about initialization
+            // in BLOCK DATA outside COMMON
+            details->set_commonBlock(commonBlock);
+          }
+        }
+      }
+    }
+  }
+  // TODO: Move C8106 (&al.) checks here from resolve-names-utils.cc
+}
+
+void CheckHelper::CheckBlockData(const Scope &scope) {
+  // BLOCK DATA subprograms should contain only named common blocks.
+  // C1415 presents a list of statements that shouldn't appear in
+  // BLOCK DATA, but so long as the subprogram contains no executable
+  // code and allocates no storage outside named COMMON, we're happy
+  // (e.g., an ENUM is strictly not allowed).
+  for (const auto &pair : scope) {
+    const Symbol &symbol{*pair.second};
+    if (!(symbol.has<CommonBlockDetails>() || symbol.has<UseDetails>() ||
+            symbol.has<UseErrorDetails>() || symbol.has<DerivedTypeDetails>() ||
+            symbol.has<SubprogramDetails>() ||
+            symbol.has<ObjectEntityDetails>() ||
+            (symbol.has<ProcEntityDetails>() &&
+                !symbol.attrs().test(Attr::POINTER)))) {
+      messages_.Say(symbol.name(),
+          "'%s' may not appear in a BLOCK DATA subprogram"_err_en_US,
+          symbol.name());
+    }
   }
 }
 

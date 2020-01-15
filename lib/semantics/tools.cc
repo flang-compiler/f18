@@ -22,25 +22,12 @@
 
 namespace Fortran::semantics {
 
-static const Symbol *FindCommonBlockInScope(
-    const Scope &scope, const Symbol &object) {
-  for (const auto &pair : scope.commonBlocks()) {
-    const Symbol &block{*pair.second};
-    if (IsCommonBlockContaining(block, object)) {
-      return &block;
-    }
-  }
-  return nullptr;
-}
-
 const Symbol *FindCommonBlockContaining(const Symbol &object) {
-  for (const Scope *scope{&object.owner()}; !scope->IsGlobal();
-       scope = &scope->parent()) {
-    if (const Symbol * block{FindCommonBlockInScope(*scope, object)}) {
-      return block;
-    }
+  if (const auto *details{object.detailsIf<ObjectEntityDetails>()}) {
+    return details->commonBlock();
+  } else {
+    return nullptr;
   }
-  return nullptr;
 }
 
 const Scope *FindProgramUnitContaining(const Scope &start) {
@@ -49,7 +36,8 @@ const Scope *FindProgramUnitContaining(const Scope &start) {
     switch (scope->kind()) {
     case Scope::Kind::Module:
     case Scope::Kind::MainProgram:
-    case Scope::Kind::Subprogram: return scope;
+    case Scope::Kind::Subprogram:
+    case Scope::Kind::BlockData: return scope;
     case Scope::Kind::Global: return nullptr;
     case Scope::Kind::DerivedType:
     case Scope::Kind::Block:
@@ -615,6 +603,28 @@ bool CanBeTypeBoundProc(const Symbol *symbol) {
   } else {
     return false;
   }
+}
+
+bool IsInitialized(const Symbol &symbol) {
+  if (symbol.test(Symbol::Flag::InDataStmt)) {
+    return true;
+  } else if (IsNamedConstant(symbol)) {
+    return false;
+  } else if (const auto *object{symbol.detailsIf<ObjectEntityDetails>()}) {
+    if (IsAllocatable(symbol) || object->init()) {
+      return true;
+    }
+    if (!IsPointer(symbol) && object->type()) {
+      if (const auto *derived{object->type()->AsDerived()}) {
+        if (derived->HasDefaultInitialization()) {
+          return true;
+        }
+      }
+    }
+  } else if (const auto *proc{symbol.detailsIf<ProcEntityDetails>()}) {
+    return proc->init().has_value();
+  }
+  return false;
 }
 
 bool IsFinalizable(const Symbol &symbol) {
