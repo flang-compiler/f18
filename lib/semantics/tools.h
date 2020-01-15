@@ -73,7 +73,6 @@ bool IsIntrinsicConcat(
     const evaluate::DynamicType &, int, const evaluate::DynamicType &, int);
 
 bool IsGenericDefinedOp(const Symbol &);
-bool IsCommonBlockContaining(const Symbol &block, const Symbol &object);
 bool DoesScopeContain(const Scope *maybeAncestor, const Scope &maybeDescendent);
 bool DoesScopeContain(const Scope *, const Symbol &);
 bool IsUseAssociated(const Symbol &, const Scope &);
@@ -102,6 +101,7 @@ bool IsOrContainsEventOrLockComponent(const Symbol &);
 // Has an explicit or implied SAVE attribute
 bool IsSaved(const Symbol &);
 bool CanBeTypeBoundProc(const Symbol *);
+bool IsInitialized(const Symbol &);
 
 // Return an ultimate component of type that matches predicate, or nullptr.
 const Symbol *FindUltimateComponent(const DerivedTypeSpec &type,
@@ -141,6 +141,9 @@ inline bool IsIntentOut(const Symbol &symbol) {
 }
 inline bool IsProtected(const Symbol &symbol) {
   return symbol.attrs().test(Attr::PROTECTED);
+}
+inline bool IsImpliedDoIndex(const Symbol &symbol) {
+  return symbol.owner().kind() == Scope::Kind::ImpliedDos;
 }
 bool IsFinalizable(const Symbol &);
 bool IsFinalizable(const DerivedTypeSpec &);
