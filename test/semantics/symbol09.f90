@@ -67,7 +67,7 @@ subroutine s4
   integer :: a
  end type t
  !REF: /s4/t
- !DEF: /s4/x ObjectEntity TYPE(t(k=1_4))
+ !DEF: /s4/x (InDataStmt) ObjectEntity TYPE(t(k=1_4))
  type(t(1)) :: x
  !REF: /s4/x
  !REF: /s4/t
@@ -135,7 +135,7 @@ subroutine s8
  !DEF: /s8/ImpliedDos1/i (Implicit) ObjectEntity INTEGER(4)
  !REF: /s8/z
  !DEF: /s8/ImpliedDos2/i (Implicit) ObjectEntity INTEGER(4)
- !DEF: /s8/x (Implicit) ObjectEntity REAL(4)
+ !DEF: /s8/x (Implicit, InDataStmt) ObjectEntity REAL(4)
  !REF: /s8/one
  data (y(i),i=1,10),(z(i),i=1,10),x/21*one/
 end subroutine

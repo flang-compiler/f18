@@ -1,0 +1,44 @@
+! Error tests for recursive use of derived types.
+
+! RUN: not %flang -fdebug-resolve-names -fparse-only %s 2>&1 | FileCheck --check-prefixes=ERROR --implicit-check-not error: %s
+
+
+program main
+  type :: recursive1
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    type(recursive1) :: bad1
+    type(recursive1), pointer :: ok1
+    type(recursive1), allocatable :: ok2
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    class(recursive1) :: bad2
+    class(recursive1), pointer :: ok3
+    class(recursive1), allocatable :: ok4
+  end type recursive1
+  type :: recursive2(kind,len)
+    integer, kind :: kind
+    integer, len :: len
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    type(recursive2(kind,len)) :: bad1
+    type(recursive2(kind,len)), pointer :: ok1
+    type(recursive2(kind,len)), allocatable :: ok2
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    class(recursive2(kind,len)) :: bad2
+    class(recursive2(kind,len)), pointer :: ok3
+    class(recursive2(kind,len)), allocatable :: ok4
+  end type recursive2
+  type :: recursive3(kind,len)
+    integer, kind :: kind = 1
+    integer, len :: len = 2
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    type(recursive3) :: bad1
+    type(recursive3), pointer :: ok1
+    type(recursive3), allocatable :: ok2
+    !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Recursive use of the derived type requires POINTER or ALLOCATABLE
+    class(recursive3) :: bad2
+    class(recursive3), pointer :: ok3
+    class(recursive3), allocatable :: ok4
+  end type recursive3
+  !ERROR: [[@LINE+1]]:{{[0-9]+}}:{{.*}}error: Derived type 'recursive4' cannot extend itself
+  type, extends(recursive4) :: recursive4
+  end type recursive4
+end program main

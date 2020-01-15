@@ -1,0 +1,13 @@
+./implicit01.f90:16:3: Previous IMPLICIT NONE statement
+    implicit none
+    ^^^^^^^^^^^^^
+./implicit01.f90:18:3: error: More than one IMPLICIT NONE statement
+    implicit none(type)
+    ^^^^^^^^^^^^^^^^^^^
+./implicit01.f90:22:3: Previous IMPLICIT NONE statement
+    implicit none(external)
+    ^^^^^^^^^^^^^^^^^^^^^^^
+./implicit01.f90:24:3: error: More than one IMPLICIT NONE statement
+    implicit none
+    ^^^^^^^^^^^^^
+/home/lukire01/f18/build/install/bin/f18: semantic errors in ./implicit01.f90
