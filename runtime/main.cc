@@ -19,7 +19,9 @@ const char **envp;
 
 extern "C" {
 
-void RTNAME(ProgramStart)(int argc, const char *argv[], const char *envp[]) {
+void __FortranProgram();  // PROGRAM statement
+
+int main(int argc, const char *argv[], const char *envp[]) {
 
   Fortran::runtime::argc = argc;
   Fortran::runtime::argv = argv;
@@ -38,5 +40,7 @@ void RTNAME(ProgramStart)(int argc, const char *argv[], const char *envp[]) {
 
   std::atexit(Fortran::runtime::NotifyOtherImagesOfNormalEnd);
   // TODO: Runtime configuration settings from environment
+  __FortranProgram();
+  return EXIT_SUCCESS;
 }
 }

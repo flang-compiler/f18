@@ -28,7 +28,7 @@ ENUM_CLASS(LanguageFeature, BackslashEscapes, OldDebugLines,
     CruftAfterAmpersand, ClassicCComments, AdditionalFormats, BigIntLiterals,
     RealDoControls, EquivalenceNumericWithCharacter, AdditionalIntrinsics,
     AnonymousParents, OldLabelDoEndStatements, LogicalIntegerAssignment,
-    EmptySourceFile, ProgramReturn)
+    EmptySourceFile)
 
 using LanguageFeatures = EnumSet<LanguageFeature, LanguageFeature_enumSize>;
 

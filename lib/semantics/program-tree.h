@@ -39,15 +39,14 @@ public:
   static ProgramTree Build(const parser::BlockData &);
 
   ENUM_CLASS(Kind,  // kind of node
-      Program, Function, Subroutine, MpSubprogram, Module, Submodule, BlockData)
+      Program, Function, Subroutine, MpSubprogram, Module, Submodule)
   using Stmt = std::variant<  // the statement that introduces the program unit
       const parser::Statement<parser::ProgramStmt> *,
       const parser::Statement<parser::FunctionStmt> *,
       const parser::Statement<parser::SubroutineStmt> *,
       const parser::Statement<parser::MpSubprogramStmt> *,
       const parser::Statement<parser::ModuleStmt> *,
-      const parser::Statement<parser::SubmoduleStmt> *,
-      const parser::Statement<parser::BlockDataStmt> *>;
+      const parser::Statement<parser::SubmoduleStmt> *>;
 
   ProgramTree(const parser::Name &name, const parser::SpecificationPart &spec,
       const parser::ExecutionPart *exec = nullptr)

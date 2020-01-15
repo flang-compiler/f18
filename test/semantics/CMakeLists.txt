@@ -126,7 +126,6 @@ set(ERROR_TESTS
 #  altreturn02.f90
 #  altreturn03.f90
   altreturn04.f90
-  altreturn05.f90
   allocate01.f90
   allocate02.f90
   allocate03.f90
@@ -200,7 +199,6 @@ set(ERROR_TESTS
   critical01.f90
   critical02.f90
   critical03.f90
-  block-data01.f90
 )
 
 # These test files have expected symbols in the source
