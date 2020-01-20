@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_SEMANTICS_TOOLS_H_
 #define FORTRAN_SEMANTICS_TOOLS_H_
@@ -73,7 +73,6 @@ bool IsIntrinsicConcat(
     const evaluate::DynamicType &, int, const evaluate::DynamicType &, int);
 
 bool IsGenericDefinedOp(const Symbol &);
-bool IsCommonBlockContaining(const Symbol &block, const Symbol &object);
 bool DoesScopeContain(const Scope *maybeAncestor, const Scope &maybeDescendent);
 bool DoesScopeContain(const Scope *, const Symbol &);
 bool IsUseAssociated(const Symbol &, const Scope &);
@@ -102,6 +101,7 @@ bool IsOrContainsEventOrLockComponent(const Symbol &);
 // Has an explicit or implied SAVE attribute
 bool IsSaved(const Symbol &);
 bool CanBeTypeBoundProc(const Symbol *);
+bool IsInitialized(const Symbol &);
 
 // Return an ultimate component of type that matches predicate, or nullptr.
 const Symbol *FindUltimateComponent(const DerivedTypeSpec &type,
@@ -141,6 +141,9 @@ inline bool IsIntentOut(const Symbol &symbol) {
 }
 inline bool IsProtected(const Symbol &symbol) {
   return symbol.attrs().test(Attr::PROTECTED);
+}
+inline bool IsImpliedDoIndex(const Symbol &symbol) {
+  return symbol.owner().kind() == Scope::Kind::ImpliedDos;
 }
 bool IsFinalizable(const Symbol &);
 bool IsFinalizable(const DerivedTypeSpec &);
@@ -251,6 +254,8 @@ template<typename T> const SomeExpr *GetExpr(const T &x) {
 }
 
 const evaluate::Assignment *GetAssignment(const parser::AssignmentStmt &);
+const evaluate::Assignment *GetAssignment(
+    const parser::PointerAssignmentStmt &);
 
 template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   if (const auto *expr{GetExpr(x)}) {
@@ -469,5 +474,45 @@ FindPolymorphicAllocatableUltimateComponent(const DerivedTypeSpec &);
 UltimateComponentIterator::const_iterator
 FindPolymorphicAllocatableNonCoarrayUltimateComponent(const DerivedTypeSpec &);
 
+// The LabelEnforce class (given a set of labels) provides an error message if
+// there is a branch to a label which is not in the given set.
+class LabelEnforce {
+public:
+  LabelEnforce(SemanticsContext &context, std::set<parser::Label> &&labels,
+      parser::CharBlock constructSourcePosition, const char *construct)
+    : context_{context}, labels_{labels},
+      constructSourcePosition_{constructSourcePosition}, construct_{construct} {
+  }
+  template<typename T> bool Pre(const T &) { return true; }
+  template<typename T> bool Pre(const parser::Statement<T> &statement) {
+    currentStatementSourcePosition_ = statement.source;
+    return true;
+  }
+
+  template<typename T> void Post(const T &) {}
+
+  void Post(const parser::GotoStmt &gotoStmt);
+  void Post(const parser::ComputedGotoStmt &computedGotoStmt);
+  void Post(const parser::ArithmeticIfStmt &arithmeticIfStmt);
+  void Post(const parser::AssignStmt &assignStmt);
+  void Post(const parser::AssignedGotoStmt &assignedGotoStmt);
+  void Post(const parser::AltReturnSpec &altReturnSpec);
+  void Post(const parser::ErrLabel &errLabel);
+  void Post(const parser::EndLabel &endLabel);
+  void Post(const parser::EorLabel &eorLabel);
+  void checkLabelUse(const parser::Label &labelUsed);
+
+private:
+  SemanticsContext &context_;
+  std::set<parser::Label> labels_;
+  parser::CharBlock currentStatementSourcePosition_{nullptr};
+  parser::CharBlock constructSourcePosition_{nullptr};
+  const char *construct_{nullptr};
+
+  parser::MessageFormattedText GetEnclosingConstructMsg();
+  void SayWithConstruct(SemanticsContext &context,
+      parser::CharBlock stmtLocation, parser::MessageFormattedText &&message,
+      parser::CharBlock constructLocation);
+};
 }
 #endif  // FORTRAN_SEMANTICS_TOOLS_H_

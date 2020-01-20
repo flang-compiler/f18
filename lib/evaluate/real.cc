@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "real.h"
 #include "int-power.h"
@@ -97,7 +97,7 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Add(
     }
     if (order == Ordering::Equal) {
       // x + (-x) -> +0.0 unless rounding is directed downwards
-      if (rounding.mode == RoundingMode::Down) {
+      if (rounding.mode == common::RoundingMode::Down) {
         result.value.word_ = result.value.word_.IBSET(bits - 1);  // -0.0
       }
       return result;
@@ -262,6 +262,32 @@ ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::Divide(
 }
 
 template<typename W, int P, bool IM>
+ValueWithRealFlags<Real<W, P, IM>> Real<W, P, IM>::ToWholeNumber(
+    common::RoundingMode mode) const {
+  ValueWithRealFlags<Real> result{*this};
+  if (IsNotANumber()) {
+    result.flags.set(RealFlag::InvalidArgument);
+    result.value = NotANumber();
+  } else if (IsInfinite()) {
+    result.flags.set(RealFlag::Overflow);
+  } else {
+    constexpr int noClipExponent{exponentBias + precision - 1};
+    if (Exponent() < noClipExponent) {
+      Real adjust;  // ABS(EPSILON(adjust)) == 0.5
+      adjust.Normalize(IsSignBitSet(), noClipExponent, Fraction::MASKL(1));
+      // Compute ival=(*this + adjust), losing any fractional bits; keep flags
+      result = Add(adjust, Rounding{mode});
+      result.flags.reset(RealFlag::Inexact);  // result *is* exact
+      // Return (ival-adjust) with original sign in case we've generated a zero.
+      result.value =
+          result.value.Subtract(adjust, Rounding{common::RoundingMode::ToZero})
+              .value.SIGN(*this);
+    }
+  }
+  return result;
+}
+
+template<typename W, int P, bool IM>
 RealFlags Real<W, P, IM>::Normalize(bool negative, int exponent,
     const Fraction &fraction, Rounding rounding, RoundingBits *roundingBits) {
   int lshift{fraction.LEADZ()};
@@ -281,10 +307,10 @@ RealFlags Real<W, P, IM>::Normalize(bool negative, int exponent,
   }
   if (exponent >= maxExponent) {
     // Infinity or overflow
-    if (rounding.mode == RoundingMode::TiesToEven ||
-        rounding.mode == RoundingMode::TiesAwayFromZero ||
-        (rounding.mode == RoundingMode::Up && !negative) ||
-        (rounding.mode == RoundingMode::Down && negative)) {
+    if (rounding.mode == common::RoundingMode::TiesToEven ||
+        rounding.mode == common::RoundingMode::TiesAwayFromZero ||
+        (rounding.mode == common::RoundingMode::Up && !negative) ||
+        (rounding.mode == common::RoundingMode::Down && negative)) {
       word_ = Word{maxExponent}.SHIFTL(significandBits);  // Inf
     } else {
       // directed rounding: round to largest finite value rather than infinity
@@ -350,8 +376,8 @@ RealFlags Real<W, P, IM>::Round(
     if (rounding.x86CompatibleBehavior && Exponent() != 0 && multiply &&
         bits.sticky() &&
         (bits.guard() ||
-            (rounding.mode != RoundingMode::Up &&
-                rounding.mode != RoundingMode::Down))) {
+            (rounding.mode != common::RoundingMode::Up &&
+                rounding.mode != common::RoundingMode::Down))) {
       // x86 edge case in which Underflow fails to signal when a subnormal
       // inexact multiplication product rounds to a normal result when
       // the guard bit is set or we're not using directed rounding
@@ -371,13 +397,14 @@ void Real<W, P, IM>::NormalizeAndRound(ValueWithRealFlags<Real> &result,
   result.flags |= result.value.Round(rounding, roundingBits, multiply);
 }
 
-inline enum decimal::FortranRounding MapRoundingMode(RoundingMode rounding) {
+inline enum decimal::FortranRounding MapRoundingMode(
+    common::RoundingMode rounding) {
   switch (rounding) {
-  case RoundingMode::TiesToEven: break;
-  case RoundingMode::ToZero: return decimal::RoundToZero;
-  case RoundingMode::Down: return decimal::RoundDown;
-  case RoundingMode::Up: return decimal::RoundUp;
-  case RoundingMode::TiesAwayFromZero: return decimal::RoundCompatible;
+  case common::RoundingMode::TiesToEven: break;
+  case common::RoundingMode::ToZero: return decimal::RoundToZero;
+  case common::RoundingMode::Down: return decimal::RoundDown;
+  case common::RoundingMode::Up: return decimal::RoundUp;
+  case common::RoundingMode::TiesAwayFromZero: return decimal::RoundCompatible;
   }
   return decimal::RoundNearest;  // dodge gcc warning about lack of result
 }

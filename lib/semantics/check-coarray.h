@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_SEMANTICS_CHECK_COARRAY_H_
 #define FORTRAN_SEMANTICS_CHECK_COARRAY_H_
@@ -33,6 +33,8 @@ public:
   void Leave(const parser::ImageSelectorSpec &);
   void Leave(const parser::FormTeamStmt &);
 
+  void Enter(const parser::CriticalConstruct &);
+
 private:
   SemanticsContext &context_;
 
@@ -40,6 +42,5 @@ private:
   void Say2(const parser::CharBlock &, parser::MessageFixedText &&,
       const parser::CharBlock &, parser::MessageFixedText &&);
 };
-
 }
 #endif  // FORTRAN_SEMANTICS_CHECK_COARRAY_H_

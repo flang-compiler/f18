@@ -4,12 +4,56 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "fold.h"
 #include "fold-implementation.h"
 
 namespace Fortran::evaluate {
+
+std::optional<Constant<SubscriptInteger>> GetConstantSubscript(
+    FoldingContext &context, Subscript &ss, const NamedEntity &base, int dim) {
+  ss = FoldOperation(context, std::move(ss));
+  return std::visit(
+      common::visitors{
+          [](IndirectSubscriptIntegerExpr &expr)
+              -> std::optional<Constant<SubscriptInteger>> {
+            if (const auto *constant{
+                    UnwrapConstantValue<SubscriptInteger>(expr.value())}) {
+              return *constant;
+            } else {
+              return std::nullopt;
+            }
+          },
+          [&](Triplet &triplet) -> std::optional<Constant<SubscriptInteger>> {
+            auto lower{triplet.lower()}, upper{triplet.upper()};
+            std::optional<ConstantSubscript> stride{ToInt64(triplet.stride())};
+            if (!lower) {
+              lower = GetLowerBound(context, base, dim);
+            }
+            if (!upper) {
+              upper =
+                  ComputeUpperBound(context, GetLowerBound(context, base, dim),
+                      GetExtent(context, base, dim));
+            }
+            auto lbi{ToInt64(lower)}, ubi{ToInt64(upper)};
+            if (lbi && ubi && stride && *stride != 0) {
+              std::vector<SubscriptInteger::Scalar> values;
+              while ((*stride > 0 && *lbi <= *ubi) ||
+                  (*stride < 0 && *lbi >= *ubi)) {
+                values.emplace_back(*lbi);
+                *lbi += *stride;
+              }
+              return Constant<SubscriptInteger>{std::move(values),
+                  ConstantSubscripts{
+                      static_cast<ConstantSubscript>(values.size())}};
+            } else {
+              return std::nullopt;
+            }
+          },
+      },
+      ss.u);
+}
 
 Expr<SomeDerived> FoldOperation(
     FoldingContext &context, StructureConstructor &&structure) {

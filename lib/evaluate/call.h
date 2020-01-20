@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_EVALUATE_CALL_H_
 #define FORTRAN_EVALUATE_CALL_H_
@@ -111,6 +111,11 @@ public:
   void set_isPassedObject(bool yes = true) { isPassedObject_ = yes; }
 
   bool Matches(const characteristics::DummyArgument &) const;
+  common::Intent dummyIntent() const { return dummyIntent_; }
+  ActualArgument &set_dummyIntent(common::Intent intent) {
+    dummyIntent_ = intent;
+    return *this;
+  }
 
   // Wrap this argument in parentheses
   void Parenthesize();
@@ -127,6 +132,7 @@ private:
   std::optional<parser::CharBlock> keyword_;
   bool isAlternateReturn_{false};  // whether expr is a "*label" number
   bool isPassedObject_{false};
+  common::Intent dummyIntent_{common::Intent::Default};
 };
 
 using ActualArguments = std::vector<std::optional<ActualArgument>>;
@@ -191,7 +197,7 @@ public:
   const ActualArguments &arguments() const { return arguments_; }
 
   std::optional<Expr<SubscriptInteger>> LEN() const;
-  int Rank() const { return proc_.Rank(); }
+  int Rank() const;
   bool IsElemental() const { return proc_.IsElemental(); }
   bool operator==(const ProcedureRef &) const;
   std::ostream &AsFortran(std::ostream &) const;

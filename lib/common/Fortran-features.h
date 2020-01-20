@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_COMMON_FORTRAN_FEATURES_H_
 #define FORTRAN_COMMON_FORTRAN_FEATURES_H_
@@ -28,7 +28,7 @@ ENUM_CLASS(LanguageFeature, BackslashEscapes, OldDebugLines,
     CruftAfterAmpersand, ClassicCComments, AdditionalFormats, BigIntLiterals,
     RealDoControls, EquivalenceNumericWithCharacter, AdditionalIntrinsics,
     AnonymousParents, OldLabelDoEndStatements, LogicalIntegerAssignment,
-    EmptySourceFile)
+    EmptySourceFile, ProgramReturn)
 
 using LanguageFeatures = EnumSet<LanguageFeature, LanguageFeature_enumSize>;
 

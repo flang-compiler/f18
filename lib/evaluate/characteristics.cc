@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "characteristics.h"
 #include "check-expression.h"
@@ -71,8 +71,10 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
             const semantics::ProcInterface &interface{proc.interface()};
             if (interface.type()) {
               return Characterize(*interface.type());
-            } else {
+            } else if (interface.symbol()) {
               return Characterize(*interface.symbol(), context);
+            } else {
+              return std::optional<TypeAndShape>{};
             }
           },
           [&](const semantics::UseDetails &use) {
@@ -119,6 +121,7 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
   }
 }
 
+#if 0  // pmk
 std::optional<TypeAndShape> TypeAndShape::Characterize(
     const Expr<SomeType> &expr, FoldingContext &context) {
   if (const auto *symbol{UnwrapWholeSymbolDataRef(expr)}) {
@@ -145,6 +148,7 @@ std::optional<TypeAndShape> TypeAndShape::Characterize(
   }
   return std::nullopt;
 }
+#endif  // pmk
 
 bool TypeAndShape::IsCompatibleWith(parser::ContextualMessages &messages,
     const TypeAndShape &that, const char *thisIs, const char *thatIs,
@@ -636,7 +640,7 @@ std::optional<Procedure> Procedure::Characterize(
           [&](const semantics::ProcEntityDetails &proc)
               -> std::optional<Procedure> {
             if (symbol.attrs().test(semantics::Attr::INTRINSIC)) {
-              return intrinsics.IsUnrestrictedSpecificIntrinsicFunction(
+              return intrinsics.IsSpecificIntrinsicFunction(
                   symbol.name().ToString());
             }
             const semantics::ProcInterface &interface{proc.interface()};
@@ -693,7 +697,7 @@ std::optional<Procedure> Procedure::Characterize(
     const ProcedureDesignator &proc, const IntrinsicProcTable &intrinsics) {
   if (const auto *symbol{proc.GetSymbol()}) {
     if (auto result{characteristics::Procedure::Characterize(
-            symbol->GetUltimate(), intrinsics)}) {
+            ResolveAssociations(*symbol), intrinsics)}) {
       return result;
     }
   } else if (const auto *intrinsic{proc.GetSpecificIntrinsic()}) {

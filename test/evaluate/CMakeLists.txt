@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-#------------------------------------------------------------------------------#
+#===------------------------------------------------------------------------===#
 
 add_library(FortranEvaluateTesting
   testing.cc
@@ -142,6 +142,7 @@ set(FOLDING_TESTS
   folding06.f90
   folding07.f90
   folding08.f90
+  folding09.f90
 )
 
 add_test(Expression expression-test)

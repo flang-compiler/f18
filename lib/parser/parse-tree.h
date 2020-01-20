@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_PARSER_PARSE_TREE_H_
 #define FORTRAN_PARSER_PARSE_TREE_H_
@@ -1942,6 +1942,7 @@ struct PointerAssignmentStmt {
     std::variant<std::list<BoundsRemapping>, std::list<BoundsSpec>> u;
   };
   TUPLE_CLASS_BOILERPLATE(PointerAssignmentStmt);
+  mutable AssignmentStmt::TypedAssignment typedAssignment;
   std::tuple<DataRef, Bounds, Expr> t;
 };
 

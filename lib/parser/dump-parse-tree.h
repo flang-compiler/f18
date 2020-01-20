@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_PARSER_DUMP_PARSE_TREE_H_
 #define FORTRAN_PARSER_DUMP_PARSE_TREE_H_
@@ -766,7 +766,8 @@ protected:
       if (asFortran_ && x.typedExpr) {
         asFortran_->expr(ss, *x.typedExpr);
       }
-    } else if constexpr (std::is_same_v<T, AssignmentStmt>) {
+    } else if constexpr (std::is_same_v<T, AssignmentStmt> ||
+        std::is_same_v<T, PointerAssignmentStmt>) {
       if (asFortran_ && x.typedAssignment) {
         asFortran_->assignment(ss, *x.typedAssignment);
       }

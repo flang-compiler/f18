@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_PARSER_CHAR_BLOCK_H_
 #define FORTRAN_PARSER_CHAR_BLOCK_H_
@@ -134,9 +134,7 @@ inline bool operator>(const char *left, const CharBlock &right) {
   return right < left;
 }
 
-inline std::ostream &operator<<(std::ostream &os, const CharBlock &x) {
-  return os << x.ToString();
-}
+std::ostream &operator<<(std::ostream &os, const CharBlock &x);
 
 }
 

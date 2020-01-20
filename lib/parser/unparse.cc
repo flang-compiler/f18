@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 // Generates Fortran from the content of a parse tree, using the
 // traversal templates in parse-tree-visitor.h.
@@ -849,16 +849,22 @@ public:
     }
   }
   void Unparse(const PointerAssignmentStmt &x) {  // R1033, R1034, R1038
-    Walk(std::get<DataRef>(x.t));
-    std::visit(
-        common::visitors{
-            [&](const std::list<BoundsRemapping> &y) {
-              Put('('), Walk(y), Put(')');
-            },
-            [&](const std::list<BoundsSpec> &y) { Walk("(", y, ", ", ")"); },
-        },
-        std::get<PointerAssignmentStmt::Bounds>(x.t).u);
-    Put(" => "), Walk(std::get<Expr>(x.t));
+    if (asFortran_ && x.typedAssignment.get()) {
+      Put(' ');
+      asFortran_->assignment(out_, *x.typedAssignment);
+      Put('\n');
+    } else {
+      Walk(std::get<DataRef>(x.t));
+      std::visit(
+          common::visitors{
+              [&](const std::list<BoundsRemapping> &y) {
+                Put('('), Walk(y), Put(')');
+              },
+              [&](const std::list<BoundsSpec> &y) { Walk("(", y, ", ", ")"); },
+          },
+          std::get<PointerAssignmentStmt::Bounds>(x.t).u);
+      Put(" => "), Walk(std::get<Expr>(x.t));
+    }
   }
   void Post(const BoundsSpec &) {  // R1035
     Put(':');

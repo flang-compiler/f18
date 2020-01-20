@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_EVALUATE_FOLD_IMPLEMENTATION_H_
 #define FORTRAN_EVALUATE_FOLD_IMPLEMENTATION_H_
@@ -67,6 +67,9 @@ private:
   FoldingContext &context_;
 };
 
+std::optional<Constant<SubscriptInteger>> GetConstantSubscript(
+    FoldingContext &, Subscript &, const NamedEntity &, int dim);
+
 // FoldOperation() rewrites expression tree nodes.
 // If there is any possibility that the rewritten node will
 // not have the same representation type, the result of
@@ -123,7 +126,7 @@ Expr<SomeDerived> FoldOperation(FoldingContext &, StructureConstructor &&);
 
 template<typename T>
 std::optional<Expr<T>> Folder<T>::GetNamedConstantValue(const Symbol &symbol0) {
-  const Symbol &symbol{ResolveAssociations(symbol0).GetUltimate()};
+  const Symbol &symbol{ResolveAssociations(symbol0)};
   if (IsNamedConstant(symbol)) {
     if (const auto *object{
             symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
@@ -214,50 +217,6 @@ std::optional<Constant<T>> Folder<T>::GetFoldedNamedConstantValue(
   return std::nullopt;
 }
 
-static std::optional<Constant<SubscriptInteger>> GetConstantSubscript(
-    FoldingContext &context, Subscript &ss, const NamedEntity &base, int dim) {
-  ss = FoldOperation(context, std::move(ss));
-  return std::visit(
-      common::visitors{
-          [](IndirectSubscriptIntegerExpr &expr)
-              -> std::optional<Constant<SubscriptInteger>> {
-            if (auto constant{
-                    GetScalarConstantValue<SubscriptInteger>(expr.value())}) {
-              return Constant<SubscriptInteger>{*constant};
-            } else {
-              return std::nullopt;
-            }
-          },
-          [&](Triplet &triplet) -> std::optional<Constant<SubscriptInteger>> {
-            auto lower{triplet.lower()}, upper{triplet.upper()};
-            std::optional<ConstantSubscript> stride{ToInt64(triplet.stride())};
-            if (!lower) {
-              lower = GetLowerBound(context, base, dim);
-            }
-            if (!upper) {
-              upper =
-                  ComputeUpperBound(context, GetLowerBound(context, base, dim),
-                      GetExtent(context, base, dim));
-            }
-            auto lbi{ToInt64(lower)}, ubi{ToInt64(upper)};
-            if (lbi && ubi && stride && *stride != 0) {
-              std::vector<SubscriptInteger::Scalar> values;
-              while ((*stride > 0 && *lbi <= *ubi) ||
-                  (*stride < 0 && *lbi >= *ubi)) {
-                values.emplace_back(*lbi);
-                *lbi += *stride;
-              }
-              return Constant<SubscriptInteger>{std::move(values),
-                  ConstantSubscripts{
-                      static_cast<ConstantSubscript>(values.size())}};
-            } else {
-              return std::nullopt;
-            }
-          },
-      },
-      ss.u);
-}
-
 template<typename T>
 std::optional<Constant<T>> Folder<T>::Folding(ArrayRef &aRef) {
   std::vector<Constant<SubscriptInteger>> subscripts;
@@ -307,11 +266,11 @@ std::optional<Constant<T>> Folder<T>::ApplySubscripts(const Constant<T> &array,
         at[j] = subscripts[j].GetScalarValue().value().ToInt64();
       } else {
         CHECK(k < GetRank(resultShape));
-        tmp[0] = ssLB[j] + ssAt[j];
+        tmp[0] = ssLB.at(k) + ssAt.at(k);
         at[j] = subscripts[j].At(tmp).ToInt64();
         if (increment) {
-          if (++ssAt[j] == resultShape[k]) {
-            ssAt[j] = 0;
+          if (++ssAt[k] == resultShape[k]) {
+            ssAt[k] = 0;
           } else {
             increment = false;
           }
@@ -487,6 +446,47 @@ Constant<T> *Folder<T>::Folding(std::optional<ActualArgument> &arg) {
   return nullptr;
 }
 
+template<typename... A, std::size_t... I>
+std::optional<std::tuple<const Constant<A> *...>> GetConstantArgumentsHelper(
+    FoldingContext &context, ActualArguments &arguments,
+    std::index_sequence<I...>) {
+  static_assert(
+      (... && IsSpecificIntrinsicType<A>));  // TODO derived types for MERGE?
+  static_assert(sizeof...(A) > 0);
+  std::tuple<const Constant<A> *...> args{
+      Folder<A>{context}.Folding(arguments.at(I))...};
+  if ((... && (std::get<I>(args)))) {
+    return args;
+  } else {
+    return std::nullopt;
+  }
+}
+
+template<typename... A>
+std::optional<std::tuple<const Constant<A> *...>> GetConstantArguments(
+    FoldingContext &context, ActualArguments &args) {
+  return GetConstantArgumentsHelper<A...>(
+      context, args, std::index_sequence_for<A...>{});
+}
+
+template<typename... A, std::size_t... I>
+std::optional<std::tuple<Scalar<A>...>> GetScalarConstantArgumentsHelper(
+    FoldingContext &context, ActualArguments &args, std::index_sequence<I...>) {
+  if (auto constArgs{GetConstantArguments<A...>(context, args)}) {
+    return std::tuple<Scalar<A>...>{
+        std::get<I>(*constArgs)->GetScalarValue().value()...};
+  } else {
+    return std::nullopt;
+  }
+}
+
+template<typename... A>
+std::optional<std::tuple<Scalar<A>...>> GetScalarConstantArguments(
+    FoldingContext &context, ActualArguments &args) {
+  return GetScalarConstantArgumentsHelper<A...>(
+      context, args, std::index_sequence_for<A...>{});
+}
+
 // helpers to fold intrinsic function references
 // Define callable types used in a common utility that
 // takes care of array and cast/conversion aspects for elemental intrinsics
@@ -502,18 +502,14 @@ template<template<typename, typename...> typename WrapperType, typename TR,
 Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
     FunctionRef<TR> &&funcRef, WrapperType<TR, TA...> func,
     std::index_sequence<I...>) {
-  static_assert(
-      (... && IsSpecificIntrinsicType<TA>));  // TODO derived types for MERGE?
-  static_assert(sizeof...(TA) > 0);
-  std::tuple<const Constant<TA> *...> args{
-      Folder<TA>{context}.Folding(funcRef.arguments()[I])...};
-  if ((... && (std::get<I>(args)))) {
+  if (std::optional<std::tuple<const Constant<TA> *...>> args{
+          GetConstantArguments<TA...>(context, funcRef.arguments())}) {
     // Compute the shape of the result based on shapes of arguments
     ConstantSubscripts shape;
     int rank{0};
     const ConstantSubscripts *shapes[sizeof...(TA)]{
-        &std::get<I>(args)->shape()...};
-    const int ranks[sizeof...(TA)]{std::get<I>(args)->Rank()...};
+        &std::get<I>(*args)->shape()...};
+    const int ranks[sizeof...(TA)]{std::get<I>(*args)->Rank()...};
     for (unsigned int i{0}; i < sizeof...(TA); ++i) {
       if (ranks[i] > 0) {
         if (rank == 0) {
@@ -543,13 +539,13 @@ Expr<TR> FoldElementalIntrinsicHelper(FoldingContext &context,
         if constexpr (std::is_same_v<WrapperType<TR, TA...>,
                           ScalarFuncWithContext<TR, TA...>>) {
           results.emplace_back(func(context,
-              (ranks[I] ? std::get<I>(args)->At(index)
-                        : std::get<I>(args)->GetScalarValue().value())...));
+              (ranks[I] ? std::get<I>(*args)->At(index)
+                        : std::get<I>(*args)->GetScalarValue().value())...));
         } else if constexpr (std::is_same_v<WrapperType<TR, TA...>,
                                  ScalarFunc<TR, TA...>>) {
           results.emplace_back(func(
-              (ranks[I] ? std::get<I>(args)->At(index)
-                        : std::get<I>(args)->GetScalarValue().value())...));
+              (ranks[I] ? std::get<I>(*args)->At(index)
+                        : std::get<I>(*args)->GetScalarValue().value())...));
         }
       } while (bounds.IncrementSubscripts(index));
     }
@@ -694,7 +690,7 @@ Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&funcRef) {
     if (name == "reshape") {
       return Folder<T>{context}.Reshape(std::move(funcRef));
     }
-    // TODO: other type independent transformational
+    // TODO: other type independent transformationals
     if constexpr (!std::is_same_v<T, SomeDerived>) {
       return FoldIntrinsicFunction(context, std::move(funcRef));
     }

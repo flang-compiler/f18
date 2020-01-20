@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "fold-implementation.h"
 
@@ -87,24 +87,26 @@ Expr<Type<TypeCategory::Real, KIND>> FoldIntrinsicFunction(
   } else if (name == "aimag") {
     return FoldElementalIntrinsic<T, ComplexT>(
         context, std::move(funcRef), &Scalar<ComplexT>::AIMAG);
-  } else if (name == "aint") {
+  } else if (name == "aint" || name == "anint") {
+    // ANINT rounds ties away from zero, not to even
+    common::RoundingMode mode{name == "aint"
+            ? common::RoundingMode::ToZero
+            : common::RoundingMode::TiesAwayFromZero};
     return FoldElementalIntrinsic<T, T>(context, std::move(funcRef),
-        ScalarFunc<T, T>([&name, &context](const Scalar<T> &x) -> Scalar<T> {
-          ValueWithRealFlags<Scalar<T>> y{x.AINT()};
+        ScalarFunc<T, T>([&name, &context, mode](
+                             const Scalar<T> &x) -> Scalar<T> {
+          ValueWithRealFlags<Scalar<T>> y{x.ToWholeNumber(mode)};
           if (y.flags.test(RealFlag::Overflow)) {
             context.messages().Say("%s intrinsic folding overflow"_en_US, name);
           }
           return y.value;
         }));
   } else if (name == "dprod") {
-    if (auto *x{UnwrapExpr<Expr<SomeReal>>(args[0])}) {
-      if (auto *y{UnwrapExpr<Expr<SomeReal>>(args[1])}) {
-        return Fold(context,
-            Expr<T>{Multiply<T>{ConvertToType<T>(std::move(*x)),
-                ConvertToType<T>(std::move(*y))}});
-      }
+    if (auto scalars{GetScalarConstantArguments<T, T>(context, args)}) {
+      return Fold(context,
+          Expr<T>{Multiply<T>{
+              Expr<T>{std::get<0>(*scalars)}, Expr<T>{std::get<1>(*scalars)}}});
     }
-    common::die("Wrong argument type in dprod()");
   } else if (name == "epsilon") {
     return Expr<T>{Scalar<T>::EPSILON()};
   } else if (name == "huge") {
@@ -125,7 +127,7 @@ Expr<Type<TypeCategory::Real, KIND>> FoldIntrinsicFunction(
   } else if (name == "tiny") {
     return Expr<T>{Scalar<T>::TINY()};
   }
-  // TODO: anint, cshift, dim, dot_product, eoshift, fraction, matmul,
+  // TODO: cshift, dim, dot_product, eoshift, fraction, matmul,
   // maxval, minval, modulo, nearest, norm2, pack, product,
   // reduce, rrspacing, scale, set_exponent, spacing, spread,
   // sum, transfer, transpose, unpack, bessel_jn (transformational) and

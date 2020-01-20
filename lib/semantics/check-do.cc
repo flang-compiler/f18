@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "check-do.h"
 #include "attr.h"
@@ -14,11 +14,20 @@
 #include "tools.h"
 #include "type.h"
 #include "../common/template.h"
+#include "../evaluate/call.h"
 #include "../evaluate/expression.h"
 #include "../evaluate/tools.h"
 #include "../parser/message.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../parser/tools.h"
+
+namespace Fortran::evaluate {
+using ActualArgumentRef = common::Reference<const ActualArgument>;
+
+inline bool operator<(ActualArgumentRef x, ActualArgumentRef y) {
+  return &*x < &*y;
+}
+}
 
 namespace Fortran::semantics {
 
@@ -75,7 +84,6 @@ public:
     : context_{context}, doConcurrentSourcePosition_{
                              doConcurrentSourcePosition} {}
   std::set<parser::Label> labels() { return labels_; }
-  std::set<SourceName> names() { return names_; }
   template<typename T> bool Pre(const T &) { return true; }
   template<typename T> void Post(const T &) {}
 
@@ -213,57 +221,6 @@ public:
     }
   }
 
-  // C1167 -- EXIT statements can't exit a DO CONCURRENT
-  bool Pre(const parser::WhereConstruct &s) {
-    AddName(MaybeGetConstructName(s));
-    return true;
-  }
-
-  bool Pre(const parser::ForallConstruct &s) {
-    AddName(MaybeGetConstructName(s));
-    return true;
-  }
-
-  bool Pre(const parser::ChangeTeamConstruct &s) {
-    AddName(MaybeGetConstructName(s));
-    return true;
-  }
-
-  bool Pre(const parser::CriticalConstruct &s) {
-    AddName(MaybeGetConstructName(s));
-    return true;
-  }
-
-  bool Pre(const parser::LabelDoStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
-  bool Pre(const parser::NonLabelDoStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
-  bool Pre(const parser::IfThenStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
-  bool Pre(const parser::SelectCaseStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
-  bool Pre(const parser::SelectRankStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
-  bool Pre(const parser::SelectTypeStmt &s) {
-    AddName(MaybeGetStmtName(s));
-    return true;
-  }
-
   // C1136 -- No RETURN statements in a DO CONCURRENT
   void Post(const parser::ReturnStmt &) {
     context_
@@ -334,80 +291,11 @@ private:
     return false;
   }
 
-  void AddName(const parser::Name *nm) {
-    if (nm) {
-      names_.insert(nm->source);
-    }
-  }
-
-  std::set<parser::CharBlock> names_;
   std::set<parser::Label> labels_;
   parser::CharBlock currentStatementSourcePosition_;
   SemanticsContext &context_;
   parser::CharBlock doConcurrentSourcePosition_;
 };  // class DoConcurrentBodyEnforce
-
-class DoConcurrentLabelEnforce {
-public:
-  DoConcurrentLabelEnforce(SemanticsContext &context,
-      std::set<parser::Label> &&labels, std::set<parser::CharBlock> &&names,
-      parser::CharBlock doConcurrentSourcePosition)
-    : context_{context}, labels_{labels}, names_{names},
-      doConcurrentSourcePosition_{doConcurrentSourcePosition} {}
-  template<typename T> bool Pre(const T &) { return true; }
-  template<typename T> bool Pre(const parser::Statement<T> &statement) {
-    currentStatementSourcePosition_ = statement.source;
-    return true;
-  }
-
-  template<typename T> void Post(const T &) {}
-
-  void Post(const parser::GotoStmt &gotoStmt) { checkLabelUse(gotoStmt.v); }
-  void Post(const parser::ComputedGotoStmt &computedGotoStmt) {
-    for (auto &i : std::get<std::list<parser::Label>>(computedGotoStmt.t)) {
-      checkLabelUse(i);
-    }
-  }
-
-  void Post(const parser::ArithmeticIfStmt &arithmeticIfStmt) {
-    checkLabelUse(std::get<1>(arithmeticIfStmt.t));
-    checkLabelUse(std::get<2>(arithmeticIfStmt.t));
-    checkLabelUse(std::get<3>(arithmeticIfStmt.t));
-  }
-
-  void Post(const parser::AssignStmt &assignStmt) {
-    checkLabelUse(std::get<parser::Label>(assignStmt.t));
-  }
-
-  void Post(const parser::AssignedGotoStmt &assignedGotoStmt) {
-    for (auto &i : std::get<std::list<parser::Label>>(assignedGotoStmt.t)) {
-      checkLabelUse(i);
-    }
-  }
-
-  void Post(const parser::AltReturnSpec &altReturnSpec) {
-    checkLabelUse(altReturnSpec.v);
-  }
-
-  void Post(const parser::ErrLabel &errLabel) { checkLabelUse(errLabel.v); }
-  void Post(const parser::EndLabel &endLabel) { checkLabelUse(endLabel.v); }
-  void Post(const parser::EorLabel &eorLabel) { checkLabelUse(eorLabel.v); }
-
-  void checkLabelUse(const parser::Label &labelUsed) {
-    if (labels_.find(labelUsed) == labels_.end()) {
-      SayWithDo(context_, currentStatementSourcePosition_,
-          "Control flow escapes from DO CONCURRENT"_err_en_US,
-          doConcurrentSourcePosition_);
-    }
-  }
-
-private:
-  SemanticsContext &context_;
-  std::set<parser::Label> labels_;
-  std::set<parser::CharBlock> names_;
-  parser::CharBlock currentStatementSourcePosition_{nullptr};
-  parser::CharBlock doConcurrentSourcePosition_{nullptr};
-};  // class DoConcurrentLabelEnforce
 
 // Class for enforcing C1130 -- in a DO CONCURRENT with DEFAULT(NONE),
 // variables from enclosing scopes must have their locality specified
@@ -566,9 +454,9 @@ private:
     DoConcurrentBodyEnforce doConcurrentBodyEnforce{context_, doStmt.source};
     parser::Walk(block, doConcurrentBodyEnforce);
 
-    DoConcurrentLabelEnforce doConcurrentLabelEnforce{context_,
-        doConcurrentBodyEnforce.labels(), doConcurrentBodyEnforce.names(),
-        currentStatementSourcePosition_};
+    LabelEnforce doConcurrentLabelEnforce{context_,
+        doConcurrentBodyEnforce.labels(), currentStatementSourcePosition_,
+        "DO CONCURRENT"};
     parser::Walk(block, doConcurrentLabelEnforce);
 
     const auto &loopControl{
@@ -577,8 +465,6 @@ private:
         std::get<parser::LoopControl::Concurrent>(loopControl->u)};
     CheckConcurrentLoopControl(concurrent, block);
   }
-
-  using SymbolSet = std::set<const Symbol *>;
 
   // Return a set of symbols whose names are in a Local locality-spec.  Look
   // the names up in the scope that encloses the DO construct to avoid getting
@@ -597,7 +483,7 @@ private:
         for (const parser::Name &name : names->v) {
           if (const Symbol * symbol{parentScope.FindSymbol(name.source)}) {
             if (const Symbol * root{GetAssociationRoot(*symbol)}) {
-              symbols.insert(root);
+              symbols.insert(*root);
             }
           }
         }
@@ -611,7 +497,7 @@ private:
     if (const auto *expr{GetExpr(expression)}) {
       for (const Symbol &symbol : evaluate::CollectSymbols(*expr)) {
         if (const Symbol * root{GetAssociationRoot(symbol)}) {
-          result.insert(root);
+          result.insert(*root);
         }
       }
     }
@@ -621,9 +507,9 @@ private:
   // C1121 - procedures in mask must be pure
   void CheckMaskIsPure(const parser::ScalarLogicalExpr &mask) const {
     SymbolSet references{GatherSymbolsFromExpression(mask.thing.thing.value())};
-    for (const Symbol *ref : references) {
-      if (IsProcedure(*ref) && !IsPureProcedure(*ref)) {
-        context_.SayWithDecl(*ref, currentStatementSourcePosition_,
+    for (const Symbol &ref : references) {
+      if (IsProcedure(ref) && !IsPureProcedure(ref)) {
+        context_.SayWithDecl(ref, currentStatementSourcePosition_,
             "Concurrent-header mask expression cannot reference an impure"
             " procedure"_err_en_US);
         return;
@@ -634,10 +520,10 @@ private:
   void CheckNoCollisions(const SymbolSet &refs, const SymbolSet &uses,
       parser::MessageFixedText &&errorMessage,
       const parser::CharBlock &refPosition) const {
-    for (const Symbol *ref : refs) {
+    for (const Symbol &ref : refs) {
       if (uses.find(ref) != uses.end()) {
         context_.SayWithDecl(
-            *ref, refPosition, std::move(errorMessage), ref->name());
+            ref, refPosition, std::move(errorMessage), ref.name());
         return;
       }
     }
@@ -703,7 +589,7 @@ private:
     for (const auto &c : controls) {
       const auto &indexName{std::get<parser::Name>(c.t)};
       if (indexName.symbol) {
-        indexNames.insert(indexName.symbol);
+        indexNames.insert(*indexName.symbol);
       }
     }
     if (!indexNames.empty()) {
@@ -902,11 +788,86 @@ void DoChecker::Leave(const parser::AssignmentStmt &stmt) {
   context_.CheckDoVarRedefine(variable);
 }
 
+static void CheckIfArgIsDoVar(const evaluate::ActualArgument &arg,
+    const parser::CharBlock location, SemanticsContext &context) {
+  common::Intent intent{arg.dummyIntent()};
+  if (intent == common::Intent::Out || intent == common::Intent::InOut) {
+    if (const SomeExpr * argExpr{arg.UnwrapExpr()}) {
+      if (const Symbol * var{evaluate::UnwrapWholeSymbolDataRef(*argExpr)}) {
+        if (intent == common::Intent::Out) {
+          context.CheckDoVarRedefine(location, *var);
+        } else {
+          context.WarnDoVarRedefine(location, *var);  // INTENT(INOUT)
+        }
+      }
+    }
+  }
+}
+
+// Check to see if a DO variable is being passed as an actual argument to a
+// dummy argument whose intent is OUT or INOUT.  To do this, we need to find
+// the expressions for actual arguments which contain DO variables.  We get the
+// intents of the dummy arguments from the ProcedureRef in the "typedCall"
+// field of the CallStmt which was filled in during expression checking.  At
+// the same time, we need to iterate over the parser::Expr versions of the
+// actual arguments to get their source locations of the arguments for the
+// messages.
+void DoChecker::Leave(const parser::CallStmt &callStmt) {
+  if (const auto &typedCall{callStmt.typedCall}) {
+    const auto &parsedArgs{
+        std::get<std::list<parser::ActualArgSpec>>(callStmt.v.t)};
+    auto parsedArgIter{parsedArgs.begin()};
+    const evaluate::ActualArguments &checkedArgs{typedCall->arguments()};
+    for (const auto &checkedOptionalArg : checkedArgs) {
+      if (parsedArgIter == parsedArgs.end()) {
+        break;  // No more parsed arguments, we're done.
+      }
+      const auto &parsedArg{std::get<parser::ActualArg>(parsedArgIter->t)};
+      ++parsedArgIter;
+      if (checkedOptionalArg) {
+        const evaluate::ActualArgument &checkedArg{*checkedOptionalArg};
+        if (const auto *parsedExpr{
+                std::get_if<common::Indirection<parser::Expr>>(&parsedArg.u)}) {
+          CheckIfArgIsDoVar(checkedArg, parsedExpr->value().source, context_);
+        }
+      }
+    }
+  }
+}
+
 void DoChecker::Leave(const parser::ConnectSpec &connectSpec) {
   const auto *newunit{
       std::get_if<parser::ConnectSpec::Newunit>(&connectSpec.u)};
   if (newunit) {
     context_.CheckDoVarRedefine(newunit->v.thing.thing);
+  }
+}
+
+using ActualArgumentSet = std::set<evaluate::ActualArgumentRef>;
+
+struct CollectActualArgumentsHelper
+  : public evaluate::SetTraverse<CollectActualArgumentsHelper,
+        ActualArgumentSet> {
+  using Base = SetTraverse<CollectActualArgumentsHelper, ActualArgumentSet>;
+  CollectActualArgumentsHelper() : Base{*this} {}
+  using Base::operator();
+  ActualArgumentSet operator()(const evaluate::ActualArgument &arg) const {
+    return ActualArgumentSet{arg};
+  }
+};
+
+template<typename A> ActualArgumentSet CollectActualArguments(const A &x) {
+  return CollectActualArgumentsHelper{}(x);
+}
+
+template ActualArgumentSet CollectActualArguments(const SomeExpr &);
+
+void DoChecker::Leave(const parser::Expr &parsedExpr) {
+  if (const SomeExpr * expr{GetExpr(parsedExpr)}) {
+    ActualArgumentSet argSet{CollectActualArguments(*expr)};
+    for (const evaluate::ActualArgumentRef &argRef : argSet) {
+      CheckIfArgIsDoVar(*argRef, parsedExpr.source, context_);
+    }
   }
 }
 
@@ -928,7 +889,7 @@ void DoChecker::Leave(const parser::IoControlSpec &ioControlSpec) {
 void DoChecker::Leave(const parser::OutputImpliedDo &outputImpliedDo) {
   const auto &control{std::get<parser::IoImpliedDoControl>(outputImpliedDo.t)};
   const parser::Name &name{control.name.thing.thing};
-  context_.CheckDoVarRedefine(*name.symbol, name.source);
+  context_.CheckDoVarRedefine(name.source, *name.symbol);
 }
 
 void DoChecker::Leave(const parser::StatVariable &statVariable) {

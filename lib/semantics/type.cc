@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "type.h"
 #include "scope.h"
@@ -169,6 +169,19 @@ bool DerivedTypeSpec::MightBeParameterized() const {
 
 bool DerivedTypeSpec::IsForwardReferenced() const {
   return typeSymbol_.get<DerivedTypeDetails>().isForwardReferenced();
+}
+
+bool DerivedTypeSpec::HasDefaultInitialization() const {
+  for (const Scope *scope{scope_}; scope;
+       scope = scope->GetDerivedTypeParent()) {
+    for (const auto &pair : *scope) {
+      const Symbol &symbol{*pair.second};
+      if (IsAllocatable(symbol) || IsInitialized(symbol)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 ParamValue *DerivedTypeSpec::FindParameter(SourceName target) {

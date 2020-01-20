@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "default-kinds.h"
 #include "idioms.h"
@@ -26,6 +26,12 @@ IntrinsicTypeDefaultKinds &IntrinsicTypeDefaultKinds::set_defaultIntegerKind(
 IntrinsicTypeDefaultKinds &IntrinsicTypeDefaultKinds::set_subscriptIntegerKind(
     int k) {
   subscriptIntegerKind_ = k;
+  return *this;
+}
+
+IntrinsicTypeDefaultKinds &IntrinsicTypeDefaultKinds::set_sizeIntegerKind(
+    int k) {
+  sizeIntegerKind_ = k;
   return *this;
 }
 

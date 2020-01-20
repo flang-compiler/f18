@@ -4,13 +4,12 @@
 ! See https://llvm.org/LICENSE.txt for license information.
 ! SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 !
-!------------------------------------------------------------------------------!
+!===------------------------------------------------------------------------===!
 
 ! See Fortran 2018, clause 16.10.2
 ! TODO: These are placeholder values so that some tests can be run.
 
 include '../runtime/magic-numbers.h' ! for IOSTAT= error/end code values
-include '__fortran_builtins.f90' ! avoid inter-module dependence
 
 module iso_fortran_env
 

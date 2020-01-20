@@ -18,22 +18,16 @@ accepted if enabled by command-line options.
 
 Intentional violations of the standard
 ======================================
-* The default `INTEGER` type is required by the standard to occupy
-  the same amount of storage as the default `REAL` type.  Default
-  `REAL` is of course 32-bit IEEE-754 floating-point today.  This legacy
-  rule imposes an artificially small constraint in some cases
-  where Fortran mandates that something have the default `INTEGER`
-  type: specifically, the results of references to the intrinsic functions
-  `SIZE`, `LBOUND`, `UBOUND`, `SHAPE`, and the location reductions
-  `FINDLOC`, `MAXLOC`, and `MINLOC`.  We return `INTEGER(KIND=8)` by
-  default in these cases.
 * Scalar `INTEGER` actual argument expressions (not variables!)
   are converted to the kinds of scalar `INTEGER` dummy arguments
   when the interface is explicit and the kinds differ.
   This conversion allows the results of the intrinsics like
-  `SIZE` that (as mentioned above) no longer return default
+  `SIZE` that (as mentioned below) may return non-default
   `INTEGER` results by default to be passed.  A warning is
   emitted when truncation is possible.
+* We are not strict on the contents of `BLOCK DATA` subprograms
+  so long as they contain no executable code, no internal subprograms,
+  and allocate no storage outside a named `COMMON` block.  (C1415)
 
 Extensions, deletions, and legacy features supported by default
 ===============================================================
@@ -124,6 +118,7 @@ Extensions, deletions, and legacy features supported by default
   allowed.  The values are normalized.
 * An effectively empty source file (no program unit) is accepted and
   produces an empty relocatable output file.
+* A `RETURN` statement may appear in a main program.
 
 Extensions supported when enabled by options
 --------------------------------------------
@@ -132,6 +127,16 @@ Extensions supported when enabled by options
 * Logical abbreviations `.T.`, `.F.`, `.N.`, `.A.`, `.O.`, and `.X.`
   [-flogical-abbreviations]
 * `.XOR.` as a synonym for `.NEQV.` [-fxor-operator]
+* The default `INTEGER` type is required by the standard to occupy
+  the same amount of storage as the default `REAL` type.  Default
+  `REAL` is of course 32-bit IEEE-754 floating-point today.  This legacy
+  rule imposes an artificially small constraint in some cases
+  where Fortran mandates that something have the default `INTEGER`
+  type: specifically, the results of references to the intrinsic functions
+  `SIZE`, `LBOUND`, `UBOUND`, `SHAPE`, and the location reductions
+  `FINDLOC`, `MAXLOC`, and `MINLOC` in the absence of an explicit
+  `KIND=` actual argument.  We return `INTEGER(KIND=8)` by default in
+  these cases when the `-flarge-sizes` option is enabled.
 
 Extensions and legacy features deliberately not supported
 ---------------------------------------------------------

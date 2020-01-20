@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-#------------------------------------------------------------------------------#
+#===------------------------------------------------------------------------===#
 
 # Run tests with test_errors.sh. It compiles the test with f18 and compares
 # actual errors produced with expected ones listed in the source.
@@ -105,6 +105,8 @@ set(ERROR_TESTS
   structconst03.f90
   structconst04.f90
   assign01.f90
+  assign02.f90
+  assign03.f90
   if_arith02.f90
   if_arith03.f90
   if_arith04.f90
@@ -124,6 +126,7 @@ set(ERROR_TESTS
 #  altreturn02.f90
 #  altreturn03.f90
   altreturn04.f90
+  altreturn05.f90
   allocate01.f90
   allocate02.f90
   allocate03.f90
@@ -188,11 +191,16 @@ set(ERROR_TESTS
   call12.f90
   call13.f90
   call14.f90
+  forall01.f90
   misc-declarations.f90
   separate-module-procs.f90
   bindings01.f90
   bad-forward-type.f90
   c_f_pointer.f90
+  critical01.f90
+  critical02.f90
+  critical03.f90
+  block-data01.f90
   select-case.f90
 )
 
@@ -279,8 +287,8 @@ set(CANONDO_TESTS
   canondo*.[Ff]90
 )
 
-set(FORALL_TESTS
-  forall*.[Ff]90
+set(CRITICAL_TESTS
+  critical04.f90
 )
 
 set(GETSYMBOLS_TESTS
@@ -317,7 +325,7 @@ foreach(test ${MODFILE_TESTS})
 endforeach()
 
 foreach(test ${LABEL_TESTS} ${CANONDO_TESTS} ${DOCONCURRENT_TESTS}
-             ${FORALL_TESTS} ${GETSYMBOLS_TESTS} ${GETDEFINITION_TESTS})
+             ${CRITICAL_TESTS} ${GETSYMBOLS_TESTS} ${GETDEFINITION_TESTS})
   add_test(NAME ${test}
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test_any.sh ${test} ${F18})
 endforeach()

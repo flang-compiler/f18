@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_SEMANTICS_EXPRESSION_H_
 #define FORTRAN_SEMANTICS_EXPRESSION_H_
@@ -185,7 +185,7 @@ public:
         GetFoldingContext().messages().SetLocation(FindSourceLocation(x))};
     auto result{Analyze(x.thing)};
     if (result) {
-      *result = Fold(GetFoldingContext(), std::move(*result));
+      *result = Fold(std::move(*result));
       if (!IsConstantExpr(*result)) {
         SayAt(x, "Must be a constant value"_err_en_US);
         ResetExpr(x);
@@ -233,6 +233,7 @@ public:
 
   void Analyze(const parser::CallStmt &);
   const Assignment *Analyze(const parser::AssignmentStmt &);
+  const Assignment *Analyze(const parser::PointerAssignmentStmt &);
 
 protected:
   int IntegerTypeSpecKind(const parser::IntegerTypeSpec &);
@@ -347,10 +348,6 @@ private:
 
   std::optional<CalleeAndArguments> AnalyzeProcedureComponentRef(
       const parser::ProcComponentRef &, ActualArguments &&);
-  std::optional<ActualArgument> AnalyzeActualArgument(const parser::Expr &);
-
-  std::optional<ActualArguments> AnalyzeArguments(
-      const parser::Call &, bool isSubroutine);
   std::optional<characteristics::Procedure> CheckCall(
       parser::CharBlock, const ProcedureDesignator &, ActualArguments &);
   using AdjustActuals =
@@ -371,6 +368,9 @@ private:
   MaybeExpr MakeFunctionRef(
       parser::CharBlock, ProcedureDesignator &&, ActualArguments &&);
   MaybeExpr MakeFunctionRef(parser::CharBlock intrinsic, ActualArguments &&);
+  template<typename T> T Fold(T &&expr) {
+    return evaluate::Fold(foldingContext_, std::move(expr));
+  }
 
   semantics::SemanticsContext &context_;
   FoldingContext &foldingContext_{context_.foldingContext()};
@@ -415,6 +415,8 @@ evaluate::Expr<evaluate::SubscriptInteger> AnalyzeKindSelector(
 void AnalyzeCallStmt(SemanticsContext &, const parser::CallStmt &);
 const evaluate::Assignment *AnalyzeAssignmentStmt(
     SemanticsContext &, const parser::AssignmentStmt &);
+const evaluate::Assignment *AnalyzePointerAssignmentStmt(
+    SemanticsContext &, const parser::PointerAssignmentStmt &);
 
 // Semantic analysis of all expressions in a parse tree, which becomes
 // decorated with typed representations for top-level expressions.
@@ -440,6 +442,10 @@ public:
   }
   bool Pre(const parser::AssignmentStmt &x) {
     AnalyzeAssignmentStmt(context_, x);
+    return false;
+  }
+  bool Pre(const parser::PointerAssignmentStmt &x) {
+    AnalyzePointerAssignmentStmt(context_, x);
     return false;
   }
 

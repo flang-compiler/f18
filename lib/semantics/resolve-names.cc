@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "resolve-names.h"
 #include "assignment.h"
@@ -661,6 +661,7 @@ public:
   bool BeginSubprogram(
       const parser::Name &, Symbol::Flag, bool hasModulePrefix = false);
   bool BeginMpSubprogram(const parser::Name &);
+  void PushBlockDataScope(const parser::Name &);
   void EndSubprogram();
 
 protected:
@@ -888,7 +889,6 @@ private:
   void Initialization(const parser::Name &, const parser::Initialization &,
       bool inComponentDecl);
   bool PassesLocalityChecks(const parser::Name &name, Symbol &symbol);
-  bool CheckArraySpec(const parser::Name &, const Symbol &, const ArraySpec &);
 
   // Declare an object or procedure entity.
   // T is one of: EntityDetails, ObjectEntityDetails, ProcEntityDetails
@@ -1039,7 +1039,6 @@ private:
   void SetTypeFromAssociation(Symbol &);
   void SetAttrsFromAssociation(Symbol &);
   Selector ResolveSelector(const parser::Selector &);
-  void ResolveControlExpressions(const parser::ConcurrentControl &control);
   void ResolveIndexName(const parser::ConcurrentControl &control);
   Association &GetCurrentAssociation();
   void PushAssociation();
@@ -1918,9 +1917,9 @@ void ScopeHandler::PushScope(Scope &scope) {
   // The name of a module or submodule cannot be "used" in its scope,
   // as we read 19.3.1(2), so we allow the name to be used as a local
   // identifier in the module or submodule too.  Same with programs
-  // (14.1(3)).
+  // (14.1(3)) and BLOCK DATA.
   if (!currScope_->IsDerivedType() && kind != Scope::Kind::Module &&
-      kind != Scope::Kind::MainProgram) {
+      kind != Scope::Kind::MainProgram && kind != Scope::Kind::BlockData) {
     if (auto *symbol{scope.symbol()}) {
       // Create a dummy symbol so we can't create another one with the same
       // name. It might already be there if we previously pushed the scope.
@@ -2738,7 +2737,7 @@ bool SubprogramVisitor::BeginMpSubprogram(const parser::Name &name) {
   return true;
 }
 
-// A subprogram declared with SUBROUTINE or function
+// A subprogram declared with SUBROUTINE or FUNCTION
 bool SubprogramVisitor::BeginSubprogram(
     const parser::Name &name, Symbol::Flag subpFlag, bool hasModulePrefix) {
   if (hasModulePrefix && !inInterfaceBlock()) {
@@ -2789,6 +2788,25 @@ Symbol &SubprogramVisitor::PushSubprogramScope(
   }
   FindSymbol(name)->set(subpFlag);  // PushScope() created symbol
   return *symbol;
+}
+
+void SubprogramVisitor::PushBlockDataScope(const parser::Name &name) {
+  if (auto *prev{FindSymbol(name)}) {
+    if (prev->attrs().test(Attr::EXTERNAL) && prev->has<ProcEntityDetails>()) {
+      if (prev->test(Symbol::Flag::Subroutine) ||
+          prev->test(Symbol::Flag::Function)) {
+        Say2(name, "BLOCK DATA '%s' has been called"_err_en_US, *prev,
+            "Previous call of '%s'"_en_US);
+      }
+      EraseSymbol(name);
+    }
+  }
+  if (name.source.empty()) {
+    // Don't let unnamed BLOCK DATA conflict with unnamed PROGRAM
+    PushScope(Scope::Kind::BlockData, nullptr);
+  } else {
+    PushScope(Scope::Kind::BlockData, &MakeSymbol(name, SubprogramDetails{}));
+  }
 }
 
 // If name is a generic, return specific subprogram with the same name.
@@ -3171,10 +3189,8 @@ Symbol &DeclarationVisitor::DeclareObjectEntity(
         Say(name,
             "The dimensions of '%s' have already been declared"_err_en_US);
         context().SetError(symbol);
-      } else if (CheckArraySpec(name, symbol, arraySpec())) {
-        details->set_shape(arraySpec());
       } else {
-        context().SetError(symbol);
+        details->set_shape(arraySpec());
       }
     }
     if (!coarraySpec().empty()) {
@@ -3192,96 +3208,6 @@ Symbol &DeclarationVisitor::DeclareObjectEntity(
   ClearCoarraySpec();
   charInfo_.length.reset();
   return symbol;
-}
-
-// The six different kinds of array-specs:
-//   array-spec     -> explicit-shape-list | deferred-shape-list
-//                     | assumed-shape-list | implied-shape-list
-//                     | assumed-size | assumed-rank
-//   explicit-shape -> [ lb : ] ub
-//   deferred-shape -> :
-//   assumed-shape  -> [ lb ] :
-//   implied-shape  -> [ lb : ] *
-//   assumed-size   -> [ explicit-shape-list , ] [ lb : ] *
-//   assumed-rank   -> ..
-// Note:
-// - deferred-shape is also an assumed-shape
-// - A single "*" or "lb:*" might be assumed-size or implied-shape-list
-bool DeclarationVisitor::CheckArraySpec(const parser::Name &name,
-    const Symbol &symbol, const ArraySpec &arraySpec) {
-  if (arraySpec.Rank() == 0) {
-    return true;
-  }
-  bool isExplicit{arraySpec.IsExplicitShape()};
-  bool isDeferred{arraySpec.IsDeferredShape()};
-  bool isImplied{arraySpec.IsImpliedShape()};
-  bool isAssumedShape{arraySpec.IsAssumedShape()};
-  bool isAssumedSize{arraySpec.IsAssumedSize()};
-  bool isAssumedRank{arraySpec.IsAssumedRank()};
-  if (symbol.test(Symbol::Flag::CrayPointee) && !isExplicit && !isAssumedSize) {
-    Say(name,
-        "Cray pointee '%s' must have must have explicit shape or assumed size"_err_en_US);
-    return false;
-  }
-  if (IsAllocatableOrPointer(symbol) && !isDeferred && !isAssumedRank) {
-    if (symbol.owner().IsDerivedType()) {  // C745
-      if (IsAllocatable(symbol)) {
-        Say(name,
-            "Allocatable array component '%s' must have deferred shape"_err_en_US);
-      } else {
-        Say(name,
-            "Array pointer component '%s' must have deferred shape"_err_en_US);
-      }
-    } else {
-      if (IsAllocatable(symbol)) {  // C832
-        Say(name,
-            "Allocatable array '%s' must have deferred shape or assumed rank"_err_en_US);
-      } else {
-        Say(name,
-            "Array pointer '%s' must have deferred shape or assumed rank"_err_en_US);
-      }
-    }
-    return false;
-  }
-  if (symbol.IsDummy()) {
-    if (isImplied && !isAssumedSize) {  // C836
-      Say(name,
-          "Dummy array argument '%s' may not have implied shape"_err_en_US);
-      return false;
-    }
-  } else if (isAssumedShape && !isDeferred) {
-    Say(name, "Assumed-shape array '%s' must be a dummy argument"_err_en_US);
-    return false;
-  } else if (isAssumedSize && !isImplied) {  // C833
-    Say(name, "Assumed-size array '%s' must be a dummy argument"_err_en_US);
-    return false;
-  } else if (isAssumedRank) {  // C837
-    Say(name, "Assumed-rank array '%s' must be a dummy argument"_err_en_US);
-    return false;
-  } else if (isImplied) {
-    if (!IsNamedConstant(symbol)) {  // C836
-      Say(name, "Implied-shape array '%s' must be a named constant"_err_en_US);
-      return false;
-    }
-  } else if (IsNamedConstant(symbol)) {
-    if (!isExplicit && !isImplied) {
-      Say(name,
-          "Named constant '%s' array must have explicit or implied shape"_err_en_US);
-      return false;
-    }
-  } else if (!IsAllocatableOrPointer(symbol) && !isExplicit) {
-    if (symbol.owner().IsDerivedType()) {  // C749
-      Say(name,
-          "Component array '%s' without ALLOCATABLE or POINTER attribute must"
-          " have explicit shape"_err_en_US);
-    } else {  // C816
-      Say(name,
-          "Array '%s' without ALLOCATABLE or POINTER attribute must have"
-          " explicit shape"_err_en_US);
-    }
-    return false;
-  }
-  return true;
 }
 
 void DeclarationVisitor::Post(const parser::IntegerTypeSpec &x) {
@@ -3912,15 +3838,14 @@ bool DeclarationVisitor::Pre(const parser::BasedPointerStmt &x) {
       BeginArraySpec();
       Walk(std::get<std::optional<parser::ArraySpec>>(bp.t));
       const auto &spec{arraySpec()};
-      if (spec.empty()) {
-        // No array spec
-        CheckArraySpec(
-            pointeeName, pointee, pointee.get<ObjectEntityDetails>().shape());
-      } else if (pointee.Rank() > 0) {
-        SayWithDecl(pointeeName, pointee,
-            "Array spec was already declared for '%s'"_err_en_US);
-      } else if (CheckArraySpec(pointeeName, pointee, spec)) {
-        pointee.get<ObjectEntityDetails>().set_shape(spec);
+      if (!spec.empty()) {
+        auto &details{pointee.get<ObjectEntityDetails>()};
+        if (details.shape().empty()) {
+          details.set_shape(spec);
+        } else {
+          SayWithDecl(pointeeName, pointee,
+              "Array spec was already declared for '%s'"_err_en_US);
+        }
       }
       ClearArraySpec();
       currScope().add_crayPointer(pointeeName.source, *pointer);
@@ -4247,12 +4172,15 @@ void DeclarationVisitor::CheckCommonBlockDerivedType(
 
 bool DeclarationVisitor::HandleUnrestrictedSpecificIntrinsicFunction(
     const parser::Name &name) {
-  if (context().intrinsics().IsUnrestrictedSpecificIntrinsicFunction(
-          name.source.ToString())) {
+  if (auto interface{context().intrinsics().IsSpecificIntrinsicFunction(
+          name.source.ToString())}) {
     // Unrestricted specific intrinsic function names (e.g., "cos")
     // are acceptable as procedure interfaces.
-    Symbol &symbol{MakeSymbol(InclusiveScope(), name.source,
-        Attrs{Attr::INTRINSIC, Attr::ELEMENTAL})};
+    Symbol &symbol{
+        MakeSymbol(InclusiveScope(), name.source, Attrs{Attr::INTRINSIC})};
+    if (interface->IsElemental()) {
+      symbol.attrs().set(Attr::ELEMENTAL);
+    }
     symbol.set_details(ProcEntityDetails{});
     Resolve(name, symbol);
     return true;
@@ -4605,41 +4533,19 @@ void ConstructVisitor::ResolveIndexName(
   EvaluateExpr(parser::Scalar{parser::Integer{common::Clone(name)}});
 }
 
-void ConstructVisitor::ResolveControlExpressions(
-    const parser::ConcurrentControl &control) {
-  Walk(std::get<1>(control.t));  // Initial expression
-  Walk(std::get<2>(control.t));  // Final expression
-  Walk(std::get<3>(control.t));  // Step expression
-}
-
 // We need to make sure that all of the index-names get declared before the
 // expressions in the loop control are evaluated so that references to the
 // index-names in the expressions are correctly detected.
 bool ConstructVisitor::Pre(const parser::ConcurrentHeader &header) {
   BeginDeclTypeSpec();
-
-  // Process the type spec, if present
-  const auto &typeSpec{
-      std::get<std::optional<parser::IntegerTypeSpec>>(header.t)};
-  if (typeSpec) {
-    SetDeclTypeSpec(MakeNumericType(TypeCategory::Integer, typeSpec->v));
-  }
-
-  // Process the index-name nodes in the ConcurrentControl nodes
+  Walk(std::get<std::optional<parser::IntegerTypeSpec>>(header.t));
   const auto &controls{
       std::get<std::list<parser::ConcurrentControl>>(header.t)};
   for (const auto &control : controls) {
     ResolveIndexName(control);
   }
-
-  // Process the expressions in ConcurrentControls
-  for (const auto &control : controls) {
-    ResolveControlExpressions(control);
-  }
-
-  // Resolve the names in the scalar-mask-expr
+  Walk(controls);
   Walk(std::get<std::optional<parser::ScalarLogicalExpr>>(header.t));
-
   EndDeclTypeSpec();
   return false;
 }
@@ -4709,7 +4615,22 @@ bool ConstructVisitor::Pre(const parser::DataImpliedDo &x) {
 bool ConstructVisitor::Pre(const parser::DataStmtObject &x) {
   std::visit(
       common::visitors{
-          [&](const Indirection<parser::Variable> &y) { Walk(y.value()); },
+          [&](const Indirection<parser::Variable> &y) {
+            Walk(y.value());
+            if (const auto *designator{
+                    std::get_if<Indirection<parser::Designator>>(
+                        &y.value().u)}) {
+              if (const parser::Name *
+                  name{ResolveDesignator(designator->value())}) {
+                if (name->symbol) {
+                  name->symbol->set(Symbol::Flag::InDataStmt);
+                }
+              }
+              // TODO check C874 - C881
+            } else {
+              // TODO report C875 error: variable is not a designator here?
+            }
+          },
           [&](const parser::DataImpliedDo &y) {
             PushScope(Scope::Kind::ImpliedDos, nullptr);
             Walk(y);
@@ -5067,6 +4988,9 @@ bool ResolveNamesVisitor::Pre(const parser::ImportStmt &x) {
       return false;
     }
     break;
+  case Scope::Kind::BlockData:  // C1415 (in part)
+    Say("IMPORT is not allowed in a BLOCK DATA subprogram"_err_en_US);
+    return false;
   default:;
   }
   if (auto error{scope.SetImportKind(x.kind)}) {
@@ -5794,7 +5718,8 @@ bool ResolveNamesVisitor::Pre(const parser::DefinedOpName &x) {
     Say(name,
         "Logical constant '%s' may not be used as a defined operator"_err_en_US);
   } else {
-    Say(name, "Defined operator '%s' not found"_err_en_US);
+    // Resolved later in expression semantics
+    MakePlaceholder(name, MiscDetails::Kind::TypeBoundDefinedOp);
   }
   return false;
 }
@@ -5906,6 +5831,9 @@ bool ResolveNamesVisitor::BeginScope(const ProgramTree &node) {
   case ProgramTree::Kind::Module: BeginModule(node.name(), false); return true;
   case ProgramTree::Kind::Submodule:
     return BeginSubmodule(node.name(), node.GetParentId());
+  case ProgramTree::Kind::BlockData:
+    PushBlockDataScope(node.name());
+    return true;
   }
 }
 

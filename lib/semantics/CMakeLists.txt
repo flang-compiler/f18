@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-#------------------------------------------------------------------------------#
+#===------------------------------------------------------------------------===#
 
 add_library(FortranSemantics
   assignment.cc
@@ -28,6 +28,7 @@ add_library(FortranSemantics
   check-select-stmt.cc
   expression.cc
   mod-file.cc
+  pointer-assignment.cc
   program-tree.cc
   resolve-labels.cc
   resolve-names.cc

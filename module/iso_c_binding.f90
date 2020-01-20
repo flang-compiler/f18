@@ -4,11 +4,9 @@
 ! See https://llvm.org/LICENSE.txt for license information.
 ! SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 !
-!------------------------------------------------------------------------------!
+!===------------------------------------------------------------------------===!
 
 ! See Fortran 2018, clause 18.2
-
-include '__fortran_builtins.f90' ! avoid inter-module dependence
 
 module iso_c_binding
 

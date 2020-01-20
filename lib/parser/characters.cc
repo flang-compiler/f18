@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "characters.h"
 #include "../common/idioms.h"
@@ -14,6 +14,8 @@
 #include <type_traits>
 
 namespace Fortran::parser {
+
+bool useHexadecimalEscapeSequences{false};
 
 int UTF_8CharacterBytes(const char *p) {
   if ((*p & 0x80) == 0) {

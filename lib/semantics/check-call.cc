@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "check-call.h"
-#include "assignment.h"
+#include "pointer-assignment.h"
 #include "scope.h"
 #include "tools.h"
 #include "../evaluate/characteristics.h"
@@ -405,7 +405,7 @@ static void CheckExplicitDataArg(const characteristics::DummyDataObject &dummy,
     }
     if (!actualIsPointer) {
       if (dummy.intent == common::Intent::In) {
-        CheckPointerAssignment(
+        semantics::CheckPointerAssignment(
             context, parser::CharBlock{}, dummyName, dummy, actual);
       } else {
         messages.Say(
@@ -601,6 +601,7 @@ static void CheckExplicitInterfaceArg(evaluate::ActualArgument &arg,
             if (auto *expr{arg.UnwrapExpr()}) {
               if (auto type{characteristics::TypeAndShape::Characterize(
                       *expr, context)}) {
+                arg.set_dummyIntent(object.intent);
                 bool isElemental{object.type.Rank() == 0 && proc.IsElemental()};
                 CheckExplicitDataArg(object, dummyName, *expr, *type,
                     isElemental, IsArrayElement(*expr), context, scope);

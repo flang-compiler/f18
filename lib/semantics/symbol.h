@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_SEMANTICS_SYMBOL_H_
 #define FORTRAN_SEMANTICS_SYMBOL_H_
@@ -299,8 +299,8 @@ class FinalProcDetails {};  // TODO
 class MiscDetails {
 public:
   ENUM_CLASS(Kind, None, ConstructName, ScopeName, PassName, ComplexPartRe,
-      ComplexPartIm, KindParamInquiry, LenParamInquiry,
-      SelectTypeAssociateName);
+      ComplexPartIm, KindParamInquiry, LenParamInquiry, SelectTypeAssociateName,
+      TypeBoundDefinedOp);
   MiscDetails(Kind kind) : kind_{kind} {}
   Kind kind() const { return kind_; }
 
@@ -458,6 +458,7 @@ public:
       LocalityLocal,  // named in LOCAL locality-spec
       LocalityLocalInit,  // named in LOCAL_INIT locality-spec
       LocalityShared,  // named in SHARED locality-spec
+      InDataStmt,  // initialized in a DATA statement
 
       // OpenMP data-sharing attribute
       OmpShared, OmpPrivate, OmpLinear, OmpFirstPrivate, OmpLastPrivate,

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "fold-implementation.h"
 
@@ -154,6 +154,28 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
         }));
   } else if (name == "bit_size") {
     return Expr<T>{Scalar<T>::bits};
+  } else if (name == "ceiling" || name == "floor" || name == "nint") {
+    if (const auto *cx{UnwrapExpr<Expr<SomeReal>>(args[0])}) {
+      // NINT rounds ties away from zero, not to even
+      common::RoundingMode mode{name == "ceiling"
+              ? common::RoundingMode::Up
+              : name == "floor" ? common::RoundingMode::Down
+                                : common::RoundingMode::TiesAwayFromZero};
+      return std::visit(
+          [&](const auto &kx) {
+            using TR = ResultType<decltype(kx)>;
+            return FoldElementalIntrinsic<T, TR>(context, std::move(funcRef),
+                ScalarFunc<T, TR>([&](const Scalar<TR> &x) {
+                  auto y{x.template ToInteger<Scalar<T>>(mode)};
+                  if (y.flags.test(RealFlag::Overflow)) {
+                    context.messages().Say(
+                        "%s intrinsic folding overflow"_en_US, name);
+                  }
+                  return y.value;
+                }));
+          },
+          cx->u);
+    }
   } else if (name == "count") {
     if (!args[1]) {  // TODO: COUNT(x,DIM=d)
       if (const auto *constant{UnwrapConstantValue<LogicalResult>(args[0])}) {
@@ -210,7 +232,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           sx->u);
     } else {
-      common::die("exponent argument must be real");
+      DIE("exponent argument must be real");
     }
   } else if (name == "huge") {
     return Expr<T>{Scalar<T>::HUGE()};
@@ -272,6 +294,43 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
             [&fptr](const Scalar<T> &i, const Scalar<Int4> &pos) -> Scalar<T> {
               return std::invoke(fptr, i, static_cast<int>(pos.ToInt64()));
             }));
+  } else if (name == "index" || name == "scan" || name == "verify") {
+    if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0])}) {
+      return std::visit(
+          [&](const auto &kch) -> Expr<T> {
+            using TC = typename std::decay_t<decltype(kch)>::Result;
+            if (UnwrapExpr<Expr<SomeLogical>>(args[2])) {  // BACK=
+              return FoldElementalIntrinsic<T, TC, TC, LogicalResult>(context,
+                  std::move(funcRef),
+                  ScalarFunc<T, TC, TC, LogicalResult>{
+                      [&name](const Scalar<TC> &str, const Scalar<TC> &other,
+                          const Scalar<LogicalResult> &back) -> Scalar<T> {
+                        return name == "index"
+                            ? CharacterUtils<TC::kind>::INDEX(
+                                  str, other, back.IsTrue())
+                            : name == "scan" ? CharacterUtils<TC::kind>::SCAN(
+                                                   str, other, back.IsTrue())
+                                             : CharacterUtils<TC::kind>::VERIFY(
+                                                   str, other, back.IsTrue());
+                      }});
+            } else {
+              return FoldElementalIntrinsic<T, TC, TC>(context,
+                  std::move(funcRef),
+                  ScalarFunc<T, TC, TC>{
+                      [&name](const Scalar<TC> &str,
+                          const Scalar<TC> &other) -> Scalar<T> {
+                        return name == "index"
+                            ? CharacterUtils<TC::kind>::INDEX(str, other)
+                            : name == "scan"
+                                ? CharacterUtils<TC::kind>::SCAN(str, other)
+                                : CharacterUtils<TC::kind>::VERIFY(str, other);
+                      }});
+            }
+          },
+          charExpr->u);
+    } else {
+      DIE("first argument must be CHARACTER");
+    }
   } else if (name == "int") {
     if (auto *expr{UnwrapExpr<Expr<SomeType>>(args[0])}) {
       return std::visit(
@@ -281,7 +340,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
                 IsNumericCategoryExpr<From>()) {
               return Fold(context, ConvertToType<T>(std::move(x)));
             }
-            common::die("int() argument type not valid");
+            DIE("int() argument type not valid");
           },
           std::move(expr->u));
     }
@@ -291,7 +350,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
     if constexpr (common::HasMember<T, IntegerTypes>) {
       return Expr<T>{args[0].value().GetType()->kind()};
     } else {
-      common::die("kind() result not integral");
+      DIE("kind() result not integral");
     }
   } else if (name == "lbound") {
     return LBOUND(context, std::move(funcRef));
@@ -308,7 +367,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
                   }));
             }
             auto fptr{&Scalar<TI>::LEADZ};
-            if (name == "leadz") {  // done in fprt definition
+            if (name == "leadz") {  // done in fptr definition
             } else if (name == "trailz") {
               fptr = &Scalar<TI>::TRAILZ;
             } else if (name == "popcnt") {
@@ -324,7 +383,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           sn->u);
     } else {
-      common::die("leadz argument must be integer");
+      DIE("leadz argument must be integer");
     }
   } else if (name == "len") {
     if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0])}) {
@@ -338,7 +397,21 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           charExpr->u);
     } else {
-      common::die("len() argument must be of character type");
+      DIE("len() argument must be of character type");
+    }
+  } else if (name == "len_trim") {
+    if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0])}) {
+      return std::visit(
+          [&](const auto &kch) -> Expr<T> {
+            using TC = typename std::decay_t<decltype(kch)>::Result;
+            return FoldElementalIntrinsic<T, TC>(context, std::move(funcRef),
+                ScalarFunc<T, TC>{[](const Scalar<TC> &str) -> Scalar<T> {
+                  return CharacterUtils<TC::kind>::LEN_TRIM(str);
+                }});
+          },
+          charExpr->u);
+    } else {
+      DIE("len_trim() argument must be of character type");
     }
   } else if (name == "maskl" || name == "maskr") {
     // Argument can be of any kind but value has to be smaller than BIT_SIZE.
@@ -503,11 +576,11 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
     return UBOUND(context, std::move(funcRef));
   }
   // TODO:
-  // ceiling, cshift, dot_product, eoshift,
-  // findloc, floor, iall, iany, iparity, ibits, image_status, index, ishftc,
-  // len_trim, matmul, maxloc, maxval,
-  // minloc, minval, nint, not, pack, product, reduce,
-  // scan, sign, spread, sum, transfer, transpose, unpack, verify
+  // cshift, dot_product, eoshift,
+  // findloc, iall, iany, iparity, ibits, image_status, ishftc,
+  // matmul, maxloc, maxval,
+  // minloc, minval, not, pack, product, reduce,
+  // sign, spread, sum, transfer, transpose, unpack
   return Expr<T>{std::move(funcRef)};
 }
 

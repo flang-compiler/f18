@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "fold-implementation.h"
 
@@ -38,9 +38,22 @@ Expr<Type<TypeCategory::Character, KIND>> FoldIntrinsicFunction(
     return FoldMINorMAX(context, std::move(funcRef), Ordering::Less);
   } else if (name == "new_line") {
     return Expr<T>{Constant<T>{CharacterUtils<KIND>::NEW_LINE()}};
+  } else if (name == "repeat") {  // not elemental
+    if (auto scalars{GetScalarConstantArguments<T, SubscriptInteger>(
+            context, funcRef.arguments())}) {
+      return Expr<T>{Constant<T>{
+          CharacterUtils<KIND>::REPEAT(std::get<Scalar<T>>(*scalars),
+              std::get<Scalar<SubscriptInteger>>(*scalars).ToInt64())}};
+    }
+  } else if (name == "trim") {  // not elemental
+    if (auto scalar{
+            GetScalarConstantArguments<T>(context, funcRef.arguments())}) {
+      return Expr<T>{Constant<T>{
+          CharacterUtils<KIND>::TRIM(std::get<Scalar<T>>(*scalar))}};
+    }
   }
   // TODO: cshift, eoshift, maxval, minval, pack, reduce,
-  // repeat, spread, transfer, transpose, trim, unpack
+  // spread, transfer, transpose, unpack
   return Expr<T>{std::move(funcRef)};
 }
 

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "formatting.h"
 #include "call.h"
@@ -471,7 +471,8 @@ std::string DynamicType::AsFortran() const {
   } else if (IsTypelessIntrinsicArgument()) {
     return "(typeless intrinsic function argument)";
   } else {
-    return EnumToString(category_) + '(' + std::to_string(kind_) + ')';
+    return parser::ToUpperCaseLetters(EnumToString(category_)) + '(' +
+        std::to_string(kind_) + ')';
   }
 }
 

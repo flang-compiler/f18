@@ -373,3 +373,94 @@ subroutine s11()
   end do
 
 end subroutine s11
+
+subroutine s12()
+
+  Integer :: ivar, jvar
+
+  call intentInSub(jvar, ivar)
+  do ivar = 1,10
+    call intentInSub(jvar, ivar)
+  end do
+
+  call intentOutSub(jvar, ivar)
+  do ivar = 1,10
+!ERROR: Cannot redefine DO variable 'ivar'
+    call intentOutSub(jvar, ivar)
+  end do
+
+  call intentInOutSub(jvar, ivar)
+  do ivar = 1,10
+    call intentInOutSub(jvar, ivar)
+  end do
+
+contains
+  subroutine intentInSub(arg1, arg2)
+    integer, intent(in) :: arg1
+    integer, intent(in) :: arg2
+  end subroutine intentInSub
+
+  subroutine intentOutSub(arg1, arg2)
+    integer, intent(in) :: arg1
+    integer, intent(out) :: arg2
+  end subroutine intentOutSub
+
+  subroutine intentInOutSub(arg1, arg2)
+    integer, intent(in) :: arg1
+    integer, intent(inout) :: arg2
+  end subroutine intentInOutSub
+
+end subroutine s12
+
+subroutine s13()
+
+  Integer :: ivar, jvar
+
+  ! This one is OK
+  do ivar = 1, 10
+    jvar = intentInFunc(ivar)
+  end do
+
+  ! Error for passing a DO variable to an INTENT(OUT) dummy
+  do ivar = 1, 10
+!ERROR: Cannot redefine DO variable 'ivar'
+    jvar = intentOutFunc(ivar)
+  end do
+
+  ! Error for passing a DO variable to an INTENT(OUT) dummy, more complex 
+  ! expression
+  do ivar = 1, 10
+!ERROR: Cannot redefine DO variable 'ivar'
+    jvar = 83 + intentInFunc(intentOutFunc(ivar))
+  end do
+
+  ! Warning for passing a DO variable to an INTENT(INOUT) dummy
+  do ivar = 1, 10
+    jvar = intentInOutFunc(ivar)
+  end do
+
+contains
+  function intentInFunc(dummyArg)
+    integer, intent(in) :: dummyArg
+    integer  :: intentInFunc
+
+    intentInFunc = 343
+  end function intentInFunc
+
+  function intentOutFunc(dummyArg)
+    integer, intent(out) :: dummyArg
+    integer  :: intentOutFunc
+
+    dummyArg = 216
+    intentOutFunc = 343
+  end function intentOutFunc
+
+  function intentInOutFunc(dummyArg)
+    integer, intent(inout) :: dummyArg
+    integer  :: intentInOutFunc
+
+    dummyArg = 216
+    intentInOutFunc = 343
+  end function intentInOutFunc
+
+end subroutine s13

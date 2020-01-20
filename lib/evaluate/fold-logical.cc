@@ -4,8 +4,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
+#include "check-expression.h"
 #include "fold-implementation.h"
 
 namespace Fortran::evaluate {
@@ -76,12 +77,21 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldIntrinsicFunction(
             [&fptr](const Scalar<LargestInt> &i, const Scalar<LargestInt> &j) {
               return Scalar<T>{std::invoke(fptr, i, j)};
             }));
+  } else if (name == "is_contiguous") {
+    if (args.at(0)) {
+      if (auto *expr{args[0]->UnwrapExpr()}) {
+        if (IsSimplyContiguous(*expr, context.intrinsics())) {
+          return Expr<T>{true};
+        }
+      }
+    }
   } else if (name == "merge") {
     return FoldMerge<T>(context, std::move(funcRef));
   }
   // TODO: btest, cshift, dot_product, eoshift, is_iostat_end,
   // is_iostat_eor, lge, lgt, lle, llt, logical, matmul, out_of_range,
-  // pack, parity, reduce, spread, transfer, transpose, unpack
+  // pack, parity, reduce, spread, transfer, transpose, unpack,
+  // extends_type_of, same_type_as
   return Expr<T>{std::move(funcRef)};
 }
 

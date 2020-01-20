@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "check-io.h"
 #include "expression.h"
@@ -509,7 +509,7 @@ static void CheckForDoVariableInNamelist(const Symbol &namelist,
     SemanticsContext &context, parser::CharBlock namelistLocation) {
   const auto &details{namelist.GetUltimate().get<NamelistDetails>()};
   for (const Symbol &object : details.objects()) {
-    context.CheckDoVarRedefine(object, namelistLocation);
+    context.CheckDoVarRedefine(namelistLocation, object);
   }
 }
 

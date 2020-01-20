@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 // Static declaration checking
 
@@ -17,6 +17,7 @@
 #include "../evaluate/check-expression.h"
 #include "../evaluate/fold.h"
 #include "../evaluate/tools.h"
+#include <algorithm>
 
 namespace Fortran::semantics {
 
@@ -51,10 +52,12 @@ private:
   void CheckValue(const Symbol &, const DerivedTypeSpec *);
   void CheckVolatile(
       const Symbol &, bool isAssociated, const DerivedTypeSpec *);
+  void CheckPointer(const Symbol &);
   void CheckPassArg(
       const Symbol &proc, const Symbol *interface, const WithPassArg &);
   void CheckProcBinding(const Symbol &, const ProcBindingDetails &);
   void CheckObjectEntity(const Symbol &, const ObjectEntityDetails &);
+  void CheckArraySpec(const Symbol &, const ArraySpec &);
   void CheckProcEntity(const Symbol &, const ProcEntityDetails &);
   void CheckDerivedType(const Symbol &, const DerivedTypeDetails &);
   void CheckGeneric(const Symbol &, const GenericDetails &);
@@ -69,8 +72,12 @@ private:
   bool CheckDefinedAssignmentArg(const Symbol &, const DummyArgument &, int);
   void CheckSpecificsAreDistinguishable(
       const Symbol &, const GenericDetails &, const std::vector<Procedure> &);
+  void CheckEquivalenceSet(const EquivalenceSet &);
+  void CheckBlockData(const Scope &);
+
   void SayNotDistinguishable(
       const SourceName &, GenericKind, const Symbol &, const Symbol &);
+  bool CheckConflicting(const Symbol &, Attr, Attr);
   bool InPure() const {
     return innermostSymbol_ && IsPureProcedure(*innermostSymbol_);
   }
@@ -137,6 +144,9 @@ void CheckHelper::Check(const Symbol &symbol) {
   }
   if (isAssociated) {
     return;  // only care about checking VOLATILE on associated symbols
+  }
+  if (IsPointer(symbol)) {
+    CheckPointer(symbol);
   }
   std::visit(
       common::visitors{
@@ -285,6 +295,7 @@ void CheckHelper::CheckValue(
 
 void CheckHelper::CheckObjectEntity(
     const Symbol &symbol, const ObjectEntityDetails &details) {
+  CheckArraySpec(symbol, details.shape());
   Check(details.shape());
   Check(details.coshape());
   if (!details.coshape().empty()) {
@@ -343,6 +354,101 @@ void CheckHelper::CheckObjectEntity(
       }
     }
   }
+  if (symbol.owner().kind() != Scope::Kind::DerivedType &&
+      IsInitialized(symbol)) {
+    if (details.commonBlock()) {
+      if (details.commonBlock()->name().empty()) {
+        messages_.Say(
+            "A variable in blank COMMON should not be initialized"_en_US);
+      }
+    } else if (symbol.owner().kind() == Scope::Kind::BlockData) {
+      if (IsAllocatable(symbol)) {
+        messages_.Say(
+            "An ALLOCATABLE variable may not appear in a BLOCK DATA subprogram"_err_en_US);
+      } else {
+        messages_.Say(
+            "An initialized variable in BLOCK DATA must be in a COMMON block"_err_en_US);
+      }
+    }
+  }
+}
+
+// The six different kinds of array-specs:
+//   array-spec     -> explicit-shape-list | deferred-shape-list
+//                     | assumed-shape-list | implied-shape-list
+//                     | assumed-size | assumed-rank
+//   explicit-shape -> [ lb : ] ub
+//   deferred-shape -> :
+//   assumed-shape  -> [ lb ] :
+//   implied-shape  -> [ lb : ] *
+//   assumed-size   -> [ explicit-shape-list , ] [ lb : ] *
+//   assumed-rank   -> ..
+// Note:
+// - deferred-shape is also an assumed-shape
+// - A single "*" or "lb:*" might be assumed-size or implied-shape-list
+void CheckHelper::CheckArraySpec(
+    const Symbol &symbol, const ArraySpec &arraySpec) {
+  if (arraySpec.Rank() == 0) {
+    return;
+  }
+  bool isExplicit{arraySpec.IsExplicitShape()};
+  bool isDeferred{arraySpec.IsDeferredShape()};
+  bool isImplied{arraySpec.IsImpliedShape()};
+  bool isAssumedShape{arraySpec.IsAssumedShape()};
+  bool isAssumedSize{arraySpec.IsAssumedSize()};
+  bool isAssumedRank{arraySpec.IsAssumedRank()};
+  std::optional<parser::MessageFixedText> msg;
+  if (symbol.test(Symbol::Flag::CrayPointee) && !isExplicit && !isAssumedSize) {
+    msg = "Cray pointee '%s' must have must have explicit shape or"
+          " assumed size"_err_en_US;
+  } else if (IsAllocatableOrPointer(symbol) && !isDeferred && !isAssumedRank) {
+    if (symbol.owner().IsDerivedType()) {  // C745
+      if (IsAllocatable(symbol)) {
+        msg = "Allocatable array component '%s' must have"
+              " deferred shape"_err_en_US;
+      } else {
+        msg = "Array pointer component '%s' must have deferred shape"_err_en_US;
+      }
+    } else {
+      if (IsAllocatable(symbol)) {  // C832
+        msg = "Allocatable array '%s' must have deferred shape or"
+              " assumed rank"_err_en_US;
+      } else {
+        msg = "Array pointer '%s' must have deferred shape or"
+              " assumed rank"_err_en_US;
+      }
+    }
+  } else if (symbol.IsDummy()) {
+    if (isImplied && !isAssumedSize) {  // C836
+      msg = "Dummy array argument '%s' may not have implied shape"_err_en_US;
+    }
+  } else if (isAssumedShape && !isDeferred) {
+    msg = "Assumed-shape array '%s' must be a dummy argument"_err_en_US;
+  } else if (isAssumedSize && !isImplied) {  // C833
+    msg = "Assumed-size array '%s' must be a dummy argument"_err_en_US;
+  } else if (isAssumedRank) {  // C837
+    msg = "Assumed-rank array '%s' must be a dummy argument"_err_en_US;
+  } else if (isImplied) {
+    if (!IsNamedConstant(symbol)) {  // C836
+      msg = "Implied-shape array '%s' must be a named constant"_err_en_US;
+    }
+  } else if (IsNamedConstant(symbol)) {
+    if (!isExplicit && !isImplied) {
+      msg = "Named constant '%s' array must have explicit or"
+            " implied shape"_err_en_US;
+    }
+  } else if (!IsAllocatableOrPointer(symbol) && !isExplicit) {
+    if (symbol.owner().IsDerivedType()) {  // C749
+      msg = "Component array '%s' without ALLOCATABLE or POINTER attribute must"
+            " have explicit shape"_err_en_US;
+    } else {  // C816
+      msg = "Array '%s' without ALLOCATABLE or POINTER attribute must have"
+            " explicit shape"_err_en_US;
+    }
+  }
+  if (msg) {
+    context_.Say(std::move(*msg), symbol.name());
+  }
 }
 
 void CheckHelper::CheckProcEntity(
@@ -363,6 +469,15 @@ void CheckHelper::CheckProcEntity(
     }
   } else if (symbol.owner().IsDerivedType()) {
     CheckPassArg(symbol, details.interface().symbol(), details);
+  }
+  if (symbol.attrs().test(Attr::POINTER)) {
+    if (const Symbol * interface{details.interface().symbol()}) {
+      if (interface->attrs().test(Attr::ELEMENTAL) &&
+          !interface->attrs().test(Attr::INTRINSIC)) {
+        messages_.Say("Procedure pointer '%s' may not be ELEMENTAL"_err_en_US,
+            symbol.name());  // C1517
+      }
+    }
   }
 }
 
@@ -659,6 +774,17 @@ bool CheckHelper::CheckDefinedAssignmentArg(
   return true;
 }
 
+// Report a conflicting attribute error if symbol has both of these attributes
+bool CheckHelper::CheckConflicting(const Symbol &symbol, Attr a1, Attr a2) {
+  if (symbol.attrs().test(a1) && symbol.attrs().test(a2)) {
+    messages_.Say("'%s' may not have both the %s and %s attributes"_err_en_US,
+        symbol.name(), EnumToString(a1), EnumToString(a2));
+    return true;
+  } else {
+    return false;
+  }
+}
+
 std::optional<std::vector<Procedure>> CheckHelper::Characterize(
     const SymbolVector &specifics) {
   std::vector<Procedure> result;
@@ -693,6 +819,17 @@ void CheckHelper::CheckVolatile(const Symbol &symbol, bool isAssociated,
             "VOLATILE attribute may not apply to a type with a coarray ultimate component accessed by USE or host association"_err_en_US);
       }
     }
+  }
+}
+
+void CheckHelper::CheckPointer(const Symbol &symbol) {  // C852
+  CheckConflicting(symbol, Attr::POINTER, Attr::TARGET);
+  CheckConflicting(symbol, Attr::POINTER, Attr::ALLOCATABLE);
+  CheckConflicting(symbol, Attr::POINTER, Attr::INTRINSIC);
+  if (symbol.Corank() > 0) {
+    messages_.Say(
+        "'%s' may not have the POINTER attribute because it is a coarray"_err_en_US,
+        symbol.name());
   }
 }
 
@@ -889,11 +1026,75 @@ void CheckHelper::Check(const Scope &scope) {
   } else if (scope.IsDerivedType()) {
     return;  // PDT instantiations have null symbol()
   }
+  for (const auto &set : scope.equivalenceSets()) {
+    CheckEquivalenceSet(set);
+  }
   for (const auto &pair : scope) {
     Check(*pair.second);
   }
   for (const Scope &child : scope.children()) {
     Check(child);
+  }
+  if (scope.kind() == Scope::Kind::BlockData) {
+    CheckBlockData(scope);
+  }
+}
+
+void CheckHelper::CheckEquivalenceSet(const EquivalenceSet &set) {
+  auto iter{
+      std::find_if(set.begin(), set.end(), [](const EquivalenceObject &object) {
+        return FindCommonBlockContaining(object.symbol) != nullptr;
+      })};
+  if (iter != set.end()) {
+    const Symbol &commonBlock{DEREF(FindCommonBlockContaining(iter->symbol))};
+    for (auto &object : set) {
+      if (&object != &*iter) {
+        if (auto *details{object.symbol.detailsIf<ObjectEntityDetails>()}) {
+          if (details->commonBlock()) {
+            if (details->commonBlock() != &commonBlock) {  // 8.10.3 paragraph 1
+              if (auto *msg{messages_.Say(object.symbol.name(),
+                      "Two objects in the same EQUIVALENCE set may not be members of distinct COMMON blocks"_err_en_US)}) {
+                msg->Attach(iter->symbol.name(),
+                       "Other object in EQUIVALENCE set"_en_US)
+                    .Attach(details->commonBlock()->name(),
+                        "COMMON block containing '%s'"_en_US,
+                        object.symbol.name())
+                    .Attach(commonBlock.name(),
+                        "COMMON block containing '%s'"_en_US,
+                        iter->symbol.name());
+              }
+            }
+          } else {
+            // Mark all symbols in the equivalence set with the same COMMON
+            // block to prevent spurious error messages about initialization
+            // in BLOCK DATA outside COMMON
+            details->set_commonBlock(commonBlock);
+          }
+        }
+      }
+    }
+  }
+  // TODO: Move C8106 (&al.) checks here from resolve-names-utils.cc
+}
+
+void CheckHelper::CheckBlockData(const Scope &scope) {
+  // BLOCK DATA subprograms should contain only named common blocks.
+  // C1415 presents a list of statements that shouldn't appear in
+  // BLOCK DATA, but so long as the subprogram contains no executable
+  // code and allocates no storage outside named COMMON, we're happy
+  // (e.g., an ENUM is strictly not allowed).
+  for (const auto &pair : scope) {
+    const Symbol &symbol{*pair.second};
+    if (!(symbol.has<CommonBlockDetails>() || symbol.has<UseDetails>() ||
+            symbol.has<UseErrorDetails>() || symbol.has<DerivedTypeDetails>() ||
+            symbol.has<SubprogramDetails>() ||
+            symbol.has<ObjectEntityDetails>() ||
+            (symbol.has<ProcEntityDetails>() &&
+                !symbol.attrs().test(Attr::POINTER)))) {
+      messages_.Say(symbol.name(),
+          "'%s' may not appear in a BLOCK DATA subprogram"_err_en_US,
+          symbol.name());
+    }
   }
 }
 

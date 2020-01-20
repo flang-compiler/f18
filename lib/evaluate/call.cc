@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//----------------------------------------------------------------------------//
+//===----------------------------------------------------------------------===//
 
 #include "call.h"
 #include "characteristics.h"
@@ -189,6 +189,21 @@ std::optional<Expr<SubscriptInteger>> ProcedureRef::LEN() const {
     // lengths of the actual arguments.
   }
   return proc_.LEN();
+}
+
+int ProcedureRef::Rank() const {
+  if (IsElemental()) {
+    for (const auto &arg : arguments_) {
+      if (arg) {
+        if (int rank{arg->Rank()}; rank > 0) {
+          return rank;
+        }
+      }
+    }
+    return 0;
+  } else {
+    return proc_.Rank();
+  }
 }
 
 ProcedureRef::~ProcedureRef() {}
