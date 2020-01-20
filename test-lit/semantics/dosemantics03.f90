@@ -11,6 +11,8 @@
 ! C1120 -- DO variable (and associated expressions) must be INTEGER.
 ! This is extended by allowing REAL and DOUBLE PRECISION
 
+!RUN: %test_error %s %flang
+
 MODULE share
   INTEGER :: intvarshare
   REAL :: realvarshare

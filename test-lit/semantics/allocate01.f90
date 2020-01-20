@@ -1,6 +1,8 @@
 ! Check for semantic errors in ALLOCATE statements
 
 ! Creating a symbol that allocate should accept
+!RUN: %test_error %s %flang
+
 module share
   real, pointer :: rp
 end module share

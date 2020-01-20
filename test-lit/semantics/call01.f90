@@ -1,5 +1,7 @@
 ! Confirm enforcement of constraints and restrictions in 15.6.2.1
 
+!RUN: %test_error %s %flang
+
 non_recursive function f01(n) result(res)
   integer, value :: n
   integer :: res
