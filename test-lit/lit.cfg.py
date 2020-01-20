@@ -26,16 +26,21 @@ config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = ['.f', '.F', '.ff','.FOR', '.for', '.f77', '.f90', '.F90',
+config.suffixes = ['.f', '.F', '.ff', '.FOR', '.for', '.f77', '.f90', '.F90',
                    '.ff90', '.f95', '.F95', '.ff95', '.fpp', '.FPP', '.cuf',
                    '.CUF', '.f18', '.F18']
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)
 
-
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.flang_obj_root, 'test-lit')
+
+config.old_test_source_root = os.path.join(
+    config.test_source_root, "..", "test")
+
+config.old_semantics_source_root = os.path.join(
+    config.old_test_source_root, "semantics")
 
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 
@@ -46,11 +51,6 @@ llvm_config.use_default_substitutions()
 # directories.
 config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt']
 
-# test_source_root: The root path where tests are located.
-config.test_source_root = os.path.dirname(__file__)
-
-# test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.flang_obj_root, 'test-lit')
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment('PATH', config.flang_tools_dir, append_path=True)
@@ -60,10 +60,10 @@ llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 # the build directory holding that tool.  We explicitly specify the directories
 # to search to ensure that we get the tools just built and not some random
 # tools that might happen to be in the user's PATH.
-tool_dirs = [config.llvm_tools_dir, config.flang_tools_dir]
+tool_dirs = [config.llvm_tools_dir, config.flang_tools_dir, config.old_semantics_source_root]
 
 tools = [ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
-         ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal')]
+         ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
+         ToolSubst('%test_error', command=FindTool('test_errors.sh'), unresolved='fatal')]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
-
