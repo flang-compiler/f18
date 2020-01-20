@@ -1,5 +1,7 @@
 !OPTIONS: -Mstandard
 
+!RUN: %test_error %s %flang
+
   write(*, '(B0)')
   write(*, '(B3)')
 
