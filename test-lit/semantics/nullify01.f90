@@ -1,5 +1,7 @@
 ! Test that NULLIFY works
 
+!RUN: %test_error %s %flang
+
 Module share
   Real, Pointer :: rp
   Procedure(Real), Pointer :: mprp

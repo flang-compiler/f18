@@ -1,3 +1,5 @@
+!RUN: %test_error %s %flang
+
 subroutine s1
   implicit none
   !ERROR: More than one IMPLICIT NONE statement
