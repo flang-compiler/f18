@@ -2,7 +2,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 
 add_library(FortranLower
   ASTBuilder.cpp
+  OpBuilder.cpp
+  ConvertExpr.cpp
   ConvertType.cpp
+  Intrinsics.cpp
+  Runtime.cpp
 )
 
 target_link_libraries(FortranLower
