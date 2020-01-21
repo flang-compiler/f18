@@ -16,7 +16,7 @@ FixNamespaceComments: false
 IncludeCategories:
   - Regex:           '^<'
     Priority:        4
-  - Regex:           '^"(llvm|llvm-c|clang|clang-c)/'
+  - Regex:           '^"(llvm|llvm-c|clang|clang-c|fir|mlir|mlir-c)/'
     Priority:        3
   - Regex:           '^"\.\./'
     Priority:        2
