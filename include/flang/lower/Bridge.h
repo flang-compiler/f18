@@ -21,6 +21,7 @@
 
 namespace Fortran {
 namespace common {
+class IntrinsicTypeDefaultKinds;
 template <typename>
 class Reference;
 } // namespace common
@@ -32,14 +33,23 @@ struct SomeType;
 } // namespace evaluate
 namespace parser {
 class CharBlock;
+class CookedSource;
+struct Program;
 } // namespace parser
 namespace semantics {
 class Symbol;
 }
 } // namespace Fortran
 
+namespace llvm {
+class Module;
+class SourceMgr;
+} // namespace llvm
 namespace mlir {
 class OpBuilder;
+}
+namespace fir {
+struct NameUniquer;
 }
 
 namespace Fortran::lower {
@@ -96,6 +106,42 @@ public:
   virtual std::string mangleName(SymbolRef) = 0;
 
   virtual ~AbstractConverter() = default;
+};
+
+class BurnsideBridge {
+public:
+  static BurnsideBridge
+  create(const common::IntrinsicTypeDefaultKinds &defaultKinds,
+         const parser::CookedSource *cooked) {
+    return BurnsideBridge{defaultKinds, cooked};
+  }
+
+  mlir::MLIRContext &getMLIRContext() { return *context.get(); }
+  mlir::ModuleOp &getModule() { return *module.get(); }
+
+  void parseSourceFile(llvm::SourceMgr &);
+
+  common::IntrinsicTypeDefaultKinds const &getDefaultKinds() {
+    return defaultKinds;
+  }
+
+  bool validModule() { return getModule(); }
+
+  const parser::CookedSource *getCookedSource() const { return cooked; }
+
+  /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
+  void lower(const parser::Program &program, fir::NameUniquer &uniquer);
+
+private:
+  explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
+                          const parser::CookedSource *cooked);
+  BurnsideBridge() = delete;
+  BurnsideBridge(const BurnsideBridge &) = delete;
+
+  const common::IntrinsicTypeDefaultKinds &defaultKinds;
+  const parser::CookedSource *cooked;
+  std::unique_ptr<mlir::MLIRContext> context;
+  std::unique_ptr<mlir::ModuleOp> module;
 };
 
 } // namespace Fortran::lower
