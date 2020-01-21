@@ -96,5 +96,56 @@ std::optional<std::int64_t> ToInt64(const std::optional<A> &x) {
     return std::nullopt;
   }
 }
+
+// When an expression is a constant Logical, ToBool() extracts its value.
+template<int KIND>
+std::optional<bool> ToBool(
+    const Expr<Type<TypeCategory::Logical, KIND>> &expr) {
+  if (auto scalar{
+          GetScalarConstantValue<Type<TypeCategory::Logical, KIND>>(expr)}) {
+    return scalar->IsTrue();
+  } else {
+    return std::nullopt;
+  }
+}
+
+std::optional<bool> ToBool(const Expr<SomeInteger> &);
+std::optional<bool> ToBool(const Expr<SomeType> &);
+
+template<typename A> std::optional<bool> ToBool(const std::optional<A> &x) {
+  if (x) {
+    return ToBool(*x);
+  } else {
+    return std::nullopt;
+  }
+}
+
+// When an expression is a constant character, ToString() extracts its value.
+template<int KIND>
+std::optional<std::string> ToString(
+    const Expr<Type<TypeCategory::Character, KIND>> &expr) {
+  if (auto scalar{
+          GetScalarConstantValue<Type<TypeCategory::Character, KIND>>(expr)}) {
+    auto str{*scalar};
+    // Type of str can be std::string or std::u16string or std::u32string
+    std::string newStr(str.begin(), str.end());
+    return std::move(newStr);
+  } else {
+    return std::nullopt;
+  }
+}
+
+std::optional<std::string> ToString(const Expr<SomeInteger> &);
+std::optional<std::string> ToString(const Expr<SomeType> &);
+
+template<typename A>
+std::optional<std::string> ToString(const std::optional<A> &x) {
+  if (x) {
+    return ToString(*x);
+  } else {
+    return std::nullopt;
+  }
+}
+
 }
 #endif  // FORTRAN_EVALUATE_FOLD_H_

@@ -265,6 +265,22 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   }
 }
 
+template<typename T> std::optional<bool> GetBoolValue(const T &x) {
+  if (const auto *expr{GetExpr(x)}) {
+    return evaluate::ToBool(*expr);
+  } else {
+    return std::nullopt;
+  }
+}
+
+template<typename T> std::optional<std::string> GetString(const T &x) {
+  if (const auto *expr{GetExpr(x)}) {
+    return evaluate::ToString(*expr);
+  } else {
+    return std::nullopt;
+  }
+}
+
 template<typename T> bool IsZero(const T &expr) {
   auto value{GetIntValue(expr)};
   return value && *value == 0;

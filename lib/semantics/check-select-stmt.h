@@ -1,11 +1,10 @@
-//= check-select-stmt.h - Checker for select-case, select-rank, select-type ==
-// TODO select-rank, select-type
+//===-- lib/semantics/check-select-stmt.h ---------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//=--------------------------------------------------------------------------==
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_SEMANTICS_CHECK_SELECT_STMT_H_
 #define FORTRAN_SEMANTICS_CHECK_SELECT_STMT_H_
@@ -21,7 +20,7 @@ public:
 
 private:
   SemanticsContext &context_;
-  void CheckSelectCaseType(const TypeCategory &, const parser::ConstantExpr &,
+  bool isValidSelectCaseType(const TypeCategory &, const parser::ConstantExpr &,
       const parser::CharBlock &);
 };
 }  // namespace Fortran::semantics
