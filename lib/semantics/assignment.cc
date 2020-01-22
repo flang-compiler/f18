@@ -158,67 +158,41 @@ void AssignmentContext::Analyze(const parser::AssignmentStmt &stmt) {
 }
 
 void AssignmentContext::Analyze(const parser::PointerAssignmentStmt &stmt) {
+  using PointerAssignment = evaluate::Assignment::PointerAssignment;
   CHECK(!where_);
-  if (const evaluate::Assignment * asst{GetAssignment(stmt)}) {
-    bool hasBounds{false};
-    auto [lhs, rhs]{std::visit(
-        common::visitors{
-            [&](const evaluate::Assignment::IntrinsicAssignment &x) {
-              return std::make_pair(&x.lhs, &x.rhs);
-            },
-            [&](const evaluate::ProcedureRef &x) {
-              return std::make_pair(x.arguments()[0]->UnwrapExpr(),
-                  x.arguments()[1]->UnwrapExpr());
-            },
-            [&](const evaluate::Assignment::PointerAssignment &x) {
-              std::visit(
-                  common::visitors{
-                      [&](const evaluate::Assignment::PointerAssignment::
-                              BoundsSpec &bounds) {
-                        hasBounds = !bounds.empty();
-                        for (const auto &bound : bounds) {
-                          CheckForImpureCall(SomeExpr{bound});
-                        }
-                      },
-                      [&](const evaluate::Assignment::PointerAssignment::
-                              BoundsRemapping &bounds) {
-                        hasBounds = !bounds.empty();
-                        for (const auto &bound : bounds) {
-                          CheckForImpureCall(SomeExpr{bound.first});
-                          CheckForImpureCall(SomeExpr{bound.second});
-                        }
-                      },
-                  },
-                  x.bounds);
-              return std::make_pair(&x.lhs, &x.rhs);
-            },
-        },
-        asst->u)};
-    CheckForImpureCall(lhs);
-    CheckForImpureCall(rhs);
-    if (forall_) {
-      // TODO: Warn if some name in forall_->activeNames or its outer
-      // contexts does not appear on LHS
-    }
-    if (lhs && rhs) {
-      CheckForPureContext(
-          *lhs, *rhs, std::get<parser::Expr>(stmt.t).source, true /* => */);
-      const Symbol *pointer{GetLastSymbol(lhs)};
-      if (pointer && pointer->has<ProcEntityDetails>() &&
-          evaluate::ExtractCoarrayRef(*lhs)) {
-        context_.Say(  // C1027
-            "Procedure pointer may not be a coindexed object"_err_en_US);
-      }
-      if (hasBounds) {
-        // TODO cases with bounds-spec and bounds-remapping
-      } else {
-        auto &foldingContext{context_.foldingContext()};
-        auto restorer{
-            foldingContext.messages().SetLocation(context_.location().value())};
-        CheckPointerAssignment(foldingContext, *pointer, *rhs);
-      }
-    }
+  const evaluate::Assignment *assign{GetAssignment(stmt)};
+  if (!assign) {
+    return;
   }
+  const auto &ptrAssign{std::get<PointerAssignment>(assign->u)};
+  const SomeExpr &lhs{ptrAssign.lhs};
+  const SomeExpr &rhs{ptrAssign.rhs};
+  CheckForImpureCall(lhs);
+  CheckForImpureCall(rhs);
+  std::visit(
+      common::visitors{
+          [&](const PointerAssignment::BoundsSpec &bounds) {
+            for (const auto &bound : bounds) {
+              CheckForImpureCall(SomeExpr{bound});
+            }
+          },
+          [&](const PointerAssignment::BoundsRemapping &bounds) {
+            for (const auto &bound : bounds) {
+              CheckForImpureCall(SomeExpr{bound.first});
+              CheckForImpureCall(SomeExpr{bound.second});
+            }
+          },
+      },
+      ptrAssign.bounds);
+  if (forall_) {
+    // TODO: Warn if some name in forall_->activeNames or its outer
+    // contexts does not appear on LHS
+  }
+  CheckForPureContext(lhs, rhs, std::get<parser::Expr>(stmt.t).source,
+      true /* isPointerAssignment */);
+  auto restorer{context_.foldingContext().messages().SetLocation(
+      context_.location().value())};
+  CheckPointerAssignment(context_.foldingContext(), ptrAssign);
 }
 
 void AssignmentContext::Analyze(const parser::WhereStmt &stmt) {
