@@ -6046,15 +6046,14 @@ void OmpAttributeVisitor::Post(const parser::Name &name) {
       // TODO: create a separate function to go through the rules for
       //       predetermined, explicitly determined, and implicitly
       //       determined data-sharing attributes (2.15.1.1).
-      if (GetContext().defaultDSA == Symbol::Flag::OmpNone) {
-        context_.Say(name.source,
-            "The DEFAULT(NONE) clause requires '%s' must be listed in "
-            "a data-sharing attribute clause"_err_en_US,
-            symbol->name());
-      }
       if (Symbol * found{currScope().FindSymbol(name.source)}) {
         if (HasObject(found)) {
           name.symbol = found;  // adjust the symbol within region
+        } else if (GetContext().defaultDSA == Symbol::Flag::OmpNone) {
+          context_.Say(name.source,
+              "The DEFAULT(NONE) clause requires that '%s' must be listed in "
+              "a data-sharing attribute clause"_err_en_US,
+              symbol->name());
         }
       }
     }
