@@ -24,7 +24,10 @@ F18_TEST = "~/f18/build-f18/test-lit"
 ROOT = Path.cwd()
 while ROOT.name != "f18":
     ROOT = ROOT.parent
-TEMPLATE = "!RUN: %test_error %s %flang"
+ERROR_TEMPLATE = "!RUN: %test_error %s %flang"
+SYMBOL_TEMPLATE = "!RUN: %test_symbol %s %flang"
+MODFILE_TEMPLATE = "!RUN: %test_modfile %s %flang"
+GENERIC_TEMPLATE = "!RUN: %test_generic %s %flang"
 FAILS = []
 TS = TestSplitter()
 
