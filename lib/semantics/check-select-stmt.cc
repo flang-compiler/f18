@@ -76,7 +76,7 @@ void SelectStmtChecker::Leave(
           }
 
           if (selectCaseStmtType.value() == TypeCategory::Integer) {
-            const auto &intVal = GetIntValue(constCase->thing).value();
+            const auto intVal = GetIntValue(constCase->thing).value();
             intIter = std::find_if(caseRangeIntVals.begin(),
                 caseRangeIntVals.end(), [&intVal](const auto &mem) {
                   return ((!mem.first || (intVal >= mem.first)) &&
@@ -87,7 +87,7 @@ void SelectStmtChecker::Leave(
               continue;
             }
           } else if (selectCaseStmtType.value() == TypeCategory::Character) {
-            const auto &strVal = GetString(constCase->thing).value();
+            const auto strVal = GetString(constCase->thing).value();
             stringIter = std::find_if(caseRangeStringVals.begin(),
                 caseRangeStringVals.end(), [&strVal](const auto &mem) {
                   return (

@@ -129,7 +129,7 @@ std::optional<std::string> ToString(
     auto str{*scalar};
     // Type of str can be std::string or std::u16string or std::u32string
     std::string newStr(str.begin(), str.end());
-    return std::move(newStr);
+    return newStr;
   } else {
     return std::nullopt;
   }
