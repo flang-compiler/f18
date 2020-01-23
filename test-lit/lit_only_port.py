@@ -1,4 +1,4 @@
-""" lit_port.py
+""" lit_only_port.py
 
     Ports ctest style F18 tests to be compatible with lit
 
