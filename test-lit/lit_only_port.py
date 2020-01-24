@@ -28,6 +28,7 @@ ERROR_TEMPLATE = "!RUN: %test_error %s %flang\n"
 SYMBOL_TEMPLATE = "!RUN: %test_symbol %s %flang\n"
 MODFILE_TEMPLATE = "!RUN: %test_modfile %s %f18\n"
 GENERIC_TEMPLATE = "!RUN: %test_generic %s %flang\n"
+FOLDING_TEMPLATE = "!RUN: %test_folding %s %flang\n"
 FAILS = []
 TS = TestSplitter()
 
@@ -140,6 +141,8 @@ def port_single_test(filename, output):
         port_test_with_template(filename, new_path, MODFILE_TEMPLATE)
     elif test in TS.generic_tests:
         port_generic_test(filename, new_path)
+    elif test in TS.folding_tests:
+        port_test_with_template(filename, new_path, FOLDING_TEMPLATE)
     else:
         print(
             "{} could not be ported as it is not supported".format(test),

@@ -9,7 +9,6 @@
 """
 
 import argparse
-import os
 import re
 from pathlib import Path
 
@@ -20,22 +19,25 @@ class TestSplitter:
         self.modfile_tests = []
         self.symbol_tests = []
         self.generic_tests = []
+        self.folding_tests = []
         self.unsupported_tests = []
-        self.test_types = ['ERROR', 'MODFILE', 'SYMBOL', 'GENERIC']
-        root = os.getcwd()
-        while not root.endswith("f18"):
-            root = os.path.abspath(os.path.dirname(root))
+        self.test_types = ['ERROR', 'MODFILE', 'SYMBOL', 'GENERIC', 'FOLDING']
+        root = Path(__file__).resolve()
+        while root.name != "f18":
+            root = root.parent
         self.root = root
-        self.test_path = os.path.join(self.root, "test")
+        self.test_path = self.root / "test"
         self.get_semantics_tests()
+        self.get_folding_tests()
         self.tests = (self.error_tests + self.modfile_tests +
                       self.symbol_tests + self.generic_tests +
+                      self.folding_tests +
                       self.unsupported_tests)
 
     def get_semantics_tests(self):
-        semantics_path = os.path.join(self.test_path, "semantics")
-        semantics_cmake_path = os.path.join(semantics_path, "CMakeLists.txt")
-        with open(semantics_cmake_path, "r", encoding="utf8") as read_file:
+        semantics_path = self.test_path / "semantics"
+        semantics_cmake_path = semantics_path / "CMakeLists.txt"
+        with semantics_cmake_path.open() as read_file:
             current_test_set = None
             for line in read_file.readlines():
                 match = re.match(r"^set\((.*)$", line)
@@ -64,6 +66,14 @@ class TestSplitter:
                     else:
                         current_test_set.append(line.strip())
 
+    def get_folding_tests(self):
+        evaluate_path = self.test_path / "evaluate"
+        evaluate_cmake_path = evaluate_path / "CMakeLists.txt"
+        with evaluate_cmake_path.open() as read_file:
+            for line in read_file.readlines():
+                if line.strip().endswith(".f90"):
+                    self.folding_tests.append(line.strip())
+
 
 def main():
     ts = TestSplitter()
@@ -72,12 +82,14 @@ def main():
         "--error", "-e", help="Display error tests", action="store_true")
     parser.add_argument(
         "--symbol", "-s", help="Display symbol tests", action="store_true")
-    parser.add_argument("--modfile", "-m",
-                        help="Display modfile tests", action="store_true")
-    parser.add_argument("--generic", "-g",
-                        help="Display generic tests", action="store_true")
-    parser.add_argument("--unsupported", "-u",
-                        help="Display unsupported tests", action="store_true")
+    parser.add_argument(
+        "--modfile", "-m", help="Display modfile tests", action="store_true")
+    parser.add_argument(
+        "--generic", "-g", help="Display generic tests", action="store_true")
+    parser.add_argument(
+        "--folding", "-f", help="Display folding tests", action="store_true")
+    parser.add_argument(
+        "--unsupported", "-u", help="Display unsupported tests", action="store_true")
     parser.add_argument(
         "--all", "-a", help="Display all tests", action="store_true")
     parser.add_argument(
@@ -91,9 +103,13 @@ Semantics has:
 {} Symbol Tests
 {} Modfile Tests
 {} Generic Tests
+
+Evaluate has:
+{} Folding Tests
 """.format(
                 len(ts.error_tests), len(ts.symbol_tests),
-                len(ts.modfile_tests), len(ts.generic_tests)
+                len(ts.modfile_tests), len(ts.generic_tests),
+                len(ts.folding_tests)
             )
         )
     if args.error:
@@ -108,6 +124,9 @@ Semantics has:
     if args.generic:
         for test in ts.generic_tests:
             print(test)
+    if args.folding:
+        for test in ts.folding_tests:
+            print(test)
     if args.unsupported:
         for test in ts.unsupported_tests:
             print(test)
@@ -120,6 +139,8 @@ Semantics has:
             print(test + " (MODFILE)")
         for test in ts.generic_tests:
             print(test + " (GENERIC)")
+        for test in ts.folding_tests:
+            print(test + " (FOLDING)")
         for test in ts.unsupported_tests:
             print(test + " (UNSUPPORTED)")
 

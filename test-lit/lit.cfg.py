@@ -42,6 +42,10 @@ config.old_test_source_root = os.path.join(
 config.old_semantics_source_root = os.path.join(
     config.old_test_source_root, "semantics")
 
+config.old_evaluate_source_root = os.path.join(
+    config.old_test_source_root, "evaluate"
+)
+
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 
 llvm_config.use_default_substitutions()
@@ -60,14 +64,24 @@ llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 # the build directory holding that tool.  We explicitly specify the directories
 # to search to ensure that we get the tools just built and not some random
 # tools that might happen to be in the user's PATH.
-tool_dirs = [config.llvm_tools_dir, config.flang_tools_dir, config.old_semantics_source_root]
+tool_dirs = [
+    config.llvm_tools_dir, config.flang_tools_dir,
+    config.old_semantics_source_root, config.old_evaluate_source_root
+]
 
-tools = [ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
-         ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
-         ToolSubst('%test_error', command=FindTool('test_errors.sh'), unresolved='fatal'),
-         ToolSubst('%test_symbol', command=FindTool('test_symbols.sh'), unresolved='fatal'),
-         ToolSubst('%test_modfile', command=FindTool('test_modfile.sh'), unresolved='fatal'),
-         ToolSubst('%test_generic', command=FindTool('test_any.sh'), unresolved='fatal')
-         ]
+tools = [
+    ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
+    ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
+    ToolSubst('%test_error', command=FindTool(
+        'test_errors.sh'), unresolved='fatal'),
+    ToolSubst('%test_symbol', command=FindTool(
+        'test_symbols.sh'), unresolved='fatal'),
+    ToolSubst('%test_modfile', command=FindTool(
+        'test_modfile.sh'), unresolved='fatal'),
+    ToolSubst('%test_generic', command=FindTool(
+        'test_any.sh'), unresolved='fatal'),
+    ToolSubst('%test_folding', command=FindTool(
+        'test_folding.sh'), unresolved='fatal')
+]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
