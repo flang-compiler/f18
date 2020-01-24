@@ -1,3 +1,4 @@
+!RUN: %test_folding %s %flang
 ! Test transformational intrinsic function folding
 
 module m

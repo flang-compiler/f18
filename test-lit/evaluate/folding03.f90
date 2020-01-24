@@ -1,3 +1,4 @@
+!RUN: %test_folding %s %flang
 ! Test operation folding edge case (both expected value and messages)
 ! These tests make assumptions regarding real(4) and integer(4) extrema.
 

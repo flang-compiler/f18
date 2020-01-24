@@ -1,3 +1,4 @@
+!RUN: %test_folding %s %flang
 ! Check intrinsic function folding with host runtime library
 
 module m

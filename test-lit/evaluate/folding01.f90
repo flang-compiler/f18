@@ -1,3 +1,4 @@
+!RUN: %test_folding %s %flang
 
 ! Test intrinsic operation folding
 
