@@ -1286,13 +1286,13 @@ private:
 
   void ResolveOmpObjectList(const parser::OmpObjectList &, Symbol::Flag);
   void ResolveOmpObject(const parser::OmpObject &, Symbol::Flag);
-  Symbol &ResolveOmp(const parser::Name &, Symbol::Flag);
-  Symbol &ResolveOmp(Symbol &, Symbol::Flag);
+  Symbol *ResolveOmp(const parser::Name &, Symbol::Flag);
+  Symbol *ResolveOmp(Symbol &, Symbol::Flag);
   Symbol *ResolveOmpCommonBlockName(const parser::Name *);
-  Symbol &DeclarePrivateAccessEntity(const parser::Name &, Symbol::Flag);
-  Symbol &DeclarePrivateAccessEntity(Symbol &, Symbol::Flag);
-  Symbol &DeclareOrMarkOtherAccessEntity(const parser::Name &, Symbol::Flag);
-  Symbol &DeclareOrMarkOtherAccessEntity(Symbol &, Symbol::Flag);
+  Symbol *DeclarePrivateAccessEntity(const parser::Name &, Symbol::Flag);
+  Symbol *DeclarePrivateAccessEntity(Symbol &, Symbol::Flag);
+  Symbol *DeclareOrMarkOtherAccessEntity(const parser::Name &, Symbol::Flag);
+  Symbol *DeclareOrMarkOtherAccessEntity(Symbol &, Symbol::Flag);
   void CheckMultipleAppearances(
       const parser::Name &, const Symbol &, Symbol::Flag);
   SymbolSet dataSharingAttributeObjects_;  // on one directive
@@ -6039,8 +6039,7 @@ void OmpAttributeVisitor::Post(const parser::OmpDefaultClause &x) {
 // For OpenMP constructs, check all the data-refs within the constructs
 // and adjust the symbol for each Name if necessary
 void OmpAttributeVisitor::Post(const parser::Name &name) {
-  if (!ompContext_.empty() && GetContext().withinConstruct) {
-    CHECK(name.symbol);  // all the Names should be resolved at this point
+  if (name.symbol && !ompContext_.empty() && GetContext().withinConstruct) {
     auto *symbol{name.symbol};
     if (!symbol->owner().IsDerivedType() && !HasObject(symbol)) {
       // TODO: create a separate function to go through the rules for
@@ -6090,10 +6089,11 @@ void OmpAttributeVisitor::ResolveOmpObject(
       common::visitors{
           [&](const parser::Designator &designator) {
             if (const auto *name{GetDesignatorNameIfDataRef(designator)}) {
-              auto &symbol{ResolveOmp(*name, ompFlag)};
-              SetContextObjectMap(&symbol, ompFlag);
-              if (dataSharingAttributeFlags.test(ompFlag)) {
-                CheckMultipleAppearances(*name, symbol, ompFlag);
+              if (auto *symbol{ResolveOmp(*name, ompFlag)}) {
+                SetContextObjectMap(symbol, ompFlag);
+                if (dataSharingAttributeFlags.test(ompFlag)) {
+                  CheckMultipleAppearances(*name, *symbol, ompFlag);
+                }
               }
             } else if (const auto *designatorName{
                            resolver_.ResolveDesignator(designator)};
@@ -6127,8 +6127,9 @@ void OmpAttributeVisitor::ResolveOmpObject(
               for (const Symbol &object :
                   symbol->get<CommonBlockDetails>().objects()) {
                 Symbol &mutableObject{const_cast<Symbol &>(object)};
-                auto &resolvedObject{ResolveOmp(mutableObject, ompFlag)};
-                SetContextObjectMap(&resolvedObject, ompFlag);
+                if (auto *resolvedObject{ResolveOmp(mutableObject, ompFlag)}) {
+                  SetContextObjectMap(resolvedObject, ompFlag);
+                }
               }
             } else {
               context_.Say(name.source,  // 2.15.3
@@ -6140,7 +6141,7 @@ void OmpAttributeVisitor::ResolveOmpObject(
       ompObject.u);
 }
 
-Symbol &OmpAttributeVisitor::ResolveOmp(
+Symbol *OmpAttributeVisitor::ResolveOmp(
     const parser::Name &name, Symbol::Flag ompFlag) {
   if (ompFlagsRequireNewSymbol.test(ompFlag)) {
     return DeclarePrivateAccessEntity(name, ompFlag);
@@ -6149,7 +6150,7 @@ Symbol &OmpAttributeVisitor::ResolveOmp(
   }
 }
 
-Symbol &OmpAttributeVisitor::ResolveOmp(Symbol &symbol, Symbol::Flag ompFlag) {
+Symbol *OmpAttributeVisitor::ResolveOmp(Symbol &symbol, Symbol::Flag ompFlag) {
   if (ompFlagsRequireNewSymbol.test(ompFlag)) {
     return DeclarePrivateAccessEntity(symbol, ompFlag);
   } else {
@@ -6157,49 +6158,44 @@ Symbol &OmpAttributeVisitor::ResolveOmp(Symbol &symbol, Symbol::Flag ompFlag) {
   }
 }
 
-Symbol &OmpAttributeVisitor::DeclarePrivateAccessEntity(
+Symbol *OmpAttributeVisitor::DeclarePrivateAccessEntity(
     const parser::Name &name, Symbol::Flag ompFlag) {
-  if (name.symbol->owner() != currScope()) {
-    auto &symbol{MakeAssocSymbol(name.source, *name.symbol)};
-    symbol.set(ompFlag);
-    name.symbol = &symbol;  // override resolution to parent
-    return symbol;
-  } else {
-    name.symbol->set(ompFlag);
-    return *name.symbol;
+  if (!name.symbol) {
+    return nullptr;  // not resolved by Name Resolution step, do nothing
   }
+  name.symbol = DeclarePrivateAccessEntity(*name.symbol, ompFlag);
+  return name.symbol;
 }
 
-Symbol &OmpAttributeVisitor::DeclarePrivateAccessEntity(
+Symbol *OmpAttributeVisitor::DeclarePrivateAccessEntity(
     Symbol &object, Symbol::Flag ompFlag) {
   if (object.owner() != currScope()) {
     auto &symbol{MakeAssocSymbol(object.name(), object)};
     symbol.set(ompFlag);
-    return symbol;
+    return &symbol;
   } else {
     object.set(ompFlag);
-    return object;
+    return &object;
   }
 }
 
-Symbol &OmpAttributeVisitor::DeclareOrMarkOtherAccessEntity(
+Symbol *OmpAttributeVisitor::DeclareOrMarkOtherAccessEntity(
     const parser::Name &name, Symbol::Flag ompFlag) {
   Symbol *prev{currScope().FindSymbol(name.source)};
-  if (prev != name.symbol) {
+  if (!name.symbol || !prev) {
+    return nullptr;
+  } else if (prev != name.symbol) {
     name.symbol = prev;
   }
-  if (ompFlagsRequireMark.test(ompFlag)) {
-    prev->set(ompFlag);
-  }
-  return *prev;
+  return DeclareOrMarkOtherAccessEntity(*prev, ompFlag);
 }
 
-Symbol &OmpAttributeVisitor::DeclareOrMarkOtherAccessEntity(
+Symbol *OmpAttributeVisitor::DeclareOrMarkOtherAccessEntity(
     Symbol &object, Symbol::Flag ompFlag) {
   if (ompFlagsRequireMark.test(ompFlag)) {
     object.set(ompFlag);
   }
-  return object;
+  return &object;
 }
 
 static bool WithMultipleAppearancesException(
