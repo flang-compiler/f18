@@ -1116,8 +1116,8 @@ bool OmpVisitor::NeedsScope(const parser::OpenMPBlockConstruct &x) {
   const auto &beginBlockDir{std::get<parser::OmpBeginBlockDirective>(x.t)};
   const auto &beginDir{std::get<parser::OmpBlockDirective>(beginBlockDir.t)};
   switch (beginDir.v) {
-  case parser::OmpBlockDirective::Directive::TargetData:
-  case parser::OmpBlockDirective::Directive::Master:
+  case parser::OmpBlockDirective::Directive::TargetData: [[fallthrough]];
+  case parser::OmpBlockDirective::Directive::Master: [[fallthrough]];
   case parser::OmpBlockDirective::Directive::Ordered: return false;
   default: return true;
   }
@@ -1125,11 +1125,9 @@ bool OmpVisitor::NeedsScope(const parser::OpenMPBlockConstruct &x) {
 
 void OmpVisitor::AddOmpSourceRange(const parser::CharBlock &source) {
   messageHandler().set_currStmtSource(source);
-  for (auto *scope = &currScope(); scope; scope = &scope->parent()) {
+  for (auto *scope = &currScope(); !scope->IsGlobal();
+       scope = &scope->parent()) {
     scope->AddSourceRange(source);
-    if (scope->IsGlobal()) {
-      break;
-    }
   }
 }
 
@@ -1158,26 +1156,14 @@ public:
   template<typename A> bool Pre(const A &) { return true; }
   template<typename A> void Post(const A &) {}
 
-  static const parser::Name *GetDesignatorNameIfDataRef(
-      const parser::Designator &designator) {
-    const auto *dataRef{std::get_if<parser::DataRef>(&designator.u)};
-    return dataRef ? std::get_if<parser::Name>(&dataRef->u) : nullptr;
-  }
-
   bool Pre(const parser::OpenMPBlockConstruct &);
-  void Post(const parser::OpenMPBlockConstruct &) {
-    GetContext().withinConstruct = false;
-    PopContext();
-  }
+  void Post(const parser::OpenMPBlockConstruct &) { PopContext(); }
   void Post(const parser::OmpBeginBlockDirective &) {
     GetContext().withinConstruct = true;
   }
 
   bool Pre(const parser::OpenMPLoopConstruct &);
-  void Post(const parser::OpenMPLoopConstruct &) {
-    GetContext().withinConstruct = false;
-    PopContext();
-  }
+  void Post(const parser::OpenMPLoopConstruct &) { PopContext(); }
   void Post(const parser::OmpBeginLoopDirective &) {
     GetContext().withinConstruct = true;
   }
@@ -1211,15 +1197,15 @@ public:
 
 private:
   struct OmpContext {
-    OmpContext(const parser::CharBlock &source, OmpDirective d)
-      : directiveSource{source}, directive{d} {}
-    parser::CharBlock directiveSource{nullptr};
+    OmpContext(const parser::CharBlock &source, OmpDirective d, Scope &s)
+      : directiveSource{source}, directive{d}, scope{s} {}
+    parser::CharBlock directiveSource;
     OmpDirective directive;
-    Scope *scope{nullptr};
+    Scope &scope;
     // TODO: default DSA is implicitly determined in different ways
     Symbol::Flag defaultDSA{Symbol::Flag::OmpShared};
     // variables on Data-sharing attribute clauses
-    std::map<const Symbol *, Symbol::Flag> objectMap;
+    std::map<const Symbol *, Symbol::Flag> objectWithDSA;
     bool withinConstruct{false};
   };
   // back() is the top of the stack
@@ -1228,8 +1214,7 @@ private:
     return ompContext_.back();
   }
   void PushContext(const parser::CharBlock &source, OmpDirective dir) {
-    ompContext_.emplace_back(source, dir);
-    SetContextScope(source);
+    ompContext_.emplace_back(source, dir, context_.FindScope(source));
   }
   void PopContext() { ompContext_.pop_back(); }
   void SetContextDirectiveSource(parser::CharBlock &dir) {
@@ -1238,29 +1223,28 @@ private:
   void SetContextDirectiveEnum(OmpDirective dir) {
     GetContext().directive = dir;
   }
-  void SetContextScope(const parser::CharBlock &source) {
-    auto &currScope{context_.FindScope(source)};
-    GetContext().scope = &currScope;
-  }
-  const Scope &currScope() { return *GetContext().scope; }
+  const Scope &currScope() { return GetContext().scope; }
   void SetContextDefaultDSA(Symbol::Flag flag) {
     GetContext().defaultDSA = flag;
   }
-  void SetContextObjectMap(const Symbol *symbol, Symbol::Flag flag) {
-    GetContext().objectMap.emplace(symbol, flag);
+  void AddToContextObjectWithDSA(const Symbol &symbol, Symbol::Flag flag) {
+    GetContext().objectWithDSA.emplace(&symbol, flag);
   }
-  bool HasObject(const Symbol *symbol) {
-    auto it{GetContext().objectMap.find(symbol)};
-    if (it != GetContext().objectMap.end()) {
-      return true;
-    }
-    return false;
+  bool HasObjectWithDSA(const Symbol &symbol) {
+    auto it{GetContext().objectWithDSA.find(&symbol)};
+    return it != GetContext().objectWithDSA.end();
   }
 
   Symbol &MakeAssocSymbol(const SourceName &name, Symbol &prev) {
-    const auto pair{(*GetContext().scope)
-                        .try_emplace(name, Attrs{}, HostAssocDetails{prev})};
+    const auto pair{
+        GetContext().scope.try_emplace(name, Attrs{}, HostAssocDetails{prev})};
     return *pair.first->second;
+  }
+
+  static const parser::Name *GetDesignatorNameIfDataRef(
+      const parser::Designator &designator) {
+    const auto *dataRef{std::get_if<parser::DataRef>(&designator.u)};
+    return dataRef ? std::get_if<parser::Name>(&dataRef->u) : nullptr;
   }
 
   static constexpr Symbol::Flags dataSharingAttributeFlags{
@@ -5921,33 +5905,33 @@ bool OmpAttributeVisitor::Pre(const parser::OpenMPBlockConstruct &x) {
   const auto &beginBlockDir{std::get<parser::OmpBeginBlockDirective>(x.t)};
   const auto &beginDir{std::get<parser::OmpBlockDirective>(beginBlockDir.t)};
   switch (beginDir.v) {
-  case parser::OmpBlockDirective::Directive::Master: {
+  case parser::OmpBlockDirective::Directive::Master:
     PushContext(beginDir.source, OmpDirective::MASTER);
-  } break;
-  case parser::OmpBlockDirective::Directive::Ordered: {
+    break;
+  case parser::OmpBlockDirective::Directive::Ordered:
     PushContext(beginDir.source, OmpDirective::ORDERED);
-  } break;
-  case parser::OmpBlockDirective::Directive::Parallel: {
+    break;
+  case parser::OmpBlockDirective::Directive::Parallel:
     PushContext(beginDir.source, OmpDirective::PARALLEL);
-  } break;
-  case parser::OmpBlockDirective::Directive::Single: {
+    break;
+  case parser::OmpBlockDirective::Directive::Single:
     PushContext(beginDir.source, OmpDirective::SINGLE);
-  } break;
-  case parser::OmpBlockDirective::Directive::Target: {
+    break;
+  case parser::OmpBlockDirective::Directive::Target:
     PushContext(beginDir.source, OmpDirective::TARGET);
-  } break;
-  case parser::OmpBlockDirective::Directive::TargetData: {
+    break;
+  case parser::OmpBlockDirective::Directive::TargetData:
     PushContext(beginDir.source, OmpDirective::TARGET_DATA);
-  } break;
-  case parser::OmpBlockDirective::Directive::Task: {
+    break;
+  case parser::OmpBlockDirective::Directive::Task:
     PushContext(beginDir.source, OmpDirective::TASK);
-  } break;
-  case parser::OmpBlockDirective::Directive::Teams: {
+    break;
+  case parser::OmpBlockDirective::Directive::Teams:
     PushContext(beginDir.source, OmpDirective::TEAMS);
-  } break;
-  case parser::OmpBlockDirective::Directive::Workshare: {
+    break;
+  case parser::OmpBlockDirective::Directive::Workshare:
     PushContext(beginDir.source, OmpDirective::WORKSHARE);
-  } break;
+    break;
   default:
     // TODO others
     break;
@@ -5960,30 +5944,30 @@ bool OmpAttributeVisitor::Pre(const parser::OpenMPLoopConstruct &x) {
   const auto &beginLoopDir{std::get<parser::OmpBeginLoopDirective>(x.t)};
   const auto &beginDir{std::get<parser::OmpLoopDirective>(beginLoopDir.t)};
   switch (beginDir.v) {
-  case parser::OmpLoopDirective::Directive::Distribute: {
+  case parser::OmpLoopDirective::Directive::Distribute:
     PushContext(beginDir.source, OmpDirective::DISTRIBUTE);
-  } break;
-  case parser::OmpLoopDirective::Directive::Do: {
+    break;
+  case parser::OmpLoopDirective::Directive::Do:
     PushContext(beginDir.source, OmpDirective::DO);
-  } break;
-  case parser::OmpLoopDirective::Directive::DoSimd: {
+    break;
+  case parser::OmpLoopDirective::Directive::DoSimd:
     PushContext(beginDir.source, OmpDirective::DO_SIMD);
-  } break;
-  case parser::OmpLoopDirective::Directive::ParallelDo: {
+    break;
+  case parser::OmpLoopDirective::Directive::ParallelDo:
     PushContext(beginDir.source, OmpDirective::PARALLEL_DO);
-  } break;
-  case parser::OmpLoopDirective::Directive::ParallelDoSimd: {
+    break;
+  case parser::OmpLoopDirective::Directive::ParallelDoSimd:
     PushContext(beginDir.source, OmpDirective::PARALLEL_DO_SIMD);
-  } break;
-  case parser::OmpLoopDirective::Directive::Simd: {
+    break;
+  case parser::OmpLoopDirective::Directive::Simd:
     PushContext(beginDir.source, OmpDirective::SIMD);
-  } break;
-  case parser::OmpLoopDirective::Directive::Taskloop: {
+    break;
+  case parser::OmpLoopDirective::Directive::Taskloop:
     PushContext(beginDir.source, OmpDirective::TASKLOOP);
-  } break;
-  case parser::OmpLoopDirective::Directive::TaskloopSimd: {
+    break;
+  case parser::OmpLoopDirective::Directive::TaskloopSimd:
     PushContext(beginDir.source, OmpDirective::TASKLOOP_SIMD);
-  } break;
+    break;
   default:
     // TODO others
     break;
@@ -5998,12 +5982,12 @@ bool OmpAttributeVisitor::Pre(const parser::OpenMPSectionsConstruct &x) {
   const auto &beginDir{
       std::get<parser::OmpSectionsDirective>(beginSectionsDir.t)};
   switch (beginDir.v) {
-  case parser::OmpSectionsDirective::Directive::ParallelSections: {
+  case parser::OmpSectionsDirective::Directive::ParallelSections:
     PushContext(beginDir.source, OmpDirective::PARALLEL_SECTIONS);
-  } break;
-  case parser::OmpSectionsDirective::Directive::Sections: {
+    break;
+  case parser::OmpSectionsDirective::Directive::Sections:
     PushContext(beginDir.source, OmpDirective::SECTIONS);
-  } break;
+    break;
   default: break;
   }
   ClearDataSharingAttributeObjects();
@@ -6041,12 +6025,13 @@ void OmpAttributeVisitor::Post(const parser::OmpDefaultClause &x) {
 void OmpAttributeVisitor::Post(const parser::Name &name) {
   if (name.symbol && !ompContext_.empty() && GetContext().withinConstruct) {
     auto *symbol{name.symbol};
-    if (!symbol->owner().IsDerivedType() && !HasObject(symbol)) {
+    if (!symbol->owner().IsDerivedType() && !symbol->has<ProcEntityDetails>() &&
+        !HasObjectWithDSA(*symbol)) {
       // TODO: create a separate function to go through the rules for
       //       predetermined, explicitly determined, and implicitly
       //       determined data-sharing attributes (2.15.1.1).
       if (Symbol * found{currScope().FindSymbol(name.source)}) {
-        if (HasObject(found)) {
+        if (HasObjectWithDSA(*found)) {
           name.symbol = found;  // adjust the symbol within region
         } else if (GetContext().defaultDSA == Symbol::Flag::OmpNone) {
           context_.Say(name.source,
@@ -6067,7 +6052,7 @@ bool OmpAttributeVisitor::HasDataSharingAttributeObject(const Symbol &object) {
 Symbol *OmpAttributeVisitor::ResolveOmpCommonBlockName(
     const parser::Name *name) {
   if (auto *prev{name
-              ? GetContext().scope->parent().FindCommonBlock(name->source)
+              ? GetContext().scope.parent().FindCommonBlock(name->source)
               : nullptr}) {
     name->symbol = prev;
     return prev;
@@ -6090,7 +6075,7 @@ void OmpAttributeVisitor::ResolveOmpObject(
           [&](const parser::Designator &designator) {
             if (const auto *name{GetDesignatorNameIfDataRef(designator)}) {
               if (auto *symbol{ResolveOmp(*name, ompFlag)}) {
-                SetContextObjectMap(symbol, ompFlag);
+                AddToContextObjectWithDSA(*symbol, ompFlag);
                 if (dataSharingAttributeFlags.test(ompFlag)) {
                   CheckMultipleAppearances(*name, *symbol, ompFlag);
                 }
@@ -6128,7 +6113,7 @@ void OmpAttributeVisitor::ResolveOmpObject(
                   symbol->get<CommonBlockDetails>().objects()) {
                 Symbol &mutableObject{const_cast<Symbol &>(object)};
                 if (auto *resolvedObject{ResolveOmp(mutableObject, ompFlag)}) {
-                  SetContextObjectMap(resolvedObject, ompFlag);
+                  AddToContextObjectWithDSA(*resolvedObject, ompFlag);
                 }
               }
             } else {
