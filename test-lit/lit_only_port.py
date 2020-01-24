@@ -24,10 +24,10 @@ F18_TEST = "~/f18/build-f18/test-lit"
 ROOT = Path.cwd()
 while ROOT.name != "f18":
     ROOT = ROOT.parent
-ERROR_TEMPLATE = "!RUN: %test_error %s %flang"
-SYMBOL_TEMPLATE = "!RUN: %test_symbol %s %flang"
-MODFILE_TEMPLATE = "!RUN: %test_modfile %s %flang"
-GENERIC_TEMPLATE = "!RUN: %test_generic %s %flang"
+ERROR_TEMPLATE = "!RUN: %test_error %s %flang\n"
+SYMBOL_TEMPLATE = "!RUN: %test_symbol %s %flang\n"
+MODFILE_TEMPLATE = "!RUN: %test_modfile %s %f18\n"
+GENERIC_TEMPLATE = "!RUN: %test_generic %s %flang\n"
 FAILS = []
 TS = TestSplitter()
 
@@ -134,11 +134,16 @@ def port_single_test(filename, output):
         port_error_test(filename, new_path)
         #if test not in FAILS:
         #    test_single_port(new_path, filename)
+    elif test in TS.symbol_tests:
+        port_test_with_template(filename, new_path, SYMBOL_TEMPLATE)
+    elif test in TS.modfile_tests:
+        port_test_with_template(filename, new_path, MODFILE_TEMPLATE)
+    elif test in TS.generic_tests:
+        port_generic_test(filename, new_path)
     else:
         print(
             "{} could not be ported as it is not supported".format(test),
             file=sys.stderr)
-        FAILS.append(test)
 
 
 def port_error_test(filename, savepath):
@@ -156,13 +161,15 @@ def port_error_test(filename, savepath):
                     if index < 0:
                         index = 0
                     break
-                # Find the first line without comment character
-                if line != "\n" and not line.startswith("!"):
+                # Find the first comment
+                if line.startswith("!"):
                     index = lines.index(line)
                     break
-            lines.insert(index, "\n\n")
-            lines.insert(
-                index, TEMPLATE)
+                # Find the first empty line
+                if line == "\n":
+                    index = lines.index(line)
+                    break
+            lines.insert(index, ERROR_TEMPLATE)
 
             try:
                 with savepath.open('w') as write_file:
@@ -179,6 +186,69 @@ def port_error_test(filename, savepath):
                 filename, e.strerror), file=sys.stderr)
         FAILS.append(test)
 
+def port_generic_test(filename, savepath):
+    test = filename.name
+    lines = []
+    try:
+        with filename.open() as read_file:
+            lines = read_file.readlines()
+            lines = [line.replace("RUN", "EXEC") for line in lines]
+            index = -1
+            # Add run line to untouched test
+            for line in lines:
+                # Find the first empty line
+                if line == "\n":
+                    index = lines.index(line)
+                    break
+            lines[index] = GENERIC_TEMPLATE
+            try:
+                with savepath.open('w') as write_file:
+                    write_file.writelines(lines)
+                print("{} completed".format(test))
+            except IOError as e:
+                print(
+                    "Could not write to {} because {}".format(
+                        savepath, e.strerror), file=sys.stderr)
+                FAILS.append(test)
+    except IOError as e:
+        print(
+            "Could not open {} because {}".format(
+                filename, e.strerror), file=sys.stderr)
+        FAILS.append(test)
+
+def port_test_with_template(filename, savepath, template):
+    test = filename.name
+    lines = []
+    try:
+        with filename.open() as read_file:
+            lines = read_file.readlines()
+            index = -1
+            # Add run line to untouched test
+            for line in lines:
+                # Find the first comment
+                if line.startswith("!"):
+                    index = lines.index(line)
+                    break
+                # Find the first empty line
+                if line == "\n":
+                    index = lines.index(line)
+                    break
+            lines.insert(index, template) 
+
+            try:
+                with savepath.open('w') as write_file:
+                    write_file.writelines(lines)
+                print("{} completed".format(test))
+            except IOError as e:
+                print(
+                    "Could not write to {} because {}".format(
+                        savepath, e.strerror), file=sys.stderr)
+                FAILS.append(test)
+    except IOError as e:
+        print(
+            "Could not open {} because {}".format(
+                filename, e.strerror), file=sys.stderr)
+        FAILS.append(test)
 
 def run(command):
     command = "PATH={}:$PATH;{}".format(F18_BIN, command)

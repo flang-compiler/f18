@@ -64,6 +64,10 @@ tool_dirs = [config.llvm_tools_dir, config.flang_tools_dir, config.old_semantics
 
 tools = [ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
          ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
-         ToolSubst('%test_error', command=FindTool('test_errors.sh'), unresolved='fatal')]
+         ToolSubst('%test_error', command=FindTool('test_errors.sh'), unresolved='fatal'),
+         ToolSubst('%test_symbol', command=FindTool('test_symbols.sh'), unresolved='fatal'),
+         ToolSubst('%test_modfile', command=FindTool('test_modfile.sh'), unresolved='fatal'),
+         ToolSubst('%test_generic', command=FindTool('test_any.sh'), unresolved='fatal')
+         ]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
