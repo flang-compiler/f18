@@ -1,0 +1,1 @@
+!RUN: %test_modfile '%S/Inputs/modfile09-*' %f18
