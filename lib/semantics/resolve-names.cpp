@@ -445,12 +445,7 @@ public:
 
   template<typename T> bool Pre(const parser::Statement<T> &x) {
     messageHandler().set_currStmtSource(x.source);
-    for (auto *scope = currScope_; scope; scope = &scope->parent()) {
-      scope->AddSourceRange(x.source);
-      if (scope->IsGlobal()) {
-        break;
-      }
-    }
+    currScope_->AddSourceRange(x.source);
     return true;
   }
   template<typename T> void Post(const parser::Statement<T> &) {
@@ -1125,10 +1120,7 @@ bool OmpVisitor::NeedsScope(const parser::OpenMPBlockConstruct &x) {
 
 void OmpVisitor::AddOmpSourceRange(const parser::CharBlock &source) {
   messageHandler().set_currStmtSource(source);
-  for (auto *scope = &currScope(); !scope->IsGlobal();
-       scope = &scope->parent()) {
-    scope->AddSourceRange(source);
-  }
+  currScope().AddSourceRange(source);
 }
 
 bool OmpVisitor::Pre(const parser::OpenMPBlockConstruct &x) {
