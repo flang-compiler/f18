@@ -1370,6 +1370,7 @@ private:
   void FinishSpecificationParts(const ProgramTree &);
   void FinishDerivedTypeInstantiation(Scope &);
   void ResolveExecutionParts(const ProgramTree &);
+  void ResolveOmpParts(const ProgramTree &);
 };
 
 // ImplicitRules implementation
@@ -5715,6 +5716,7 @@ bool ResolveNamesVisitor::Pre(const parser::ProgramUnit &x) {
   ResolveSpecificationParts(root);
   FinishSpecificationParts(root);
   ResolveExecutionParts(root);
+  ResolveOmpParts(root);
   return false;
 }
 
@@ -5761,7 +5763,6 @@ void ResolveNamesVisitor::ResolveSpecificationParts(ProgramTree &node) {
       },
       node.stmt());
   Walk(node.spec());
-  OmpAttributeVisitor{context(), *this}.Walk(node.spec());
   // If this is a function, convert result to an object. This is to prevent the
   // result to be converted later to a function symbol if it is called inside
   // the function.
@@ -6272,11 +6273,27 @@ void ResolveNamesVisitor::ResolveExecutionParts(const ProgramTree &node) {
   SetScope(*node.scope());
   if (const auto *exec{node.exec()}) {
     Walk(*exec);
-    OmpAttributeVisitor{context(), *this}.Walk(*exec);
   }
   PopScope();  // converts unclassified entities into objects
   for (const auto &child : node.children()) {
     ResolveExecutionParts(child);
+  }
+}
+
+// Resolve names for OpenMP in the specification and execution part of this node
+// and its children
+void ResolveNamesVisitor::ResolveOmpParts(const ProgramTree &node) {
+  if (!node.scope()) {
+    return;  // error occurred creating scope
+  }
+  SetScope(*node.scope());
+  OmpAttributeVisitor{context(), *this}.Walk(node.spec());
+  if (const auto *exec{node.exec()}) {
+    OmpAttributeVisitor{context(), *this}.Walk(*exec);
+  }
+  PopScope();  // converts unclassified entities into objects
+  for (const auto &child : node.children()) {
+    ResolveOmpParts(child);
   }
 }
 
