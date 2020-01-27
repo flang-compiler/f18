@@ -144,6 +144,7 @@ contains
     type(t), target :: y(10,10)
     p(1:16) => x%a
     p(1:1) => x%b  ! We treat scalars as simply contiguous
+    p(1:8) => x%a(:,3:4)
     !ERROR: Pointer bounds remapping target must have rank 1 or be simply contiguous
     p(1:4) => x%a(::2,::2)
     !ERROR: Pointer bounds remapping target must have rank 1 or be simply contiguous

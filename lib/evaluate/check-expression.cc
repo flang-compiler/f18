@@ -277,8 +277,7 @@ public:
   }
 
   Result operator()(const ArrayRef &x) const {
-    return (x.base().IsSymbol() || x.base().Rank() == 0) &&
-        CheckSubscripts(x.subscript()) && (*this)(x.base());
+    return CheckSubscripts(x.subscript()) && (*this)(x.base());
   }
   Result operator()(const CoarrayRef &x) const {
     return CheckSubscripts(x.subscript());
