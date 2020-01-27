@@ -1111,8 +1111,8 @@ bool OmpVisitor::NeedsScope(const parser::OpenMPBlockConstruct &x) {
   const auto &beginBlockDir{std::get<parser::OmpBeginBlockDirective>(x.t)};
   const auto &beginDir{std::get<parser::OmpBlockDirective>(beginBlockDir.t)};
   switch (beginDir.v) {
-  case parser::OmpBlockDirective::Directive::TargetData: [[fallthrough]];
-  case parser::OmpBlockDirective::Directive::Master: [[fallthrough]];
+  case parser::OmpBlockDirective::Directive::TargetData:
+  case parser::OmpBlockDirective::Directive::Master:
   case parser::OmpBlockDirective::Directive::Ordered: return false;
   default: return true;
   }
@@ -1136,7 +1136,7 @@ void OmpVisitor::Post(const parser::OpenMPBlockConstruct &x) {
   }
 }
 
-// Data-sharing and Data-mapping attributes for data-refs in OpenMP region
+// Data-sharing and Data-mapping attributes for data-refs in OpenMP construct
 class OmpAttributeVisitor {
 public:
   explicit OmpAttributeVisitor(
@@ -1222,7 +1222,7 @@ private:
   void AddToContextObjectWithDSA(const Symbol &symbol, Symbol::Flag flag) {
     GetContext().objectWithDSA.emplace(&symbol, flag);
   }
-  bool HasObjectWithDSA(const Symbol &symbol) {
+  bool IsObjectWithDSA(const Symbol &symbol) {
     auto it{GetContext().objectWithDSA.find(&symbol)};
     return it != GetContext().objectWithDSA.end();
   }
@@ -1362,7 +1362,6 @@ private:
   void FinishSpecificationParts(const ProgramTree &);
   void FinishDerivedTypeInstantiation(Scope &);
   void ResolveExecutionParts(const ProgramTree &);
-  void ResolveOmpParts(const ProgramTree &);
 };
 
 // ImplicitRules implementation
@@ -5708,7 +5707,7 @@ bool ResolveNamesVisitor::Pre(const parser::ProgramUnit &x) {
   ResolveSpecificationParts(root);
   FinishSpecificationParts(root);
   ResolveExecutionParts(root);
-  ResolveOmpParts(root);
+  OmpAttributeVisitor{context(), *this}.Walk(x);
   return false;
 }
 
@@ -6016,15 +6015,15 @@ void OmpAttributeVisitor::Post(const parser::OmpDefaultClause &x) {
 // For OpenMP constructs, check all the data-refs within the constructs
 // and adjust the symbol for each Name if necessary
 void OmpAttributeVisitor::Post(const parser::Name &name) {
-  if (name.symbol && !ompContext_.empty() && GetContext().withinConstruct) {
-    auto *symbol{name.symbol};
+  auto *symbol{name.symbol};
+  if (symbol && !ompContext_.empty() && GetContext().withinConstruct) {
     if (!symbol->owner().IsDerivedType() && !symbol->has<ProcEntityDetails>() &&
-        !HasObjectWithDSA(*symbol)) {
+        !IsObjectWithDSA(*symbol)) {
       // TODO: create a separate function to go through the rules for
       //       predetermined, explicitly determined, and implicitly
       //       determined data-sharing attributes (2.15.1.1).
       if (Symbol * found{currScope().FindSymbol(name.source)}) {
-        if (HasObjectWithDSA(*found)) {
+        if (IsObjectWithDSA(*found)) {
           name.symbol = found;  // adjust the symbol within region
         } else if (GetContext().defaultDSA == Symbol::Flag::OmpNone) {
           context_.Say(name.source,
@@ -6269,23 +6268,6 @@ void ResolveNamesVisitor::ResolveExecutionParts(const ProgramTree &node) {
   PopScope();  // converts unclassified entities into objects
   for (const auto &child : node.children()) {
     ResolveExecutionParts(child);
-  }
-}
-
-// Resolve names for OpenMP in the specification and execution part of this node
-// and its children
-void ResolveNamesVisitor::ResolveOmpParts(const ProgramTree &node) {
-  if (!node.scope()) {
-    return;  // error occurred creating scope
-  }
-  SetScope(*node.scope());
-  OmpAttributeVisitor{context(), *this}.Walk(node.spec());
-  if (const auto *exec{node.exec()}) {
-    OmpAttributeVisitor{context(), *this}.Walk(*exec);
-  }
-  PopScope();  // converts unclassified entities into objects
-  for (const auto &child : node.children()) {
-    ResolveOmpParts(child);
   }
 }
 
