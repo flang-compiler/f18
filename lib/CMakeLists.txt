@@ -1,10 +1,3 @@
-#===-- lib/CMakeLists.txt --------------------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
 
 add_subdirectory(common)
 add_subdirectory(evaluate)
@@ -13,10 +6,9 @@ add_subdirectory(lower)
 add_subdirectory(parser)
 add_subdirectory(semantics)
 
-# FIXME: Added install of headers to give a directory structure 
-# (upon install) that follows aspects of the Clang layout.  If 
-# we decide to move header files out of lib this install target
-# will need to be moved elsewhere... 
+# Install header files to mirror a directory structure that follows
+# aspects of the LLVM/Clang layout (for full, not toolchain,
+# installs).
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY common evaluate decimal parser semantics 
     DESTINATION include/flang

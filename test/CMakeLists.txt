@@ -1,10 +1,13 @@
-#===-- test/CMakeLists.txt -------------------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
+
+# simple helper to add a flang test.  
+function(add_flang_test EXECUTABLE TEST_NAME) 
+  message(STATUS "flang: adding test '${TEST_NAME}' (${EXECUTABLE})")
+  add_executable(${EXECUTABLE}-test ${EXECUTABLE}.cpp)
+  target_compile_features(${EXECUTABLE}-test PRIVATE cxx_std_17)
+  target_link_libraries(${EXECUTABLE}-test ${ARGN})
+  add_test(NAME ${TEST_NAME} 
+           COMMAND ${EXECUTABLE}-test)
+endfunction()
 
 add_subdirectory(decimal)
 add_subdirectory(evaluate)
