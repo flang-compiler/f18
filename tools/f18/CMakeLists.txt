@@ -44,7 +44,11 @@ set(MODULES
   "__fortran_builtins"
 )
 
+<<<<<<< HEAD
 set(include ${FLANG_BINARY_DIR}/include/flang)
+=======
+set(include ${FLANG_BINARY_DIR}/include)
+>>>>>>> CMake update:
 
 # Create module files directly from the top-level module source directory
 foreach(filename ${MODULES})
