@@ -9,8 +9,9 @@
 #ifndef FORTRAN_SEMANTICS_POINTER_ASSIGNMENT_H_
 #define FORTRAN_SEMANTICS_POINTER_ASSIGNMENT_H_
 
-#include "type.h"
-#include "../parser/char-block.h"
+#include "flang/evaluate/expression.h"
+#include "flang/parser/char-block.h"
+#include "flang/semantics/type.h"
 #include <string>
 
 namespace Fortran::evaluate::characteristics {
@@ -25,6 +26,8 @@ namespace Fortran::semantics {
 
 class Symbol;
 
+void CheckPointerAssignment(evaluate::FoldingContext &,
+    const evaluate::Assignment::PointerAssignment &);
 void CheckPointerAssignment(
     evaluate::FoldingContext &, const Symbol &lhs, const SomeExpr &rhs);
 void CheckPointerAssignment(evaluate::FoldingContext &,

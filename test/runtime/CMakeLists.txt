@@ -11,7 +11,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
 endif()
 
 add_executable(format-test
-  format.cc
+  format.cpp
 )
 
 target_link_libraries(format-test
@@ -19,3 +19,13 @@ target_link_libraries(format-test
 )
 
 add_test(Format format-test)
+
+add_executable(hello-world
+  hello.cpp
+)
+
+target_link_libraries(hello-world
+  FortranRuntime
+)
+
+add_test(HelloWorld hello-world)

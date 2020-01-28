@@ -10,32 +10,31 @@
 #define FORTRAN_EVALUATE_FOLD_IMPLEMENTATION_H_
 
 #include "character.h"
-#include "characteristics.h"
-#include "common.h"
-#include "constant.h"
-#include "expression.h"
-#include "fold.h"
-#include "formatting.h"
 #include "host.h"
 #include "int-power.h"
 #include "intrinsics-library-templates.h"
-#include "shape.h"
-#include "tools.h"
-#include "traverse.h"
-#include "type.h"
-#include "../common/indirection.h"
-#include "../common/template.h"
-#include "../common/unwrap.h"
-#include "../parser/message.h"
-#include "../semantics/scope.h"
-#include "../semantics/symbol.h"
-#include "../semantics/tools.h"
+#include "flang/common/indirection.h"
+#include "flang/common/template.h"
+#include "flang/common/unwrap.h"
+#include "flang/evaluate/characteristics.h"
+#include "flang/evaluate/common.h"
+#include "flang/evaluate/constant.h"
+#include "flang/evaluate/expression.h"
+#include "flang/evaluate/fold.h"
+#include "flang/evaluate/formatting.h"
+#include "flang/evaluate/shape.h"
+#include "flang/evaluate/tools.h"
+#include "flang/evaluate/traverse.h"
+#include "flang/evaluate/type.h"
+#include "flang/parser/message.h"
+#include "flang/semantics/scope.h"
+#include "flang/semantics/symbol.h"
+#include "flang/semantics/tools.h"
 #include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstdio>
 #include <optional>
-#include <sstream>
 #include <type_traits>
 #include <variant>
 
@@ -185,18 +184,14 @@ std::optional<Expr<T>> Folder<T>::GetNamedConstantValue(const Symbol &symbol0) {
               }
               mutableObject->set_init(std::nullopt);
             } else {
-              std::stringstream ss;
-              unwrapped->AsFortran(ss);
               context_.messages().Say(symbol.name(),
                   "Initialization expression for PARAMETER '%s' (%s) cannot be computed as a constant value"_err_en_US,
-                  symbol.name(), ss.str());
+                  symbol.name(), unwrapped->AsFortran());
             }
           } else {
-            std::stringstream ss;
-            init->AsFortran(ss);
             context_.messages().Say(symbol.name(),
                 "Initialization expression for PARAMETER '%s' (%s) cannot be converted to its type (%s)"_err_en_US,
-                symbol.name(), ss.str(), dyType->AsFortran());
+                symbol.name(), init->AsFortran(), dyType->AsFortran());
           }
         }
       }
