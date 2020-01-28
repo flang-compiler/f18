@@ -6,7 +6,7 @@ add_subdirectory(lower)
 add_subdirectory(parser)
 add_subdirectory(semantics)
 
-# Install header files to mirror a directory structure that follows
+# Install header files to mirror the directory structure that follows
 # aspects of the LLVM/Clang layout (for full, not toolchain,
 # installs).
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)

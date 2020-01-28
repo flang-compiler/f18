@@ -111,6 +111,7 @@ template<bool isInput, typename CHAR = char>
 class InternalIoStatementState : public IoStatementBase,
                                  public IoDirectionState<isInput> {
 public:
+<<<<<<< HEAD
   using CharType = CHAR;
   using Buffer = std::conditional_t<isInput, const CharType *, CharType *>;
   InternalIoStatementState(Buffer, std::size_t,
@@ -122,6 +123,11 @@ public:
   bool AdvanceRecord(int = 1);
   ConnectionState &GetConnectionState() { return unit_; }
   MutableModes &mutableModes() { return unit_.modes; }
+=======
+  InternalIoStatementState(const char *sourceFile, int sourceLine);
+  virtual ~InternalIoStatementState() {}
+  virtual int EndIoStatement();
+>>>>>>> Fix up CMake details due to moving of header files out of lib.
 
 protected:
   bool free_{true};
