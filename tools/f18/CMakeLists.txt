@@ -44,7 +44,7 @@ set(MODULES
   "__fortran_builtins"
 )
 
-set(include ${FLANG_BINARY_DIR}/include)
+set(include ${FLANG_BINARY_DIR}/include/flang)
 
 # Create module files directly from the top-level module source directory
 foreach(filename ${MODULES})
@@ -65,8 +65,8 @@ foreach(filename ${MODULES})
       copy ${include}/${filename}.mod ${include}/${filename}.f18.mod)
   list(APPEND MODULE_FILES ${include}/${filename}.mod)
   list(APPEND MODULE_FILES ${include}/${filename}.f18.mod)
-  install(FILES ${include}/${filename}.mod DESTINATION include)
-  install(FILES ${include}/${filename}.f18.mod DESTINATION include)
+  install(FILES ${include}/${filename}.mod DESTINATION include/flang)
+  install(FILES ${include}/${filename}.f18.mod DESTINATION include/flang)
 endforeach()
 
 add_custom_target(module_files ALL DEPENDS ${MODULE_FILES})

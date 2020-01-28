@@ -20,6 +20,7 @@ namespace Fortran::runtime::io {
 
 class IoStatementState : public IoErrorHandler {
 public:
+  virtual ~IoStatementState() {} 
   using IoErrorHandler::IoErrorHandler;
   virtual int EndIoStatement();
 
@@ -29,6 +30,7 @@ protected:
 class InternalIoStatementState : public IoStatementState {
 public:
   InternalIoStatementState(const char *sourceFile, int sourceLine);
+  virtual ~InternalIoStatementState() {}
   virtual int EndIoStatement();
 
 protected:

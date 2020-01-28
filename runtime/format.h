@@ -45,6 +45,7 @@ struct DataEdit {
 class FormatContext : virtual public Terminator {
 public:
   FormatContext() {}
+  virtual ~FormatContext() {}
   explicit FormatContext(const MutableModes &modes) : mutableModes_{modes} {}
   virtual void Emit(const char *, std::size_t);
   virtual void Emit(const char16_t *, std::size_t);

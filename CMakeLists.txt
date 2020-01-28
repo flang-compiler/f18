@@ -480,22 +480,15 @@ include(AddFlang)
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
-# FIXME: Moved this to lib/CMakeLists.txt to allow for a quick work-around 
-# for Flang headers living within lib vs. include (i.e., different style than 
-# used by Clang).  Need to decide what we want to do here in regard to using
-# Clang's structure or not...
-#
-# --------
-#  install(DIRECTORY lib/
-#    DESTINATION include/flang
-#    COMPONENT flang-headers
-#    FILES_MATCHING
-#    PATTERN "*.def"
-#    PATTERN "*.h"
-#    PATTERN "config.h" EXCLUDE
-#    PATTERN ".git" EXCLUDE
-#    PATTERN ".svn" EXCLUDE)
-# --------
+  install(DIRECTORY include/flang
+    DESTINATION include
+    COMPONENT flang-headers
+    FILES_MATCHING
+    PATTERN "*.def"
+    PATTERN "*.h"
+    PATTERN "config.h" EXCLUDE
+    PATTERN ".git"     EXCLUDE
+    PATTERN ".svn"     EXCLUDE)
 
   install(DIRECTORY ${FLANG_BINARY_DIR}/include/flang
     DESTINATION include
