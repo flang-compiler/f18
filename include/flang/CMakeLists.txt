@@ -1,11 +1,3 @@
-#===-- include/flang/CMakeLists.txt ----------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
-
 # Note: Header file install is handled via the lib directory for 
 # now as the files are not separated off from source in the style
 # of clang. 

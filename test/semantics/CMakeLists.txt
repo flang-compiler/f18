@@ -1,10 +1,3 @@
-#===-- test/semantics/CMakeLists.txt ---------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
 
 # Run tests with test_errors.sh. It compiles the test with f18 and compares
 # actual errors produced with expected ones listed in the source.

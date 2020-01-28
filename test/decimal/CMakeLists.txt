@@ -6,20 +6,11 @@
 #
 #===------------------------------------------------------------------------===#
 
-add_executable(quick-sanity-test
-  quick-sanity-test.cpp
-)
-
-target_link_libraries(quick-sanity-test
+add_flang_test(quick-sanity Sanity
   FortranDecimal
 )
 
-add_executable(thorough-test
-  thorough-test.cpp
-)
-
-target_link_libraries(thorough-test
+add_flang_test(thorough Thorough
   FortranDecimal
 )
 
-add_test(Sanity quick-sanity-test)
