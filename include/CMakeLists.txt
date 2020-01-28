@@ -1,4 +1,4 @@
-#===-- include/flang/CMakeLists.txt ----------------------------------------===#
+#===-- include/CMakeLists.txt ----------------------------------------------===#
 #
 # Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,6 @@
 #
 #===------------------------------------------------------------------------===#
 
-# Note: Header file install is handled via the lib directory for 
-# now as the files are not separated off from source in the style
-# of clang. 
-
+add_subdirectory(flang)
+# FIXME: upstream PRs should uncomment this...
+# add_subdirectory(optimizer)
