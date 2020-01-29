@@ -269,7 +269,7 @@ template<typename T> std::optional<bool> GetBoolValue(const T &x) {
   }
 }
 
-template<typename T> std::optional<std::string> GetString(const T &x) {
+template<typename T> std::optional<std::string> GetStringValue(const T &x) {
   if (const auto *expr{GetExpr(x)}) {
     return evaluate::ToString(*expr);
   } else {

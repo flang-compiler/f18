@@ -1,12 +1,4 @@
-!===--- select-case.f90 - Test select case constraints -------------------===
-!
-! Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-! See https://llvm.org/LICENSE.txt for license information.
-! SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-!
-!===------------------------------------------------------------------------===
-
-! C1145 - case-expr shall be of type character, integer, or logical
+! Test SELECT CASE Constraints: C1145, C1146, C1147, C1148, C1149
 program selectCaseProg
 implicit none
    ! local variable declaration
@@ -16,6 +8,8 @@ implicit none
    character (len = 10) :: name = 'test'
    real :: grade4 = 2.0
    logical, parameter :: grade5 = .false.
+   CHARACTER(KIND=1), PARAMETER    :: ze = 'a', at='b'
+   CHARACTER(KIND=4), PARAMETER :: mh='c'
 
    select case (grade1)
       case ('A')
@@ -69,7 +63,7 @@ implicit none
          print*, "Invalid grade"
       case (.true.)
          print*, "Well done"
-      !ERROR: Not more than one of the selectors of case statements may be default
+      !ERROR: Not more than one of the selectors of SELECT CASE statement may be default
       case default
          print*, "Invalid grade"
    end select
@@ -104,10 +98,10 @@ implicit none
        name = 'true'
       case (.false.)
         name = 'false'
-      !ERROR: SELECT CASE statement value must not match more than one case-value-range
+      !ERROR: SELECT CASE statement value at this location overlaps with below location
       case (.true.)
        name = 'true'
-      !ERROR: SELECT CASE statement value must not match more than one case-value-range
+      !ERROR: SELECT CASE statement value at this location overlaps with below location
       case (grade5)
        name = 'true'
    end select
@@ -124,10 +118,11 @@ implicit none
          print*, "Excellent!"
       case (91:99)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value must not match more than one case-value-range
+      !ERROR: SELECT CASE statement value at this location overlaps with below location
       case (81:90)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value must not match more than one case-value-range
+      !ERROR: SELECT CASE statement value at this location overlaps with below location
+      !ERROR: SELECT CASE statement value at this location overlaps with below location
       case (:80)
          print*, "Well done!"
       case default
@@ -157,8 +152,18 @@ implicit none
          print*, "Good"
      case ('hi':'ho')
          print*, "Well done"
-     !ERROR: SELECT CASE statement value must not match more than one case-value-range
+     !ERROR: SELECT CASE statement value at this location overlaps with below location
      case ('hj')
+         print*, "Well done now"
+     case default
+         print*, "Invalid grade"
+   end select
+
+  select case (ze)
+     case (at)
+         print*, "Well done"
+     !ERROR: SELECT CASE value kind must be same as SELECT CASE expression kind
+     case (mh)
          print*, "Well done now"
      case default
          print*, "Invalid grade"
