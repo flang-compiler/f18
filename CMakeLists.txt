@@ -500,14 +500,8 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
 endif()
 
-# FIXME: Couldn't find this is used in the current master branch.  Not
-# sure why we need it but left it in under the assumption it was necessary 
-# for the upcoming PRs (FIR/MLIR, etc.). 
+# FIXME: Do we need this? 
 add_definitions(-D_GNU_SOURCE)
-
-option(FLANG_INCLUDE_TESTS
-       "Generate build targets for the Flang unit tests."
-       ${LLVM_INCLUDE_TESTS})
 
 add_subdirectory(include)
 add_subdirectory(lib)
@@ -520,9 +514,17 @@ endif()
 
 add_subdirectory(runtime)
 
-# FIXME: Does not look like we use anything here that needs CMake support.
-# Once again leaving it here in case it is going to be needed at a later 
-# date... 
+option(FLANG_INCLUDE_TESTS
+       "Generate build targets for the Flang unit tests."
+       ${LLVM_INCLUDE_TESTS})
+
+if (FLANG_INCLUDE_TESTS)
+  add_subdirectory(test)
+  add_subdirectory(test-lit)
+endif()
+
+# FIXME: Doxygen and LLVM-style documentation details for Flang need to
+# go into place here... 
 #option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
 #  ${LLVM_INCLUDE_DOCS})
 #if (FLANG_INCLUDE_DOCS)
