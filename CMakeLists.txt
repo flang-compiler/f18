@@ -339,7 +339,6 @@ endif()
 
 add_subdirectory(runtime)
 
-
 option(FLANG_INCLUDE_TESTS
        "Generate build targets for the Flang unit tests."
        ${LLVM_INCLUDE_TESTS})
