@@ -20,7 +20,7 @@ public:
 
 private:
   SemanticsContext &context_;
-  bool IsValidSelectCaseType(const TypeCategory &, const int &,
+  bool IsValidSelectCaseType(const evaluate::DynamicType &,
       const parser::ConstantExpr &, const parser::CharBlock &);
 };
 }  // namespace Fortran::semantics

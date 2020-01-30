@@ -47,7 +47,7 @@ implicit none
          print*, "Well done"
    end select
 
-   !ERROR: SELECT CASE expression must be of type CHARACTER, INTERGER, OR LOGICAL
+   !ERROR: SELECT CASE expression must be of type CHARACTER, INTEGER, OR LOGICAL
    select case (grade4)
       case (1.0)
       print*, "Excellent!"

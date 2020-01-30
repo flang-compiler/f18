@@ -27,65 +27,65 @@ public:
   }
 
   void Insert(std::int64_t intVal, parser::CharBlock source) {
-    selectCaseIntRangeValsIter = std::find_if(selectCaseIntRangeVals.begin(),
-        selectCaseIntRangeVals.end(), [&intVal](const auto &mem) {
+    selectCaseIntRangeValsIter_ = std::find_if(selectCaseIntRangeVals_.begin(),
+        selectCaseIntRangeVals_.end(), [&intVal](const auto &mem) {
           return ((!std::get<0>(mem) || (intVal >= std::get<0>(mem).value())) &&
               (!std::get<1>(mem) || (intVal <= std::get<1>(mem).value())));
         });
-    if (selectCaseIntRangeValsIter != selectCaseIntRangeVals.end()) {
+    if (selectCaseIntRangeValsIter_ != selectCaseIntRangeVals_.end()) {
       ReportOverlapCaseValError(
-          std::get<2>(*selectCaseIntRangeValsIter), source);
+          std::get<2>(*selectCaseIntRangeValsIter_), source);
     }
 
-    selectCaseValsIter = std::find_if(selectCaseVals.begin(),
-        selectCaseVals.end(), [&intVal](const auto &mem) {
+    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
+        selectCaseVals_.end(), [&intVal](const auto &mem) {
           return (intVal == std::get<std::int64_t>(mem.first));
         });
-    if (selectCaseValsIter != selectCaseVals.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter->second, source);
+    if (selectCaseValsIter_ != selectCaseVals_.end()) {
+      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
     } else {
-      selectCaseVals.push_back(std::make_pair(intVal, source));
+      selectCaseVals_.push_back(std::make_pair(intVal, source));
     }
   }
   void Insert(std::string strVal, parser::CharBlock source) {
-    selectCaseStringRangeValsIter =
-        std::find_if(selectCaseStringRangeVals.begin(),
-            selectCaseStringRangeVals.end(), [&strVal](const auto &mem) {
+    selectCaseStringRangeValsIter_ =
+        std::find_if(selectCaseStringRangeVals_.begin(),
+            selectCaseStringRangeVals_.end(), [&strVal](const auto &mem) {
               return ((!std::get<0>(mem) ||
                           (strVal.compare(std::get<0>(mem).value()) >= 0)) &&
                   (!std::get<1>(mem) ||
                       (strVal.compare(std::get<1>(mem).value()) <= 0)));
             });
-    if (selectCaseStringRangeValsIter != selectCaseStringRangeVals.end()) {
+    if (selectCaseStringRangeValsIter_ != selectCaseStringRangeVals_.end()) {
       ReportOverlapCaseValError(
-          std::get<2>(*selectCaseStringRangeValsIter), source);
+          std::get<2>(*selectCaseStringRangeValsIter_), source);
     }
-    selectCaseValsIter = std::find_if(selectCaseVals.begin(),
-        selectCaseVals.end(), [&strVal](const auto &mem) {
+    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
+        selectCaseVals_.end(), [&strVal](const auto &mem) {
           return (!strVal.compare(std::get<std::string>(mem.first)));
         });
-    if (selectCaseValsIter != selectCaseVals.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter->second, source);
+    if (selectCaseValsIter_ != selectCaseVals_.end()) {
+      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
     } else {
-      selectCaseVals.push_back(std::make_pair(strVal, source));
+      selectCaseVals_.push_back(std::make_pair(strVal, source));
     }
   }
   void Insert(bool logicalVal, parser::CharBlock source) {
-    selectCaseValsIter = std::find_if(selectCaseVals.begin(),
-        selectCaseVals.end(), [&logicalVal](const auto &mem) {
+    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
+        selectCaseVals_.end(), [&logicalVal](const auto &mem) {
           return (logicalVal == std::get<bool>(mem.first));
         });
-    if (selectCaseValsIter != selectCaseVals.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter->second, source);
+    if (selectCaseValsIter_ != selectCaseVals_.end()) {
+      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
     } else {
-      selectCaseVals.push_back(std::make_pair(logicalVal, source));
+      selectCaseVals_.push_back(std::make_pair(logicalVal, source));
     }
   }
   void Insert(std::optional<std::int64_t> lowerVal,
       std::optional<std::int64_t> upperVal, parser::CharBlock source) {
     const auto &intRangeValue{std::make_tuple(lowerVal, upperVal, source)};
-    selectCaseValsIter = std::find_if(selectCaseVals.begin(),
-        selectCaseVals.end(), [&intRangeValue](const auto &mem) {
+    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
+        selectCaseVals_.end(), [&intRangeValue](const auto &mem) {
           return ((!std::get<0>(intRangeValue) ||
                       (std::get<0>(intRangeValue).value() <=
                           std::get<std::int64_t>(mem.first))) &&
@@ -93,12 +93,12 @@ public:
                   (std::get<1>(intRangeValue).value() >=
                       std::get<std::int64_t>(mem.first))));
         });
-    if (selectCaseValsIter != selectCaseVals.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter->second, source);
+    if (selectCaseValsIter_ != selectCaseVals_.end()) {
+      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
     }
 
-    selectCaseIntRangeValsIter = std::find_if(selectCaseIntRangeVals.begin(),
-        selectCaseIntRangeVals.end(), [&intRangeValue](const auto &mem) {
+    selectCaseIntRangeValsIter_ = std::find_if(selectCaseIntRangeVals_.begin(),
+        selectCaseIntRangeVals_.end(), [&intRangeValue](const auto &mem) {
           return ((!std::get<0>(mem) && !std::get<0>(intRangeValue)) ||
               (!std::get<1>(mem) && !std::get<1>(intRangeValue)) ||
               ((!std::get<0>(mem) ||
@@ -118,18 +118,18 @@ public:
                           (std::get<1>(intRangeValue).value() <=
                               std::get<1>(mem))))));
         });
-    if (selectCaseIntRangeValsIter == selectCaseIntRangeVals.end()) {
-      selectCaseIntRangeVals.push_back(intRangeValue);
+    if (selectCaseIntRangeValsIter_ == selectCaseIntRangeVals_.end()) {
+      selectCaseIntRangeVals_.push_back(intRangeValue);
     } else {
       ReportOverlapCaseValError(
-          std::get<2>(*selectCaseIntRangeValsIter), source);
+          std::get<2>(*selectCaseIntRangeValsIter_), source);
     }
   }
   void Insert(std::optional<std::string> lowerVal,
       std::optional<std::string> upperVal, parser::CharBlock source) {
     const auto &stringRangeValue{std::make_tuple(lowerVal, upperVal, source)};
-    selectCaseValsIter = std::find_if(selectCaseVals.begin(),
-        selectCaseVals.end(), [&stringRangeValue](const auto &mem) {
+    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
+        selectCaseVals_.end(), [&stringRangeValue](const auto &mem) {
           return (
               (!std::get<0>(stringRangeValue) ||
                   ((std::get<0>(stringRangeValue).value())
@@ -138,12 +138,12 @@ public:
                   ((std::get<1>(stringRangeValue).value())
                           .compare(std::get<std::string>(mem.first)) <= 0)));
         });
-    if (selectCaseValsIter != selectCaseVals.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter->second, source);
+    if (selectCaseValsIter_ != selectCaseVals_.end()) {
+      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
     }
 
-    selectCaseStringRangeValsIter = std::find_if(
-        selectCaseStringRangeVals.begin(), selectCaseStringRangeVals.end(),
+    selectCaseStringRangeValsIter_ = std::find_if(
+        selectCaseStringRangeVals_.begin(), selectCaseStringRangeVals_.end(),
         [&stringRangeValue](const auto &mem) {
           return ((!std::get<0>(mem) && !std::get<0>(stringRangeValue)) ||
               (!std::get<1>(mem) && !std::get<1>(stringRangeValue)) ||
@@ -167,11 +167,11 @@ public:
                                   .compare(std::get<1>(mem).value()) <= 0)))));
         });
 
-    if (selectCaseStringRangeValsIter == selectCaseStringRangeVals.end()) {
-      selectCaseStringRangeVals.push_back(stringRangeValue);
+    if (selectCaseStringRangeValsIter_ == selectCaseStringRangeVals_.end()) {
+      selectCaseStringRangeVals_.push_back(stringRangeValue);
     } else {
       ReportOverlapCaseValError(
-          std::get<2>(*selectCaseStringRangeValsIter), source);
+          std::get<2>(*selectCaseStringRangeValsIter_), source);
     }
   }
 
@@ -179,18 +179,18 @@ private:
   using selectCaseStmtTypes =
       std::vector<std::pair<std::variant<std::int64_t, bool, std::string>,
           parser::CharBlock>>;
-  selectCaseStmtTypes selectCaseVals;
-  selectCaseStmtTypes::iterator selectCaseValsIter;
+  selectCaseStmtTypes selectCaseVals_;
+  selectCaseStmtTypes::iterator selectCaseValsIter_;
   using selectCaseIntRangeType =
       std::vector<std::tuple<std::optional<std::int64_t>,
           std::optional<std::int64_t>, parser::CharBlock>>;
-  selectCaseIntRangeType selectCaseIntRangeVals;
-  selectCaseIntRangeType::iterator selectCaseIntRangeValsIter;
+  selectCaseIntRangeType selectCaseIntRangeVals_;
+  selectCaseIntRangeType::iterator selectCaseIntRangeValsIter_;
   using selectCaseStringRangeType =
       std::vector<std::tuple<std::optional<std::string>,
           std::optional<std::string>, parser::CharBlock>>;
-  selectCaseStringRangeType selectCaseStringRangeVals;
-  selectCaseStringRangeType::iterator selectCaseStringRangeValsIter;
+  selectCaseStringRangeType selectCaseStringRangeVals_;
+  selectCaseStringRangeType::iterator selectCaseStringRangeValsIter_;
   parser::Messages &messages_;
 };
 
@@ -201,23 +201,22 @@ void SelectStmtChecker::Leave(
           selectCaseConstruct.t)};
   const auto &parsedExpr{
       std::get<parser::Scalar<parser::Expr>>(selectCaseStmt.statement.t).thing};
-  std::optional<TypeCategory> selectCaseStmtType;
-  int selectCaseStmtKind;
+  std::optional<evaluate::DynamicType> selectCaseStmtType;
   bool validCaseStmtType{false};
   if (const auto *expr{GetExpr(parsedExpr)}) {
     if (auto type{expr->GetType()}) {
-      selectCaseStmtType = type->category();
-      selectCaseStmtKind = type->kind();
+      selectCaseStmtType = type;
     }
   }
   if (!selectCaseStmtType) {
     return;
   }
-  if ((selectCaseStmtType.value() != TypeCategory::Integer) &&
-      (selectCaseStmtType.value() != TypeCategory::Character) &&
-      (selectCaseStmtType.value() != TypeCategory::Logical)) {  // C1145
+  if ((selectCaseStmtType.value().category() != TypeCategory::Integer) &&
+      (selectCaseStmtType.value().category() != TypeCategory::Character) &&
+      (selectCaseStmtType.value().category() !=
+          TypeCategory::Logical)) {  // C1145
     context_.Say(parsedExpr.source,
-        "SELECT CASE expression must be of type CHARACTER, INTERGER, OR LOGICAL"_err_en_US);
+        "SELECT CASE expression must be of type CHARACTER, INTEGER, OR LOGICAL"_err_en_US);
   } else {
     validCaseStmtType = true;
   }
@@ -247,14 +246,15 @@ void SelectStmtChecker::Leave(
                 std::get_if<parser::Scalar<parser::ConstantExpr>>(
                     &caseValues.u)}) {
           if (!IsValidSelectCaseType(selectCaseStmtType.value(),
-                  selectCaseStmtKind, constCase->thing, caseStmt.source)) {
+                  constCase->thing, caseStmt.source)) {
             continue;
           }
 
-          if (selectCaseStmtType.value() == TypeCategory::Integer) {
+          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
             selectCaseStmts.Insert(
                 GetIntValue(constCase->thing).value(), caseStmt.source);
-          } else if (selectCaseStmtType.value() == TypeCategory::Character) {
+          } else if (selectCaseStmtType.value().category() ==
+              TypeCategory::Character) {
             selectCaseStmts.Insert(
                 GetStringValue(constCase->thing).value(), caseStmt.source);
           } else {  // TypeCategory::Logical
@@ -262,7 +262,7 @@ void SelectStmtChecker::Leave(
                 GetBoolValue(constCase->thing).value(), caseStmt.source);
           }
         } else {
-          if (selectCaseStmtType.value() ==
+          if (selectCaseStmtType.value().category() ==
               TypeCategory::Logical) {  // C1148 (R1140)
             context_.Say(caseStmt.source,
                 "SELECT CASE expression of type LOGICAL must not have range of case value"_err_en_US);
@@ -273,18 +273,18 @@ void SelectStmtChecker::Leave(
           const auto &lower{rangeCase.lower};
           if (lower &&
               !IsValidSelectCaseType(selectCaseStmtType.value(),
-                  selectCaseStmtKind, lower.value().thing, caseStmt.source)) {
+                  lower.value().thing, caseStmt.source)) {
             continue;
           }
 
           const auto &upper{rangeCase.upper};
           if (upper &&
               !IsValidSelectCaseType(selectCaseStmtType.value(),
-                  selectCaseStmtKind, upper.value().thing, caseStmt.source)) {
+                  upper.value().thing, caseStmt.source)) {
             continue;
           }
 
-          if (selectCaseStmtType.value() == TypeCategory::Integer) {
+          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
             const auto lowerVal = lower
                 ? std::optional(GetIntValue(lower->thing).value())
                 : std::nullopt;
@@ -307,24 +307,24 @@ void SelectStmtChecker::Leave(
   }
 }
 
-bool SelectStmtChecker::IsValidSelectCaseType(const TypeCategory &expectedType,
-    const int &selectCaseStmtKind, const parser::ConstantExpr &constCase,
-    const parser::CharBlock &src) {
+bool SelectStmtChecker::IsValidSelectCaseType(
+    const evaluate::DynamicType &expectedType,
+    const parser::ConstantExpr &constCase, const parser::CharBlock &src) {
   if (const auto *caseval{GetExpr(constCase)}) {
     if (auto type{caseval->GetType()}) {
-      if (type->category() != expectedType) {  // C1147 (R1140)
-        if (expectedType == TypeCategory::Integer) {
+      if (type->category() != expectedType.category()) {  // C1147 (R1140)
+        if (expectedType.category() == TypeCategory::Integer) {
           context_.Say(
               src, "SELECT CASE value must be of type INTEGER"_err_en_US);
-        } else if (expectedType == TypeCategory::Character) {
+        } else if (expectedType.category() == TypeCategory::Character) {
           context_.Say(
               src, "SELECT CASE value must be of type CHARACTER"_err_en_US);
         } else {  // TypeCategory::Logical
           context_.Say(
               src, "SELECT CASE value must be of type LOGICAL"_err_en_US);
         }
-      } else if (expectedType == TypeCategory::Character) {
-        if (selectCaseStmtKind != type->kind()) {
+      } else if (expectedType.category() == TypeCategory::Character) {
+        if (expectedType.kind() != type->kind()) {
           context_.Say(src,
               "SELECT CASE value kind must be same as SELECT CASE expression kind"_err_en_US);
         } else {
