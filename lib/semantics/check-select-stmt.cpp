@@ -22,175 +22,150 @@ public:
     // C1149
     messages_
         .Say(source2,
-            "SELECT CASE statement value at this location overlaps with below location"_err_en_US)
-        .Attach(source1, ""_err_en_US);
+            "SELECT CASE statement value at this location overlaps with the below location"_err_en_US)
+        .Attach(source1,
+            "SELECT CASE statement value overlaps with the above location"_err_en_US);
   }
 
   void Insert(std::int64_t intVal, parser::CharBlock source) {
-    selectCaseIntRangeValsIter_ = std::find_if(selectCaseIntRangeVals_.begin(),
-        selectCaseIntRangeVals_.end(), [&intVal](const auto &mem) {
-          return ((!std::get<0>(mem) || (intVal >= std::get<0>(mem).value())) &&
-              (!std::get<1>(mem) || (intVal <= std::get<1>(mem).value())));
-        });
-    if (selectCaseIntRangeValsIter_ != selectCaseIntRangeVals_.end()) {
-      ReportOverlapCaseValError(
-          std::get<2>(*selectCaseIntRangeValsIter_), source);
+    auto selectCaseIntRangeValsIter =
+        std::find_if(selectCaseIntRangeVals_.begin(),
+            selectCaseIntRangeVals_.end(), [&intVal](const auto &mem) {
+              return ((!mem.fromVal_ || (intVal >= mem.fromVal_.value())) &&
+                  (!mem.toVal_ || (intVal <= mem.toVal_.value())));
+            });
+    if (selectCaseIntRangeValsIter != selectCaseIntRangeVals_.end()) {
+      ReportOverlapCaseValError(selectCaseIntRangeValsIter->source_, source);
     }
-
-    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
-        selectCaseVals_.end(), [&intVal](const auto &mem) {
-          return (intVal == std::get<std::int64_t>(mem.first));
-        });
-    if (selectCaseValsIter_ != selectCaseVals_.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
-    } else {
-      selectCaseVals_.push_back(std::make_pair(intVal, source));
+    auto selectCaseIntValsInsertStatus =
+        selectCaseIntVals_.insert(std::make_pair(intVal, source));
+    if (selectCaseIntValsInsertStatus.second == false) {
+      ReportOverlapCaseValError(
+          selectCaseIntValsInsertStatus.first->second, source);
     }
   }
   void Insert(std::string strVal, parser::CharBlock source) {
-    selectCaseStringRangeValsIter_ =
-        std::find_if(selectCaseStringRangeVals_.begin(),
-            selectCaseStringRangeVals_.end(), [&strVal](const auto &mem) {
-              return ((!std::get<0>(mem) ||
-                          (strVal.compare(std::get<0>(mem).value()) >= 0)) &&
-                  (!std::get<1>(mem) ||
-                      (strVal.compare(std::get<1>(mem).value()) <= 0)));
-            });
-    if (selectCaseStringRangeValsIter_ != selectCaseStringRangeVals_.end()) {
-      ReportOverlapCaseValError(
-          std::get<2>(*selectCaseStringRangeValsIter_), source);
-    }
-    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
-        selectCaseVals_.end(), [&strVal](const auto &mem) {
-          return (!strVal.compare(std::get<std::string>(mem.first)));
+    auto selectCaseStringRangeValsIter = std::find_if(
+        selectCaseStringRangeVals_.begin(), selectCaseStringRangeVals_.end(),
+        [&strVal](const auto &mem) {
+          return (
+              (!mem.fromVal_ || (strVal.compare(mem.fromVal_.value()) >= 0)) &&
+              (!mem.toVal_ || (strVal.compare(mem.toVal_.value()) <= 0)));
         });
-    if (selectCaseValsIter_ != selectCaseVals_.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
-    } else {
-      selectCaseVals_.push_back(std::make_pair(strVal, source));
+    if (selectCaseStringRangeValsIter != selectCaseStringRangeVals_.end()) {
+      ReportOverlapCaseValError(selectCaseStringRangeValsIter->source_, source);
+    }
+    auto selectCaseStringValsInsertStatus =
+        selectCaseStringVals_.insert(std::make_pair(strVal, source));
+    if (selectCaseStringValsInsertStatus.second == false) {
+      ReportOverlapCaseValError(
+          selectCaseStringValsInsertStatus.first->second, source);
     }
   }
   void Insert(bool logicalVal, parser::CharBlock source) {
-    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
-        selectCaseVals_.end(), [&logicalVal](const auto &mem) {
-          return (logicalVal == std::get<bool>(mem.first));
-        });
-    if (selectCaseValsIter_ != selectCaseVals_.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
-    } else {
-      selectCaseVals_.push_back(std::make_pair(logicalVal, source));
+    auto selectCaseLogicalValsInsertStatus =
+        selectCaseLogicalVals_.insert(std::make_pair(logicalVal, source));
+    if (selectCaseLogicalValsInsertStatus.second == false) {
+      ReportOverlapCaseValError(
+          selectCaseLogicalValsInsertStatus.first->second, source);
     }
   }
   void Insert(std::optional<std::int64_t> lowerVal,
       std::optional<std::int64_t> upperVal, parser::CharBlock source) {
-    const auto &intRangeValue{std::make_tuple(lowerVal, upperVal, source)};
-    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
-        selectCaseVals_.end(), [&intRangeValue](const auto &mem) {
-          return ((!std::get<0>(intRangeValue) ||
-                      (std::get<0>(intRangeValue).value() <=
-                          std::get<std::int64_t>(mem.first))) &&
-              (!std::get<1>(intRangeValue) ||
-                  (std::get<1>(intRangeValue).value() >=
-                      std::get<std::int64_t>(mem.first))));
+    SelectCaseRangeType<std::int64_t> intRangeValue(lowerVal, upperVal, source);
+    auto selectCaseIntValsIter = std::find_if(selectCaseIntVals_.begin(),
+        selectCaseIntVals_.end(), [&intRangeValue](const auto &mem) {
+          return ((!intRangeValue.fromVal_ ||
+                      (intRangeValue.fromVal_.value() <= mem.first)) &&
+              (!intRangeValue.toVal_ ||
+                  (intRangeValue.toVal_.value() >= mem.first)));
         });
-    if (selectCaseValsIter_ != selectCaseVals_.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
+    if (selectCaseIntValsIter != selectCaseIntVals_.end()) {
+      ReportOverlapCaseValError(selectCaseIntValsIter->second, source);
     }
-
-    selectCaseIntRangeValsIter_ = std::find_if(selectCaseIntRangeVals_.begin(),
-        selectCaseIntRangeVals_.end(), [&intRangeValue](const auto &mem) {
-          return ((!std::get<0>(mem) && !std::get<0>(intRangeValue)) ||
-              (!std::get<1>(mem) && !std::get<1>(intRangeValue)) ||
-              ((!std::get<0>(mem) ||
-                   (std::get<0>(intRangeValue) &&
-                       (std::get<0>(intRangeValue).value() >=
-                           std::get<0>(mem)))) &&
-                  (!std::get<1>(mem) ||
-                      (std::get<0>(intRangeValue) &&
-                          (std::get<0>(intRangeValue).value() <=
-                              std::get<1>(mem))))) ||
-              ((!std::get<0>(mem) ||
-                   (std::get<1>(intRangeValue) &&
-                       (std::get<1>(intRangeValue).value() >=
-                           std::get<0>(mem)))) &&
-                  (!std::get<1>(mem) ||
-                      (std::get<1>(intRangeValue) &&
-                          (std::get<1>(intRangeValue).value() <=
-                              std::get<1>(mem))))));
+    auto selectCaseIntRangeValsIter = std::find_if(
+        selectCaseIntRangeVals_.begin(), selectCaseIntRangeVals_.end(),
+        [&intRangeValue](const auto &mem) {
+          return ((!mem.fromVal_ && !intRangeValue.fromVal_) ||
+              (!mem.toVal_ && !intRangeValue.toVal_) ||
+              ((!mem.fromVal_ ||
+                   (intRangeValue.fromVal_ &&
+                       (intRangeValue.fromVal_.value() >= mem.fromVal_))) &&
+                  (!mem.toVal_ ||
+                      (intRangeValue.fromVal_ &&
+                          (intRangeValue.fromVal_.value() <= mem.toVal_)))) ||
+              ((!mem.fromVal_ ||
+                   (intRangeValue.toVal_ &&
+                       (intRangeValue.toVal_.value() >= mem.fromVal_))) &&
+                  (!mem.toVal_ ||
+                      (intRangeValue.toVal_ &&
+                          (intRangeValue.toVal_.value() <= mem.toVal_)))));
         });
-    if (selectCaseIntRangeValsIter_ == selectCaseIntRangeVals_.end()) {
+    if (selectCaseIntRangeValsIter == selectCaseIntRangeVals_.end()) {
       selectCaseIntRangeVals_.push_back(intRangeValue);
     } else {
-      ReportOverlapCaseValError(
-          std::get<2>(*selectCaseIntRangeValsIter_), source);
+      ReportOverlapCaseValError(selectCaseIntRangeValsIter->source_, source);
     }
   }
   void Insert(std::optional<std::string> lowerVal,
       std::optional<std::string> upperVal, parser::CharBlock source) {
-    const auto &stringRangeValue{std::make_tuple(lowerVal, upperVal, source)};
-    selectCaseValsIter_ = std::find_if(selectCaseVals_.begin(),
-        selectCaseVals_.end(), [&stringRangeValue](const auto &mem) {
-          return (
-              (!std::get<0>(stringRangeValue) ||
-                  ((std::get<0>(stringRangeValue).value())
-                          .compare(std::get<std::string>(mem.first)) >= 0)) &&
-              (!std::get<1>(stringRangeValue) ||
-                  ((std::get<1>(stringRangeValue).value())
-                          .compare(std::get<std::string>(mem.first)) <= 0)));
+    SelectCaseRangeType<std::string> stringRangeValue(
+        lowerVal, upperVal, source);
+    auto selectCaseStringValsIter = std::find_if(selectCaseStringVals_.begin(),
+        selectCaseStringVals_.end(), [&stringRangeValue](const auto &mem) {
+          return ((!stringRangeValue.fromVal_ ||
+                      ((stringRangeValue.fromVal_.value()).compare(mem.first) >=
+                          0)) &&
+              (!stringRangeValue.toVal_ ||
+                  ((stringRangeValue.toVal_.value()).compare(mem.first) <= 0)));
         });
-    if (selectCaseValsIter_ != selectCaseVals_.end()) {
-      ReportOverlapCaseValError(selectCaseValsIter_->second, source);
+    if (selectCaseStringValsIter != selectCaseStringVals_.end()) {
+      ReportOverlapCaseValError(selectCaseStringValsIter->second, source);
     }
-
-    selectCaseStringRangeValsIter_ = std::find_if(
+    auto selectCaseStringRangeValsIter = std::find_if(
         selectCaseStringRangeVals_.begin(), selectCaseStringRangeVals_.end(),
         [&stringRangeValue](const auto &mem) {
-          return ((!std::get<0>(mem) && !std::get<0>(stringRangeValue)) ||
-              (!std::get<1>(mem) && !std::get<1>(stringRangeValue)) ||
-              ((!std::get<0>(mem) ||
-                   (std::get<0>(stringRangeValue) &&
-                       ((std::get<0>(stringRangeValue).value())
-                               .compare(std::get<0>(mem).value()) >= 0))) &&
-                  (!std::get<1>(mem) ||
-                      (std::get<0>(stringRangeValue) &&
-                          ((std::get<0>(stringRangeValue).value())
-                                  .compare(std::get<1>(mem).value()) <= 0)))) ||
-              ((!std::get<0>(mem) ||
-                   (std::get<1>(stringRangeValue) &&
-                       (std::get<1>(stringRangeValue)
-                               .value()
-                               .compare(std::get<0>(mem).value()) >= 0))) &&
-                  (!std::get<1>(mem) ||
-                      (std::get<1>(stringRangeValue) &&
-                          (std::get<1>(stringRangeValue)
-                                  .value()
-                                  .compare(std::get<1>(mem).value()) <= 0)))));
+          return ((!mem.fromVal_ && !stringRangeValue.fromVal_) ||
+              (!mem.toVal_ && !stringRangeValue.toVal_) ||
+              ((!mem.fromVal_ ||
+                   (stringRangeValue.fromVal_ &&
+                       ((stringRangeValue.fromVal_.value())
+                               .compare(mem.fromVal_.value()) >= 0))) &&
+                  (!mem.toVal_ ||
+                      (stringRangeValue.fromVal_ &&
+                          ((stringRangeValue.fromVal_.value())
+                                  .compare(mem.toVal_.value()) <= 0)))) ||
+              ((!mem.fromVal_ ||
+                   (stringRangeValue.toVal_ &&
+                       (stringRangeValue.toVal_.value().compare(
+                            mem.fromVal_.value()) >= 0))) &&
+                  (!mem.toVal_ ||
+                      (stringRangeValue.toVal_ &&
+                          (stringRangeValue.toVal_.value().compare(
+                               mem.toVal_.value()) <= 0)))));
         });
-
-    if (selectCaseStringRangeValsIter_ == selectCaseStringRangeVals_.end()) {
+    if (selectCaseStringRangeValsIter == selectCaseStringRangeVals_.end()) {
       selectCaseStringRangeVals_.push_back(stringRangeValue);
     } else {
-      ReportOverlapCaseValError(
-          std::get<2>(*selectCaseStringRangeValsIter_), source);
+      ReportOverlapCaseValError(selectCaseStringRangeValsIter->source_, source);
     }
   }
 
 private:
-  using selectCaseStmtTypes =
-      std::vector<std::pair<std::variant<std::int64_t, bool, std::string>,
-          parser::CharBlock>>;
-  selectCaseStmtTypes selectCaseVals_;
-  selectCaseStmtTypes::iterator selectCaseValsIter_;
-  using selectCaseIntRangeType =
-      std::vector<std::tuple<std::optional<std::int64_t>,
-          std::optional<std::int64_t>, parser::CharBlock>>;
-  selectCaseIntRangeType selectCaseIntRangeVals_;
-  selectCaseIntRangeType::iterator selectCaseIntRangeValsIter_;
-  using selectCaseStringRangeType =
-      std::vector<std::tuple<std::optional<std::string>,
-          std::optional<std::string>, parser::CharBlock>>;
-  selectCaseStringRangeType selectCaseStringRangeVals_;
-  selectCaseStringRangeType::iterator selectCaseStringRangeValsIter_;
+  template<typename T> struct SelectCaseRangeType {
+    SelectCaseRangeType(std::optional<T> fromVal, std::optional<T> toVal,
+        parser::CharBlock source)
+      : fromVal_(fromVal), toVal_(toVal), source_(source) {}
+    std::optional<T> fromVal_;
+    std::optional<T> toVal_;
+    parser::CharBlock source_;
+  };
+
+  std::map<bool, parser::CharBlock> selectCaseLogicalVals_;
+  std::map<std::int64_t, parser::CharBlock> selectCaseIntVals_;
+  std::map<std::string, parser::CharBlock> selectCaseStringVals_;
+  std::vector<SelectCaseRangeType<std::int64_t>> selectCaseIntRangeVals_;
+  std::vector<SelectCaseRangeType<std::string>> selectCaseStringRangeVals_;
   parser::Messages &messages_;
 };
 

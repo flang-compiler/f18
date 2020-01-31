@@ -98,10 +98,10 @@ implicit none
        name = 'true'
       case (.false.)
         name = 'false'
-      !ERROR: SELECT CASE statement value at this location overlaps with below location
+      !ERROR: SELECT CASE statement value at this location overlaps with the below location
       case (.true.)
        name = 'true'
-      !ERROR: SELECT CASE statement value at this location overlaps with below location
+      !ERROR: SELECT CASE statement value at this location overlaps with the below location
       case (grade5)
        name = 'true'
    end select
@@ -118,11 +118,11 @@ implicit none
          print*, "Excellent!"
       case (91:99)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value at this location overlaps with below location
+      !ERROR: SELECT CASE statement value at this location overlaps with the below location
       case (81:90)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value at this location overlaps with below location
-      !ERROR: SELECT CASE statement value at this location overlaps with below location
+      !ERROR: SELECT CASE statement value at this location overlaps with the below location
+      !ERROR: SELECT CASE statement value at this location overlaps with the below location
       case (:80)
          print*, "Well done!"
       case default
@@ -152,7 +152,7 @@ implicit none
          print*, "Good"
      case ('hi':'ho')
          print*, "Well done"
-     !ERROR: SELECT CASE statement value at this location overlaps with below location
+     !ERROR: SELECT CASE statement value at this location overlaps with the below location
      case ('hj')
          print*, "Well done now"
      case default
