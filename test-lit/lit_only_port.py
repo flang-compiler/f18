@@ -24,11 +24,11 @@ F18_TEST = "~/f18/build-f18/test-lit"
 ROOT = Path.cwd()
 while ROOT.name != "f18":
     ROOT = ROOT.parent
-ERROR_TEMPLATE = "!RUN: %test_error %s %flang\n"
-SYMBOL_TEMPLATE = "!RUN: %test_symbol %s %flang\n"
-MODFILE_TEMPLATE = "!RUN: %test_modfile %s %f18\n"
-GENERIC_TEMPLATE = "!RUN: %test_generic %s %flang\n"
-FOLDING_TEMPLATE = "!RUN: %test_folding %s %flang\n"
+ERROR_TEMPLATE = "!RUN: %S/../../test/semantics/test_errors.sh %s %flang\n"
+SYMBOL_TEMPLATE = "!RUN: %S/../../test/semantics/test_symbols.sh %s %flang\n"
+MODFILE_TEMPLATE = "!RUN: %S/../../test/semantics/test_modfile.sh %s %f18\n"
+GENERIC_TEMPLATE = "!RUN: %S/../../test/semantics/test_any.sh %s %flang\n"
+FOLDING_TEMPLATE = "!RUN: %S/../../test/evaluate/test_folding.sh %s %flang %t\n"
 FAILS = []
 TS = TestSplitter()
 
@@ -133,7 +133,7 @@ def port_single_test(filename, output):
     print("Porting {} to {}".format(test, rel_path))
     if test in TS.error_tests:
         port_error_test(filename, new_path)
-        #if test not in FAILS:
+        # if test not in FAILS:
         #    test_single_port(new_path, filename)
     elif test in TS.symbol_tests:
         port_test_with_template(filename, new_path, SYMBOL_TEMPLATE)
@@ -189,6 +189,7 @@ def port_error_test(filename, savepath):
                 filename, e.strerror), file=sys.stderr)
         FAILS.append(test)
 
+
 def port_generic_test(filename, savepath):
     test = filename.name
     lines = []
@@ -219,6 +220,7 @@ def port_generic_test(filename, savepath):
                 filename, e.strerror), file=sys.stderr)
         FAILS.append(test)
 
+
 def port_test_with_template(filename, savepath, template):
     test = filename.name
     lines = []
@@ -236,7 +238,7 @@ def port_test_with_template(filename, savepath, template):
                 if line == "\n":
                     index = lines.index(line)
                     break
-            lines.insert(index, template) 
+            lines.insert(index, template)
 
             try:
                 with savepath.open('w') as write_file:
@@ -252,6 +254,41 @@ def port_test_with_template(filename, savepath, template):
             "Could not open {} because {}".format(
                 filename, e.strerror), file=sys.stderr)
         FAILS.append(test)
+
+
+def get_prefixes(lines):
+    prefixes = set()
+    for line in lines:
+        match = re.match(r".*(CHECK[^:]*)", line)
+        if match:
+            prefixes.add(match.group(1))
+    if "CHECK-NOT" in prefixes:
+        prefixes.remove("CHECK-NOT")
+    return prefixes
+
+
+def litify(lines):
+    new_lines = []
+    for line in lines:
+        if "RUN" in line:
+            prefixes = get_prefixes(lines)
+            if "CHECK" in prefixes:
+                line = shlex.split(line)
+                line.insert(2, "not")
+                line = " ".join(line)
+            line = line.replace("${F18}", "%flang")
+            line = line.replace("${FileCheck}", "FileCheck")
+            if prefixes:
+                prefix_line = " --check-prefixes={}".format(",".join(prefixes))
+                line = shlex.split(line)
+                line.insert(-1, prefix_line)
+                line = " ".join(line)+"\n"
+        if "CHECK" in line:
+            line = line.replace("[[:space:]]", "{{\s}}")
+            line = line.replace(".*", "{{.*}}")
+        new_lines.append(line)
+    return new_lines
+
 
 def run(command):
     command = "PATH={}:$PATH;{}".format(F18_BIN, command)

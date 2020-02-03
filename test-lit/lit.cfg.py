@@ -36,15 +36,6 @@ config.test_source_root = os.path.dirname(__file__)
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.flang_obj_root, 'test-lit')
 
-config.old_test_source_root = os.path.join(
-    config.test_source_root, "..", "test")
-
-config.old_semantics_source_root = os.path.join(
-    config.old_test_source_root, "semantics")
-
-config.old_evaluate_source_root = os.path.join(
-    config.old_test_source_root, "evaluate"
-)
 
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 
@@ -65,23 +56,12 @@ llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 # to search to ensure that we get the tools just built and not some random
 # tools that might happen to be in the user's PATH.
 tool_dirs = [
-    config.llvm_tools_dir, config.flang_tools_dir,
-    config.old_semantics_source_root, config.old_evaluate_source_root
+    config.llvm_tools_dir, config.flang_tools_dir
 ]
 
 tools = [
     ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
-    ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
-    ToolSubst('%test_error', command=FindTool(
-        'test_errors.sh'), unresolved='fatal'),
-    ToolSubst('%test_symbol', command=FindTool(
-        'test_symbols.sh'), unresolved='fatal'),
-    ToolSubst('%test_modfile', command=FindTool(
-        'test_modfile.sh'), unresolved='fatal'),
-    ToolSubst('%test_generic', command=FindTool(
-        'test_any.sh'), unresolved='fatal'),
-    ToolSubst('%test_folding', command=FindTool(
-        'test_folding.sh'), unresolved='fatal')
+    ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal')
 ]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)

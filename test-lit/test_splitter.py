@@ -26,7 +26,7 @@ class TestSplitter:
         while root.name != "f18":
             root = root.parent
         self.root = root
-        self.test_path = self.root / "test"
+        self.test_path = root.joinpath("test")
         self.get_semantics_tests()
         self.get_folding_tests()
         self.tests = (self.error_tests + self.modfile_tests +

@@ -20,7 +20,6 @@
 #     compiler could not fold the expression.
 
 PATH=/usr/bin:/bin
-srcdir=$(dirname $0)
 CMD="$2 -fdebug-dump-symbols -fparse-only"
 
 if [[ $# < 1 ]]; then
@@ -31,7 +30,8 @@ fi
 src=$1
 [[ ! -f $src ]] && echo "File not found: $src" && exit 1
 
-temp=`mktemp -d ./tmp.XXXXXX`
+temp="$3"
+[ ! -d "$temp" ] && mkdir -p "$temp"
 
 # Check if tests should assume folding is using libpgmath
 if [[ $# > 1 && "$2" = "-pgmath=true" ]]; then
@@ -48,7 +48,12 @@ actual_warnings=$temp/actwarnings.log
 expected_warnings=$temp/expwarnings.log
 warning_diffs=$temp/warnings.diff
 
-( cd $temp; $CMD $src ) > $src1 2> $messages # compile, dumping symbols
+if ! ( cd $temp; $CMD $src ) > $src1 2> $messages # compile, dumping symbols	( cd $temp; $CMD $src ) > $src1 2> $messages # compile, dumping symbols
+then	
+  cat $messages	
+  echo FAIL compilation	
+  exit 1	
+fi
 
 # Get all PARAMETER declarations
 sed -e '/, PARAMETER/!d' -e 's/, PARAMETER.*init:/ /' \
@@ -95,5 +100,3 @@ else
   echo all $passed tests passed
   echo PASS
 fi
-
-[[ $KEEP ]] || trap "rm -rf $temp" EXIT
