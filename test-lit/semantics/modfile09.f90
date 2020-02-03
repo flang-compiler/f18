@@ -1,1 +1,1 @@
-!RUN: %test_modfile '%S/Inputs/modfile09-*' %f18
+!RUN: %S/../../test/semantics/test_modfile.sh '%S/Inputs/modfile09-*' %f18
