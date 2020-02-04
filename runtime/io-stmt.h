@@ -20,6 +20,7 @@ namespace Fortran::runtime::io {
 
 class IoStatementState : public IoErrorHandler {
 public:
+  virtual ~IoStatementState() {} 
   using IoErrorHandler::IoErrorHandler;
   virtual int EndIoStatement();
 
