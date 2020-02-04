@@ -1237,14 +1237,6 @@ private:
   }
   std::size_t GetAssociatedLoopLevelFromClauses(const parser::OmpClauseList &);
 
-  template<typename T>
-  std::optional<std::int64_t> GetClauseIntValue(const T &x) {
-    if (AnalyzeExpr(context_, x.v)) {
-      return GetIntValue(x.v);
-    }
-    return std::nullopt;
-  }
-
   Symbol &MakeAssocSymbol(const SourceName &name, Symbol &prev) {
     const auto pair{
         GetContext().scope.try_emplace(name, Attrs{}, HostAssocDetails{prev})};
@@ -6054,26 +6046,25 @@ std::size_t OmpAttributeVisitor::GetAssociatedLoopLevelFromClauses(
     if (const auto *orderedClause{
             std::get_if<parser::OmpClause::Ordered>(&clause.u)}) {
       if (const auto v{
-              GetClauseIntValue<parser::OmpClause::Ordered>(*orderedClause)}) {
+              evaluate::ToInt64(resolver_.EvaluateIntExpr(orderedClause->v))}) {
         orderedLevel = *v;
       }
     }
     if (const auto *collapseClause{
             std::get_if<parser::OmpClause::Collapse>(&clause.u)}) {
-      if (const auto v{GetClauseIntValue<parser::OmpClause::Collapse>(
-              *collapseClause)}) {
+      if (const auto v{evaluate::ToInt64(
+              resolver_.EvaluateIntExpr(collapseClause->v))}) {
         collapseLevel = *v;
       }
     }
   }
 
-  if (orderedLevel &&
-      (!collapseLevel || (collapseLevel && orderedLevel >= collapseLevel))) {
+  if (orderedLevel && (!collapseLevel || orderedLevel >= collapseLevel)) {
     return orderedLevel;
   } else if (!orderedLevel && collapseLevel) {
     return collapseLevel;
-  }
-  return 1; // default is outermost loop
+  }  // orderedLevel < collapseLevel is an error handled in structural checks
+  return 1;  // default is outermost loop
 }
 
 // 2.15.1.1 Data-sharing Attribute Rules - Predetermined
@@ -6085,11 +6076,10 @@ std::size_t OmpAttributeVisitor::GetAssociatedLoopLevelFromClauses(
 //   - The loop iteration variables in the associated do-loops of a simd
 //     construct with multiple associated do-loops are lastprivate.
 //
-// This assumes that the do-loops association for collapse/ordered clause has
-// been performed (the number of nested do-loops >= n).
+// TODO: This assumes that the do-loops association for collapse/ordered
+//       clause has been performed (the number of nested do-loops >= n).
 void OmpAttributeVisitor::PrivatizeAssociatedLoopIndex(
     const parser::OpenMPLoopConstruct &x) {
-  using Bounds = parser::LoopControl::Bounds;
   std::size_t level{GetContext().associatedLoopLevel};
   Symbol::Flag ivDSA{Symbol::Flag::OmpPrivate};
   if (simdSet.test(GetContext().directive)) {
@@ -6104,16 +6094,19 @@ void OmpAttributeVisitor::PrivatizeAssociatedLoopIndex(
   for (const parser::DoConstruct *loop{&*outer}; loop && level > 0; --level) {
     // go through all the nested do-loops and resolve index variables
     auto &loopControl{loop->GetLoopControl().value()};
+    using Bounds = parser::LoopControl::Bounds;
     const Bounds &bounds{std::get<Bounds>(loopControl.u)};
     const parser::Name &iv{bounds.name.thing};
-    auto *symbol{ResolveOmp(iv, ivDSA)};
-    iv.symbol = symbol; // adjust the symbol within region
-    AddToContextObjectWithDSA(*symbol, ivDSA);
+    if (auto *symbol{ResolveOmp(iv, ivDSA)}) {
+      iv.symbol = symbol;  // adjust the symbol within region
+      AddToContextObjectWithDSA(*symbol, ivDSA);
+    }
 
     const auto &block{std::get<parser::Block>(loop->t)};
     const auto it{block.begin()};
-    loop = GetDoConstructIf(*it);
+    loop = it != block.end() ? GetDoConstructIf(*it) : nullptr;
   }
+  CHECK(level == 0);
 }
 
 bool OmpAttributeVisitor::Pre(const parser::OpenMPSectionsConstruct &x) {
