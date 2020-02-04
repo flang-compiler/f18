@@ -1,6 +1,9 @@
 # Infrastructure to build flang driver entry point. Flang driver dependes on
 # LLVM libraries.
 
+# Set your project compile flags.
+link_directories(${LLVM_LIBRARY_DIR})
+
 add_executable(flang-tmp
   main.cpp
 )
@@ -11,23 +14,22 @@ set_target_properties(flang-tmp
       -Wno-unused-parameter
 )
 
+# Find the libraries that correspond to the LLVM components
+# that we wish to use
 llvm_map_components_to_libnames(LLVM_COMMON_LIBS
   Support
   Target
   Option
 )
 
-find_package(LLVM REQUIRED CONFIG)
-find_package(Clang REQUIRED CONFIG)
-
-include_directories(${LLVM_DIR} ${LLVM_DIR}/../..)
-
+# Link against LLVM and Clang libraries
 target_link_libraries(flang-tmp
   PRIVATE
-  flangFrontend
-  clangDriver
-  clangBasic
   ${LLVM_COMMON_LIBS}
+  flangFrontend
+  -lclangDriver
+  -lclangBasic
+  ${LLVM_LIBRARY_DIR}
 )
 
 install(TARGETS flang-tmp DESTINATION bin)

@@ -50,6 +50,7 @@ message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
 
+list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
 
 include(AddLLVM)
 
@@ -122,6 +123,8 @@ message(STATUS "FLANG version: ${FLANG_VERSION}")
 set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
+# Add the driver flang-tmp  to the list of FLANG_TOOLS_DIR
+set(FLANG_TOOLS_DIR  ${FLANG_TOOLS_DIR}:${FLANG_BINARY_DIR}/bin)
 
 include_directories(BEFORE
   ${FLANG_BINARY_DIR}/include

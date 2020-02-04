@@ -62,8 +62,10 @@ llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 # tools that might happen to be in the user's PATH.
 tool_dirs = [config.llvm_tools_dir, config.flang_tools_dir]
 
-tools = [ToolSubst('%flang', command=FindTool('flang-tmp'), unresolved='fatal'),
-         ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal')]
+# Add flang-tmp to the list of tools
+tools = [ToolSubst('%flang', command=FindTool('flang'), unresolved='fatal'),
+         ToolSubst('%f18', command=FindTool('f18'), unresolved='fatal'),
+         ToolSubst('%flang-tmp', command=FindTool('flang-tmp'), unresolved='fatal')]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 

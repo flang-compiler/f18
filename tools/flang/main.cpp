@@ -46,6 +46,10 @@ int main(int argc_, const char **argv_) {
   clang::driver::ParsedClangName TargetandMode("flang", "--driver-mode=flang");
   std::string Path = GetExecutablePath(argv[0]);
 
+  // Give to the driver the name of the frontend
+  argv.push_back("-ffc-fortran-name");
+  argv.push_back(basename(argv[0]));
+
   llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> DiagOpts = CreateAndPopulateDiagOpts(argv);
   llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> DiagID(
       new clang::DiagnosticIDs());
