@@ -1,18 +1,13 @@
-#===-- tools/f18/CMakeLists.txt --------------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
+
 
 add_executable(f18
   f18.cpp
   dump.cpp
 )
+set_property(TARGET f18 PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(f18
   FortranParser

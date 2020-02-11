@@ -1,13 +1,4 @@
-#===-- CMakeLists.txt ------------------------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
 
-# FIXME (?) : downgraded requirement here to match the rest of LLVM.  There 
-# were no apparent issues but perhaps future PRs will change this? 
 cmake_minimum_required(VERSION 3.4.3) 
 
 # RPATH settings on macOS do not affect INSTALL_NAME.
@@ -16,7 +7,7 @@ if (POLICY CMP0068)
   set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 endif()
 
-# From Clang: Include file check macros honor CMAKE_REQUIRED_LIBRARIES.
+# Include file check macros honor CMAKE_REQUIRED_LIBRARIES.
 if(POLICY CMP0075)   
   cmake_policy(SET CMP0075 NEW)
 endif()
@@ -26,131 +17,61 @@ if (POLICY CMP0077)
   cmake_policy(SET CMP0077 NEW)
 endif()
 
-# Force all of Flang into C++17 mode... 
-# FIXME (?) : I've had no issues with building across numerous platforms with 
-# the base components of LLVM build in C++14 and Flang with C++17 but 
-# this might bite someone as we start tighter integration (e.g. w/ MLIR). 
+# Flang requires C++17. 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
-# Check to see if are part of an LLVM build, if not we need 
-# to configure as a standalone project (use LLVM as an external 
-# library).
+set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
+if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
+  message(FATAL_ERROR "In-source builds are not allowed. \
+          Please create a directory and run cmake from there,\
+          passing the path to this source directory as the last argument.\
+          This process created the file `CMakeCache.txt' and the directory\
+          `CMakeFiles'. Please delete them.")
+endif()
+
+# Check for a standalone and configure as appropriate from 
+# there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  message(STATUS "Building Flang as a standalone project.")
   project(Flang)
 
-  set(CONFIG_OUTPUT)
-  if (LLVM_CONFIG)
-
-    set(LLVM_CONFIG_FOUND 1)
-    message(STATUS "Found llvm_config as ${LLVM_CONFIG}.")
-    message(DEPRECATION "Using llvm-config to detect the LLVM instalation is \
-            deprecated.  The installed cmake files should be used instead. \
-            CMake should be able to detect your LLVM install automatically, \
-            but you can also use LLVM_DIR to specify the path to the directory \
-            containing LLVMConfig.cmake.")
-
-    set(CONFIG_COMMAND ${LLVM_CONFIG}
-      "--assertion-mode"
-      "--bindir"
-      "--libdir"
-      "--includedir"
-      "--prefix"
-      "--src-root"
-      "--cmakedir")
-
-    execute_process(
-      COMMAND ${CONFIG_COMMAND}
-      RESULT_VARIABLE HAD_ERROR
-      OUTPUT_VARIABLE CONFIG_OUTPUT)
-
-    if (NOT HAD_ERROR) 
-      string(REGEX REPLACE
-        "[ \t]*[\r\n]+[ \t]*" ";"
-        CONFIG_OUTPUT ${CONFIG_OUTPUT}) 
-    else()
-      string(REPLACE ";" " " CONFIG_COMMAND_STR "${CONFIG_COMMAND}")
-      message(STATUS "${CONFIG_COMMAND_STR}")
-      message(FATAL_ERROR "llvm-config failed with status ${HAD_ERROR}")
-    endif()
-
-    list(GET CONFIG_OUTPUT 0 ENABLE_ASSERTIONS)
-    list(GET CONFIG_OUTPUT 1 TOOLS_BINARY_DIR)
-    list(GET CONFIG_OUTPUT 2 LIBRARY_DIR)
-    list(GET CONFIG_OUTPUT 3 INCLUDE_DIR)
-    list(GET CONFIG_OUTPUT 4 LLVM_OBJ_ROOT)
-    list(GET CONFIG_OUTPUT 5 MAIN_SRC_DIR)
-    list(GET CONFIG_OUTPUT 6 LLVM_CONFIG_CMAKE_PATH)
-
-    # Normalize the LLVM_CMAKE_PATH.  --cmakedir might contain 
-    # backslahses and CMake assumes slashes as a path... 
-    file(TO_CMAKE_PATH ${LLVM_CONFIG_CMAKE_PATH} LLVM_CMAKE_PATH)
-  endif()
-
-  if (NOT MSVC_IDE) 
+  if(NOT MSVC_IDE)
     set(LLVM_ENABLE_ASSERTIONS ${ENABLE_ASSERTIONS}
-      CACHE BOOL "Enable assertions.")
-    # Assertion should follow llvm-config's. 
+      CACHE BOOL "Enable assertions")
+    # Assertions should follow llvm-config's.
     mark_as_advanced(LLVM_ENABLE_ASSERTIONS)
   endif()
 
+  # We need a pre-built/installed version of LLVM... 
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
-  list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
+  list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})  
 
-  # We can't check LLVM_CONFIG here because find_package(LLVM ...) also sets
-  # LLVM_CONFIG... 
-  if (NOT LLVM_CONFIG_FOUND)
-    # Pull in values from LLVMConfig.cmake.  We can drop this once llvm-config 
-    # path is removed. 
-    set(TOOLS_BINARY_DIR ${LLVM_TOOLS_BINARY_DIR})
-    set(LIBRARY_DIR      ${LLVM_LIBRARY_DIR})
-    set(INCLUDE_DIR      ${LLVM_INCLUDE_DIR})
-    set(LLVM_OBJ_DIR     ${LLVM_BINARY_DIR})
-
-    # The LLVM_CMAKE_PATH variable is set when doing a non-standalone build
-    # and used in this project, so we need to make sure set this value.  
-    # FIXME: LLVM_CMAKE_DIR comes from LLVMConfig.cmake.  We should rename
-    # LLVM_CMAKE_PATH to LLVM_CMAKE_DIR throughout the project. 
-    set(LLVM_CMAKE_PATH ${LLVM_CMAKE_DIR})
-  endif()
-
-  set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin.")
-  set(LLVM_LIBRARY_DIR      ${LIBARY_DIR} CACHE PATH "Path to llvm/lib.")
-  set(LLVM_MAIN_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Path to the llvm/include tree.")
-  set(LLVM_BINARY_DIR       ${LLVM_OBJ_ROOT} CACHE PATH "Path to the LLVM build tree.")
-  set(LLVM_MAIN_SRC_DIR     ${LLVM_SRC_DIR} CACHE PATH "Path to the LLVM source tree.")
-
-  find_program(LLVM_TABLEGET_EXE "llvm-tblgen" ${LLVM_TOOLS_BINARY_DIR}
-    NO_DEFAULT_PATH)
+  set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin")
+  set(LLVM_LIBRARY_DIR ${LIBRARY_DIR} CACHE PATH "Path to llvm/lib")
+  set(LLVM_MAIN_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Path to llvm/include")
+  set(LLVM_BINARY_DIR ${LLVM_OBJ_ROOT} CACHE PATH "Path to LLVM build tree")
+  set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
+ 
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
-    NO_DEFAULT_PATH)
+               NO_DEFAULT_PATH)
 
-  set(LLVM_RUNTIME_OUTPUT_INTDIR 
-    ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
-  set(LLVM_LIBRARY_OUTPUT_INTDIR 
-    ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
 
-  if (WIN32 OR CYGWIN)
-    # DLL platform -- place DLLs into bin directory.
-    set(LLVM_SHLIB_OUTPUT_INTDIR ${LLVM_RUNTIME_OUTPUT_INTDIR})
-  else()
-    set(LLVM_SHLIB_OUTPUT_INTDIR ${LLVM_LIBRARY_OUTPUT_INTDIR})
-  endif()
-  
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
   option(LLVM_INSTALL_TOOLCHAIN_ONLY
     "Only include toolchain files in the 'install' target." OFF)
-
   option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
     "Set to ON to force using an old, unsupported host toolchain." OFF)
-  option(CLANG_ENABLE_BOOTSTRAP "Generate the clang bootstrap target" OFF)
-  option(LLVM_ENABLE_LIBXML2 "Use libxml2 if available." ON)
 
-  include(AddLLVM)
-  include(TableGen)
-  include(HandleLLVMOptions)
+  include(AddLLVM)    
+  include(HandleLLVMOptions)  
+  include(LLVMConfig)
   include(VersionFromVCS)
-# FIXME: uncomment once FIR code is upstreamed. 
-#  include(AddMLIR)
+  include(LLVMDistributionSupport)
+  # FIXME - needs to go in at the same time as FIR. 
+  #include(AddMLIR)
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
 
@@ -180,6 +101,8 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       message(FATAL_ERROR "Python 2.7 or newer is required.")
     endif()
   
+    # TODO: Need to revisit all the uses of FileCheck below... 
+    # 
     # Check prebuilt llvm/utils.
     if (EXISTS ${LLVM_TOOLS_BINARY_DIR}/FileCheck${CMAKE_EXECUTABLE_SUFFIX}
         AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/count${CMAKE_EXECUTABLE_SUFFIX}
@@ -252,49 +175,21 @@ endif()
 # we can include flang-centric cmake files from within the project. 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-if(LLVM_ENABLE_LIBXML2)
-  # Don't look for libxml if we're using MSan, since uninstrumented third party
-  # code may call MSan interceptors like strlen, leading to false positives.
-  if(NOT LLVM_USE_SANITIZER MATCHES "Memory.*")
-    set (LIBXML2_FOUND 0)
-    find_package(LibXml2 2.5.3 QUIET)
-    if (LIBXML2_FOUND)
-      set(FLANG_HAVE_LIBXML 1)
-    endif()
-  endif()
-endif()
-
-option(LINK_WITH_FIR "Link driver with FIR and LLVM" ON)
-if (LINK_WITH_FIR)
-  message(STATUS "Linking driver with FIR and LLVM")
-  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support)
-  message(STATUS "LLVM libraries: ${LLVM_COMMON_LIBS}")
-endif()
-
-set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-
 if (MLIR_SOURCE_DIR) 
-
   include_directories(BEFORE
     ${FLANG_BINARY_DIR}/include 
     ${FLANG_SOURCE_DIR}/include 
     ${MLIR_BINARY_DIR}/include 
     ${MLIR_SOURCE_DIR}/include)
-
   set(MLIR_MAIN_SRC_DIR ${MLIR_SOURCE_DIR})
   set(MLIR_INCLUDE_DIR ${MLIR_SOURCE_DIR}/include)
-
 else ()
-
   include_directories(BEFORE 
     ${FLANG_BINARY_DIR}/include 
     ${FLANG_SOURCE_DIR}/include 
     ${MLIR_BINARY_DIR}/include)
-
   set(MLIR_MAIN_SRC_DIR ${MLIR_BINARY_DIR})
   set(MLIR_INCLUDE_DIR ${MLIR_BINARY_DIR}/include)
-
 endif()
 
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
@@ -312,7 +207,7 @@ if (NOT DEFAULT_SYSROOT)  # FIXME: Need to doublecheck that this actually behave
     "The <path> to use for the system root for all compiler invocations (--sysroot=<path>).")
 endif()
 
-if (NOT ENABLE_LINLDER_BUILD_ID)
+if (NOT ENABLE_LINKER_BUILD_ID)
   set(ENABLE_LINKER_BUILD_ID OFF CACHE BOOL "pass --build-id to ld")
 endif()
 
@@ -322,11 +217,10 @@ set(FLANG_DEFAULT_LINKER "" CACHE STRING
 set(FLANG_DEFAULT_RTLIB "" CACHE STRING 
    "Default Fortran runtime library to use (\"libFortranRuntime\"), leave empty for platform default.")
 
-
 if (NOT(FLANG_DEFAULT_RTLIB STREQUAL ""))
   message(WARNING "Resetting Flang's default runtime library to use platform default.")
   set(FLANG_DEFAULT_RTLIB "" CACHE STRING
-      "Default runtime library to use (\"libgcc\" or \"compiler-rt\", empty for platform default)" FORCE)
+      "Default runtime library to use (empty for platform default)" FORCE)
 endif()
 
 set(FLANG_VENDOR ${PACKAGE_VENDOR} CACHE STRING
@@ -349,22 +243,7 @@ set(FLANG_VENDOR_UTI "org.llvm.flang" CACHE STRING
 # The libdir suffix must exactly match whatever LLVM's configuration used.
 set(FLANG_LIBDIR_SUFFIX "${LLVM_LIBDIR_SUFFIX}")
 
-# FIXME: Redundant w/ above... 
-#set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-#set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
-  message(FATAL_ERROR "In-source builds are not allowed. \
-          Please create a directory and run cmake from there,\
-          passing the path to this source directory as the last argument.\
-          This process created the file `CMakeCache.txt' and the directory\
-          `CMakeFiles'. Please delete them.")
-endif()
-
-
 # Override LLVM versioning for now... 
-# 
-# FIXME: Once merged We need to determine how to we want to version early 
-# Flang relative to LLVM as a whole.  
 set(FLANG_VERSION_MAJOR      "0")
 set(FLANG_VERSION_MINOR      "1")
 set(FLANG_VERSION_PATCHLEVEL "0")
@@ -399,15 +278,9 @@ configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/flang/Version.inc.in
   ${CMAKE_CURRENT_BINARY_DIR}/include/flang/Version.inc)
 
-if (FLANG_LINK_WITH_FIR)
-  message(STATUS "Linking Flang driver with FIR and LLVM")
-  llvm_map_components_to_libnames(LLVM_COMMON_LIBS support)
-  message(STATUS "Flang using LLVM libraries: ${LLVM_COMMON_LIBS}")
-endif()
-
 # Add appropriate flags for GCC
 if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fno-rtti -fno-exceptions \
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -fno-exceptions \
         -Wall -Wextra -Werror -Wcast-qual -Wimplicit-fallthrough -Wdelete-non-virtual-dtor")
 
   if (NOT "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
@@ -500,9 +373,6 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
 
 endif()
 
-# FIXME: Do we need this? 
-add_definitions(-D_GNU_SOURCE)
-
 add_subdirectory(include)
 add_subdirectory(lib)
 
@@ -523,10 +393,9 @@ if (FLANG_INCLUDE_TESTS)
   add_subdirectory(test-lit)
 endif()
 
-# FIXME: Doxygen and LLVM-style documentation details for Flang need to
-# go into place here... 
-#option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
-#  ${LLVM_INCLUDE_DOCS})
+# FIXME: need to add doxygen support in 'documentation' directory. 
+option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
+       ${LLVM_INCLUDE_DOCS})
 #if (FLANG_INCLUDE_DOCS)
 #  add_subdirectory(documentation)
 #endif()
