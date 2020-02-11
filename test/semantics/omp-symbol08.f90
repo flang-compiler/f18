@@ -138,7 +138,7 @@ subroutine dotprod (b, c, n, block_size, num_teams, block_threads)
  do i0=1,n,block_size
 !$omp parallel do  reduction(+:sum)
   !DEF: /dotprod/Block1/Block1/Block1/Block1/i (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
-  !REF: /dotprod/i0
+  !REF: /dotprod/Block1/Block1/Block1/i0
   !DEF: /dotprod/min INTRINSIC (Function) ProcEntity
   !REF: /dotprod/block_size
   !REF: /dotprod/n
@@ -228,14 +228,14 @@ subroutine test_seq_loop
   print *, i, j
   !$omp parallel
   !REF: /test_seq_loop/i
-  !REF: /test_seq_loop/j
+  !DEF: /test_seq_loop/Block1/Block1/j (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
   print *, i, j
   !$omp do
   !DEF: /test_seq_loop/Block1/Block1/Block1/i (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
   do i=1,10
-     !DEF: /test_seq_loop/Block1/Block1/j (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
-     do j=1,10
-     end do
+   !REF: /test_seq_loop/Block1/Block1/j
+   do j=1,10
+   end do
   end do
   !REF: /test_seq_loop/i
   !REF: /test_seq_loop/Block1/Block1/j
