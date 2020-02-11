@@ -52,10 +52,6 @@ private:
 
 class SubprogramDetails {
 public:
-  SubprogramDetails() {}
-  SubprogramDetails(const SubprogramDetails &that)
-    : dummyArgs_{that.dummyArgs_}, result_{that.result_} {}
-
   bool isFunction() const { return result_ != nullptr; }
   bool isInterface() const { return isInterface_; }
   void set_isInterface(bool value = true) { isInterface_ = value; }
@@ -467,7 +463,7 @@ public:
       // OpenMP miscellaneous flags
       OmpCommonBlock, OmpReduction, OmpDeclareSimd, OmpDeclareTarget,
       OmpThreadprivate, OmpDeclareReduction, OmpFlushed, OmpCriticalLock,
-      OmpIfSpecified);
+      OmpIfSpecified, OmpNone);
   using Flags = common::EnumSet<Flag, Flag_enumSize>;
 
   const Scope &owner() const { return *owner_; }

@@ -67,9 +67,9 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   include(AddLLVM)    
   include(HandleLLVMOptions)  
-  include(LLVMConfig)
+  #include(LLVMConfig)
   include(VersionFromVCS)
-  include(LLVMDistributionSupport)
+  #include(LLVMDistributionSupport)
   # FIXME - needs to go in at the same time as FIR. 
   #include(AddMLIR)
 
@@ -372,6 +372,8 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN "*.h")
 
 endif()
+
+add_definitions(-D_GNU_SOURCE)
 
 add_subdirectory(include)
 add_subdirectory(lib)

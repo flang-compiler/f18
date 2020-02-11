@@ -99,6 +99,8 @@ set(ERROR_TESTS
   resolve66.f90
   resolve67.f90
   resolve68.f90
+  resolve69.f90
+  resolve70.f90
   stop01.f90
   structconst01.f90
   structconst02.f90
@@ -163,6 +165,7 @@ set(ERROR_TESTS
   omp-resolve02.f90
   omp-resolve03.f90
   omp-resolve04.f90
+  omp-resolve05.f90
   omp-clause-validity01.f90
   omp-loop-association.f90
 #  omp-nested01.f90
@@ -227,6 +230,8 @@ set(SYMBOL_TESTS
   omp-symbol04.f90
   omp-symbol05.f90
   omp-symbol06.f90
+  omp-symbol07.f90
+  omp-symbol08.f90
   kinds01.f90
   kinds03.f90
   procinterface01.f90
