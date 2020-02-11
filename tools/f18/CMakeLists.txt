@@ -2,12 +2,16 @@
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
 
+
 add_executable(f18
   f18.cpp
   dump.cpp
 )
 set_property(TARGET f18 PROPERTY CXX_STANDARD 17)
+<<<<<<< HEAD
 target_compile_features(f18 PRIVATE cxx_std_17)
+=======
+>>>>>>> Some fixes based on PR feedback.  Still experimenting.
 
 target_link_libraries(f18
   FortranParser
