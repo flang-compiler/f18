@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 # simple helper to add a flang test.  
 function(add_flang_test EXECUTABLE TEST_NAME) 
@@ -8,6 +9,8 @@ function(add_flang_test EXECUTABLE TEST_NAME)
   add_test(NAME ${TEST_NAME} 
            COMMAND ${EXECUTABLE}-test)
 endfunction()
+=======
+>>>>>>> Some fixes based on PR feedback.  Still experimenting.
 
 add_subdirectory(decimal)
 add_subdirectory(evaluate)
