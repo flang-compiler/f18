@@ -35,10 +35,10 @@ endif()
 # Check for a standalone and configure as appropriate from 
 # there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  message(STATUS "Building Flang as a standalone project.")
+  message("Building Flang as a standalone project.")
   project(Flang)
 
-  if(NOT MSVC_IDE)
+  if (NOT MSVC_IDE)
     set(LLVM_ENABLE_ASSERTIONS ${ENABLE_ASSERTIONS}
       CACHE BOOL "Enable assertions")
     # Assertions should follow llvm-config's.
@@ -49,11 +49,11 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})  
 
-  set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin")
-  set(LLVM_LIBRARY_DIR ${LIBRARY_DIR} CACHE PATH "Path to llvm/lib")
-  set(LLVM_MAIN_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Path to llvm/include")
-  set(LLVM_BINARY_DIR ${LLVM_OBJ_ROOT} CACHE PATH "Path to LLVM build tree")
-  set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
+  #set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin")
+  #set(LLVM_LIBRARY_DIR ${LIBRARY_DIR} CACHE PATH "Path to llvm/lib")
+  #set(LLVM_MAIN_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Path to llvm/include")
+  #set(LLVM_BINARY_DIR ${LLVM_OBJ_ROOT} CACHE PATH "Path to LLVM build tree")
+  #set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
  
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
                NO_DEFAULT_PATH)
@@ -67,11 +67,9 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   include(AddLLVM)    
   include(HandleLLVMOptions)  
-  #include(LLVMConfig)
   include(VersionFromVCS)
   #include(LLVMDistributionSupport)
-  # FIXME - needs to go in at the same time as FIR. 
-  #include(AddMLIR)
+  #include(AddMLIR)  # FIXME - needs to go in at the same time as FIR. 
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
 
@@ -79,7 +77,11 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(LLVM_INCLUDE_TESTS ON)
   endif()
 
-  include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
+  if (DEFINED LLVM_BINARY_DIR AND DEFINED LLVM_MAIN_INCLUDE_DIR)
+    message("Include directories: ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR}")
+    include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
+  endif()
+  
   link_directories("${LLVM_LIBRARY_DIR}")
   set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 
