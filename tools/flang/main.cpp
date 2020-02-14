@@ -47,7 +47,7 @@ int main(int argc_, const char **argv_) {
   std::string Path = GetExecutablePath(argv[0]);
 
   // Give to the driver the name of the frontend
-  argv.push_back("-ffc-fortran-name");
+  argv.push_back("-fortran-fe");
   argv.push_back(basename(argv[0]));
 
   llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> DiagOpts = CreateAndPopulateDiagOpts(argv);
