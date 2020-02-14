@@ -32,7 +32,9 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
           `CMakeFiles'. Please delete them.")
 endif()
 
-# Check for a standalone and configure as appropriate from 
+
+
+# Check for a standalone build and configure as appropriate from
 # there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   message("Building Flang as a standalone project.")
@@ -41,23 +43,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   if (NOT MSVC_IDE)
     set(LLVM_ENABLE_ASSERTIONS ${ENABLE_ASSERTIONS}
       CACHE BOOL "Enable assertions")
-    # Assertions should follow llvm-config's.
+    # Assertions follow llvm's configuration.
     mark_as_advanced(LLVM_ENABLE_ASSERTIONS)
   endif()
 
-  # We need a pre-built/installed version of LLVM... 
+  # We need (to find) a pre-built/installed version of LLVM. 
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})  
 
-  #set(LLVM_TOOLS_BINARY_DIR ${TOOLS_BINARY_DIR} CACHE PATH "Path to llvm/bin")
-  #set(LLVM_LIBRARY_DIR ${LIBRARY_DIR} CACHE PATH "Path to llvm/lib")
-  #set(LLVM_MAIN_INCLUDE_DIR ${INCLUDE_DIR} CACHE PATH "Path to llvm/include")
-  #set(LLVM_BINARY_DIR ${LLVM_OBJ_ROOT} CACHE PATH "Path to LLVM build tree")
-  #set(LLVM_MAIN_SRC_DIR ${MAIN_SRC_DIR} CACHE PATH "Path to LLVM source tree")
- 
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
                NO_DEFAULT_PATH)
-
 
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
   option(LLVM_INSTALL_TOOLCHAIN_ONLY
@@ -68,14 +63,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)    
   include(HandleLLVMOptions)  
   include(VersionFromVCS)
-  #include(LLVMDistributionSupport)
-  #include(AddMLIR)  # FIXME - needs to go in at the same time as FIR. 
+  include(LLVMDistributionSupport)
+  #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
-
-  if (NOT DEFINED LLVM_INCLUDE_TESTS) 
+  
+  # TODO: This pattern is from Clang -- not sure it makes sense here... 
+  if (NOT DEFINED LLVM_INCLUDE_TESTS)
     set(LLVM_INCLUDE_TESTS ON)
   endif()
+
 
   if (DEFINED LLVM_BINARY_DIR AND DEFINED LLVM_MAIN_INCLUDE_DIR)
     message("Include directories: ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR}")
@@ -88,7 +85,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
   set(CMAKE_LIBRARY_OUTPUT_DIRECTORY 
     ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
-  set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY 
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY 
     ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
   
   if (LLVM_INCLUDE_TESTS)
@@ -103,46 +100,22 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       message(FATAL_ERROR "Python 2.7 or newer is required.")
     endif()
   
-    # TODO: Need to revisit all the uses of FileCheck below... 
-    # 
-    # Check prebuilt llvm/utils.
-    if (EXISTS ${LLVM_TOOLS_BINARY_DIR}/FileCheck${CMAKE_EXECUTABLE_SUFFIX}
-        AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/count${CMAKE_EXECUTABLE_SUFFIX}
-        AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/not${CMAKE_EXECUTABLE_SUFFIX})
-      set(LLVM_UTILS_PROVIDED ON)
-    endif()
-
     if (EXISTS ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
       # Note: the path is not really used, except for checking if lit was found
       set(LLVM_LIT ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
       if(EXISTS ${LLVM_MAIN_SRC_DIR}/utils/llvm-lit)
         add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/llvm-lit utils/llvm-lit)
       endif()
-
-    if(NOT LLVM_UTILS_PROVIDED)
-      add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/FileCheck utils/FileCheck)
-      add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/count utils/count)
-      add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/not utils/not)
-      set(LLVM_UTILS_PROVIDED ON)
-      set(FLANG_TEST_DEPS FileCheck count not)
     endif()
-
+    
     set(UNITTEST_DIR ${LLVM_MAIN_SRC_DIR}/utils/unittest)
     
-    if (EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h
-        AND NOT EXISTS 
-          ${LLVM_LIBRARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX}
-        AND EXISTS ${UNITTEST_DIR}/CMakeLists.txt)
-          add_subdirectory(${UNITTEST_DIR} utils/unittest)
-      endif()
-    else()
       # Search for an installed lit.
-      find_program(LLVM_LIT
-                   NAMES llvm-lit lit.py lit
-                   PATHS "${LLVM_MAIN_SRC_DIR}/utils/lit"
-                   DOC "Path to lit.py")
-    endif()
-
+    find_program(LLVM_LIT
+                 NAMES llvm-lit lit.py lit
+                 PATHS "${LLVM_MAIN_SRC_DIR}/utils/lit"
+                 DOC "Path to lit.py")
+    
     if (LLVM_LIT)
       # Define the default arguments to use with 'lit', and provide an option for the user
       # to override the arguments.
@@ -165,7 +138,6 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   endif()
 
-  set(FLANG_BUILT_STANDALONE 1)
   set(BACKEND_PACKAGE_STRING "LLVM ${LLVM_PACKAGE_VERSION}")
 else()
   set(BACKEND_PACKAGE_STRING "${PACKAGE_STRING}")
@@ -195,14 +167,6 @@ else ()
 endif()
 
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
-
-set(FLANG_C_INCLUDE_DIRS "" CACHE STRING
-  "Colon separated list of directories Flang will use to search for header files.")
-
-if (NOT GCC_INSTALL_PREFIX)   # FIXME: Need to doublecheck that this actually behaves correctly. 
-  set(GCC_INSTALL_PREFIX "" CACHE PATH
-    "The <path> to directory where GCC is installed.")
-endif()
 
 if (NOT DEFAULT_SYSROOT)  # FIXME: Need to doublecheck that this actually behaves correctly. 
   set(DEFAULT_SYSROOT "" CACHE PATH
@@ -252,15 +216,15 @@ set(FLANG_VERSION_PATCHLEVEL "0")
 
 if (NOT DEFINED FLANG_VERSION_MAJOR)
   set(FLANG_VERSION_MAJOR ${LLVM_VERSION_MAJOR})
-endif ()
+endif()
 
 if (NOT DEFINED FLANG_VERSION_MINOR)
   set(FLANG_VERSION_MINOR ${LLVM_VERSION_MINOR})
-endif ()
+endif()
 
 if (NOT DEFINED FLANG_VERSION_PATCHLEVEL)
   set(FLANG_VERSION_PATCHLEVEL ${LLVM_VERSION_PATCH})
-endif ()
+endif()
 
 # Unlike PACKAGE_VERSION, FLANG_VERSION does not include LLVM_VERSION_SUFFIX.
 set(FLANG_VERSION "${FLANG_VERSION_MAJOR}.${FLANG_VERSION_MINOR}.${FLANG_VERSION_PATCHLEVEL}")
@@ -320,7 +284,6 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
 
   set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -DCHECK=(void)")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUGF18")
-
 
   # Building shared libraries is death on performance with GCC by default
   # due to the need to preserve the right to override external entry points
@@ -388,6 +351,7 @@ endif()
 
 add_subdirectory(runtime)
 
+
 option(FLANG_INCLUDE_TESTS
        "Generate build targets for the Flang unit tests."
        ${LLVM_INCLUDE_TESTS})
@@ -397,9 +361,9 @@ if (FLANG_INCLUDE_TESTS)
   add_subdirectory(test-lit)
 endif()
 
-# FIXME: need to add doxygen support in 'documentation' directory. 
-option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
-       ${LLVM_INCLUDE_DOCS})
+# TODO: Add doxygen support.
+#option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
+#       ${LLVM_INCLUDE_DOCS})
 #if (FLANG_INCLUDE_DOCS)
 #  add_subdirectory(documentation)
 #endif()
