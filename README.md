@@ -83,6 +83,14 @@ where `LLVM_INSTALLATION_DIR` is
 the top-level directory
 where llvm is installed.
 
+### LLVM dependency for the Flang Driver
+Flang driver entrypoint uses Clang Driver library. Therefore LLVM build
+needs to build clang by adding:
+```
+-DLLVM_ENABLE_PROJECTS=clang
+```
+to the LLVM cmake command.
+
 ### LLVM dependency for lit Regression tests
 
 F18 has tests that use the lit framework, these tests rely on the
