@@ -21,6 +21,8 @@ add_library(FortranRuntime
   unit.cpp
 )
 
+target_compile_features(FortranRuntime PUBLIC cxx_std_17)
+
 target_link_libraries(FortranRuntime
   FortranCommon
   FortranDecimal

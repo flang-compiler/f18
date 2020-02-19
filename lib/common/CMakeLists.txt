@@ -6,6 +6,8 @@ add_library(FortranCommon
   idioms.cpp
 )
 
+target_compile_features(FortranCommon PUBLIC cxx_std_17)
+
 install (TARGETS FortranCommon
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

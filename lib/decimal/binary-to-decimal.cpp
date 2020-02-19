@@ -292,8 +292,11 @@ void BigRadixFloatingPointNumber<PREC, LOG10RADIX>::Minimize(
   Normalize();
 }
 
+// FIXME: 'noinline' attribute added for successful release builds 
+// on darwin/MacOS (10.15.x & Apple's clang v11.0). Inlined code 
+// was not visible at link time for use in decimal-to-binary.cpp. 
 template<int PREC, int LOG10RADIX>
-void BigRadixFloatingPointNumber<PREC,
+void __attribute__ ((noinline)) BigRadixFloatingPointNumber<PREC,
     LOG10RADIX>::LoseLeastSignificantDigit() {
   Digit LSD{digit_[0]};
   for (int j{0}; j < digits_ - 1; ++j) {

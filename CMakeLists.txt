@@ -32,8 +32,6 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
           `CMakeFiles'. Please delete them.")
 endif()
 
-
-
 # Check for a standalone build and configure as appropriate from
 # there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -47,7 +45,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     mark_as_advanced(LLVM_ENABLE_ASSERTIONS)
   endif()
 
-  # We need (to find) a pre-built/installed version of LLVM. 
+  # We need a pre-built/installed version of LLVM. 
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})  
 
@@ -66,15 +64,23 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(LLVMDistributionSupport)
   #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
-  set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
-  
-  # TODO: This pattern is from Clang -- not sure it makes sense here... 
-  if (NOT DEFINED LLVM_INCLUDE_TESTS)
-    set(LLVM_INCLUDE_TESTS ON)
+  # LLVM's cmake configuration files currently sneak in a c++11 flag.
+  # We look for it here and remove it from Flang's compile flags to 
+  # avoid some mixed compilation flangs (e.g. -std=c++11 ... -std=c++17). 
+  if (DEFINED LLVM_CXX_STD) 
+    message("LLVM configuration set a C++ standard: ${LLVM_CXX_STD}")
+    if (NOT LLVM_CXX_STD EQUAL "c++17")
+      message("Flang: Overriding LLVM's 'cxx_std' setting...")
+      message("    removing '-std=${LLVM_CXX_STD}'")
+      message("    CMAKE_CXX_FLAGS='${CMAKE_CXX_FLAGS}'")
+      string(REPLACE " -std=${LLVM_CXX_STD}" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+      message("    [NEW] CMAKE_CXX_FLAGS='${CMAKE_CXX_FLAGS}'")
+    endif()
   endif()
 
-
-  if (DEFINED LLVM_BINARY_DIR AND DEFINED LLVM_MAIN_INCLUDE_DIR)
+  set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
+  
+    if (DEFINED LLVM_BINARY_DIR AND DEFINED LLVM_MAIN_INCLUDE_DIR)
     message("Include directories: ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR}")
     include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
   endif()
@@ -88,56 +94,6 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY 
     ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
   
-  if (LLVM_INCLUDE_TESTS)
-    include(FindPythonInterp)
-    if (NOT PYTHONINTERP_FOUND)
-      message(FATAL_ERROR
-        "Unable to find Python interpreter, required for builds and testing. \
-        Please install Python or specify the PYTHON_EXECUTABLE CMake variable.")
-    endif()
-
-    if (${PYTHON_VERSION_STRING} VERSION_LESS 2.7)
-      message(FATAL_ERROR "Python 2.7 or newer is required.")
-    endif()
-  
-    if (EXISTS ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
-      # Note: the path is not really used, except for checking if lit was found
-      set(LLVM_LIT ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
-      if(EXISTS ${LLVM_MAIN_SRC_DIR}/utils/llvm-lit)
-        add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/llvm-lit utils/llvm-lit)
-      endif()
-    endif()
-    
-    set(UNITTEST_DIR ${LLVM_MAIN_SRC_DIR}/utils/unittest)
-    
-      # Search for an installed lit.
-    find_program(LLVM_LIT
-                 NAMES llvm-lit lit.py lit
-                 PATHS "${LLVM_MAIN_SRC_DIR}/utils/lit"
-                 DOC "Path to lit.py")
-    
-    if (LLVM_LIT)
-      # Define the default arguments to use with 'lit', and provide an option for the user
-      # to override the arguments.
-      set(LIT_ARGS_DEFAULT "-sv")
-
-      if (MSVC OR XCODE)
-        set(LIT_ARGS_DEFAULT "${LIT_ARGS_DEFAULT} --no-progress-bar")
-      endif()
-      
-      set(LLVM_LIT_ARGS "${LIT_ARGS_DEFAULT}" CACHE STRING "Default options for lit")
-
-      # On Win32 hosts, provide an option to specify the path to the GnuWin32 tools.
-      if( WIN32 AND NOT CYGWIN )
-        set(LLVM_LIT_TOOLS_DIR "" CACHE PATH "Path to GnuWin32 tools")
-      endif()
-
-    else()
-      set(LLVM_INCLUDE_TESTS OFF)
-    endif()
-
-  endif()
-
   set(BACKEND_PACKAGE_STRING "LLVM ${LLVM_PACKAGE_VERSION}")
 else()
   set(BACKEND_PACKAGE_STRING "${PACKAGE_STRING}")
@@ -145,8 +101,7 @@ else()
   set(MLIR_SOURCE_DIR ${LLVM_SOURCE_DIR}/../mlir)
 endif()
 
-# Make sure that the flang source directory is on the current cmake module path so that 
-# we can include flang-centric cmake files from within the project. 
+# Add Flang-centric modules to cmake path. 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
 if (MLIR_SOURCE_DIR) 
@@ -190,7 +145,7 @@ if (NOT(FLANG_DEFAULT_RTLIB STREQUAL ""))
 endif()
 
 set(FLANG_VENDOR ${PACKAGE_VENDOR} CACHE STRING
-  "Vendor-specific text for showing with version information.")
+  "Vendor-specific Flang version information.")
 
 if (FLANG_VENDOR)
   add_definitions(-DFLANG_VENDOR="${FLANG_VENDOR} ")

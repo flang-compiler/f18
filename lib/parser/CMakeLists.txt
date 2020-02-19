@@ -25,6 +25,8 @@ add_library(FortranParser
   user-state.cpp
 )
 
+target_compile_features(FortranParser PRIVATE cxx_std_17)
+
 target_link_libraries(FortranParser
   FortranCommon
 )

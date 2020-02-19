@@ -27,6 +27,8 @@ add_library(FortranEvaluate
   variable.cpp
 )
 
+target_compile_features(FortranEvaluate PUBLIC cxx_std_17)
+
 target_link_libraries(FortranEvaluate
   FortranCommon
   FortranDecimal
