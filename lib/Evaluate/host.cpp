@@ -11,6 +11,9 @@
 #include "flang/Common/idioms.h"
 #include "llvm/Support/Errno.h"
 #include <cfenv>
+#if __x86_64__ && defined(_MSC_VER)
+#include <xmmintrin.h>
+#endif
 
 namespace Fortran::evaluate::host {
 using namespace Fortran::parser::literals;
@@ -30,6 +33,16 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
   }
 #if __x86_64__
   hasSubnormalFlushingHardwareControl_ = true;
+#ifdef _MSC_VER
+  unsigned int new_mxcsr{_mm_getcsr()};
+  if (context.flushSubnormalsToZero()) {
+    new_mxcsr |= 0x8000;
+    new_mxcsr |= 0x0040;
+  } else {
+    new_mxcsr &= ~0x8000;
+    new_mxcsr &= ~0x0040;
+  }
+#else
   if (context.flushSubnormalsToZero()) {
     currentFenv_.__mxcsr |= 0x8000;  // result
     currentFenv_.__mxcsr |= 0x0040;  // operands
@@ -37,6 +50,7 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
     currentFenv_.__mxcsr &= ~0x8000;  // result
     currentFenv_.__mxcsr &= ~0x0040;  // operands
   }
+#endif
 #elif defined(__aarch64__)
 #if defined(__GNU_LIBRARY__)
   hasSubnormalFlushingHardwareControl_ = true;
@@ -75,6 +89,10 @@ void HostFloatingPointEnvironment::SetUpHostFloatingPointEnvironment(
         llvm::sys::StrError(errno).c_str());
     return;
   }
+#if __x86_64__ && defined(_MSC_VER)
+  _mm_setcsr(new_mxcsr);
+#endif
+
   switch (context.rounding().mode) {
   case common::RoundingMode::TiesToEven: fesetround(FE_TONEAREST); break;
   case common::RoundingMode::ToZero: fesetround(FE_TOWARDZERO); break;

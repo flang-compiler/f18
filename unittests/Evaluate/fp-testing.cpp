@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if __x86_64__ && defined(_MSC_VER)
+#include <xmmintrin.h>
+#endif
 
 using Fortran::common::RoundingMode;
 using Fortran::evaluate::RealFlag;
@@ -26,6 +29,19 @@ ScopedHostFloatingPointEnvironment::ScopedHostFloatingPointEnvironment(
     std::abort();
   }
 #if __x86_64__
+#ifdef _MSC_VER
+  unsigned int new_mxcsr{_mm_getcsr()};
+  if (treatSubnormalOperandsAsZero) {
+    new_mxcsr |= 0x0040;
+  } else {
+    new_mxcsr &= ~0x0040;
+  }
+  if (flushSubnormalResultsToZero) {
+    new_mxcsr |= 0x8000;
+  } else {
+    new_mxcsr &= ~0x8000;
+  }
+#else
   if (treatSubnormalOperandsAsZero) {
     currentFenv_.__mxcsr |= 0x0040;
   } else {
@@ -36,6 +52,7 @@ ScopedHostFloatingPointEnvironment::ScopedHostFloatingPointEnvironment(
   } else {
     currentFenv_.__mxcsr &= ~0x8000;
   }
+#endif
 #else
   // TODO others
 #endif
@@ -45,6 +62,9 @@ ScopedHostFloatingPointEnvironment::ScopedHostFloatingPointEnvironment(
         stderr, "fesetenv() failed: %s\n", llvm::sys::StrError(errno).c_str());
     std::abort();
   }
+#if __x86_64__ && defined(_MSC_VER)
+  _mm_setcsr(new_mxcsr);
+#endif
 }
 
 ScopedHostFloatingPointEnvironment::~ScopedHostFloatingPointEnvironment() {
