@@ -12,7 +12,8 @@
 #define FORTRAN_RUNTIME_LOCK_H_
 
 #ifdef _MSC_VER
-#include <synchapi.h>
+#define NOMINMAX
+#include <windows.h>
 #else
 #include <pthread.h>
 #endif
