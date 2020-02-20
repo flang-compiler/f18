@@ -64,6 +64,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(LLVMDistributionSupport)
   #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
+  # Add LLVM include files as if they were SYSTEM because there are complex unused
+  # parameter issues that may or may not appear depending on the environments and
+  # compilers (ifdefs are involved). This allows warnings from LLVM headers to be
+  # ignored while keeping -Wunused-parameter a fatal error inside f18 code base.
+  # This may have to be fine-tuned if flang headers are consider part of this
+  # LLVM_INCLUDE_DIRS when merging in the monorepo (Warning from flang headers
+  # should not be suppressed).
+  include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
+  add_definitions(${LLVM_DEFINITIONS})
+  
   # LLVM's cmake configuration files currently sneak in a c++11 flag.
   # We look for it here and remove it from Flang's compile flags to 
   # avoid some mixed compilation flangs (e.g. -std=c++11 ... -std=c++17). 
@@ -79,12 +89,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   endif()
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
-  
-    if (DEFINED LLVM_BINARY_DIR AND DEFINED LLVM_MAIN_INCLUDE_DIR)
-    message("Include directories: ${LLVM_BINARY_DIR}/include ${LLVM_MAIN_INCLUDE_DIR}")
-    include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
-  endif()
-  
+    
   link_directories("${LLVM_LIBRARY_DIR}")
   set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 
@@ -144,10 +149,38 @@ if (NOT(FLANG_DEFAULT_RTLIB STREQUAL ""))
       "Default runtime library to use (empty for platform default)" FORCE)
 endif()
 
+
+if(CMAKE_COMPILER_IS_GNUCXX OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+      if(BUILD_WITH_CLANG_LIBRARIES)
+         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdinc++ -I${BUILD_WITH_CLANG_LIBRARIES}/include/c++/v1 -DCLANG_LIBRARIES")
+         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -Wl,-rpath,${BUILD_WITH_CLANG_LIBRARIES}/lib -L${BUILD_WITH_CLANG_LIBRARIES}/lib")
+      else()
+         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lstdc++")
+      endif()
+      if(GCC)
+         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${GCC}")
+      endif()
+   endif()
+
+   set(CMAKE_CXX_FLAGS_RELEASE    "-O2")
+   set(CMAKE_CXX_FLAGS_MINSIZEREL "-O2 '-DCHECK=(void)'")
+   set(CMAKE_CXX_FLAGS_DEBUG      "-g -DDEBUGF18")
+
+   # Building shared libraries is death on performance with GCC by default
+   # due to the need to preserve the right to override external entry points
+   # at dynamic link time.  -fno-semantic-interposition waives that right and
+   # recovers a little bit of that performance.
+   if (BUILD_SHARED_LIBS AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-semantic-interposition")
+   endif()
+endif()
+
+
 set(FLANG_VENDOR ${PACKAGE_VENDOR} CACHE STRING
   "Vendor-specific Flang version information.")
 
-if (FLANG_VENDOR)
+  if (FLANG_VENDOR)
   add_definitions(-DFLANG_VENDOR="${FLANG_VENDOR} ")
 endif()
 
@@ -163,6 +196,7 @@ set(FLANG_VENDOR_UTI "org.llvm.flang" CACHE STRING
 
 # The libdir suffix must exactly match whatever LLVM's configuration used.
 set(FLANG_LIBDIR_SUFFIX "${LLVM_LIBDIR_SUFFIX}")
+
 
 # Override LLVM versioning for now... 
 set(FLANG_VERSION_MAJOR      "0")
@@ -201,9 +235,6 @@ configure_file(
 
 # Add appropriate flags for GCC
 if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -fno-exceptions \
-        -Wall -Wextra -Werror -Wcast-qual -Wimplicit-fallthrough -Wdelete-non-virtual-dtor")
-
   if (NOT "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing -fno-semantic-interposition")
   else()
@@ -246,6 +277,8 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-semantic-interposition")
   endif()
   
+  list(REMOVE_DUPLICATES CMAKE_CXX_FLAGS)
+
 endif()
 
 
@@ -312,6 +345,7 @@ option(FLANG_INCLUDE_TESTS
        ${LLVM_INCLUDE_TESTS})
 
 if (FLANG_INCLUDE_TESTS)
+  enable_testing()
   add_subdirectory(test)
   add_subdirectory(test-lit)
 endif()
