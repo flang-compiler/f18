@@ -46,7 +46,7 @@ set(MODULES
   "__fortran_builtins"
 )
 
-set(include ${CMAKE_CURRENT_BINARY_DIR}/include)
+set(include ${FLANG_BINARY_DIR}/include)
 
 # Create module files directly from the top-level module source directory
 foreach(filename ${MODULES})
@@ -57,9 +57,9 @@ foreach(filename ${MODULES})
   endif()
   add_custom_command(OUTPUT ${include}/${filename}.mod
     COMMAND f18 -fparse-only -I${include}
-      ${PROJECT_SOURCE_DIR}/module/${filename}.f90
+      ${FLANG_SOURCE_DIR}/module/${filename}.f90
     WORKING_DIRECTORY ${include}
-    DEPENDS f18 ${PROJECT_SOURCE_DIR}/module/${filename}.f90 ${depends}
+    DEPENDS f18 ${FLANG_SOURCE_DIR}/module/${filename}.f90 ${depends}
   )
   add_custom_command(OUTPUT ${include}/${filename}.f18.mod
     DEPENDS ${include}/${filename}.mod

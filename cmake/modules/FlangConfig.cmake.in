@@ -1,0 +1,20 @@
+#===-- FlangConfig.cmake.in ------------------------------------------------===#
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+#===------------------------------------------------------------------------===#
+# This file allows users to call find_package(Flang) and pick up our targets.
+
+@FLANG_CONFIG_CODE@
+
+find_package(LLVM REQUIRED CONFIG
+             HINTS "@FLANG_CONFIG_LLVM_CMAKE_DIR@")
+
+set(FLANG_EXPORTED_TARGETS "@FLANG_EXPORTS@")
+set(FLANG_CMAKE_DIR "FLANG_CONFIG_CMAKE_DIR@")
+set(FLANG_INCLUDE_DIRS "@FLANG_CONFIG_INCLUDE_DIRS@")
+
+# Provide all our library targets to users.
+include("@FLANG_CONFIG_EXPORTS_FILE@")
