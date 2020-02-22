@@ -10,11 +10,13 @@ set_property(TARGET f18 PROPERTY CXX_STANDARD 17)
 target_compile_features(f18 PRIVATE cxx_std_17)
 target_compile_features(f18 PRIVATE cxx_std_17)
 
+
 target_link_libraries(f18
   FortranParser
   FortranEvaluate
   FortranSemantics
   FortranLower
+  FortranDecimal
   LLVMSupport
 )
 

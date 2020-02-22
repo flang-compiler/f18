@@ -1,4 +1,3 @@
-
 add_library(FortranRuntime
   ISO_Fortran_binding.cpp
   buffer.cpp

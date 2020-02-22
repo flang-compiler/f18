@@ -1,16 +1,3 @@
-<<<<<<< HEAD
-
-# simple helper to add a flang test.  
-function(add_flang_test EXECUTABLE TEST_NAME) 
-  message(STATUS "flang: adding test '${TEST_NAME}' (${EXECUTABLE})")
-  add_executable(${EXECUTABLE}-test ${EXECUTABLE}.cpp)
-  target_compile_features(${EXECUTABLE}-test PRIVATE cxx_std_17)
-  target_link_libraries(${EXECUTABLE}-test ${ARGN})
-  add_test(NAME ${TEST_NAME} 
-           COMMAND ${EXECUTABLE}-test)
-endfunction()
-=======
->>>>>>> Some fixes based on PR feedback.  Still experimenting.
 
 # simple helper to add a flang test.  
 function(add_flang_test EXECUTABLE TEST_NAME) 
