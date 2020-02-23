@@ -62,6 +62,15 @@ enum DecimalConversionFlags {
   AlwaysSign = 2, /* emit leading '+' if not negative */
 };
 
+/*
+ * When allocating decimal conversion output buffers, use the maximum
+ * number of significant decimal digits in the representation of the
+ * least nonzero value, and add this extra space for a sign, a NUL, and
+ * some extra due to the library working internally in base 10**16
+ * and computing its output size in multiples of 16.
+ */
+#define EXTRA_DECIMAL_CONVERSION_SPACE (1 + 1 + 16 - 1)
+
 #ifdef __cplusplus
 template<int PREC>
 ConversionToDecimalResult ConvertToDecimal(char *, size_t,
@@ -121,7 +130,7 @@ struct NS(ConversionToDecimalResult)
 struct NS(ConversionToDecimalResult)
     ConvertDoubleToDecimal(char *, size_t, enum NS(DecimalConversionFlags),
         int digits, enum NS(FortranRounding), double);
-#if __x86_64__
+#if __x86_64__ && !defined(_MSC_VER)
 struct NS(ConversionToDecimalResult)
     ConvertLongDoubleToDecimal(char *, size_t, enum NS(DecimalConversionFlags),
         int digits, enum NS(FortranRounding), long double);
@@ -131,7 +140,7 @@ enum NS(ConversionResultFlags)
     ConvertDecimalToFloat(const char **, float *, enum NS(FortranRounding));
 enum NS(ConversionResultFlags)
     ConvertDecimalToDouble(const char **, double *, enum NS(FortranRounding));
-#if __x86_64__
+#if __x86_64__ && !defined(_MSC_VER)
 enum NS(ConversionResultFlags) ConvertDecimalToLongDouble(
     const char **, long double *, enum NS(FortranRounding));
 #endif

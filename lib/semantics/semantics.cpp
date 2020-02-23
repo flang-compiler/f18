@@ -13,9 +13,10 @@
 #include "check-allocate.h"
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
+#include "check-data.h"
 #include "check-deallocate.h"
 #include "check-declarations.h"
-#include "check-do.h"
+#include "check-do-forall.h"
 #include "check-if-stmt.h"
 #include "check-io.h"
 #include "check-nullify.h"
@@ -111,11 +112,11 @@ private:
 };
 
 using StatementSemanticsPass1 = ExprChecker;
-using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
-    ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
-    DeallocateChecker, DoChecker, IfStmtChecker, IoChecker, NullifyChecker,
-    OmpStructureChecker, PurityChecker, ReturnStmtChecker, SelectStmtChecker,
-    StopChecker>;
+using StatementSemanticsPass2 = SemanticsVisitor<
+    AllocateChecker, ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
+    DataChecker, DeallocateChecker, DoForallChecker, IfStmtChecker, IoChecker,
+    NullifyChecker, OmpStructureChecker, PurityChecker, ReturnStmtChecker,
+    SelectStmtChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
@@ -123,7 +124,8 @@ static bool PerformStatementSemantics(
   RewriteParseTree(context, program);
   CheckDeclarations(context);
   StatementSemanticsPass1{context}.Walk(program);
-  return StatementSemanticsPass2{context}.Walk(program);
+  StatementSemanticsPass2{context}.Walk(program);
+  return !context.AnyFatalError();
 }
 
 SemanticsContext::SemanticsContext(
@@ -205,76 +207,71 @@ void SemanticsContext::PopConstruct() {
   constructStack_.pop_back();
 }
 
-void SemanticsContext::CheckDoVarRedefine(const parser::CharBlock &location,
+void SemanticsContext::CheckIndexVarRedefine(const parser::CharBlock &location,
     const Symbol &variable, parser::MessageFixedText &&message) {
   if (const Symbol * root{GetAssociationRoot(variable)}) {
-    if (IsActiveDoVariable(*root)) {
-      parser::CharBlock doLoc{GetDoVariableLocation(*root)};
-      CHECK(doLoc != parser::CharBlock{});
-      Say(location, std::move(message), root->name())
-          .Attach(doLoc, "Enclosing DO construct"_en_US);
+    auto it{activeIndexVars_.find(*root)};
+    if (it != activeIndexVars_.end()) {
+      std::string kind{EnumToString(it->second.kind)};
+      Say(location, std::move(message), kind, root->name())
+          .Attach(it->second.location, "Enclosing %s construct"_en_US, kind);
     }
   }
 }
 
-void SemanticsContext::WarnDoVarRedefine(
+void SemanticsContext::WarnIndexVarRedefine(
     const parser::CharBlock &location, const Symbol &variable) {
-  CheckDoVarRedefine(
-      location, variable, "Possible redefinition of DO variable '%s'"_en_US);
+  CheckIndexVarRedefine(
+      location, variable, "Possible redefinition of %s variable '%s'"_en_US);
 }
 
-void SemanticsContext::CheckDoVarRedefine(
+void SemanticsContext::CheckIndexVarRedefine(
     const parser::CharBlock &location, const Symbol &variable) {
-  CheckDoVarRedefine(
-      location, variable, "Cannot redefine DO variable '%s'"_err_en_US);
+  CheckIndexVarRedefine(
+      location, variable, "Cannot redefine %s variable '%s'"_err_en_US);
 }
 
-void SemanticsContext::CheckDoVarRedefine(const parser::Variable &variable) {
+void SemanticsContext::CheckIndexVarRedefine(const parser::Variable &variable) {
   if (const Symbol * entity{GetLastName(variable).symbol}) {
-    const parser::CharBlock &sourceLocation{variable.GetSource()};
-    CheckDoVarRedefine(sourceLocation, *entity);
+    CheckIndexVarRedefine(variable.GetSource(), *entity);
   }
 }
 
-void SemanticsContext::CheckDoVarRedefine(const parser::Name &name) {
-  const parser::CharBlock &sourceLocation{name.source};
+void SemanticsContext::CheckIndexVarRedefine(const parser::Name &name) {
   if (const Symbol * entity{name.symbol}) {
-    CheckDoVarRedefine(sourceLocation, *entity);
+    CheckIndexVarRedefine(name.source, *entity);
   }
 }
 
-void SemanticsContext::ActivateDoVariable(const parser::Name &name) {
-  CheckDoVarRedefine(name);
-  if (const Symbol * doVariable{name.symbol}) {
-    if (const Symbol * root{GetAssociationRoot(*doVariable)}) {
-      if (!IsActiveDoVariable(*root)) {
-        activeDoVariables_.emplace(*root, name.source);
+void SemanticsContext::ActivateIndexVar(
+    const parser::Name &name, IndexVarKind kind) {
+  CheckIndexVarRedefine(name);
+  if (const Symbol * indexVar{name.symbol}) {
+    if (const Symbol * root{GetAssociationRoot(*indexVar)}) {
+      activeIndexVars_.emplace(*root, IndexVarInfo{name.source, kind});
+    }
+  }
+}
+
+void SemanticsContext::DeactivateIndexVar(const parser::Name &name) {
+  if (Symbol * indexVar{name.symbol}) {
+    if (const Symbol * root{GetAssociationRoot(*indexVar)}) {
+      auto it{activeIndexVars_.find(*root)};
+      if (it != activeIndexVars_.end() && it->second.location == name.source) {
+        activeIndexVars_.erase(it);
       }
     }
   }
 }
 
-void SemanticsContext::DeactivateDoVariable(const parser::Name &name) {
-  if (Symbol * doVariable{name.symbol}) {
-    if (const Symbol * root{GetAssociationRoot(*doVariable)}) {
-      if (name.source == GetDoVariableLocation(*root)) {
-        activeDoVariables_.erase(*root);
-      }
+SymbolVector SemanticsContext::GetIndexVars(IndexVarKind kind) {
+  SymbolVector result;
+  for (const auto &[symbol, info] : activeIndexVars_) {
+    if (info.kind == kind) {
+      result.push_back(symbol);
     }
   }
-}
-
-bool SemanticsContext::IsActiveDoVariable(const Symbol &variable) {
-  return activeDoVariables_.find(variable) != activeDoVariables_.end();
-}
-
-parser::CharBlock SemanticsContext::GetDoVariableLocation(
-    const Symbol &variable) {
-  if (IsActiveDoVariable(variable)) {
-    return activeDoVariables_[variable];
-  } else {
-    return parser::CharBlock{};
-  }
+  return result;
 }
 
 bool Semantics::Perform() {
@@ -296,7 +293,7 @@ void Semantics::DumpSymbols(std::ostream &os) {
 void Semantics::DumpSymbolsSources(std::ostream &os) const {
   NameToSymbolMap symbols;
   GetSymbolNames(context_.globalScope(), symbols);
-  for (const auto pair : symbols) {
+  for (const auto &pair : symbols) {
     const Symbol &symbol{pair.second};
     if (auto sourceInfo{cooked_.GetSourcePositionRange(symbol.name())}) {
       os << symbol.name().ToString() << ": " << sourceInfo->first.file.path()

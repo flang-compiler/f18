@@ -13,6 +13,7 @@
 #include "flang/common/Fortran.h"
 #include "flang/common/enum-set.h"
 #include "flang/common/reference.h"
+#include <array>
 #include <list>
 #include <optional>
 #include <set>
@@ -52,10 +53,6 @@ private:
 
 class SubprogramDetails {
 public:
-  SubprogramDetails() {}
-  SubprogramDetails(const SubprogramDetails &that)
-    : dummyArgs_{that.dummyArgs_}, result_{that.result_} {}
-
   bool isFunction() const { return result_ != nullptr; }
   bool isInterface() const { return isInterface_; }
   void set_isInterface(bool value = true) { isInterface_ = value; }
@@ -467,7 +464,7 @@ public:
       // OpenMP miscellaneous flags
       OmpCommonBlock, OmpReduction, OmpDeclareSimd, OmpDeclareTarget,
       OmpThreadprivate, OmpDeclareReduction, OmpFlushed, OmpCriticalLock,
-      OmpIfSpecified);
+      OmpIfSpecified, OmpNone, OmpPreDetermined);
   using Flags = common::EnumSet<Flag, Flag_enumSize>;
 
   const Scope &owner() const { return *owner_; }

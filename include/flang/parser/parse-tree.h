@@ -1412,9 +1412,7 @@ struct DataStmtConstant {
 // (only literal-constant -> int-literal-constant applies)
 struct DataStmtRepeat {
   UNION_CLASS_BOILERPLATE(DataStmtRepeat);
-  std::variant<IntLiteralConstant, Scalar<Integer<NamedConstant>>,
-      Scalar<Integer<ConstantSubobject>>>
-      u;
+  std::variant<IntLiteralConstant, Scalar<Integer<ConstantSubobject>>> u;
 };
 
 // R843 data-stmt-value -> [data-stmt-repeat *] data-stmt-constant
@@ -3498,10 +3496,12 @@ struct OmpSectionsDirective {
 struct OmpBeginSectionsDirective {
   TUPLE_CLASS_BOILERPLATE(OmpBeginSectionsDirective);
   std::tuple<OmpSectionsDirective, OmpClauseList> t;
+  CharBlock source;
 };
 struct OmpEndSectionsDirective {
   TUPLE_CLASS_BOILERPLATE(OmpEndSectionsDirective);
   std::tuple<OmpSectionsDirective, OmpClauseList> t;
+  CharBlock source;
 };
 
 // [!$omp section]
@@ -3742,21 +3742,25 @@ struct OpenMPStandaloneConstruct {
 struct OmpBeginLoopDirective {
   TUPLE_CLASS_BOILERPLATE(OmpBeginLoopDirective);
   std::tuple<OmpLoopDirective, OmpClauseList> t;
+  CharBlock source;
 };
 
 struct OmpEndLoopDirective {
   TUPLE_CLASS_BOILERPLATE(OmpEndLoopDirective);
   std::tuple<OmpLoopDirective, OmpClauseList> t;
+  CharBlock source;
 };
 
 struct OmpBeginBlockDirective {
   TUPLE_CLASS_BOILERPLATE(OmpBeginBlockDirective);
   std::tuple<OmpBlockDirective, OmpClauseList> t;
+  CharBlock source;
 };
 
 struct OmpEndBlockDirective {
   TUPLE_CLASS_BOILERPLATE(OmpEndBlockDirective);
   std::tuple<OmpBlockDirective, OmpClauseList> t;
+  CharBlock source;
 };
 
 struct OpenMPBlockConstruct {

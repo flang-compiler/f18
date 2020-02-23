@@ -122,7 +122,7 @@ bool BigRadixFloatingPointNumber<PREC, LOG10RADIX>::ParseNumber(
         // The decimal->binary conversion routine will cope with
         // returning 0 or Inf, but we must ensure that "expo" didn't
         // overflow back around to something legal.
-        expo = 10 * Real::RANGE;
+        expo = 10 * Real::decimalRange;
         exponent_ = 0;
       }
       p = q;  // exponent was valid
@@ -256,7 +256,7 @@ ConversionToBinaryResult<PREC> IntermediateFloat<PREC>::ToBinary(
   using Raw = typename Binary::RawType;
   Raw raw = static_cast<Raw>(isNegative) << (Binary::bits - 1);
   raw |= static_cast<Raw>(expo) << Binary::significandBits;
-  if constexpr (Binary::implicitMSB) {
+  if constexpr (Binary::isImplicitMSB) {
     fraction &= ~topBit;
   }
   raw |= fraction;
@@ -278,7 +278,7 @@ BigRadixFloatingPointNumber<PREC, LOG10RADIX>::ConvertToBinary() {
   // it sits to the *left* of the digits: i.e., x = .D * 10.**E
   exponent_ += digits_ * log10Radix;
   // Sanity checks for ridiculous exponents
-  static constexpr int crazy{2 * Real::RANGE + log10Radix};
+  static constexpr int crazy{2 * Real::decimalRange + log10Radix};
   if (exponent_ < -crazy) {  // underflow to +/-0.
     return {Real{SignBit()}, Inexact};
   } else if (exponent_ > crazy) {  // overflow to +/-Inf.
@@ -417,7 +417,7 @@ enum ConversionResultFlags ConvertDecimalToDouble(
       reinterpret_cast<const void *>(&result.binary), sizeof *d);
   return result.flags;
 }
-#if __x86_64__
+#if __x86_64__ && !defined(_MSC_VER)
 enum ConversionResultFlags ConvertDecimalToLongDouble(
     const char **p, long double *ld, enum FortranRounding rounding) {
   auto result{Fortran::decimal::ConvertToBinary<64>(*p, rounding)};
