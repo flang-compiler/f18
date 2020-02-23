@@ -20,8 +20,6 @@ public:
 
 private:
   SemanticsContext &context_;
-  bool IsValidSelectCaseType(const evaluate::DynamicType &,
-      const parser::ConstantExpr &, const parser::CharBlock &);
 };
 }  // namespace Fortran::semantics
 #endif  // FORTRAN_SEMANTICS_CHECK_SELECT_STMT_H_

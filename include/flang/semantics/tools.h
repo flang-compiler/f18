@@ -48,7 +48,7 @@ const DeclTypeSpec *FindParentTypeSpec(const DerivedTypeSpec &);
 const DeclTypeSpec *FindParentTypeSpec(const DeclTypeSpec &);
 const DeclTypeSpec *FindParentTypeSpec(const Scope &);
 const DeclTypeSpec *FindParentTypeSpec(const Symbol &);
- 
+
 // Return the Symbol of the variable of a construct association, if it exists
 const Symbol *GetAssociationRoot(const Symbol &);
 
@@ -271,10 +271,43 @@ template<typename T> std::optional<bool> GetBoolValue(const T &x) {
 
 template<typename T> std::optional<std::string> GetStringValue(const T &x) {
   if (const auto *expr{GetExpr(x)}) {
-    return evaluate::ToString(*expr);
-  } else {
-    return std::nullopt;
+    if (const auto *charExpr{
+            evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
+                *expr)}) {
+      return ToString(
+          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 1>>>(
+              (*charExpr).u));
+    }
   }
+  return std::nullopt;
+}
+
+template<typename T>
+std::optional<std::u16string> GetU16StringValue(const T &x) {
+  if (const auto *expr{GetExpr(x)}) {
+    if (const auto *charExpr{
+            evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
+                *expr)}) {
+      return ToString(
+          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 2>>>(
+              (*charExpr).u));
+    }
+  }
+  return std::nullopt;
+}
+
+template<typename T>
+std::optional<std::u32string> GetU32StringValue(const T &x) {
+  if (const auto *expr{GetExpr(x)}) {
+    if (const auto *charExpr{
+            evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
+                *expr)}) {
+      return ToString(
+          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 4>>>(
+              (*charExpr).u));
+    }
+  }
+  return std::nullopt;
 }
 
 template<typename T> bool IsZero(const T &expr) {

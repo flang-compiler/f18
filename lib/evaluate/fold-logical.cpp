@@ -173,6 +173,19 @@ Expr<Type<TypeCategory::Logical, KIND>> FoldOperation(
   return Expr<LOGICAL>{std::move(operation)};
 }
 
+std::optional<bool> ToBool(const Expr<SomeLogical> &expr) {
+  return std::visit(
+      [](const auto &kindExpr) { return ToBool(kindExpr); }, expr.u);
+}
+
+std::optional<bool> ToBool(const Expr<SomeType> &expr) {
+  if (const auto *boolExpr{UnwrapExpr<Expr<SomeLogical>>(expr)}) {
+    return ToBool(*boolExpr);
+  } else {
+    return std::nullopt;
+  }
+}
+
 FOR_EACH_LOGICAL_KIND(template class ExpressionBase, )
 template class ExpressionBase<SomeLogical>;
 }

@@ -122,26 +122,11 @@ template<typename A> std::optional<bool> ToBool(const std::optional<A> &x) {
 
 // When an expression is a constant character, ToString() extracts its value.
 template<int KIND>
-std::optional<std::string> ToString(
-    const Expr<Type<TypeCategory::Character, KIND>> &expr) {
+auto ToString(const Expr<Type<TypeCategory::Character, KIND>> &expr)
+    -> std::optional<Scalar<Type<TypeCategory::Character, KIND>>> {
   if (auto scalar{
           GetScalarConstantValue<Type<TypeCategory::Character, KIND>>(expr)}) {
-    auto str{*scalar};
-    // Type of str can be std::string or std::u16string or std::u32string
-    std::string newStr(str.begin(), str.end());
-    return newStr;
-  } else {
-    return std::nullopt;
-  }
-}
-
-std::optional<std::string> ToString(const Expr<SomeInteger> &);
-std::optional<std::string> ToString(const Expr<SomeType> &);
-
-template<typename A>
-std::optional<std::string> ToString(const std::optional<A> &x) {
-  if (x) {
-    return ToString(*x);
+    return scalar;
   } else {
     return std::nullopt;
   }

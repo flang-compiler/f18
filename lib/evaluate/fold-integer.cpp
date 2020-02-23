@@ -630,32 +630,6 @@ std::optional<std::int64_t> ToInt64(const Expr<SomeType> &expr) {
   }
 }
 
-std::optional<std::string> ToString(const Expr<SomeCharacter> &expr) {
-  return std::visit(
-      [](const auto &kindExpr) { return ToString(kindExpr); }, expr.u);
-}
-
-std::optional<std::string> ToString(const Expr<SomeType> &expr) {
-  if (const auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(expr)}) {
-    return ToString(*charExpr);
-  } else {
-    return std::nullopt;
-  }
-}
-
-std::optional<bool> ToBool(const Expr<SomeLogical> &expr) {
-  return std::visit(
-      [](const auto &kindExpr) { return ToBool(kindExpr); }, expr.u);
-}
-
-std::optional<bool> ToBool(const Expr<SomeType> &expr) {
-  if (const auto *boolExpr{UnwrapExpr<Expr<SomeLogical>>(expr)}) {
-    return ToBool(*boolExpr);
-  } else {
-    return std::nullopt;
-  }
-}
-
 FOR_EACH_INTEGER_KIND(template class ExpressionBase, )
 template class ExpressionBase<SomeInteger>;
 }

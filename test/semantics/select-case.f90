@@ -9,7 +9,8 @@ implicit none
    real :: grade4 = 2.0
    logical, parameter :: grade5 = .false.
    CHARACTER(KIND=1), PARAMETER    :: ze = 'a', at='b'
-   CHARACTER(KIND=4), PARAMETER :: mh='c'
+   CHARACTER(KIND=2), PARAMETER    :: se = 'c'
+   CHARACTER(KIND=4), PARAMETER    :: mh='d'
 
    select case (grade1)
       case ('A')
@@ -63,7 +64,7 @@ implicit none
          print*, "Invalid grade"
       case (.true.)
          print*, "Well done"
-      !ERROR: Not more than one of the selectors of SELECT CASE statement may be default
+      !ERROR: Not more than one of the selectors of SELECT CASE statement may be DEFAULT
       case default
          print*, "Invalid grade"
    end select
@@ -72,7 +73,7 @@ implicit none
       case default
          print*, "Invalid grade"
       case (.true.)
-      !ERROR: SELECT CASE value must be of type LOGICAL
+      !ERROR: CASE value must be of type LOGICAL
       case (3)
          print*, "Well done"
    end select
@@ -89,7 +90,7 @@ implicit none
          print*, "Invalid grade"
       case (2 :)
          print*, "Well done"
-      !ERROR: SELECT CASE value must be of type INTEGER
+      !ERROR: CASE value must be of type INTEGER
       case (.true. :)
    end select
 
@@ -98,10 +99,10 @@ implicit none
        name = 'true'
       case (.false.)
         name = 'false'
-      !ERROR: SELECT CASE statement value at this location overlaps with the below location
+      !ERROR: CASE value true matches a previous CASE statement
       case (.true.)
        name = 'true'
-      !ERROR: SELECT CASE statement value at this location overlaps with the below location
+      !ERROR: CASE value false matches a previous CASE statement
       case (grade5)
        name = 'true'
    end select
@@ -118,11 +119,11 @@ implicit none
          print*, "Excellent!"
       case (91:99)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value at this location overlaps with the below location
+      !ERROR: CASE value 81:90 matches a previous CASE statement
       case (81:90)
          print*, "Very good!"
-      !ERROR: SELECT CASE statement value at this location overlaps with the below location
-      !ERROR: SELECT CASE statement value at this location overlaps with the below location
+      !ERROR: CASE value :80 matches a previous CASE statement
+      !ERROR: CASE value :80 matches a previous CASE statement
       case (:80)
          print*, "Well done!"
       case default
@@ -130,7 +131,7 @@ implicit none
    end select
 
   select case (grade2)
-     !ERROR: SELECT CASE value must be of type INTEGER
+     !ERROR: CASE value must be of type INTEGER
      case (:'Z')
          print*, "Excellent!"
      case default
@@ -138,7 +139,7 @@ implicit none
    end select
 
   select case (grade1)
-     !ERROR: SELECT CASE value must be of type CHARACTER
+     !ERROR: CASE value must be of type CHARACTER
      case (:1)
          print*, "Excellent!"
      case default
@@ -152,7 +153,7 @@ implicit none
          print*, "Good"
      case ('hi':'ho')
          print*, "Well done"
-     !ERROR: SELECT CASE statement value at this location overlaps with the below location
+     !ERROR: CASE value "hj" matches a previous CASE statement
      case ('hj')
          print*, "Well done now"
      case default
@@ -161,10 +162,13 @@ implicit none
 
   select case (ze)
      case (at)
-         print*, "Well done"
-     !ERROR: SELECT CASE value kind must be same as SELECT CASE expression kind
+         print*, "Excellent!"
+     !ERROR: CASE value kind is 4, it must be 1
      case (mh)
          print*, "Well done now"
+     !ERROR: CASE value kind is 2, it must be 1
+     case (se)
+         print*, "Good"
      case default
          print*, "Invalid grade"
    end select
