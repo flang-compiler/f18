@@ -89,7 +89,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   endif()
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
-  
+
   link_directories("${LLVM_LIBRARY_DIR}")
   set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 
@@ -196,6 +196,7 @@ set(FLANG_VENDOR_UTI "org.llvm.flang" CACHE STRING
 
 # The libdir suffix must exactly match whatever LLVM's configuration used.
 set(FLANG_LIBDIR_SUFFIX "${LLVM_LIBDIR_SUFFIX}")
+
 
 # Override LLVM versioning for now... 
 set(FLANG_VERSION_MAJOR      "0")
