@@ -51,7 +51,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
                NO_DEFAULT_PATH)
-	       
+
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
   option(LLVM_INSTALL_TOOLCHAIN_ONLY
     "Only include toolchain files in the 'install' target." OFF)
@@ -61,6 +61,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)    
   include(HandleLLVMOptions)  
   include(VersionFromVCS)
+
   #include(LLVMDistributionSupport)
   #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
@@ -336,6 +337,7 @@ endif()
 
 add_subdirectory(runtime)
 
+
 option(FLANG_INCLUDE_TESTS
        "Generate build targets for the Flang unit tests."
        ${LLVM_INCLUDE_TESTS})
@@ -346,10 +348,10 @@ if (FLANG_INCLUDE_TESTS)
   #add_subdirectory(test-lit)
 endif()
 
-
 # TODO: Add doxygen support.
 #option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
 #       ${LLVM_INCLUDE_DOCS})
+#if (FLANG_INCLUDE_DOCS)
 #  add_subdirectory(documentation)
 #endif()
 
