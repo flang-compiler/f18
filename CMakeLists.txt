@@ -31,7 +31,6 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
           `CMakeFiles'. Please delete them.")
 endif()
 
-
 # Check for a standalone build and configure as appropriate from
 # there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -90,7 +89,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   endif()
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
-    
+  
   link_directories("${LLVM_LIBRARY_DIR}")
   set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 

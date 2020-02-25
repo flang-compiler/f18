@@ -1,4 +1,3 @@
-
 # simple helper to add a flang test.  
 function(add_flang_test EXECUTABLE TEST_NAME) 
   message(STATUS "flang: adding test '${TEST_NAME}' (${EXECUTABLE})")

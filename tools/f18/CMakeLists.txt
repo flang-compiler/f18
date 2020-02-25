@@ -2,7 +2,6 @@
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
 
-
 add_executable(f18
   f18.cpp
   dump.cpp
@@ -15,6 +14,7 @@ target_link_libraries(f18
   FortranEvaluate
   FortranSemantics
   FortranLower
+  FortranDecimal  
   LLVMSupport
 )
 
