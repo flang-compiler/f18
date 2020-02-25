@@ -13,6 +13,7 @@
 #include "check-allocate.h"
 #include "check-arithmeticif.h"
 #include "check-coarray.h"
+#include "check-data.h"
 #include "check-deallocate.h"
 #include "check-declarations.h"
 #include "check-do-forall.h"
@@ -110,9 +111,9 @@ private:
 };
 
 using StatementSemanticsPass1 = ExprChecker;
-using StatementSemanticsPass2 = SemanticsVisitor<  //
+using StatementSemanticsPass2 = SemanticsVisitor<
     AllocateChecker, ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker,
-    DeallocateChecker, DoForallChecker, IfStmtChecker, IoChecker,
+    DataChecker, DeallocateChecker, DoForallChecker, IfStmtChecker, IoChecker,
     NullifyChecker, OmpStructureChecker, PurityChecker, ReturnStmtChecker,
     StopChecker>;
 
@@ -122,7 +123,8 @@ static bool PerformStatementSemantics(
   RewriteParseTree(context, program);
   CheckDeclarations(context);
   StatementSemanticsPass1{context}.Walk(program);
-  return StatementSemanticsPass2{context}.Walk(program);
+  StatementSemanticsPass2{context}.Walk(program);
+  return !context.AnyFatalError();
 }
 
 SemanticsContext::SemanticsContext(
@@ -259,6 +261,16 @@ void SemanticsContext::DeactivateIndexVar(const parser::Name &name) {
       }
     }
   }
+}
+
+SymbolVector SemanticsContext::GetIndexVars(IndexVarKind kind) {
+  SymbolVector result;
+  for (const auto &[symbol, info] : activeIndexVars_) {
+    if (info.kind == kind) {
+      result.push_back(symbol);
+    }
+  }
+  return result;
 }
 
 bool Semantics::Perform() {
