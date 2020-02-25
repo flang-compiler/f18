@@ -14,7 +14,6 @@ target_link_libraries(f18
   FortranEvaluate
   FortranSemantics
   FortranLower
-  FortranDecimal  
   LLVMSupport
 )
 

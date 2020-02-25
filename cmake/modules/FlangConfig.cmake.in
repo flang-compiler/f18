@@ -1,4 +1,3 @@
-
 # This file allows users to call find_package(Flang) and pick up our targets.
 
 @FLANG_CONFIG_CODE@
