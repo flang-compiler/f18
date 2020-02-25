@@ -60,7 +60,6 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)    
   include(HandleLLVMOptions)  
   include(VersionFromVCS)
-
   #include(LLVMDistributionSupport)
   #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
