@@ -1,15 +1,3 @@
-<<<<<<< HEAD
-=======
-#===-- cmake/modules/CMakeLists.txt ----------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
-
-
->>>>>>> CMake update:
 # Generate a list of CMake library targets so that other CMake projects can
 # link against them. LLVM calls its version of this file LLVMExports.cmake, but
 # the usual CMake convention seems to be ${Project}Targets.cmake.

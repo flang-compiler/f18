@@ -31,6 +31,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE)
           `CMakeFiles'. Please delete them.")
 endif()
 
+
 # Check for a standalone build and configure as appropriate from
 # there. 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -50,7 +51,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
                NO_DEFAULT_PATH)
-
+	       
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
   option(LLVM_INSTALL_TOOLCHAIN_ONLY
     "Only include toolchain files in the 'install' target." OFF)
@@ -195,7 +196,6 @@ set(FLANG_VENDOR_UTI "org.llvm.flang" CACHE STRING
 
 # The libdir suffix must exactly match whatever LLVM's configuration used.
 set(FLANG_LIBDIR_SUFFIX "${LLVM_LIBDIR_SUFFIX}")
-
 
 # Override LLVM versioning for now... 
 set(FLANG_VERSION_MAJOR      "0")
@@ -346,10 +346,10 @@ if (FLANG_INCLUDE_TESTS)
   #add_subdirectory(test-lit)
 endif()
 
+
 # TODO: Add doxygen support.
 #option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
 #       ${LLVM_INCLUDE_DOCS})
-#if (FLANG_INCLUDE_DOCS)
 #  add_subdirectory(documentation)
 #endif()
 

@@ -1,6 +1,3 @@
-
-# FIXME: we need to evaluate if we need functionality similar to clang's 
-# add_clang_library() macro. 
 add_library(FortranRuntime
   ISO_Fortran_binding.cpp
   buffer.cpp
