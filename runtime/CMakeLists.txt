@@ -1,16 +1,27 @@
+#===-- runtime/CMakeLists.txt ----------------------------------------------===#
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+#===------------------------------------------------------------------------===#
+
 add_library(FortranRuntime
   ISO_Fortran_binding.cpp
   buffer.cpp
+  connection.cpp
   derived-type.cpp
   descriptor.cpp
   environment.cpp
   file.cpp
   format.cpp
+  internal-unit.cpp
   io-api.cpp
   io-error.cpp
   io-stmt.cpp
   main.cpp
   memory.cpp
+  numeric-output.cpp
   stop.cpp
   terminator.cpp
   tools.cpp
@@ -18,8 +29,6 @@ add_library(FortranRuntime
   type-code.cpp
   unit.cpp
 )
-
-target_compile_features(FortranRuntime PUBLIC cxx_std_17)
 
 target_link_libraries(FortranRuntime
   FortranCommon

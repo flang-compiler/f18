@@ -25,7 +25,7 @@ BigRadixFloatingPointNumber<PREC, LOG10RADIX>::BigRadixFloatingPointNumber(
   }
   int twoPow{x.UnbiasedExponent()};
   twoPow -= x.bits - 1;
-  if (!x.implicitMSB) {
+  if (!x.isImplicitMSB) {
     ++twoPow;
   }
   int lshift{x.exponentBits};
