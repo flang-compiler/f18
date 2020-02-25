@@ -61,7 +61,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)    
   include(HandleLLVMOptions)  
   include(VersionFromVCS)
-  include(LLVMDistributionSupport)
+  #include(LLVMDistributionSupport)
   #include(AddMLIR)  # TODO: Uncomment for FIR support. 
 
   # Add LLVM include files as if they were SYSTEM because there are complex unused
