@@ -30,6 +30,7 @@ protected:
 class InternalIoStatementState : public IoStatementState {
 public:
   InternalIoStatementState(const char *sourceFile, int sourceLine);
+  virtual ~InternalIoStatementState() {}
   virtual int EndIoStatement();
 
 protected:
