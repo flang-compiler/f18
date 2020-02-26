@@ -618,7 +618,7 @@ std::ostream &PutLower(std::ostream &os, const std::string &str) {
 
 struct Temp {
   Temp(llvm::sys::fs::file_t fd, std::string path) : fd{fd}, path{path} {}
-  Temp(Temp &&t) : fd{std::exchange(t.fd, -1)}, path{std::move(t.path)} {}
+  Temp(Temp &&t) = default;
   ~Temp() {
     if (fd >= 0) {
       llvm::sys::fs::closeFile(fd);
