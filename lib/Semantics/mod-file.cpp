@@ -618,7 +618,11 @@ std::ostream &PutLower(std::ostream &os, const std::string &str) {
 
 struct Temp {
   Temp(llvm::sys::fs::file_t fd, std::string path) : fd{fd}, path{path} {}
+#if defined(_WIN32)
   Temp(Temp &&t) = default;
+#else
+  Temp(Temp &&t) : fd{std::exchange(t.fd, -1)}, path{std::move(t.path)} {}
+#endif
   ~Temp() {
     if (fd >= 0) {
       llvm::sys::fs::closeFile(fd);
