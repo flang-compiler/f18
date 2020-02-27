@@ -98,8 +98,13 @@ target_link_libraries(real-test
   FortranEvaluate
   FortranDecimal
   FortranSemantics
-  m
 )
+
+if (NOT WIN32)
+  target_link_libraries(real-test
+    m
+  )
+endif()
 
 add_executable(reshape-test
   reshape.cpp

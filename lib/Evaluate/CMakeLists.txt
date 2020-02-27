@@ -38,8 +38,13 @@ target_link_libraries(FortranEvaluate
   FortranCommon
   FortranDecimal
   FortranParser
-  m
 )
+
+if (NOT WIN32)
+  target_link_libraries(FortranEvaluate
+    m
+  )
+endif()
 
 install (TARGETS FortranEvaluate
   ARCHIVE DESTINATION lib
