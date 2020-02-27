@@ -351,14 +351,13 @@ mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
 
 // LoopOp
 
-void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
+void LoopOp::build(mlir::Builder *builder, OperationState &result,
                    int64_t lowerBound, int64_t upperBound, int64_t step) {
   assert(false && "not implemented");
 }
 
-void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
-                   mlir::Value lb, mlir::Value ub,
-                   llvm::ArrayRef<mlir::Value> step) {
+void LoopOp::build(mlir::Builder *builder, OperationState &result,
+                   mlir::Value lb, mlir::Value ub, ValueRange step) {
   if (step.empty())
     result.addOperands({lb, ub});
   else
@@ -368,10 +367,9 @@ void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
   bodyRegion->front().addArgument(builder->getIndexType());
 }
 
-mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
-                              mlir::OperationState &result) {
+mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
   auto &builder = parser.getBuilder();
-  mlir::OpAsmParser::OperandType inductionVariable, lb, ub, step;
+  OpAsmParser::OperandType inductionVariable, lb, ub, step;
   // Parse the induction variable followed by '='.
   if (parser.parseRegionArgument(inductionVariable) || parser.parseEqual())
     return mlir::failure();
@@ -444,7 +442,7 @@ bool StringLitOp::isWideValue() {
 
 // WhereOp
 
-void WhereOp::build(mlir::Builder *builder, mlir::OperationState &result,
+void WhereOp::build(mlir::Builder *builder, OperationState &result,
                     mlir::Value cond, bool withElseRegion) {
   result.addOperands(cond);
   mlir::Region *thenRegion = result.addRegion();
@@ -454,15 +452,14 @@ void WhereOp::build(mlir::Builder *builder, mlir::OperationState &result,
     WhereOp::ensureTerminator(*elseRegion, *builder, result.location);
 }
 
-mlir::ParseResult parseWhereOp(mlir::OpAsmParser &parser,
-                               mlir::OperationState &result) {
+mlir::ParseResult parseWhereOp(OpAsmParser &parser, OperationState &result) {
   // Create the regions for 'then'.
   result.regions.reserve(2);
   mlir::Region *thenRegion = result.addRegion();
   mlir::Region *elseRegion = result.addRegion();
 
   auto &builder = parser.getBuilder();
-  mlir::OpAsmParser::OperandType cond;
+  OpAsmParser::OperandType cond;
   mlir::Type i1Type = builder.getIntegerType(1);
   if (parser.parseOperand(cond) ||
       parser.resolveOperand(cond, i1Type, result.operands))

@@ -931,8 +931,9 @@ mlir::AffineMapAttr fir::BoxType::getLayoutMap() const {
   return getImpl()->getLayoutMap();
 }
 
-mlir::LogicalResult fir::BoxType::verifyConstructionInvariants(
-    const mlir::AttributeStorage *, mlir::Type eleTy, mlir::AffineMapAttr map) {
+mlir::LogicalResult
+fir::BoxType::verifyConstructionInvariants(mlir::Location, mlir::Type eleTy,
+                                           mlir::AffineMapAttr map) {
   // TODO
   return mlir::success();
 }
@@ -958,7 +959,7 @@ mlir::Type fir::BoxProcType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::BoxProcType::verifyConstructionInvariants(const mlir::AttributeStorage *,
+fir::BoxProcType::verifyConstructionInvariants(mlir::Location,
                                                mlir::Type eleTy) {
   if (eleTy.isa<mlir::FunctionType>() || eleTy.isa<ReferenceType>())
     return mlir::success();
@@ -975,8 +976,9 @@ mlir::Type fir::ReferenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-mlir::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
-    const mlir::AttributeStorage *context, mlir::Type eleTy) {
+mlir::LogicalResult
+fir::ReferenceType::verifyConstructionInvariants(mlir::Location,
+                                                 mlir::Type eleTy) {
   if (eleTy.isa<DimsType>() || eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
       eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
     return mlir::failure();
@@ -997,8 +999,9 @@ mlir::Type fir::PointerType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-mlir::LogicalResult fir::PointerType::verifyConstructionInvariants(
-    const mlir::AttributeStorage *context, mlir::Type eleTy) {
+mlir::LogicalResult
+fir::PointerType::verifyConstructionInvariants(mlir::Location,
+                                               mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
@@ -1023,8 +1026,7 @@ mlir::Type fir::HeapType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::HeapType::verifyConstructionInvariants(const mlir::AttributeStorage *,
-                                            mlir::Type eleTy) {
+fir::HeapType::verifyConstructionInvariants(mlir::Location, mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
@@ -1055,8 +1057,7 @@ SequenceType::Shape fir::SequenceType::getShape() const {
 }
 
 mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
-    const mlir::AttributeStorage *attributeStorage,
-    const SequenceType::Shape &shape, mlir::Type eleTy,
+    mlir::Location loc, const SequenceType::Shape &shape, mlir::Type eleTy,
     mlir::AffineMapAttr map) {
   // DIMENSION attribute can only be applied to an intrinsic or record type
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
@@ -1064,9 +1065,7 @@ mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
       eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>()) {
-    auto context = attributeStorage->getDialect().getContext();
-    mlir::emitError(mlir::UnknownLoc::get(context),
-                    "cannot build an array of this element type: ")
+    mlir::emitError(loc, "cannot build an array of this element type: ")
         << eleTy << '\n';
     return mlir::failure();
   }
@@ -1120,7 +1119,7 @@ detail::RecordTypeStorage const *fir::RecordType::uniqueKey() const {
 }
 
 mlir::LogicalResult
-fir::RecordType::verifyConstructionInvariants(const mlir::AttributeStorage *,
+fir::RecordType::verifyConstructionInvariants(mlir::Location,
                                               llvm::StringRef name) {
   if (name.size() == 0)
     return mlir::failure();
@@ -1147,13 +1146,16 @@ TypeDescType fir::TypeDescType::get(mlir::Type ofType) {
 mlir::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
 mlir::LogicalResult
-fir::TypeDescType::verifyConstructionInvariants(const mlir::AttributeStorage *,
+fir::TypeDescType::verifyConstructionInvariants(mlir::Location loc,
                                                 mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
-      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
+      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>()) {
+    mlir::emitError(loc, "cannot build a type descriptor of type: ")
+        << eleTy << '\n';
     return mlir::failure();
+  }
   return mlir::success();
 }
 

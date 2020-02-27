@@ -160,7 +160,7 @@ public:
   mlir::AffineMapAttr getLayoutMap() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *, mlir::Type eleTy,
+  verifyConstructionInvariants(mlir::Location, mlir::Type eleTy,
                                mlir::AffineMapAttr map);
 };
 
@@ -181,9 +181,8 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOXPROC; }
   mlir::Type getEleTy() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               mlir::Type eleTy);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          mlir::Type eleTy);
 };
 
 class DimsType : public mlir::Type::TypeBase<DimsType, mlir::Type,
@@ -214,9 +213,8 @@ public:
 
   mlir::Type getEleTy() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               mlir::Type eleTy);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          mlir::Type eleTy);
 };
 
 class LenType
@@ -236,9 +234,8 @@ public:
 
   mlir::Type getEleTy() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               mlir::Type eleTy);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          mlir::Type eleTy);
 };
 
 class ReferenceType
@@ -251,9 +248,8 @@ public:
 
   mlir::Type getEleTy() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               mlir::Type eleTy);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          mlir::Type eleTy);
 };
 
 /// A sequence type is a multi-dimensional array of values. The sequence type
@@ -290,9 +286,8 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *attributeStorage,
-                               const Shape &shape, mlir::Type eleTy,
-                               mlir::AffineMapAttr map);
+  verifyConstructionInvariants(mlir::Location loc, const Shape &shape,
+                               mlir::Type eleTy, mlir::AffineMapAttr map);
 };
 
 bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);
@@ -309,9 +304,8 @@ public:
   }
   mlir::Type getOfTy() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               mlir::Type ofType);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          mlir::Type ofType);
 };
 
 // Derived types
@@ -343,9 +337,8 @@ public:
 
   detail::RecordTypeStorage const *uniqueKey() const;
 
-  static mlir::LogicalResult
-  verifyConstructionInvariants(const mlir::AttributeStorage *,
-                               llvm::StringRef name);
+  static mlir::LogicalResult verifyConstructionInvariants(mlir::Location,
+                                                          llvm::StringRef name);
 };
 
 mlir::Type parseFirType(FIROpsDialect *, mlir::DialectAsmParser &parser);

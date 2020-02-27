@@ -176,14 +176,18 @@ mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
 
   if (attrName == ExactTypeAttr::getAttrName()) {
     mlir::Type type;
-    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater())
+    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater()) {
       parser.emitError(loc, "expected a type");
+      return {};
+    }
     return ExactTypeAttr::get(type);
   }
   if (attrName == SubclassAttr::getAttrName()) {
     mlir::Type type;
-    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater())
+    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater()) {
       parser.emitError(loc, "expected a subtype");
+      return {};
+    }
     return SubclassAttr::get(type);
   }
   if (attrName == PointIntervalAttr::getAttrName())
@@ -197,8 +201,7 @@ mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
   if (attrName == RealAttr::getAttrName())
     return parseFirRealAttr(dialect, parser, type);
 
-  llvm::Twine msg{"unknown FIR attribute: "};
-  parser.emitError(loc, msg.concat(attrName));
+  parser.emitError(loc, "unknown FIR attribute: ") << attrName;
   return {};
 }
 

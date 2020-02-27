@@ -164,7 +164,7 @@ func @instructions() {
   fir.freemem %5 : !fir.heap<!fir.array<100xf32>>
   %32 = fir.call @get_func() : () -> (() -> ())
   fir.call %32() : () -> ()
-  // CHECK: fir.address_of (@it1) : !fir.ref<() -> !fir.int<4>>
+  // CHECK: fir.address_of(@it1) : !fir.ref<() -> !fir.int<4>>
   %33 = fir.address_of (@it1) : !fir.ref<() -> !fir.int<4>>
   return
 }
