@@ -8,21 +8,21 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
-#include "flang/common/Fortran-features.h"
-#include "flang/common/default-kinds.h"
-#include "flang/evaluate/expression.h"
-#include "flang/lower/PFTBuilder.h"
-#include "flang/parser/characters.h"
-#include "flang/parser/dump-parse-tree.h"
-#include "flang/parser/message.h"
-#include "flang/parser/parse-tree-visitor.h"
-#include "flang/parser/parse-tree.h"
-#include "flang/parser/parsing.h"
-#include "flang/parser/provenance.h"
-#include "flang/parser/unparse.h"
-#include "flang/semantics/expression.h"
-#include "flang/semantics/semantics.h"
-#include "flang/semantics/unparse-with-symbols.h"
+#include "flang/Common/Fortran-features.h"
+#include "flang/Common/default-kinds.h"
+#include "flang/Evaluate/expression.h"
+#include "flang/Lower/PFTBuilder.h"
+#include "flang/Parser/characters.h"
+#include "flang/Parser/dump-parse-tree.h"
+#include "flang/Parser/message.h"
+#include "flang/Parser/parse-tree-visitor.h"
+#include "flang/Parser/parse-tree.h"
+#include "flang/Parser/parsing.h"
+#include "flang/Parser/provenance.h"
+#include "flang/Parser/unparse.h"
+#include "flang/Semantics/expression.h"
+#include "flang/Semantics/semantics.h"
+#include "flang/Semantics/unparse-with-symbols.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cerrno>
 #include <cstdio>
@@ -98,6 +98,7 @@ struct DriverOptions {
   bool dumpSymbols{false};
   bool debugResolveNames{false};
   bool debugNoSemantics{false};
+  bool debugModuleWriter{false};
   bool measureTree{false};
   bool unparseTypedExprsToPGF90{false};
   std::vector<std::string> pgf90Args;
@@ -251,8 +252,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   if (!driver.debugNoSemantics || driver.debugResolveNames ||
       driver.dumpSymbols || driver.dumpUnparseWithSymbols ||
       driver.getDefinition || driver.getSymbolsSources) {
-    Fortran::semantics::Semantics semantics{
-        semanticsContext, parseTree, parsing.cooked()};
+    Fortran::semantics::Semantics semantics{semanticsContext, parseTree,
+        parsing.cooked(), driver.debugModuleWriter};
     semantics.Perform();
     semantics.EmitMessages(std::cerr);
     if (driver.dumpSymbols) {
@@ -493,6 +494,8 @@ int main(int argc, char *const argv[]) {
       driver.dumpSymbols = true;
     } else if (arg == "-fdebug-resolve-names") {
       driver.debugResolveNames = true;
+    } else if (arg == "-fdebug-module-writer") {
+      driver.debugModuleWriter = true;
     } else if (arg == "-fdebug-measure-parse-tree") {
       driver.measureTree = true;
     } else if (arg == "-fdebug-instrumented-parse") {
