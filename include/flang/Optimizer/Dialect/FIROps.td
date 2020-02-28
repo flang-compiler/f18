@@ -1842,8 +1842,6 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
-              "int64_t lowerBound, int64_t upperBound, int64_t step = 1">,
-    OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "mlir::Value lowerBound, mlir::Value upperBound,"
               "ValueRange step = {}">
   ];

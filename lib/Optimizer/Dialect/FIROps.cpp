@@ -352,11 +352,6 @@ mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
 // LoopOp
 
 void LoopOp::build(mlir::Builder *builder, OperationState &result,
-                   int64_t lowerBound, int64_t upperBound, int64_t step) {
-  assert(false && "not implemented");
-}
-
-void LoopOp::build(mlir::Builder *builder, OperationState &result,
                    mlir::Value lb, mlir::Value ub, ValueRange step) {
   if (step.empty())
     result.addOperands({lb, ub});
