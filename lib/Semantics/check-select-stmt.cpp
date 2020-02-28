@@ -7,16 +7,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "check-select-stmt.h"
-#include "flang/parser/message.h"
-#include "flang/semantics/tools.h"
+#include "flang/Parser/message.h"
+#include "flang/Semantics/tools.h"
 
 namespace Fortran::semantics {
 
 class SelectCaseHelper {
 
 public:
-  SelectCaseHelper(parser::Messages &messages, int kind, TypeCategory category)
-    : kind_{kind}, category_(category), messages_{messages} {}
+  SelectCaseHelper(parser::Messages &messages) : messages_{messages} {}
+  void SetKind(int kind) { kind_ = kind; }
+  void SetTypeCategory(TypeCategory category) { category_ = category; }
 
   template<typename T> std::string GetValueAsString(T val) {
     if constexpr (std::is_same_v<T, bool>) {
@@ -104,38 +105,46 @@ public:
     }
   }
   template<typename T> void InsertString(const T &x, parser::CharBlock source) {
-    if (kind_ == 1) {
+    if (kind_ == sizeof(std::string::value_type)) {
       if (auto val{GetStringValue(x)}) {
         Insert(val.value(), source);
       }
-    } else if (kind_ == 2) {
-      if (auto val{GetU16StringValue(x)}) {
+    } else if (kind_ == sizeof(std::u16string::value_type)) {
+      if (auto val{GetStringValue<std::u16string>(x)}) {
         Insert(val.value(), source);
       }
-    } else if (kind_ == 4) {
-      if (auto val{GetU32StringValue(x)}) {
+    } else if (kind_ == sizeof(std::u32string::value_type)) {
+      if (auto val{GetStringValue<std::u32string>(x)}) {
         Insert(val.value(), source);
       }
+    } else {
+      messages_.Say(source,
+          "Character kind type of case value (=%d) is not supported"_err_en_US,
+          kind_);
     }
   }
   template<typename T>
   void InsertString(const T &lower, const T &upper, parser::CharBlock source) {
-    if (kind_ == 1) {
+    if (kind_ == sizeof(std::string::value_type)) {
       const auto lowerVal = lower ? GetStringValue(lower->thing) : std::nullopt;
       const auto upperVal = upper ? GetStringValue(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
-    } else if (kind_ == 2) {
+    } else if (kind_ == sizeof(std::u16string::value_type)) {
       const auto lowerVal =
-          lower ? GetU16StringValue(lower->thing) : std::nullopt;
+          lower ? GetStringValue<std::u16string>(lower->thing) : std::nullopt;
       const auto upperVal =
-          upper ? GetU16StringValue(upper->thing) : std::nullopt;
+          upper ? GetStringValue<std::u16string>(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
-    } else if (kind_ == 4) {
+    } else if (kind_ == sizeof(std::u32string::value_type)) {
       const auto lowerVal =
-          lower ? GetU32StringValue(lower->thing) : std::nullopt;
+          lower ? GetStringValue<std::u32string>(lower->thing) : std::nullopt;
       const auto upperVal =
-          upper ? GetU32StringValue(upper->thing) : std::nullopt;
+          upper ? GetStringValue<std::u32string>(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
+    } else {
+      messages_.Say(source,
+          "Character kind type of case value (=%d) is not supported"_err_en_US,
+          kind_);
     }
   }
   bool IsValidSelectCaseType(
@@ -153,8 +162,9 @@ public:
           }
         } else if (category_ == TypeCategory::Character) {
           if (kind_ != type->kind()) {
-            messages_.Say(src, "CASE value kind is %d, it must be %d"_err_en_US,
-                type->kind(), kind_);
+            messages_.Say(src,
+                "Character kind type of case construct (=%d) mismatches with the kind type of case value (=%d)"_err_en_US,
+                kind_, type->kind());
           } else {
             return true;
           }
@@ -309,8 +319,11 @@ void SelectStmtChecker::Leave(
   const auto &caseList{
       std::get<std::list<parser::CaseConstruct::Case>>(selectCaseConstruct.t)};
   bool defaultCaseFound{false};
-  SelectCaseHelper selectCaseStmts(context_.messages(),
-      selectCaseStmtType->kind(), selectCaseStmtType.value().category());
+  SelectCaseHelper selectCaseStmts(context_.messages());
+  if (validCaseStmtTypeCategory) {
+    selectCaseStmts.SetKind(selectCaseStmtType->kind());
+    selectCaseStmts.SetTypeCategory(*validCaseStmtTypeCategory);
+  }
 
   for (const auto &cases : caseList) {
     const auto &caseStmt{

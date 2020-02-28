@@ -273,42 +273,15 @@ template<typename T> std::optional<bool> GetBoolValue(const T &x) {
   }
 }
 
-template<typename T> std::optional<std::string> GetStringValue(const T &x) {
+template<typename S = std::string, typename T>
+std::optional<S> GetStringValue(const T &x) {
   if (const auto *expr{GetExpr(x)}) {
     if (const auto *charExpr{
             evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
                 *expr)}) {
       return ToString(
-          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 1>>>(
-              (*charExpr).u));
-    }
-  }
-  return std::nullopt;
-}
-
-template<typename T>
-std::optional<std::u16string> GetU16StringValue(const T &x) {
-  if (const auto *expr{GetExpr(x)}) {
-    if (const auto *charExpr{
-            evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
-                *expr)}) {
-      return ToString(
-          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 2>>>(
-              (*charExpr).u));
-    }
-  }
-  return std::nullopt;
-}
-
-template<typename T>
-std::optional<std::u32string> GetU32StringValue(const T &x) {
-  if (const auto *expr{GetExpr(x)}) {
-    if (const auto *charExpr{
-            evaluate::UnwrapExpr<evaluate::Expr<evaluate::SomeCharacter>>(
-                *expr)}) {
-      return ToString(
-          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character, 4>>>(
-              (*charExpr).u));
+          std::get<evaluate::Expr<evaluate::Type<TypeCategory::Character,
+              sizeof(typename S::value_type)>>>((*charExpr).u));
     }
   }
   return std::nullopt;

@@ -215,6 +215,7 @@ set(ERROR_TESTS
   data01.f90
   namelist01.f90
   select-case.f90
+  select-case-C1144.f90
 )
 
 # These test files have expected symbols in the source
