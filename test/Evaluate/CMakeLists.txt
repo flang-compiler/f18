@@ -100,12 +100,6 @@ target_link_libraries(real-test
   FortranSemantics
 )
 
-if (NOT WIN32)
-  target_link_libraries(real-test
-    m
-  )
-endif()
-
 add_executable(reshape-test
   reshape.cpp
 )
