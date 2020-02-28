@@ -93,6 +93,55 @@ LLVM_INSTALL_UTILS=On
 ```
 to run the regression tests on f18.
 
+### LLVM dependency when building f18 with Fortran IR
+
+If you do not want to build Fortran IR, add `-DLINK_WITH_FIR=Off` to f18 cmake
+command and ignore the rest of this section.
+
+If you intend to build f18 with Fortran IR (`-DLINK_WITH_FIR` On by default),
+you must:
+- build LLVM with the same compiler and options as the one you are using
+to build F18.
+- pass `-DCMAKE_CXX_STANDARD=17 -DLLVM_ENABLE_PROJECTS="mlir"`
+to LLVM cmake command.
+- install LLVM somewhere with `make install` in order to get the required
+AddMLIR cmake file (it is not generated in LLVM build directory).
+
+Installing LLVM from packages is most likely not an option as it will not include
+MLIR and not be built following C++17 standard.
+
+MLIR is under active development and the most recent development version
+may be incompatible. A branch named `f18` is available inside LLVM fork in
+https://github.com/flang-compiler/f18-llvm-project. It contains a version of LLVM
+that is known be compatible to build f18 with FIR.
+
+The fastest way to get set up is to do:
+
+```
+cd where/you/want/to/build/llvm
+git clone --depth=1 -b f18 https://github.com/flang-compiler/f18-llvm-project.git
+mkdir build
+mkdir install
+cd build
+cmake ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_CXX_STANDARD=17 \
+    -DLLVM_INSTALL_UTILS=On \
+    -DCMAKE_INSTALL_PREFIX=../install
+make -j
+make install
+```
+
+Then, `-DLLVM_DIR` would have to be set to
+ `<where/you/want/to/build/llvm>/install/lib/cmake/llvm` in f18 cmake command.
+
+To run lit tests,
+`-DLLVM_EXTERNAL_LIT=<where/you/want/to/build/llvm>/build/bin/llvm-lit` must be
+added to f18 cmake command. This is because `llvm-lit` is not part of
+LLVM installation.
+
+Note that when using some advanced options from f18 cmake file it may be
+necessary to reproduce their effects in LLVM cmake command.
+
 ### Building f18 with GCC
 
 By default,
