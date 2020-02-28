@@ -128,7 +128,7 @@ namespace {
 mlir::Attribute parseFirRealAttr(FIROpsDialect *dialect,
                                  mlir::DialectAsmParser &parser,
                                  mlir::Type type) {
-  int kind;
+  int kind = 0;
   if (parser.parseLess() || parser.parseInteger(kind) || parser.parseComma()) {
     parser.emitError(parser.getNameLoc(), "expected '<' kind ','");
     return {};
