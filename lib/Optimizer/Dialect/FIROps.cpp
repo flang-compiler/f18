@@ -33,9 +33,8 @@ static bool verifyInType(mlir::Type inType,
         return true;
   } else if (auto rt = inType.dyn_cast<fir::RecordType>()) {
     // don't recurse if we're already visiting this one
-    for (auto name : visited)
-      if (name == rt.getName())
-        return false;
+    if (llvm::is_contained(visited, rt.getName()))
+      return false;
     // keep track of record types currently being visited
     visited.push_back(rt.getName());
     for (auto &field : rt.getTypeList())
@@ -66,7 +65,7 @@ mlir::Type AllocaOp::getAllocatedType() {
 /// Create a legal memory reference as return type
 mlir::Type AllocaOp::wrapResultType(mlir::Type intype) {
   // FIR semantics: memory references to memory references are disallowed
-  if (intype.dyn_cast<ReferenceType>())
+  if (intype.isa<ReferenceType>())
     return {};
   return ReferenceType::get(intype);
 }
@@ -86,8 +85,8 @@ mlir::Type AllocMemOp::wrapResultType(mlir::Type intype) {
   // Fortran semantics: C852 an entity cannot be both ALLOCATABLE and POINTER
   // 8.5.3 note 1 prohibits ALLOCATABLE procedures as well
   // FIR semantics: one may not allocate a memory reference value
-  if (intype.dyn_cast<ReferenceType>() || intype.dyn_cast<HeapType>() ||
-      intype.dyn_cast<PointerType>() || intype.dyn_cast<FunctionType>())
+  if (intype.isa<ReferenceType>() || intype.isa<HeapType>() ||
+      intype.isa<PointerType>() || intype.isa<FunctionType>())
     return {};
   return HeapType::get(intype);
 }
@@ -96,7 +95,8 @@ mlir::Type AllocMemOp::wrapResultType(mlir::Type intype) {
 
 /// Get the result types packed in a tuple tuple
 mlir::Type BoxDimsOp::getTupleType() {
-  llvm::SmallVector<mlir::Type, 3> triple{
+  // note: triple, but 4 is nearest power of 2
+  llvm::SmallVector<mlir::Type, 4> triple{
       getResult(0).getType(), getResult(1).getType(), getResult(2).getType()};
   return mlir::TupleType::get(triple, getContext());
 }
@@ -342,17 +342,16 @@ mlir::Type elementTypeOf(mlir::Type ref) {
 }
 
 mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
-  if (mlir::Type r = elementTypeOf(ref)) {
-    ele = r;
+  if ((ele = elementTypeOf(ref)))
     return mlir::success();
-  }
   return mlir::failure();
 }
 
 // LoopOp
 
 void LoopOp::build(mlir::Builder *builder, OperationState &result,
-                   mlir::Value lb, mlir::Value ub, ValueRange step) {
+                   mlir::Value lb, mlir::Value ub, ValueRange step,
+                   ArrayRef<NamedAttribute> attributes) {
   if (step.empty())
     result.addOperands({lb, ub});
   else
@@ -360,6 +359,10 @@ void LoopOp::build(mlir::Builder *builder, OperationState &result,
   mlir::Region *bodyRegion = result.addRegion();
   LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
   bodyRegion->front().addArgument(builder->getIndexType());
+  result.addAttributes(attributes);
+  NamedAttributeList attrs(attributes);
+  if (!attrs.get(unorderedAttrName()))
+    result.addTypes(builder->getIndexType());
 }
 
 mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
@@ -387,8 +390,8 @@ mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
 
   // Parse the optional `unordered` keyword
   bool isUnordered = false;
-  if (!parser.parseOptionalKeyword(LoopOp::unorderedKeyword())) {
-    result.addAttribute(LoopOp::unorderedKeyword(), builder.getUnitAttr());
+  if (!parser.parseOptionalKeyword(LoopOp::unorderedAttrName())) {
+    result.addAttribute(LoopOp::unorderedAttrName(), builder.getUnitAttr());
     isUnordered = true;
   }
 
@@ -539,23 +542,27 @@ bool isReferenceLike(mlir::Type type) {
          type.isa<fir::PointerType>();
 }
 
-mlir::FuncOp createFuncOp(mlir::Location loc, mlir::ModuleOp module,
-                          StringRef name, mlir::FunctionType type,
-                          llvm::ArrayRef<mlir::NamedAttribute> attrs) {
+} // namespace fir
+
+mlir::FuncOp fir::createFuncOp(mlir::Location loc, mlir::ModuleOp module,
+                               StringRef name, mlir::FunctionType type,
+                               llvm::ArrayRef<mlir::NamedAttribute> attrs) {
   if (auto f = module.lookupSymbol<mlir::FuncOp>(name))
     return f;
   mlir::OpBuilder modBuilder(module.getBodyRegion());
   return modBuilder.create<mlir::FuncOp>(loc, name, type, attrs);
 }
 
-GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
-                        StringRef name, mlir::Type type,
-                        llvm::ArrayRef<mlir::NamedAttribute> attrs) {
-  if (auto g = module.lookupSymbol<GlobalOp>(name))
+fir::GlobalOp fir::createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
+                                  StringRef name, mlir::Type type,
+                                  llvm::ArrayRef<mlir::NamedAttribute> attrs) {
+  if (auto g = module.lookupSymbol<fir::GlobalOp>(name))
     return g;
   mlir::OpBuilder modBuilder(module.getBodyRegion());
-  return modBuilder.create<GlobalOp>(loc, name, type, attrs);
+  return modBuilder.create<fir::GlobalOp>(loc, name, type, attrs);
 }
+
+namespace fir {
 
 // Tablegen operators
 

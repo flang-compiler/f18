@@ -232,7 +232,7 @@ void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
     a.getValue().bitcastToAPInt().toStringUnsigned(ss, 16);
     os << ss << '>';
   } else {
-    assert(false && "attribute pretty-printer is not implemented");
+    llvm_unreachable("attribute pretty-printer is not implemented");
   }
 }
 

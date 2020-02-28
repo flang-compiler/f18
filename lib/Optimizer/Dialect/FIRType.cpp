@@ -959,11 +959,14 @@ mlir::Type fir::BoxProcType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::BoxProcType::verifyConstructionInvariants(mlir::Location,
+fir::BoxProcType::verifyConstructionInvariants(mlir::Location loc,
                                                mlir::Type eleTy) {
-  if (eleTy.isa<mlir::FunctionType>() || eleTy.isa<ReferenceType>())
+  if (eleTy.isa<mlir::FunctionType>())
     return mlir::success();
-  return mlir::failure();
+  if (auto refTy = eleTy.dyn_cast<ReferenceType>())
+    if (refTy.isa<mlir::FunctionType>())
+      return mlir::success();
+  return mlir::emitError(loc, "invalid type for boxproc") << eleTy << '\n';
 }
 
 // Reference<T>
@@ -977,11 +980,12 @@ mlir::Type fir::ReferenceType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::ReferenceType::verifyConstructionInvariants(mlir::Location,
+fir::ReferenceType::verifyConstructionInvariants(mlir::Location loc,
                                                  mlir::Type eleTy) {
   if (eleTy.isa<DimsType>() || eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
       eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
-    return mlir::failure();
+    return mlir::emitError(loc, "cannot build a reference to type: ")
+           << eleTy << '\n';
   return mlir::success();
 }
 
@@ -989,7 +993,7 @@ fir::ReferenceType::verifyConstructionInvariants(mlir::Location,
 
 PointerType fir::PointerType::get(mlir::Type elementType) {
   if (!singleIndirectionLevel(elementType)) {
-    assert(false && "FIXME: invalid element type");
+    llvm_unreachable("FIXME: invalid element type");
     return {};
   }
   return Base::get(elementType.getContext(), FIR_POINTER, elementType);
@@ -1000,14 +1004,15 @@ mlir::Type fir::PointerType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::PointerType::verifyConstructionInvariants(mlir::Location,
+fir::PointerType::verifyConstructionInvariants(mlir::Location loc,
                                                mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
       eleTy.isa<TypeDescType>())
-    return mlir::failure();
+    return mlir::emitError(loc, "cannot build a pointer to type: ")
+           << eleTy << '\n';
   return mlir::success();
 }
 
@@ -1015,7 +1020,7 @@ fir::PointerType::verifyConstructionInvariants(mlir::Location,
 
 HeapType fir::HeapType::get(mlir::Type elementType) {
   if (!singleIndirectionLevel(elementType)) {
-    assert(false && "FIXME: invalid element type");
+    llvm_unreachable("FIXME: invalid element type");
     return {};
   }
   return Base::get(elementType.getContext(), FIR_HEAP, elementType);
@@ -1026,13 +1031,15 @@ mlir::Type fir::HeapType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::HeapType::verifyConstructionInvariants(mlir::Location, mlir::Type eleTy) {
+fir::HeapType::verifyConstructionInvariants(mlir::Location loc,
+                                            mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
       eleTy.isa<TypeDescType>())
-    return mlir::failure();
+    return mlir::emitError(loc, "cannot build a heap pointer to type: ")
+           << eleTy << '\n';
   return mlir::success();
 }
 
@@ -1064,11 +1071,9 @@ mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
-      eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>()) {
-    mlir::emitError(loc, "cannot build an array of this element type: ")
-        << eleTy << '\n';
-    return mlir::failure();
-  }
+      eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>())
+    return mlir::emitError(loc, "cannot build an array of this element type: ")
+           << eleTy << '\n';
   return mlir::success();
 }
 
@@ -1077,7 +1082,8 @@ bool fir::operator==(const SequenceType::Shape &sh_1,
                      const SequenceType::Shape &sh_2) {
   if (sh_1.size() != sh_2.size())
     return false;
-  for (std::size_t i = 0, e{sh_1.size()}; i != e; ++i)
+  auto e = sh_1.size();
+  for (decltype(e) i = 0; i != e; ++i)
     if (sh_1[i] != sh_2[i])
       return false;
   return true;
@@ -1119,10 +1125,10 @@ detail::RecordTypeStorage const *fir::RecordType::uniqueKey() const {
 }
 
 mlir::LogicalResult
-fir::RecordType::verifyConstructionInvariants(mlir::Location,
+fir::RecordType::verifyConstructionInvariants(mlir::Location loc,
                                               llvm::StringRef name) {
   if (name.size() == 0)
-    return mlir::failure();
+    return mlir::emitError(loc, "record types must have a name");
   return mlir::success();
 }
 
@@ -1130,7 +1136,7 @@ mlir::Type fir::RecordType::getType(llvm::StringRef ident) {
   for (auto f : getTypeList())
     if (ident == f.first)
       return f.second;
-  assert(false && "query for field not present in record");
+  llvm_unreachable("query for field not present in record");
   return {};
 }
 
@@ -1151,11 +1157,9 @@ fir::TypeDescType::verifyConstructionInvariants(mlir::Location loc,
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
-      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>()) {
-    mlir::emitError(loc, "cannot build a type descriptor of type: ")
-        << eleTy << '\n';
-    return mlir::failure();
-  }
+      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
+    return mlir::emitError(loc, "cannot build a type descriptor of type: ")
+           << eleTy << '\n';
   return mlir::success();
 }
 
