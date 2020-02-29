@@ -28,30 +28,27 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace {
-
 using namespace llvm;
 
-cl::opt<std::string> inputFilename(cl::Positional, cl::desc("<input file>"),
-                                   cl::init("-"));
+static cl::opt<std::string>
+    inputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"));
 
-cl::opt<std::string> outputFilename("o", cl::desc("Specify output filename"),
-                                    cl::value_desc("filename"), cl::init("-"));
+static cl::opt<std::string> outputFilename("o",
+                                           cl::desc("Specify output filename"),
+                                           cl::value_desc("filename"),
+                                           cl::init("-"));
 
-cl::opt<bool> emitFir("emit-fir", cl::desc("Parse and pretty-print the input"),
-                      cl::init(false));
+static cl::opt<bool> emitFir("emit-fir",
+                             cl::desc("Parse and pretty-print the input"),
+                             cl::init(false));
 
-void printModuleBody(mlir::ModuleOp mod, raw_ostream &output) {
-  // don't output the terminator bogo-op
-  auto e{--mod.end()};
-  for (auto i{mod.begin()}; i != e; ++i) {
-    i->print(output);
-    output << "\n\n";
-  }
+static void printModuleBody(mlir::ModuleOp mod, raw_ostream &output) {
+  for (auto &op : mod.getBody()->without_terminator())
+    output << op << '\n';
 }
 
 // compile a .fir file
-int compileFIR() {
+static int compileFIR() {
   // check that there is a file to load
   ErrorOr<std::unique_ptr<MemoryBuffer>> fileOrErr =
       MemoryBuffer::getFileOrSTDIN(inputFilename);
@@ -102,10 +99,9 @@ int compileFIR() {
 
   // pass manager failed
   printModuleBody(*owningRef, errs());
-  errs() << "\nFAILED: " << inputFilename << '\n';
+  errs() << "\n\nFAILED: " << inputFilename << '\n';
   return 8;
 }
-} // namespace
 
 int main(int argc, char **argv) {
   mlir::registerAllDialects();

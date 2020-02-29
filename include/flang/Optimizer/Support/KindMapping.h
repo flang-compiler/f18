@@ -76,7 +76,7 @@ public:
   const llvm::fltSemantics &getFloatSemantics(KindTy kind);
 
 private:
-  MatchResult badMapString(llvm::Twine const &ptr);
+  MatchResult badMapString(const llvm::Twine &ptr);
   MatchResult parse(llvm::StringRef kindMap);
 
   mlir::MLIRContext *context;

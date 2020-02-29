@@ -10,6 +10,7 @@
 #include "flang/Optimizer/Dialect/FIRAttr.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
+#include "mlir/ADT/TypeSwitch.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
@@ -18,7 +19,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringSwitch.h"
 
-namespace fir {
+using namespace fir;
 
 /// return true if the sequence type is abstract or the record type is malformed
 /// or contains an abstract sequence type
@@ -58,30 +59,34 @@ static bool verifyRecordLenParams(mlir::Type inType, unsigned numLenParams) {
 
 // AllocaOp
 
-mlir::Type AllocaOp::getAllocatedType() {
+mlir::Type fir::AllocaOp::getAllocatedType() {
   return getType().cast<ReferenceType>().getEleTy();
 }
 
 /// Create a legal memory reference as return type
-mlir::Type AllocaOp::wrapResultType(mlir::Type intype) {
+mlir::Type fir::AllocaOp::wrapResultType(mlir::Type intype) {
   // FIR semantics: memory references to memory references are disallowed
   if (intype.isa<ReferenceType>())
     return {};
   return ReferenceType::get(intype);
 }
 
-mlir::Type AllocaOp::getRefTy(mlir::Type ty) { return ReferenceType::get(ty); }
+mlir::Type fir::AllocaOp::getRefTy(mlir::Type ty) {
+  return ReferenceType::get(ty);
+}
 
 // AllocMemOp
 
-mlir::Type AllocMemOp::getAllocatedType() {
+mlir::Type fir::AllocMemOp::getAllocatedType() {
   return getType().cast<HeapType>().getEleTy();
 }
 
-mlir::Type AllocMemOp::getRefTy(mlir::Type ty) { return HeapType::get(ty); }
+mlir::Type fir::AllocMemOp::getRefTy(mlir::Type ty) {
+  return HeapType::get(ty);
+}
 
 /// Create a legal heap reference as return type
-mlir::Type AllocMemOp::wrapResultType(mlir::Type intype) {
+mlir::Type fir::AllocMemOp::wrapResultType(mlir::Type intype) {
   // Fortran semantics: C852 an entity cannot be both ALLOCATABLE and POINTER
   // 8.5.3 note 1 prohibits ALLOCATABLE procedures as well
   // FIR semantics: one may not allocate a memory reference value
@@ -94,7 +99,7 @@ mlir::Type AllocMemOp::wrapResultType(mlir::Type intype) {
 // BoxDimsOp
 
 /// Get the result types packed in a tuple tuple
-mlir::Type BoxDimsOp::getTupleType() {
+mlir::Type fir::BoxDimsOp::getTupleType() {
   // note: triple, but 4 is nearest power of 2
   llvm::SmallVector<mlir::Type, 4> triple{
       getResult(0).getType(), getResult(1).getType(), getResult(2).getType()};
@@ -103,7 +108,7 @@ mlir::Type BoxDimsOp::getTupleType() {
 
 // CallOp
 
-void printCallOp(mlir::OpAsmPrinter &p, fir::CallOp &op) {
+static void printCallOp(mlir::OpAsmPrinter &p, fir::CallOp &op) {
   auto callee = op.callee();
   bool isDirect = callee.hasValue();
   p << op.getOperationName() << ' ';
@@ -111,31 +116,28 @@ void printCallOp(mlir::OpAsmPrinter &p, fir::CallOp &op) {
     p << callee.getValue();
   else
     p << op.getOperand(0);
-  p << '(';
-  p.printOperands(llvm::drop_begin(op.getOperands(), isDirect ? 0 : 1));
-  p << ')';
-  p.printOptionalAttrDict(op.getAttrs(), {"callee"});
+  p << '(' << op.getOperands().drop_front(isDirect ? 0 : 1) << ')';
+  p.printOptionalAttrDict(op.getAttrs(), {fir::CallOp::calleeAttrName()});
   auto resultTypes{op.getResultTypes()};
   llvm::SmallVector<Type, 8> argTypes(
       llvm::drop_begin(op.getOperandTypes(), isDirect ? 0 : 1));
   p << " : " << FunctionType::get(argTypes, resultTypes, op.getContext());
 }
 
-mlir::ParseResult parseCallOp(mlir::OpAsmParser &parser,
-                              mlir::OperationState &result) {
+static mlir::ParseResult parseCallOp(mlir::OpAsmParser &parser,
+                                     mlir::OperationState &result) {
   llvm::SmallVector<mlir::OpAsmParser::OperandType, 8> operands;
-
   if (parser.parseOperandList(operands))
     return mlir::failure();
+
+  llvm::SmallVector<mlir::NamedAttribute, 4> attrs;
+  mlir::SymbolRefAttr funcAttr;
   bool isDirect = operands.empty();
-  SmallVector<NamedAttribute, 4> attrs;
-  SymbolRefAttr funcAttr;
-
   if (isDirect)
-    if (parser.parseAttribute(funcAttr, "callee", attrs))
+    if (parser.parseAttribute(funcAttr, fir::CallOp::calleeAttrName(), attrs))
       return mlir::failure();
-  Type type;
 
+  Type type;
   if (parser.parseOperandList(operands, mlir::OpAsmParser::Delimiter::Paren) ||
       parser.parseOptionalAttrDict(attrs) || parser.parseColon() ||
       parser.parseType(type))
@@ -166,29 +168,29 @@ mlir::ParseResult parseCallOp(mlir::OpAsmParser &parser,
 
 // CmpfOp
 
-fir::CmpFPredicate CmpfOp::getPredicateByName(llvm::StringRef name) {
+fir::CmpFPredicate fir::CmpfOp::getPredicateByName(llvm::StringRef name) {
   return llvm::StringSwitch<fir::CmpFPredicate>(name)
-      .Case("false", CmpFPredicate::AlwaysFalse)
-      .Case("oeq", CmpFPredicate::OEQ)
-      .Case("ogt", CmpFPredicate::OGT)
-      .Case("oge", CmpFPredicate::OGE)
-      .Case("olt", CmpFPredicate::OLT)
-      .Case("ole", CmpFPredicate::OLE)
-      .Case("one", CmpFPredicate::ONE)
-      .Case("ord", CmpFPredicate::ORD)
-      .Case("ueq", CmpFPredicate::UEQ)
-      .Case("ugt", CmpFPredicate::UGT)
-      .Case("uge", CmpFPredicate::UGE)
-      .Case("ult", CmpFPredicate::ULT)
-      .Case("ule", CmpFPredicate::ULE)
-      .Case("une", CmpFPredicate::UNE)
-      .Case("uno", CmpFPredicate::UNO)
-      .Case("true", CmpFPredicate::AlwaysTrue)
-      .Default(CmpFPredicate::NumPredicates);
+      .Case("false", fir::CmpFPredicate::AlwaysFalse)
+      .Case("oeq", fir::CmpFPredicate::OEQ)
+      .Case("ogt", fir::CmpFPredicate::OGT)
+      .Case("oge", fir::CmpFPredicate::OGE)
+      .Case("olt", fir::CmpFPredicate::OLT)
+      .Case("ole", fir::CmpFPredicate::OLE)
+      .Case("one", fir::CmpFPredicate::ONE)
+      .Case("ord", fir::CmpFPredicate::ORD)
+      .Case("ueq", fir::CmpFPredicate::UEQ)
+      .Case("ugt", fir::CmpFPredicate::UGT)
+      .Case("uge", fir::CmpFPredicate::UGE)
+      .Case("ult", fir::CmpFPredicate::ULT)
+      .Case("ule", fir::CmpFPredicate::ULE)
+      .Case("une", fir::CmpFPredicate::UNE)
+      .Case("uno", fir::CmpFPredicate::UNO)
+      .Case("true", fir::CmpFPredicate::AlwaysTrue)
+      .Default(fir::CmpFPredicate::NumPredicates);
 }
 
-void buildCmpFOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value lhs, Value rhs) {
+void fir::buildCmpFOp(Builder *builder, OperationState &result,
+                      fir::CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
@@ -197,7 +199,7 @@ void buildCmpFOp(Builder *builder, OperationState &result,
 }
 
 template <typename OPTY>
-void printCmpOp(OpAsmPrinter &p, OPTY op) {
+static void printCmpOp(OpAsmPrinter &p, OPTY op) {
   static const char *predicateNames[] = {
       /*AlwaysFalse*/ "false",
       /*OEQ*/ "oeq",
@@ -223,8 +225,9 @@ void printCmpOp(OpAsmPrinter &p, OPTY op) {
   auto predicateValue =
       op.template getAttrOfType<mlir::IntegerAttr>(OPTY::getPredicateAttrName())
           .getInt();
-  assert(predicateValue >= static_cast<int>(CmpFPredicate::FirstValidValue) &&
-         predicateValue < static_cast<int>(CmpFPredicate::NumPredicates) &&
+  assert(predicateValue >=
+             static_cast<int>(fir::CmpFPredicate::FirstValidValue) &&
+         predicateValue < static_cast<int>(fir::CmpFPredicate::NumPredicates) &&
          "unknown predicate index");
   Builder b(op.getContext());
   auto predicateStringAttr = b.getStringAttr(predicateNames[predicateValue]);
@@ -238,11 +241,11 @@ void printCmpOp(OpAsmPrinter &p, OPTY op) {
   p << " : " << op.lhs().getType();
 }
 
-void printCmpfOp(OpAsmPrinter &p, CmpfOp op) { printCmpOp(p, op); }
+static void printCmpfOp(OpAsmPrinter &p, CmpfOp op) { printCmpOp(p, op); }
 
 template <typename OPTY>
-mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
-                             mlir::OperationState &result) {
+static mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
+                                    mlir::OperationState &result) {
   llvm::SmallVector<mlir::OpAsmParser::OperandType, 2> ops;
   llvm::SmallVector<mlir::NamedAttribute, 4> attrs;
   mlir::Attribute predicateNameAttr;
@@ -261,8 +264,8 @@ mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
   // Rewrite string attribute to an enum value.
   llvm::StringRef predicateName =
       predicateNameAttr.cast<mlir::StringAttr>().getValue();
-  auto predicate = CmpfOp::getPredicateByName(predicateName);
-  if (predicate == CmpFPredicate::NumPredicates)
+  auto predicate = fir::CmpfOp::getPredicateByName(predicateName);
+  if (predicate == fir::CmpFPredicate::NumPredicates)
     return parser.emitError(parser.getNameLoc(),
                             "unknown comparison predicate \"" + predicateName +
                                 "\"");
@@ -275,39 +278,39 @@ mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
   return success();
 }
 
-mlir::ParseResult parseCmpfOp(mlir::OpAsmParser &parser,
-                              mlir::OperationState &result) {
+mlir::ParseResult fir::parseCmpfOp(mlir::OpAsmParser &parser,
+                                   mlir::OperationState &result) {
   return parseCmpOp<fir::CmpfOp>(parser, result);
 }
 
 // CmpcOp
 
-void buildCmpCOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value lhs, Value rhs) {
+void fir::buildCmpCOp(Builder *builder, OperationState &result,
+                      fir::CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
-      CmpcOp::getPredicateAttrName(),
+      fir::CmpcOp::getPredicateAttrName(),
       builder->getI64IntegerAttr(static_cast<int64_t>(predicate)));
 }
 
-void printCmpcOp(OpAsmPrinter &p, CmpcOp op) { printCmpOp(p, op); }
+static void printCmpcOp(OpAsmPrinter &p, fir::CmpcOp op) { printCmpOp(p, op); }
 
-mlir::ParseResult parseCmpcOp(mlir::OpAsmParser &parser,
-                              mlir::OperationState &result) {
+mlir::ParseResult fir::parseCmpcOp(mlir::OpAsmParser &parser,
+                                   mlir::OperationState &result) {
   return parseCmpOp<fir::CmpcOp>(parser, result);
 }
 
 // DispatchOp
 
-mlir::FunctionType DispatchOp::getFunctionType() {
+mlir::FunctionType fir::DispatchOp::getFunctionType() {
   auto attr = getAttr("fn_type").cast<mlir::TypeAttr>();
   return attr.getValue().cast<mlir::FunctionType>();
 }
 
 // DispatchTableOp
 
-void DispatchTableOp::appendTableEntry(mlir::Operation *op) {
+void fir::DispatchTableOp::appendTableEntry(mlir::Operation *op) {
   assert(mlir::isa<fir::DTEntryOp>(*op) && "operation must be a DTEntryOp");
   auto &block = getBlock();
   block.getOperations().insert(block.end(), op);
@@ -315,33 +318,29 @@ void DispatchTableOp::appendTableEntry(mlir::Operation *op) {
 
 // GenTypeDescOp
 
-void GenTypeDescOp::build(Builder *, OperationState &result,
-                          mlir::TypeAttr inty) {
+void fir::GenTypeDescOp::build(Builder *, OperationState &result,
+                               mlir::TypeAttr inty) {
   result.addAttribute("in_type", inty);
   result.addTypes(TypeDescType::get(inty.getValue()));
 }
 
 // GlobalOp
 
-void GlobalOp::appendInitialValue(mlir::Operation *op) {
-  auto &block = getBlock();
-  block.getOperations().insert(block.end(), op);
+void fir::GlobalOp::appendInitialValue(mlir::Operation *op) {
+  getBlock().getOperations().push_back(op);
 }
 
 // LoadOp
 
 /// Get the element type of a reference like type; otherwise null
-mlir::Type elementTypeOf(mlir::Type ref) {
-  if (auto r = ref.dyn_cast_or_null<ReferenceType>())
-    return r.getEleTy();
-  if (auto r = ref.dyn_cast_or_null<PointerType>())
-    return r.getEleTy();
-  if (auto r = ref.dyn_cast_or_null<HeapType>())
-    return r.getEleTy();
-  return {};
+static mlir::Type elementTypeOf(mlir::Type ref) {
+  return mlir::TypeSwitch<mlir::Type, mlir::Type>(ref)
+      .Case<ReferenceType, PointerType, HeapType>(
+          [](auto type) { return type.getEleTy(); })
+      .Default([](mlir::Type) { return mlir::Type{}; });
 }
 
-mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
+mlir::ParseResult fir::LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
   if ((ele = elementTypeOf(ref)))
     return mlir::success();
   return mlir::failure();
@@ -349,9 +348,9 @@ mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
 
 // LoopOp
 
-void LoopOp::build(mlir::Builder *builder, OperationState &result,
-                   mlir::Value lb, mlir::Value ub, ValueRange step,
-                   ArrayRef<NamedAttribute> attributes) {
+void fir::LoopOp::build(mlir::Builder *builder, OperationState &result,
+                        mlir::Value lb, mlir::Value ub, ValueRange step,
+                        ArrayRef<NamedAttribute> attributes) {
   if (step.empty())
     result.addOperands({lb, ub});
   else
@@ -365,7 +364,8 @@ void LoopOp::build(mlir::Builder *builder, OperationState &result,
     result.addTypes(builder->getIndexType());
 }
 
-mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
+static mlir::ParseResult parseLoopOp(OpAsmParser &parser,
+                                     OperationState &result) {
   auto &builder = parser.getBuilder();
   OpAsmParser::OperandType inductionVariable, lb, ub, step;
   // Parse the induction variable followed by '='.
@@ -380,8 +380,8 @@ mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperand(ub, indexType, result.operands))
     return mlir::failure();
 
-  if (parser.parseOptionalKeyword(LoopOp::stepKeyword())) {
-    result.addAttribute(LoopOp::stepKeyword(),
+  if (parser.parseOptionalKeyword(LoopOp::stepAttrName())) {
+    result.addAttribute(LoopOp::stepAttrName(),
                         builder.getIntegerAttr(builder.getIndexType(), 1));
   } else if (parser.parseOperand(step) ||
              parser.resolveOperand(step, indexType, result.operands)) {
@@ -410,10 +410,10 @@ mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
   return mlir::success();
 }
 
-fir::LoopOp getForInductionVarOwner(mlir::Value val) {
+fir::LoopOp fir::getForInductionVarOwner(mlir::Value val) {
   auto ivArg = val.dyn_cast<mlir::BlockArgument>();
   if (!ivArg)
-    return fir::LoopOp();
+    return {};
   assert(ivArg.getOwner() && "unlinked block argument");
   auto *containingInst = ivArg.getOwner()->getParentOp();
   return dyn_cast_or_null<fir::LoopOp>(containingInst);
@@ -421,7 +421,7 @@ fir::LoopOp getForInductionVarOwner(mlir::Value val) {
 
 // StoreOp
 
-mlir::Type StoreOp::elementType(mlir::Type refType) {
+mlir::Type fir::StoreOp::elementType(mlir::Type refType) {
   if (auto ref = refType.dyn_cast<ReferenceType>())
     return ref.getEleTy();
   if (auto ref = refType.dyn_cast<PointerType>())
@@ -433,15 +433,15 @@ mlir::Type StoreOp::elementType(mlir::Type refType) {
 
 // StringLitOp
 
-bool StringLitOp::isWideValue() {
+bool fir::StringLitOp::isWideValue() {
   auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
   return eleTy.cast<fir::CharacterType>().getFKind() != 1;
 }
 
 // WhereOp
 
-void WhereOp::build(mlir::Builder *builder, OperationState &result,
-                    mlir::Value cond, bool withElseRegion) {
+void fir::WhereOp::build(mlir::Builder *builder, OperationState &result,
+                         mlir::Value cond, bool withElseRegion) {
   result.addOperands(cond);
   mlir::Region *thenRegion = result.addRegion();
   mlir::Region *elseRegion = result.addRegion();
@@ -450,7 +450,8 @@ void WhereOp::build(mlir::Builder *builder, OperationState &result,
     WhereOp::ensureTerminator(*elseRegion, *builder, result.location);
 }
 
-mlir::ParseResult parseWhereOp(OpAsmParser &parser, OperationState &result) {
+static mlir::ParseResult parseWhereOp(OpAsmParser &parser,
+                                      OperationState &result) {
   // Create the regions for 'then'.
   result.regions.reserve(2);
   mlir::Region *thenRegion = result.addRegion();
@@ -482,7 +483,7 @@ mlir::ParseResult parseWhereOp(OpAsmParser &parser, OperationState &result) {
   return mlir::success();
 }
 
-mlir::ParseResult isValidCaseAttr(mlir::Attribute attr) {
+mlir::ParseResult fir::isValidCaseAttr(mlir::Attribute attr) {
   if (attr.dyn_cast_or_null<mlir::UnitAttr>() ||
       attr.dyn_cast_or_null<ClosedIntervalAttr>() ||
       attr.dyn_cast_or_null<PointIntervalAttr>() ||
@@ -492,8 +493,8 @@ mlir::ParseResult isValidCaseAttr(mlir::Attribute attr) {
   return mlir::failure();
 }
 
-unsigned getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
-                               unsigned dest) {
+unsigned fir::getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
+                                    unsigned dest) {
   unsigned o = 0;
   for (unsigned i = 0; i < dest; ++i) {
     auto &attr = cases[i];
@@ -506,10 +507,10 @@ unsigned getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
   return o;
 }
 
-mlir::ParseResult parseSelector(mlir::OpAsmParser &parser,
-                                mlir::OperationState &result,
-                                mlir::OpAsmParser::OperandType &selector,
-                                mlir::Type &type) {
+mlir::ParseResult fir::parseSelector(mlir::OpAsmParser &parser,
+                                     mlir::OperationState &result,
+                                     mlir::OpAsmParser::OperandType &selector,
+                                     mlir::Type &type) {
   if (parser.parseOperand(selector) || parser.parseColonType(type) ||
       parser.resolveOperand(selector, type, result.operands) ||
       parser.parseLSquare())
@@ -518,7 +519,7 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser &parser,
 }
 
 /// Generic pretty-printer of a binary operation
-void printBinaryOp(Operation *op, OpAsmPrinter &p) {
+static void printBinaryOp(Operation *op, OpAsmPrinter &p) {
   assert(op->getNumOperands() == 2 && "binary op must have two operands");
   assert(op->getNumResults() == 1 && "binary op must have one result");
 
@@ -528,7 +529,7 @@ void printBinaryOp(Operation *op, OpAsmPrinter &p) {
 }
 
 /// Generic pretty-printer of an unary operation
-void printUnaryOp(Operation *op, OpAsmPrinter &p) {
+static void printUnaryOp(Operation *op, OpAsmPrinter &p) {
   assert(op->getNumOperands() == 1 && "unary op must have one operand");
   assert(op->getNumResults() == 1 && "unary op must have one result");
 
@@ -537,12 +538,10 @@ void printUnaryOp(Operation *op, OpAsmPrinter &p) {
   p << " : " << op->getResult(0).getType();
 }
 
-bool isReferenceLike(mlir::Type type) {
+bool fir::isReferenceLike(mlir::Type type) {
   return type.isa<fir::ReferenceType>() || type.isa<fir::HeapType>() ||
          type.isa<fir::PointerType>();
 }
-
-} // namespace fir
 
 mlir::FuncOp fir::createFuncOp(mlir::Location loc, mlir::ModuleOp module,
                                StringRef name, mlir::FunctionType type,

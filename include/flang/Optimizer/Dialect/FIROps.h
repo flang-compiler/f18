@@ -21,6 +21,7 @@ using namespace mlir;
 namespace fir {
 
 class FirEndOp;
+class LoopOp;
 
 enum class CmpFPredicate {
   FirstValidValue,
@@ -50,24 +51,25 @@ enum class CmpFPredicate {
   NumPredicates
 };
 
-ParseResult isValidCaseAttr(Attribute attr);
-unsigned getCaseArgumentOffset(ArrayRef<Attribute> cases, unsigned dest);
-ParseResult parseSelector(OpAsmParser *parser, OperationState *result,
-                          OpAsmParser::OperandType &selector, mlir::Type &type);
-
-void buildCmpFOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value lhs, Value rhs);
-void buildCmpCOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value lhs, Value rhs);
-ParseResult parseCmpfOp(OpAsmParser &parser, OperationState &result);
-ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
+void buildCmpFOp(mlir::Builder *builder, mlir::OperationState &result,
+                 CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
+void buildCmpCOp(mlir::Builder *builder, mlir::OperationState &result,
+                 CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
+unsigned getCaseArgumentOffset(ArrayRef<mlir::Attribute> cases, unsigned dest);
+LoopOp getForInductionVarOwner(mlir::Value val);
+bool isReferenceLike(mlir::Type type);
+mlir::ParseResult isValidCaseAttr(mlir::Attribute attr);
+mlir::ParseResult parseCmpfOp(mlir::OpAsmParser &parser,
+                              mlir::OperationState &result);
+mlir::ParseResult parseCmpcOp(mlir::OpAsmParser &parser,
+                              mlir::OperationState &result);
+mlir::ParseResult parseSelector(mlir::OpAsmParser &parser,
+                                mlir::OperationState &result,
+                                mlir::OpAsmParser::OperandType &selector,
+                                mlir::Type &type);
 
 #define GET_OP_CLASSES
 #include "flang/Optimizer/Dialect/FIROps.h.inc"
-
-LoopOp getForInductionVarOwner(Value val);
-
-bool isReferenceLike(mlir::Type type);
 
 } // namespace fir
 
