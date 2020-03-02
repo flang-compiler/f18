@@ -10,7 +10,7 @@
 #define OPTIMIZER_SUPPORT_KINDMAPPING_H
 
 #include "llvm/IR/Type.h"
-#include <map>
+#include <unordered_map>
 
 namespace llvm {
 template <typename>
@@ -80,8 +80,8 @@ private:
   MatchResult parse(llvm::StringRef kindMap);
 
   mlir::MLIRContext *context;
-  std::map<char, std::map<KindTy, Bitsize>> intMap;
-  std::map<char, std::map<KindTy, LLVMTypeID>> floatMap;
+  std::unordered_map<char, std::unordered_map<KindTy, Bitsize>> intMap;
+  std::unordered_map<char, std::unordered_map<KindTy, LLVMTypeID>> floatMap;
 };
 
 } // namespace fir

@@ -101,6 +101,11 @@ struct IntrinsicTypeMixin {
   static constexpr unsigned getId() { return Id; }
 };
 
+// Intrinsic types
+
+/// Model of the Fortran CHARACTER intrinsic type, including the KIND type
+/// parameter. The model does not include a LEN type parameter. A CharacterType
+/// is thus the type of a single character value.
 class CharacterType
     : public mlir::Type::TypeBase<CharacterType, mlir::Type,
                                   detail::CharacterTypeStorage>,
@@ -111,6 +116,9 @@ public:
   KindTy getFKind() const;
 };
 
+/// Model of a Fortran COMPLEX intrinsic type, including the KIND type
+/// parameter. COMPLEX is a floating point type with a real and imaginary
+/// member.
 class CplxType : public mlir::Type::TypeBase<CplxType, mlir::Type,
                                              detail::CplxTypeStorage>,
                  public IntrinsicTypeMixin<CplxType, TypeKind::FIR_COMPLEX> {
@@ -120,6 +128,8 @@ public:
   KindTy getFKind() const;
 };
 
+/// Model of a Fortran INTEGER intrinsic type, including the KIND type
+/// parameter.
 class IntType
     : public mlir::Type::TypeBase<IntType, mlir::Type, detail::IntTypeStorage>,
       public IntrinsicTypeMixin<IntType, TypeKind::FIR_INT> {
@@ -129,6 +139,8 @@ public:
   KindTy getFKind() const;
 };
 
+/// Model of a Fortran LOGICAL intrinsic type, including the KIND type
+/// parameter.
 class LogicalType
     : public mlir::Type::TypeBase<LogicalType, mlir::Type,
                                   detail::LogicalTypeStorage>,
@@ -139,6 +151,8 @@ public:
   KindTy getFKind() const;
 };
 
+/// Model of a Fortran REAL (and DOUBLE PRECISION) intrinsic type, including the
+/// KIND type parameter.
 class RealType : public mlir::Type::TypeBase<RealType, mlir::Type,
                                              detail::RealTypeStorage>,
                  public IntrinsicTypeMixin<RealType, TypeKind::FIR_REAL> {
@@ -150,6 +164,10 @@ public:
 
 // FIR support types
 
+/// The type of a Fortran descriptor. Descriptors are tuples of information that
+/// describe an entity being passed from a calling context. This information
+/// might include (but is not limited to) whether the entity is an array, its
+/// size, or what type it has.
 class BoxType
     : public mlir::Type::TypeBase<BoxType, mlir::Type, detail::BoxTypeStorage> {
 public:
@@ -164,6 +182,9 @@ public:
                                mlir::AffineMapAttr map);
 };
 
+/// The type of a pair that describes a CHARACTER variable. Specifically, a
+/// CHARACTER consists of a reference to a buffer (the string value) and a LEN
+/// type parameter (the runtime length of the buffer).
 class BoxCharType : public mlir::Type::TypeBase<BoxCharType, mlir::Type,
                                                 detail::BoxCharTypeStorage> {
 public:
@@ -173,6 +194,9 @@ public:
   CharacterType getEleTy() const;
 };
 
+/// The type of a pair that describes a PROCEDURE reference. Pointers to
+/// internal procedures must carry an additional reference to the host's
+/// variables that are referenced.
 class BoxProcType : public mlir::Type::TypeBase<BoxProcType, mlir::Type,
                                                 detail::BoxProcTypeStorage> {
 public:
@@ -185,6 +209,10 @@ public:
                                                           mlir::Type eleTy);
 };
 
+/// The type of a runtime vector that describes triples of array dimension
+/// information. A triple consists of a lower bound, upper bound, and
+/// stride. Each dimension of an array entity may have an associated triple that
+/// maps how elements of the array are accessed.
 class DimsType : public mlir::Type::TypeBase<DimsType, mlir::Type,
                                              detail::DimsTypeStorage> {
 public:
@@ -196,6 +224,9 @@ public:
   int getRank() const;
 };
 
+/// The type of a field name. Implementations may defer the layout of a Fortran
+/// derived type until runtime. This implies that the runtime must be able to
+/// determine the offset of fields within the entity.
 class FieldType : public mlir::Type::TypeBase<FieldType, mlir::Type,
                                               detail::FieldTypeStorage> {
 public:
@@ -204,6 +235,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_FIELD; }
 };
 
+/// The type of a heap pointer. Fortran entities with the ALLOCATABLE attribute
+/// may be allocated on the heap at runtime. These pointers are explicitly
+/// distinguished to disallow the composition of multiple levels of
+/// indirection. For example, an ALLOCATABLE POINTER is invalid.
 class HeapType : public mlir::Type::TypeBase<HeapType, mlir::Type,
                                              detail::HeapTypeStorage> {
 public:
@@ -217,6 +252,9 @@ public:
                                                           mlir::Type eleTy);
 };
 
+/// The type of a LEN parameter name. Implementations may defer the layout of a
+/// Fortran derived type until runtime. This implies that the runtime must be
+/// able to determine the offset of LEN type parameters related to an entity.
 class LenType
     : public mlir::Type::TypeBase<LenType, mlir::Type, detail::LenTypeStorage> {
 public:
@@ -225,6 +263,9 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_LEN; }
 };
 
+/// The type of entities with the POINTER attribute.  These pointers are
+/// explicitly distinguished to disallow the composition of multiple levels of
+/// indirection. For example, an ALLOCATABLE POINTER is invalid.
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
                                                 detail::PointerTypeStorage> {
 public:
@@ -238,6 +279,7 @@ public:
                                                           mlir::Type eleTy);
 };
 
+/// The type of a reference to an entity in memory.
 class ReferenceType
     : public mlir::Type::TypeBase<ReferenceType, mlir::Type,
                                   detail::ReferenceTypeStorage> {
@@ -294,6 +336,8 @@ bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);
 llvm::hash_code hash_value(const SequenceType::Extent &);
 llvm::hash_code hash_value(const SequenceType::Shape &);
 
+/// The type of a type descriptor object. The runtime may generate type
+/// descriptor objects to determine the type of an entity at runtime, etc.
 class TypeDescType : public mlir::Type::TypeBase<TypeDescType, mlir::Type,
                                                  detail::TypeDescTypeStorage> {
 public:
@@ -310,6 +354,9 @@ public:
 
 // Derived types
 
+/// Model of Fortran's derived type, TYPE. The name of the TYPE includes any
+/// KIND type parameters. The record includes runtime slots for LEN type
+/// parameters and for data components.
 class RecordType : public mlir::Type::TypeBase<RecordType, mlir::Type,
                                                detail::RecordTypeStorage> {
 public:
