@@ -158,10 +158,10 @@ implicit none
       name = 'true'
     case (.false.)
        name = 'false'
-     !ERROR: CASE value true matches a previous CASE statement
+     !ERROR: CASE value .TRUE. matches a previous CASE statement
      case (.true.)
       name = 'true'
-     !ERROR: CASE value false matches a previous CASE statement
+     !ERROR: CASE value .FALSE. matches a previous CASE statement
      case (grade5)
       name = 'true'
   end select

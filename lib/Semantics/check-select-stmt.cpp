@@ -15,15 +15,14 @@ namespace Fortran::semantics {
 class SelectCaseHelper {
 
 public:
-  SelectCaseHelper(parser::Messages &messages) : messages_{messages} {}
-  void SetKind(int kind) { kind_ = kind; }
-  void SetTypeCategory(TypeCategory category) { category_ = category; }
+  SelectCaseHelper(parser::Messages &messages, int kind, TypeCategory category)
+    : kind_{kind}, category_(category), messages_{messages} {}
 
   template<typename T> std::string GetValueAsString(T val) {
     if constexpr (std::is_same_v<T, bool>) {
-      return std::string(val ? "true" : "false");
+      return std::string(val ? ".TRUE." : ".FALSE.");
     } else if constexpr (std::is_same_v<T, std::int64_t>) {
-      return std::string(std::to_string(val));
+      return std::to_string(val);
     } else {
       return parser::QuoteCharacterLiteral(val);
     }
@@ -297,7 +296,6 @@ void SelectStmtChecker::Leave(
   const auto &parsedExpr{
       std::get<parser::Scalar<parser::Expr>>(selectCaseStmt.statement.t).thing};
   std::optional<evaluate::DynamicType> selectCaseStmtType;
-  std::optional<TypeCategory> validCaseStmtTypeCategory;
   if (const auto *expr{GetExpr(parsedExpr)}) {
     if (auto type{expr->GetType()}) {
       selectCaseStmtType = type;
@@ -312,18 +310,14 @@ void SelectStmtChecker::Leave(
           TypeCategory::Logical)) {  // C1145
     context_.Say(parsedExpr.source,
         "SELECT CASE expression must be of type CHARACTER, INTEGER, OR LOGICAL"_err_en_US);
-  } else {
-    validCaseStmtTypeCategory = selectCaseStmtType.value().category();
+    return;
   }
 
   const auto &caseList{
       std::get<std::list<parser::CaseConstruct::Case>>(selectCaseConstruct.t)};
   bool defaultCaseFound{false};
-  SelectCaseHelper selectCaseStmts(context_.messages());
-  if (validCaseStmtTypeCategory) {
-    selectCaseStmts.SetKind(selectCaseStmtType->kind());
-    selectCaseStmts.SetTypeCategory(*validCaseStmtTypeCategory);
-  }
+  SelectCaseHelper selectCaseStmts(context_.messages(),
+      selectCaseStmtType->kind(), selectCaseStmtType.value().category());
 
   for (const auto &cases : caseList) {
     const auto &caseStmt{
@@ -337,7 +331,7 @@ void SelectStmtChecker::Leave(
         context_.Say(caseStmt.source,
             "Not more than one of the selectors of SELECT CASE statement may be DEFAULT"_err_en_US);
       }
-    } else if (validCaseStmtTypeCategory) {
+    } else {
       const auto &caseValueRangeList{
           std::get<std::list<parser::CaseValueRange>>(caseSelector.u)};
       for (const auto &caseValues : caseValueRangeList) {
@@ -349,17 +343,18 @@ void SelectStmtChecker::Leave(
             continue;
           }
 
-          if (*validCaseStmtTypeCategory == TypeCategory::Integer) {
+          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
             selectCaseStmts.Insert(
                 GetIntValue(constCase->thing).value(), caseStmt.source);
-          } else if (*validCaseStmtTypeCategory == TypeCategory::Character) {
+          } else if (selectCaseStmtType.value().category() ==
+              TypeCategory::Character) {
             selectCaseStmts.InsertString(constCase->thing, caseStmt.source);
           } else {  // TypeCategory::Logical
             selectCaseStmts.Insert(
                 GetBoolValue(constCase->thing).value(), caseStmt.source);
           }
         } else {
-          if (*validCaseStmtTypeCategory ==
+          if (selectCaseStmtType.value().category() ==
               TypeCategory::Logical) {  // C1148 (R1140)
             context_.Say(caseStmt.source,
                 "SELECT CASE expression of type LOGICAL must not have range of case value"_err_en_US);
@@ -381,7 +376,7 @@ void SelectStmtChecker::Leave(
             continue;
           }
 
-          if (*validCaseStmtTypeCategory == TypeCategory::Integer) {
+          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
             const auto lowerVal =
                 lower ? GetIntValue(lower->thing) : std::nullopt;
             const auto upperVal =
