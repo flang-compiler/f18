@@ -54,9 +54,10 @@ static LLVMTypeID defaultRealKind(KindTy kind) {
 
 // lookup the kind-value given the defaults, the mappings, and a KIND key
 template <typename RT, char KEY>
-static RT doLookup(std::function<RT(KindTy)> def,
-            const std::unordered_map<char, std::unordered_map<KindTy, RT>> &map,
-            KindTy kind) {
+static RT
+doLookup(std::function<RT(KindTy)> def,
+         const std::unordered_map<char, std::unordered_map<KindTy, RT>> &map,
+         KindTy kind) {
   auto iter = map.find(KEY);
   if (iter != map.end()) {
     auto iter2 = iter->second.find(kind);
@@ -79,7 +80,8 @@ static LLVMTypeID getFloatLikeTypeID(KindTy kind, const MAP &map) {
 }
 
 template <char KEY, typename MAP>
-static const llvm::fltSemantics &getFloatSemanticsOfKind(KindTy kind, const MAP &map) {
+static const llvm::fltSemantics &getFloatSemanticsOfKind(KindTy kind,
+                                                         const MAP &map) {
   switch (doLookup<LLVMTypeID, KEY>(defaultRealKind, map, kind)) {
   case LLVMTypeID::HalfTyID:
     return llvm::APFloat::IEEEhalf();
@@ -100,73 +102,81 @@ static const llvm::fltSemantics &getFloatSemanticsOfKind(KindTy kind, const MAP 
 
 static MatchResult parseCode(char &code, const char *&ptr) {
   if (*ptr != 'a' && *ptr != 'c' && *ptr != 'i' && *ptr != 'l' && *ptr != 'r')
-    return {};
+    return mlir::failure();
   code = *ptr++;
-  return {true};
+  return mlir::success();
 }
 
 template <char ch>
 static MatchResult parseSingleChar(const char *&ptr) {
   if (*ptr != ch)
-    return {};
+    return mlir::failure();
   ++ptr;
-  return {true};
+  return mlir::success();
 }
 
-static MatchResult parseColon(const char *&ptr) { return parseSingleChar<':'>(ptr); }
+static MatchResult parseColon(const char *&ptr) {
+  return parseSingleChar<':'>(ptr);
+}
 
-static MatchResult parseComma(const char *&ptr) { return parseSingleChar<','>(ptr); }
+static MatchResult parseComma(const char *&ptr) {
+  return parseSingleChar<','>(ptr);
+}
 
 static MatchResult parseInt(unsigned &result, const char *&ptr) {
   const char *beg = ptr;
   while (*ptr >= '0' && *ptr <= '9')
     ptr++;
   if (beg == ptr)
-    return {};
+    return mlir::failure();
   llvm::StringRef ref(beg, ptr - beg);
   int temp;
   if (ref.consumeInteger(10, temp))
-    return {};
+    return mlir::failure();
   result = temp;
-  return {true};
+  return mlir::success();
 }
 
-static bool matchString(const char *&ptr, llvm::StringRef literal) {
+static mlir::LogicalResult matchString(const char *&ptr,
+                                       llvm::StringRef literal) {
   llvm::StringRef s(ptr);
   if (s.startswith(literal)) {
     ptr += literal.size();
-    return true;
+    return mlir::success();
   }
-  return false;
+  return mlir::failure();
 }
 
 static MatchResult parseTypeID(LLVMTypeID &result, const char *&ptr) {
-  if (matchString(ptr, "Half")) {
+  if (mlir::succeeded(matchString(ptr, "Half"))) {
     result = LLVMTypeID::HalfTyID;
-    return {true};
+    return mlir::success();
   }
-  if (matchString(ptr, "Float")) {
+  if (mlir::succeeded(matchString(ptr, "Float"))) {
     result = LLVMTypeID::FloatTyID;
-    return {true};
+    return mlir::success();
   }
-  if (matchString(ptr, "Double")) {
+  if (mlir::succeeded(matchString(ptr, "Double"))) {
     result = LLVMTypeID::DoubleTyID;
-    return {true};
+    return mlir::success();
   }
-  if (matchString(ptr, "X86_FP80")) {
+  if (mlir::succeeded(matchString(ptr, "X86_FP80"))) {
     result = LLVMTypeID::X86_FP80TyID;
-    return {true};
+    return mlir::success();
   }
-  if (matchString(ptr, "FP128")) {
+  if (mlir::succeeded(matchString(ptr, "FP128"))) {
     result = LLVMTypeID::FP128TyID;
-    return {true};
+    return mlir::success();
   }
-  return {};
+  return mlir::failure();
 }
 
 fir::KindMapping::KindMapping(mlir::MLIRContext *context, llvm::StringRef map)
     : context{context} {
-  parse(map);
+  if (mlir::failed(parse(map))) {
+    intMap.clear();
+    floatMap.clear();
+  }
 }
 
 fir::KindMapping::KindMapping(mlir::MLIRContext *context)
@@ -175,12 +185,12 @@ fir::KindMapping::KindMapping(mlir::MLIRContext *context)
 MatchResult fir::KindMapping::badMapString(const llvm::Twine &ptr) {
   auto unknown = mlir::UnknownLoc::get(context);
   mlir::emitError(unknown, ptr);
-  return {};
+  return mlir::failure();
 }
 
 MatchResult fir::KindMapping::parse(llvm::StringRef kindMap) {
   if (kindMap.empty())
-    return {true};
+    return mlir::success();
   const char *srcPtr = kindMap.begin();
   while (true) {
     char code = '\0';
@@ -205,7 +215,7 @@ MatchResult fir::KindMapping::parse(llvm::StringRef kindMap) {
   }
   if (*srcPtr)
     return badMapString(srcPtr);
-  return {true};
+  return mlir::success();
 }
 
 Bitsize fir::KindMapping::getCharacterBitsize(KindTy kind) {

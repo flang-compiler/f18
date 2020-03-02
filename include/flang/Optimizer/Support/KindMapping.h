@@ -9,6 +9,7 @@
 #ifndef OPTIMIZER_SUPPORT_KINDMAPPING_H
 #define OPTIMIZER_SUPPORT_KINDMAPPING_H
 
+#include "mlir/IR/OpDefinition.h"
 #include "llvm/IR/Type.h"
 #include <unordered_map>
 
@@ -50,7 +51,7 @@ public:
   using KindTy = unsigned;
   using Bitsize = unsigned;
   using LLVMTypeID = llvm::Type::TypeID;
-  using MatchResult = llvm::Optional<bool>;
+  using MatchResult = mlir::ParseResult;
 
   explicit KindMapping(mlir::MLIRContext *context);
   explicit KindMapping(mlir::MLIRContext *context, llvm::StringRef map);
