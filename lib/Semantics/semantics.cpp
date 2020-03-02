@@ -24,6 +24,7 @@
 #include "check-omp-structure.h"
 #include "check-purity.h"
 #include "check-return.h"
+#include "check-select-stmt.h"
 #include "check-stop.h"
 #include "mod-file.h"
 #include "resolve-labels.h"
@@ -117,7 +118,7 @@ using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
     ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker, DataChecker,
     DeallocateChecker, DoForallChecker, IfStmtChecker, IoChecker,
     NamelistChecker, NullifyChecker, OmpStructureChecker, PurityChecker,
-    ReturnStmtChecker, StopChecker>;
+    ReturnStmtChecker, SelectConstructChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {

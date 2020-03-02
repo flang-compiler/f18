@@ -966,6 +966,7 @@ public:
   void Post(const parser::EndAssociateStmt &);
   void Post(const parser::Association &);
   void Post(const parser::SelectTypeStmt &);
+  void Post(const parser::SelectRankStmt &);
   bool Pre(const parser::SelectTypeConstruct &);
   void Post(const parser::SelectTypeConstruct &);
   bool Pre(const parser::SelectTypeConstruct::TypeCase &);
@@ -4805,7 +4806,13 @@ bool ConstructVisitor::Pre(const parser::SelectTypeConstruct &) {
 void ConstructVisitor::Post(const parser::SelectTypeConstruct &) {
   PopAssociation();
 }
-
+void ConstructVisitor::Post(const parser::SelectRankStmt &x) {
+  auto &association{GetCurrentAssociation()};
+  if (const std::optional<parser::Name> &name{std::get<1>(x.t)}) {
+    MakePlaceholder(*name, MiscDetails::Kind::SelectRankAssociateName);
+    association.name = &*name;
+  }
+}
 void ConstructVisitor::Post(const parser::SelectTypeStmt &x) {
   auto &association{GetCurrentAssociation()};
   if (const std::optional<parser::Name> &name{std::get<1>(x.t)}) {
