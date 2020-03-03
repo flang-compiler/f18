@@ -119,7 +119,7 @@ public:
   }
 };
 
-/// A pointer interval is an closed interval as given as an ssa-value. The
+/// A pointer interval is a closed interval as given as an ssa-value. The
 /// interval contains exactly one value.
 /// A case selector of `CASE (p)` corresponds to exactly the value `p` and is
 /// encoded as `#fir.point, %p`.

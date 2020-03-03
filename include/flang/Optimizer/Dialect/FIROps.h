@@ -55,7 +55,8 @@ void buildCmpFOp(mlir::Builder *builder, mlir::OperationState &result,
                  CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
 void buildCmpCOp(mlir::Builder *builder, mlir::OperationState &result,
                  CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
-unsigned getCaseArgumentOffset(ArrayRef<mlir::Attribute> cases, unsigned dest);
+unsigned getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
+                               unsigned dest);
 LoopOp getForInductionVarOwner(mlir::Value val);
 bool isReferenceLike(mlir::Type type);
 mlir::ParseResult isValidCaseAttr(mlir::Attribute attr);
