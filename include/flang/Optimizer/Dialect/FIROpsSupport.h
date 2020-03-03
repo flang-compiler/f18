@@ -21,21 +21,19 @@ inline bool nonVolatileLoad(mlir::Operation *op) {
   return false;
 }
 
+/// return true iff the Operation is a call
+inline bool isaCall(mlir::Operation *op) {
+  return isa<fir::CallOp>(op) || isa<fir::DispatchOp>(op) ||
+         isa<mlir::CallOp>(op) || isa<mlir::CallIndirectOp>(op);
+}
+
 /// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
 /// mlir::CallOp, or mlir::CallIndirectOp and not pure
 /// NB: this is not the same as `!pureCall(op)`
 inline bool impureCall(mlir::Operation *op) {
   // Should we also auto-detect that the called function is pure if its
   // arguments are not references?  For now, rely on a "pure" attribute.
-  if (auto call = dyn_cast<fir::CallOp>(op))
-    return !call.getAttr("pure");
-  if (auto dispatch = dyn_cast<fir::DispatchOp>(op))
-    return !dispatch.getAttr("pure");
-  if (auto call = dyn_cast<mlir::CallOp>(op))
-    return !call.getAttr("pure");
-  if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
-    return !icall.getAttr("pure");
-  return false;
+  return op && isaCall(op) && !op->getAttr("pure");
 }
 
 /// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
@@ -44,15 +42,7 @@ inline bool impureCall(mlir::Operation *op) {
 inline bool pureCall(mlir::Operation *op) {
   // Should we also auto-detect that the called function is pure if its
   // arguments are not references?  For now, rely on a "pure" attribute.
-  if (auto call = dyn_cast<fir::CallOp>(op))
-    return bool(call.getAttr("pure"));
-  if (auto dispatch = dyn_cast<fir::DispatchOp>(op))
-    return bool(dispatch.getAttr("pure"));
-  if (auto call = dyn_cast<mlir::CallOp>(op))
-    return bool(call.getAttr("pure"));
-  if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
-    return bool(icall.getAttr("pure"));
-  return false;
+  return op && isaCall(op) && op->getAttr("pure");
 }
 
 /// Get or create a FuncOp in a module.

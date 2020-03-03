@@ -54,16 +54,13 @@ static LLVMTypeID defaultRealKind(KindTy kind) {
 
 // lookup the kind-value given the defaults, the mappings, and a KIND key
 template <typename RT, char KEY>
-static RT
-doLookup(std::function<RT(KindTy)> def,
-         const std::unordered_map<char, std::unordered_map<KindTy, RT>> &map,
-         KindTy kind) {
-  auto iter = map.find(KEY);
-  if (iter != map.end()) {
-    auto iter2 = iter->second.find(kind);
-    if (iter2 != iter->second.end())
-      return iter2->second;
-  }
+static RT doLookup(std::function<RT(KindTy)> def,
+                   const llvm::DenseMap<std::pair<char, KindTy>, RT> &map,
+                   KindTy kind) {
+  std::pair<char, KindTy> key{KEY, kind};
+  auto iter = map.find(key);
+  if (iter != map.end())
+    return iter->second;
   return def(kind);
 }
 
@@ -201,12 +198,12 @@ MatchResult fir::KindMapping::parse(llvm::StringRef kindMap) {
       Bitsize bits = 0;
       if (parseColon(srcPtr) || parseInt(bits, srcPtr))
         return badMapString(srcPtr);
-      intMap[code][kind] = bits;
+      intMap[std::pair<char, KindTy>{code, kind}] = bits;
     } else if (code == 'r' || code == 'c') {
       LLVMTypeID id{};
       if (parseColon(srcPtr) || parseTypeID(id, srcPtr))
         return badMapString(srcPtr);
-      floatMap[code][kind] = id;
+      floatMap[std::pair<char, KindTy>{code, kind}] = id;
     } else {
       return badMapString(srcPtr);
     }

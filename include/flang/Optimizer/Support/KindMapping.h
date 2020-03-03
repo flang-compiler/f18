@@ -10,8 +10,8 @@
 #define OPTIMIZER_SUPPORT_KINDMAPPING_H
 
 #include "mlir/IR/OpDefinition.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Type.h"
-#include <unordered_map>
 
 namespace llvm {
 template <typename>
@@ -81,8 +81,8 @@ private:
   MatchResult parse(llvm::StringRef kindMap);
 
   mlir::MLIRContext *context;
-  std::unordered_map<char, std::unordered_map<KindTy, Bitsize>> intMap;
-  std::unordered_map<char, std::unordered_map<KindTy, LLVMTypeID>> floatMap;
+  llvm::DenseMap<std::pair<char, KindTy>, Bitsize> intMap;
+  llvm::DenseMap<std::pair<char, KindTy>, LLVMTypeID> floatMap;
 };
 
 } // namespace fir
