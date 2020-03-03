@@ -75,6 +75,8 @@ enum TypeKind {
   FIR_TYPEDESC,
 };
 
+// These isa_ routines follow the precedent of llvm::isa_or_null<>
+
 /// Is `t` any of the FIR dialect types?
 bool isa_fir_type(mlir::Type t);
 
@@ -85,10 +87,10 @@ bool isa_std_type(mlir::Type t);
 bool isa_fir_or_std_type(mlir::Type t);
 
 /// Is `t` a FIR dialect type that implies a memory (de)reference?
-bool isaMemref(mlir::Type t);
+bool isa_memref(mlir::Type t);
 
 /// Is `t` a FIR dialect aggregate type?
-bool isanAggregate(mlir::Type t);
+bool isa_aggregate(mlir::Type t);
 
 /// Extract the `Type` pointed to from a FIR memory reference type. If `t` is
 /// not a memory reference type, then returns a null `Type`.

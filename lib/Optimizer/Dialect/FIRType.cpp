@@ -298,7 +298,7 @@ RecordType parseDerived(mlir::DialectAsmParser &parser, mlir::Location) {
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
 // is undefined and disallowed.
 inline bool singleIndirectionLevel(mlir::Type ty) {
-  return !fir::isaMemref(ty);
+  return !fir::isa_memref(ty);
 }
 
 } // namespace
@@ -837,11 +837,11 @@ bool isa_fir_or_std_type(mlir::Type t) {
   return isa_fir_type(t) || isa_std_type(t);
 }
 
-bool isaMemref(mlir::Type t) {
+bool isa_memref(mlir::Type t) {
   return t.isa<ReferenceType>() || t.isa<PointerType>() || t.isa<HeapType>();
 }
 
-bool isanAggregate(mlir::Type t) {
+bool isa_aggregate(mlir::Type t) {
   return t.isa<SequenceType>() || t.isa<RecordType>();
 }
 
