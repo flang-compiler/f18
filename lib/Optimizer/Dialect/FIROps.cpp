@@ -168,29 +168,30 @@ static mlir::ParseResult parseCallOp(mlir::OpAsmParser &parser,
 
 // CmpfOp
 
-fir::CmpFPredicate fir::CmpfOp::getPredicateByName(llvm::StringRef name) {
-  return llvm::StringSwitch<fir::CmpFPredicate>(name)
-      .Case("false", fir::CmpFPredicate::AlwaysFalse)
-      .Case("oeq", fir::CmpFPredicate::OEQ)
-      .Case("ogt", fir::CmpFPredicate::OGT)
-      .Case("oge", fir::CmpFPredicate::OGE)
-      .Case("olt", fir::CmpFPredicate::OLT)
-      .Case("ole", fir::CmpFPredicate::OLE)
-      .Case("one", fir::CmpFPredicate::ONE)
-      .Case("ord", fir::CmpFPredicate::ORD)
-      .Case("ueq", fir::CmpFPredicate::UEQ)
-      .Case("ugt", fir::CmpFPredicate::UGT)
-      .Case("uge", fir::CmpFPredicate::UGE)
-      .Case("ult", fir::CmpFPredicate::ULT)
-      .Case("ule", fir::CmpFPredicate::ULE)
-      .Case("une", fir::CmpFPredicate::UNE)
-      .Case("uno", fir::CmpFPredicate::UNO)
-      .Case("true", fir::CmpFPredicate::AlwaysTrue)
-      .Default(fir::CmpFPredicate::NumPredicates);
+// Note: getCmpFPredicateNames() is inline static in StandardOps/IR/Ops.cpp
+mlir::CmpFPredicate fir::CmpfOp::getPredicateByName(llvm::StringRef name) {
+  return llvm::StringSwitch<CmpFPredicate>(name)
+      .Case("false", mlir::CmpFPredicate::AlwaysFalse)
+      .Case("oeq", mlir::CmpFPredicate::OEQ)
+      .Case("ogt", mlir::CmpFPredicate::OGT)
+      .Case("oge", mlir::CmpFPredicate::OGE)
+      .Case("olt", mlir::CmpFPredicate::OLT)
+      .Case("ole", mlir::CmpFPredicate::OLE)
+      .Case("one", mlir::CmpFPredicate::ONE)
+      .Case("ord", mlir::CmpFPredicate::ORD)
+      .Case("ueq", mlir::CmpFPredicate::UEQ)
+      .Case("ugt", mlir::CmpFPredicate::UGT)
+      .Case("uge", mlir::CmpFPredicate::UGE)
+      .Case("ult", mlir::CmpFPredicate::ULT)
+      .Case("ule", mlir::CmpFPredicate::ULE)
+      .Case("une", mlir::CmpFPredicate::UNE)
+      .Case("uno", mlir::CmpFPredicate::UNO)
+      .Case("true", mlir::CmpFPredicate::AlwaysTrue)
+      .Default(mlir::CmpFPredicate::NumPredicates);
 }
 
 void fir::buildCmpFOp(Builder *builder, OperationState &result,
-                      fir::CmpFPredicate predicate, Value lhs, Value rhs) {
+                      CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
@@ -219,15 +220,14 @@ static void printCmpOp(OpAsmPrinter &p, OPTY op) {
       /*AlwaysTrue*/ "true",
   };
   static_assert(std::extent<decltype(predicateNames)>::value ==
-                    (size_t)fir::CmpFPredicate::NumPredicates,
+                    (size_t)CmpFPredicate::NumPredicates,
                 "wrong number of predicate names");
   p << op.getOperationName() << ' ';
   auto predicateValue =
       op.template getAttrOfType<mlir::IntegerAttr>(OPTY::getPredicateAttrName())
           .getInt();
-  assert(predicateValue >=
-             static_cast<int>(fir::CmpFPredicate::FirstValidValue) &&
-         predicateValue < static_cast<int>(fir::CmpFPredicate::NumPredicates) &&
+  assert(predicateValue >= static_cast<int>(CmpFPredicate::FirstValidValue) &&
+         predicateValue < static_cast<int>(CmpFPredicate::NumPredicates) &&
          "unknown predicate index");
   Builder b(op.getContext());
   auto predicateStringAttr = b.getStringAttr(predicateNames[predicateValue]);
@@ -265,7 +265,7 @@ static mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
   llvm::StringRef predicateName =
       predicateNameAttr.cast<mlir::StringAttr>().getValue();
   auto predicate = fir::CmpfOp::getPredicateByName(predicateName);
-  if (predicate == fir::CmpFPredicate::NumPredicates)
+  if (predicate == CmpFPredicate::NumPredicates)
     return parser.emitError(parser.getNameLoc(),
                             "unknown comparison predicate \"" + predicateName +
                                 "\"");
@@ -286,7 +286,7 @@ mlir::ParseResult fir::parseCmpfOp(mlir::OpAsmParser &parser,
 // CmpcOp
 
 void fir::buildCmpCOp(Builder *builder, OperationState &result,
-                      fir::CmpFPredicate predicate, Value lhs, Value rhs) {
+                      CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
@@ -452,7 +452,6 @@ void fir::WhereOp::build(mlir::Builder *builder, OperationState &result,
 
 static mlir::ParseResult parseWhereOp(OpAsmParser &parser,
                                       OperationState &result) {
-  // Create the regions for 'then'.
   result.regions.reserve(2);
   mlir::Region *thenRegion = result.addRegion();
   mlir::Region *elseRegion = result.addRegion();

@@ -87,7 +87,7 @@ bool isa_std_type(mlir::Type t);
 bool isa_fir_or_std_type(mlir::Type t);
 
 /// Is `t` a FIR dialect type that implies a memory (de)reference?
-bool isa_memref(mlir::Type t);
+bool isa_ref_type(mlir::Type t);
 
 /// Is `t` a FIR dialect aggregate type?
 bool isa_aggregate(mlir::Type t);

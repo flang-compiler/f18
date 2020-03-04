@@ -16,28 +16,6 @@
 
 using namespace fir;
 
-namespace {
-
-template <typename A>
-void selectBuild(mlir::OpBuilder *builder, mlir::OperationState *result,
-                 mlir::Value condition,
-                 llvm::ArrayRef<typename A::BranchTuple> tuples) {
-  result->addOperands(condition);
-  for (auto &tup : tuples) {
-    auto *cond{std::get<typename A::Conditions>(tup)};
-    result->addOperands(cond);
-  }
-  // Note: succs must be added *after* operands
-  for (auto &tup : tuples) {
-    auto *block{std::get<mlir::Block *>(tup)};
-    assert(block);
-    auto blkArgs{std::get<llvm::ArrayRef<mlir::Value>>(tup)};
-    result->addSuccessor(block, blkArgs);
-  }
-}
-
-} // namespace
-
 fir::FIROpsDialect::FIROpsDialect(mlir::MLIRContext *ctx)
     : mlir::Dialect("fir", ctx) {
   addTypes<BoxType, BoxCharType, BoxProcType, CharacterType, CplxType, DimsType,

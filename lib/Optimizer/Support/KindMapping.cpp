@@ -165,6 +165,10 @@ static MatchResult parseTypeID(LLVMTypeID &result, const char *&ptr) {
     result = LLVMTypeID::FP128TyID;
     return mlir::success();
   }
+  if (mlir::succeeded(matchString(ptr, "PPC_FP128"))) {
+    result = LLVMTypeID::PPC_FP128TyID;
+    return mlir::success();
+  }
   return mlir::failure();
 }
 

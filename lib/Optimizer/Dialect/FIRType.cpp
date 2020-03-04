@@ -8,6 +8,7 @@
 
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "mlir/ADT/TypeSwitch.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
@@ -298,7 +299,7 @@ RecordType parseDerived(mlir::DialectAsmParser &parser, mlir::Location) {
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
 // is undefined and disallowed.
 inline bool singleIndirectionLevel(mlir::Type ty) {
-  return !fir::isa_memref(ty);
+  return !fir::isa_ref_type(ty);
 }
 
 } // namespace
@@ -837,7 +838,7 @@ bool isa_fir_or_std_type(mlir::Type t) {
   return isa_fir_type(t) || isa_std_type(t);
 }
 
-bool isa_memref(mlir::Type t) {
+bool isa_ref_type(mlir::Type t) {
   return t.isa<ReferenceType>() || t.isa<PointerType>() || t.isa<HeapType>();
 }
 
@@ -846,13 +847,10 @@ bool isa_aggregate(mlir::Type t) {
 }
 
 mlir::Type dyn_cast_ptrEleTy(mlir::Type t) {
-  if (auto p = t.dyn_cast<fir::ReferenceType>())
-    return p.getEleTy();
-  if (auto p = t.dyn_cast<fir::PointerType>())
-    return p.getEleTy();
-  if (auto p = t.dyn_cast<fir::HeapType>())
-    return p.getEleTy();
-  return {};
+  return mlir::TypeSwitch<mlir::Type, mlir::Type>(t)
+      .Case<fir::ReferenceType, fir::PointerType, fir::HeapType>(
+          [](auto p) { return p.getEleTy(); })
+      .Default([](mlir::Type) { return mlir::Type{}; });
 }
 
 } // namespace fir
