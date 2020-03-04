@@ -238,8 +238,10 @@ MaybeExpr ExpressionAnalyzer::CompleteSubscripts(ArrayRef &&ref) {
   if (subscripts == 0) {
     // nothing to check
   } else if (subscripts != symbolRank) {
-    Say("Reference to rank-%d object '%s' has %d subscripts"_err_en_US,
-        symbolRank, symbol.name(), subscripts);
+    if (symbolRank != 0) {
+      Say("Reference to rank-%d object '%s' has %d subscripts"_err_en_US,
+          symbolRank, symbol.name(), subscripts);
+    }
     return std::nullopt;
   } else if (Component * component{ref.base().UnwrapComponent()}) {
     int baseRank{component->base().Rank()};
@@ -454,11 +456,14 @@ MaybeExpr ExpressionAnalyzer::IntLiteralConstant(const PARSED &x) {
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::IntLiteralConstant &x) {
+  auto restorer{
+      GetContextualMessages().SetLocation(std::get<parser::CharBlock>(x.t))};
   return IntLiteralConstant(x);
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(
     const parser::SignedIntLiteralConstant &x) {
+  auto restorer{GetContextualMessages().SetLocation(x.source)};
   return IntLiteralConstant(x);
 }
 
@@ -551,6 +556,18 @@ MaybeExpr ExpressionAnalyzer::Analyze(
     return result;
   }
   return std::nullopt;
+}
+
+MaybeExpr ExpressionAnalyzer::Analyze(
+    const parser::SignedComplexLiteralConstant &x) {
+  auto result{Analyze(std::get<parser::ComplexLiteralConstant>(x.t))};
+  if (!result) {
+    return std::nullopt;
+  } else if (std::get<parser::Sign>(x.t) == parser::Sign::Negative) {
+    return AsGenericExpr(-std::move(std::get<Expr<SomeComplex>>(result->u)));
+  } else {
+    return result;
+  }
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::ComplexPart &x) {
@@ -871,16 +888,25 @@ std::vector<Subscript> ExpressionAnalyzer::AnalyzeSectionSubscripts(
 }
 
 MaybeExpr ExpressionAnalyzer::Analyze(const parser::ArrayElement &ae) {
-  std::vector<Subscript> subscripts{AnalyzeSectionSubscripts(ae.subscripts)};
   if (MaybeExpr baseExpr{Analyze(ae.base)}) {
-    if (std::optional<DataRef> dataRef{ExtractDataRef(std::move(*baseExpr))}) {
-      if (!subscripts.empty()) {
-        return ApplySubscripts(std::move(*dataRef), std::move(subscripts));
+    if (ae.subscripts.empty()) {
+      // will be converted to function call later or error reported
+      return std::nullopt;
+    } else if (baseExpr->Rank() == 0) {
+      if (const Symbol * symbol{GetLastSymbol(*baseExpr)}) {
+        Say("'%s' is not an array"_err_en_US, symbol->name());
       }
+    } else if (std::optional<DataRef> dataRef{
+                   ExtractDataRef(std::move(*baseExpr))}) {
+      return ApplySubscripts(
+          std::move(*dataRef), AnalyzeSectionSubscripts(ae.subscripts));
     } else {
       Say("Subscripts may be applied only to an object, component, or array constant"_err_en_US);
     }
   }
+  // error was reported: analyze subscripts without reporting more errors
+  auto restorer{GetContextualMessages().DiscardMessages()};
+  AnalyzeSectionSubscripts(ae.subscripts);
   return std::nullopt;
 }
 
@@ -1402,6 +1428,11 @@ MaybeExpr ExpressionAnalyzer::Analyze(
       }
     }
     if (symbol) {
+      if (const auto *currScope{context_.globalScope().FindScope(source)}) {
+        if (auto msg{CheckAccessibleComponent(*currScope, *symbol)}) {
+          Say(source, *msg);
+        }
+      }
       if (checkConflicts) {
         auto componentIter{
             std::find(components.begin(), components.end(), *symbol)};
@@ -1433,13 +1464,10 @@ MaybeExpr ExpressionAnalyzer::Analyze(
         } else if (symbol->has<semantics::ObjectEntityDetails>()) {
           // C1594(4)
           const auto &innermost{context_.FindScope(expr.source)};
-          if (const auto *pureProc{
-                  semantics::FindPureProcedureContaining(innermost)}) {
-            if (const Symbol *
-                pointer{semantics::FindPointerComponent(*symbol)}) {
+          if (const auto *pureProc{FindPureProcedureContaining(innermost)}) {
+            if (const Symbol * pointer{FindPointerComponent(*symbol)}) {
               if (const Symbol *
-                  object{semantics::FindExternallyVisibleObject(
-                      *value, *pureProc)}) {
+                  object{FindExternallyVisibleObject(*value, *pureProc)}) {
                 if (auto *msg{Say(expr.source,
                         "Externally visible object '%s' may not be "
                         "associated with pointer component '%s' in a "
@@ -2281,7 +2309,9 @@ static void CheckFuncRefToArrayElementRefHasSubscripts(
       name = &std::get<parser::ProcComponentRef>(proc.u).v.thing.component;
     }
     auto &msg{context.Say(funcRef.v.source,
-        "Reference to array '%s' with empty subscript list"_err_en_US,
+        name->symbol && name->symbol->Rank() == 0
+            ? "'%s' is not a function"_err_en_US
+            : "Reference to array '%s' with empty subscript list"_err_en_US,
         name->source)};
     if (name->symbol) {
       if (semantics::IsFunctionResultWithSameNameAsFunction(*name->symbol)) {
@@ -2949,4 +2979,18 @@ bool ExprChecker::Walk(const parser::Program &program) {
   parser::Walk(program, *this);
   return !context_.AnyFatalError();
 }
+
+bool ExprChecker::Pre(const parser::DataStmtConstant &x) {
+  std::visit(
+      common::visitors{
+          [&](const parser::NullInit &) {},
+          [&](const parser::InitialDataTarget &y) {
+            AnalyzeExpr(context_, y.value());
+          },
+          [&](const auto &y) { AnalyzeExpr(context_, y); },
+      },
+      x.u);
+  return false;
+}
+
 }
