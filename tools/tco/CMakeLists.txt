@@ -1,7 +1,9 @@
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+
 set(LIBS
   FIRDialect
   FIRSupport
-  MLIRAllDialects
+  ${dialect_libs}
   MLIRIR
   MLIRLLVMIR
   MLIRPass

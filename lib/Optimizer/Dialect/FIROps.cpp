@@ -170,24 +170,9 @@ static mlir::ParseResult parseCallOp(mlir::OpAsmParser &parser,
 
 // Note: getCmpFPredicateNames() is inline static in StandardOps/IR/Ops.cpp
 mlir::CmpFPredicate fir::CmpfOp::getPredicateByName(llvm::StringRef name) {
-  return llvm::StringSwitch<CmpFPredicate>(name)
-      .Case("false", mlir::CmpFPredicate::AlwaysFalse)
-      .Case("oeq", mlir::CmpFPredicate::OEQ)
-      .Case("ogt", mlir::CmpFPredicate::OGT)
-      .Case("oge", mlir::CmpFPredicate::OGE)
-      .Case("olt", mlir::CmpFPredicate::OLT)
-      .Case("ole", mlir::CmpFPredicate::OLE)
-      .Case("one", mlir::CmpFPredicate::ONE)
-      .Case("ord", mlir::CmpFPredicate::ORD)
-      .Case("ueq", mlir::CmpFPredicate::UEQ)
-      .Case("ugt", mlir::CmpFPredicate::UGT)
-      .Case("uge", mlir::CmpFPredicate::UGE)
-      .Case("ult", mlir::CmpFPredicate::ULT)
-      .Case("ule", mlir::CmpFPredicate::ULE)
-      .Case("une", mlir::CmpFPredicate::UNE)
-      .Case("uno", mlir::CmpFPredicate::UNO)
-      .Case("true", mlir::CmpFPredicate::AlwaysTrue)
-      .Default(mlir::CmpFPredicate::NumPredicates);
+  auto pred = mlir::symbolizeCmpFPredicate(name);
+  assert(pred.hasValue() && "invalid predicate name");
+  return pred.getValue();
 }
 
 void fir::buildCmpFOp(Builder *builder, OperationState &result,
@@ -201,38 +186,12 @@ void fir::buildCmpFOp(Builder *builder, OperationState &result,
 
 template <typename OPTY>
 static void printCmpOp(OpAsmPrinter &p, OPTY op) {
-  static const char *predicateNames[] = {
-      /*AlwaysFalse*/ "false",
-      /*OEQ*/ "oeq",
-      /*OGT*/ "ogt",
-      /*OGE*/ "oge",
-      /*OLT*/ "olt",
-      /*OLE*/ "ole",
-      /*ONE*/ "one",
-      /*ORD*/ "ord",
-      /*UEQ*/ "ueq",
-      /*UGT*/ "ugt",
-      /*UGE*/ "uge",
-      /*ULT*/ "ult",
-      /*ULE*/ "ule",
-      /*UNE*/ "une",
-      /*UNO*/ "uno",
-      /*AlwaysTrue*/ "true",
-  };
-  static_assert(std::extent<decltype(predicateNames)>::value ==
-                    (size_t)CmpFPredicate::NumPredicates,
-                "wrong number of predicate names");
   p << op.getOperationName() << ' ';
-  auto predicateValue =
+  auto predSym = mlir::symbolizeCmpFPredicate(
       op.template getAttrOfType<mlir::IntegerAttr>(OPTY::getPredicateAttrName())
-          .getInt();
-  assert(predicateValue >= static_cast<int>(CmpFPredicate::FirstValidValue) &&
-         predicateValue < static_cast<int>(CmpFPredicate::NumPredicates) &&
-         "unknown predicate index");
-  Builder b(op.getContext());
-  auto predicateStringAttr = b.getStringAttr(predicateNames[predicateValue]);
-  p.printAttribute(predicateStringAttr);
-  p << ", ";
+          .getInt());
+  assert(predSym.hasValue() && "invalid symbol value for predicate");
+  p << '"' << mlir::stringifyCmpFPredicate(predSym.getValue()) << '"' << ", ";
   p.printOperand(op.lhs());
   p << ", ";
   p.printOperand(op.rhs());
@@ -265,11 +224,6 @@ static mlir::ParseResult parseCmpOp(mlir::OpAsmParser &parser,
   llvm::StringRef predicateName =
       predicateNameAttr.cast<mlir::StringAttr>().getValue();
   auto predicate = fir::CmpfOp::getPredicateByName(predicateName);
-  if (predicate == CmpFPredicate::NumPredicates)
-    return parser.emitError(parser.getNameLoc(),
-                            "unknown comparison predicate \"" + predicateName +
-                                "\"");
-
   auto builder = parser.getBuilder();
   mlir::Type i1Type = builder.getI1Type();
   attrs[0].second = builder.getI64IntegerAttr(static_cast<int64_t>(predicate));

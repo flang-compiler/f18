@@ -10,6 +10,7 @@
 #define OPTIMIZER_DIALECT_FIRDIALECT_H
 
 #include "mlir/IR/Dialect.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 
 namespace llvm {
@@ -49,6 +50,11 @@ public:
 inline void registerFIR() {
   // we want to register exactly once
   [[maybe_unused]] static bool init_once = [] {
+    mlir::registerDialect<mlir::AffineOpsDialect>();
+    mlir::registerDialect<mlir::LLVM::LLVMDialect>();
+    mlir::registerDialect<mlir::loop::LoopOpsDialect>();
+    mlir::registerDialect<mlir::StandardOpsDialect>();
+    mlir::registerDialect<mlir::vector::VectorOpsDialect>();
     mlir::registerDialect<FIROpsDialect>();
     return true;
   }();
