@@ -3,69 +3,14 @@
 // RUN: tco -emit-fir %s | tco -emit-fir | FileCheck %s
 // UNSUPPORTED: !fir
 
-// Fortran Intrinsic types
 // CHECK-LABEL: func @it1() -> !fir.int<4>
-// CHECK-LABEL: func @it2() -> !fir.real<8>
-// CHECK-LABEL: func @it3() -> !fir.complex<8>
-// CHECK-LABEL: func @it4() -> !fir.logical<1>
-// CHECK-LABEL: func @it5() -> !fir.char<1>
 func @it1() -> !fir.int<4>
-func @it2() -> !fir.real<8>
-func @it3() -> !fir.complex<8>
-func @it4() -> !fir.logical<1>
-func @it5() -> !fir.char<1>
-
-// Fortran Derived types (records)
-// CHECK-LABEL: func @dvd1() -> !fir.type<derived1>
-// CHECK-LABEL: func @dvd2() -> !fir.type<derived2(p:i32)>
-// CHECK-LABEL: func @dvd3() -> !fir.type<derived3{f:f32}>
-// CHECK-LABEL: func @dvd4() -> !fir.type<derived4(p:i8){f:f32}>
-func @dvd1() -> !fir.type<derived1>
-func @dvd2() -> !fir.type<derived2(p:i32)>
-func @dvd3() -> !fir.type<derived3{f:f32}>
-func @dvd4() -> !fir.type<derived4(p:i8){f:f32}>
-
-// FIR array types
-// CHECK-LABEL: func @arr1() -> !fir.array<10xf32>
-// CHECK-LABEL: func @arr2() -> !fir.array<10x10xf32>
-// CHECK-LABEL: func @arr3() -> !fir.array<?xf32>
-// CHECK-LABEL: func @arr4() -> !fir.array<10x?xf32>
-// CHECK-LABEL: func @arr5() -> !fir.array<?x?xf32>
-// CHECK-LABEL: func @arr6() -> !fir.array<*:f32>
-func @arr1() -> !fir.array<10xf32>
-func @arr2() -> !fir.array<10x10xf32>
-func @arr3() -> !fir.array<?xf32>
-func @arr4() -> !fir.array<10x?xf32>
-func @arr5() -> !fir.array<?x?xf32>
-func @arr6() -> !fir.array<*:f32>
-
-// FIR pointer-like types
-// CHECK-LABEL: func @mem1() -> !fir.ref<i32>
-// CHECK-LABEL: func @mem2() -> !fir.ptr<i32>
-// CHECK-LABEL: func @mem3() -> !fir.heap<i32>
-// CHECK-LABEL: func @mem4() -> !fir.ref<() -> ()>
-func @mem1() -> !fir.ref<i32>
-func @mem2() -> !fir.ptr<i32>
-func @mem3() -> !fir.heap<i32>
-func @mem4() -> !fir.ref<() -> ()>
-
-// FIR box types (descriptors)
-// CHECK-LABEL: func @box1() -> !fir.box<!fir.array<?xf32>>
-// CHECK-LABEL: func @box2() -> !fir.boxchar<2>
-// CHECK-LABEL: func @box3() -> !fir.boxproc<(i32, i32) -> i64>
-// CHECK-LABEL: func @box4() -> !fir.box<!fir.type<derived3{f:f32}>>
-func @box1() -> !fir.box<!fir.array<?xf32>>
-func @box2() -> !fir.boxchar<2>
-func @box3() -> !fir.boxproc<(i32, i32) -> i64>
-func @box4() -> !fir.box<!fir.type<derived3{f:f32}>>
-
-// FIR misc. types
-// CHECK-LABEL: func @oth1() -> !fir.dims<1>
-// CHECK-LABEL: func @oth2() -> !fir.field
-// CHECK-LABEL: func @oth3() -> !fir.tdesc<!fir.type<derived5{f1:f32,f2:f32}>>
-func @oth1() -> !fir.dims<1>
-func @oth2() -> !fir.field
-func @oth3() -> !fir.tdesc<!fir.type<derived5{f1:f32,f2:f32}>>
+// CHECK-LABEL: func @box1() -> !fir.boxchar<2>
+func @box1() -> !fir.boxchar<2>
+// CHECK-LABEL: func @box2() -> !fir.boxproc<(i32, i32) -> i64>
+func @box2() -> !fir.boxproc<(i32, i32) -> i64>
+// CHECK-LABEL: func @box3() -> !fir.box<!fir.type<derived3{f:f32}>>
+func @box3() -> !fir.box<!fir.type<derived3{f:f32}>>
 
 // Fortran SUBROUTINE and FUNCTION
 // CHECK-LABEL: func @print_index3(index, index, index)
@@ -126,10 +71,10 @@ func @instructions() {
   %13 = fir.box_rank %6 : (!fir.box<!fir.array<100xf32>>) -> i64
   // CHECK: fir.box_tdesc %[[A6]] : (!fir.box<!fir.array<100xf32>>) -> !fir.tdesc<!fir.array<100xf32>>
   %14 = fir.box_tdesc %6 : (!fir.box<!fir.array<100xf32>>) -> !fir.tdesc<!fir.array<100xf32>>
-  %15 = fir.call @box2() : () -> !fir.boxchar<2>
+  %15 = fir.call @box1() : () -> !fir.boxchar<2>
   // CHECK: fir.boxchar_len %{{.*}} : (!fir.boxchar<2>) -> i32
   %16 = fir.boxchar_len %15 : (!fir.boxchar<2>) -> i32
-  %17 = fir.call @box3() : () -> !fir.boxproc<(i32, i32) -> i64>
+  %17 = fir.call @box2() : () -> !fir.boxproc<(i32, i32) -> i64>
   // CHECK: fir.boxproc_host %{{.*}} : (!fir.boxproc<(i32, i32) -> i64>) -> !fir.ref<i32>
   %18 = fir.boxproc_host %17 : (!fir.boxproc<(i32, i32) -> i64>) -> !fir.ref<i32>
   %19 = constant 10 : i32
@@ -149,7 +94,7 @@ func @instructions() {
   %25 = fir.insert_value %22, %cf1, %21 : (!fir.type<derived{f:f32}>, f32, !fir.field) -> !fir.type<derived{f:f32}>
   // CHECK: fir.len_param_index f, !fir.type<derived3{f:f32}>
   %26 = fir.len_param_index f, !fir.type<derived3{f:f32}>
-  %27 = fir.call @box4() : () -> !fir.box<!fir.type<derived3{f:f32}>>
+  %27 = fir.call @box3() : () -> !fir.box<!fir.type<derived3{f:f32}>>
   // CHECK: fir.dispatch "method"(%{{.*}}) : (!fir.box<!fir.type<derived3{f:f32}>>) -> i32
   %28 = fir.dispatch "method"(%27) : (!fir.box<!fir.type<derived3{f:f32}>>) -> i32
   // CHECK: fir.convert %{{.*}} : (i32) -> i64
@@ -196,7 +141,7 @@ func @boxing_match() {
   %8:2 = fir.unboxproc %7 : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<!fir.type<qq2{f1:i32,f2:f64}>>>)
   // CHECK: fir.emboxproc @method_impl, %{{.*}} : ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<i32, f64>>) -> !fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>
   // CHECK: fir.unboxproc %{{.*}} : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<!fir.type<qq2{f1:i32,f2:f64}>>>)
-  %9 = call @box3() : () -> !fir.boxproc<(i32, i32) -> i64>
+  %9 = fir.call @box2() : () -> !fir.boxproc<(i32, i32) -> i64>
   %10:2 = fir.unboxproc %9 : (!fir.boxproc<(i32, i32) -> i64>) -> ((i32, i32) -> i64, !fir.ref<tuple<!fir.type<qq1{f1:i32}>>>)
   %11 = fir.load %10#1 : !fir.ref<tuple<!fir.type<qq1{f1:i32}>>>
   fir.call @store_tuple(%11) : (tuple<!fir.type<qq1{f1:i32}>>) -> ()

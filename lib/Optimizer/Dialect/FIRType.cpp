@@ -1001,14 +1001,18 @@ mlir::Type fir::PointerType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+static bool canBePointerOrHeapElementType(mlir::Type eleTy) {
+  return eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
+         eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
+         eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
+         eleTy.isa<HeapType>() || eleTy.isa<PointerType>() ||
+         eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>();
+}
+
 mlir::LogicalResult
 fir::PointerType::verifyConstructionInvariants(mlir::Location loc,
                                                mlir::Type eleTy) {
-  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
-      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
-      eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
-      eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
-      eleTy.isa<TypeDescType>())
+  if (canBePointerOrHeapElementType(eleTy))
     return mlir::emitError(loc, "cannot build a pointer to type: ")
            << eleTy << '\n';
   return mlir::success();
@@ -1031,11 +1035,7 @@ mlir::Type fir::HeapType::getEleTy() const {
 mlir::LogicalResult
 fir::HeapType::verifyConstructionInvariants(mlir::Location loc,
                                             mlir::Type eleTy) {
-  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
-      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
-      eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
-      eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
-      eleTy.isa<TypeDescType>())
+  if (canBePointerOrHeapElementType(eleTy))
     return mlir::emitError(loc, "cannot build a heap pointer to type: ")
            << eleTy << '\n';
   return mlir::success();
