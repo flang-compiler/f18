@@ -17,6 +17,7 @@ namespace fir {
 
 class FirEndOp;
 class LoopOp;
+class RealAttr;
 
 void buildCmpFOp(mlir::Builder *builder, mlir::OperationState &result,
                  mlir::CmpFPredicate predicate, mlir::Value lhs,

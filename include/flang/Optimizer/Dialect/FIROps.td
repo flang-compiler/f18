@@ -2201,6 +2201,11 @@ class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
   let printer = [{ return printUnaryOp(this->getOperation(), p); }];
 }
 
+def FirRealAttr : Attr<CPred<"$_self.isa<fir::RealAttr>()">, "FIR real attr"> {
+  let storageType = [{ fir::RealAttr }];
+  let returnType = [{ llvm::APFloat }];
+}
+
 def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]> {
   let summary = "create a floating point constant";
 
@@ -2209,34 +2214,16 @@ def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]> {
     to represent APFloat values that are not supported in the standard dialect.
   }];
 
-  let results = (outs fir_RealType);
+  let arguments = (ins FirRealAttr:$constant);
+  
+  let results = (outs fir_RealType:$res);
 
-  let parser = [{
-    fir::RealAttr flt;
-    mlir::Type type;
-    if (parser.parseLParen() ||
-        parser.parseAttribute(flt, constAttrName(), result.attributes) ||
-        parser.parseRParen() || parser.parseColonType(type) ||
-        parser.addTypesToList(type, result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-
-  let printer = [{
-    p << getOperationName() << ' ' << getAttr(constAttrName()) << " : ";
-    p.printType(getType());
-  }];
-
+  let assemblyFormat = "`(` $constant `)` attr-dict `:` type($res)";
+  
   let verifier = [{
     if (!getType().isa<fir::RealType>())
       return emitOpError("must be a !fir.real type");
     return mlir::success();
-  }];
-
-  let extraClassDeclaration = [{
-    static constexpr llvm::StringRef constAttrName() { return "constant"; }
-
-    mlir::Attribute getValue() { return getAttr(constAttrName()); }
   }];
 }
 
