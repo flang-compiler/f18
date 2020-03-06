@@ -233,7 +233,7 @@ class FieldType : public mlir::Type::TypeBase<FieldType, mlir::Type,
                                               detail::FieldTypeStorage> {
 public:
   using Base::Base;
-  static FieldType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static FieldType get(mlir::MLIRContext *ctxt);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_FIELD; }
 };
 
@@ -261,7 +261,7 @@ class LenType
     : public mlir::Type::TypeBase<LenType, mlir::Type, detail::LenTypeStorage> {
 public:
   using Base::Base;
-  static LenType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static LenType get(mlir::MLIRContext *ctxt);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_LEN; }
 };
 

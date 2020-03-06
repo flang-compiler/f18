@@ -873,13 +873,13 @@ int fir::DimsType::getRank() const { return getImpl()->getRank(); }
 
 // Field
 
-FieldType fir::FieldType::get(mlir::MLIRContext *ctxt, KindTy) {
+FieldType fir::FieldType::get(mlir::MLIRContext *ctxt) {
   return Base::get(ctxt, FIR_FIELD, 0);
 }
 
 // Len
 
-LenType fir::LenType::get(mlir::MLIRContext *ctxt, KindTy) {
+LenType fir::LenType::get(mlir::MLIRContext *ctxt) {
   return Base::get(ctxt, FIR_LEN, 0);
 }
 
