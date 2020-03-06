@@ -127,7 +127,7 @@ cmake ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_CXX_STANDARD=17 \
     -DLLVM_INSTALL_UTILS=On \
     -DCMAKE_INSTALL_PREFIX=../install
-make -j
+make
 make install
 ```
 
