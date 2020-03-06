@@ -247,3 +247,9 @@ flang_site_config and flang_config. And they can be set as shown bellow:
  --param flang_config=<path-to-f18-build>/test-lit/lit.cfg.py \
   <path-to-fortran-test>
 ```
+
+# How to Generate FIR Documentation
+
+If f18 was built with `-DLINK_WITH_FIR=On` (`On` by default), it is possible to
+generate FIR language documentation by running `make flang-doc`. This will
+create `docs/Dialect/FIRLangRef.md` in f18 build directory.
