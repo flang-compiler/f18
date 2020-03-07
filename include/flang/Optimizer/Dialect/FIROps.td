@@ -714,61 +714,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     ```
   }];
 
-  let parser = [{
-    mlir::OpAsmParser::OperandType selector;
-    mlir::Type type;
-    if (parseSelector(parser, result, selector, type))
-      return mlir::failure();
-
-    llvm::SmallVector<mlir::Attribute, 4> attrs;
-    llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> opers;
-    llvm::SmallVector<mlir::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<mlir::Value, 4>, 4> destArgs;
-    while (true) {
-      mlir::Attribute attr;
-      mlir::Block *dest;
-      llvm::SmallVector<mlir::Value, 4> destArg;
-      llvm::SmallVector<mlir::NamedAttribute, 1> temp;
-      if (parser.parseAttribute(attr, "a", temp) ||
-          isValidCaseAttr(attr) ||
-          parser.parseComma())
-        return mlir::failure();
-      attrs.push_back(attr);
-      if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
-        // do nothing
-      } else if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
-        mlir::OpAsmParser::OperandType oper1;
-        mlir::OpAsmParser::OperandType oper2;
-        if (parser.parseOperand(oper1) ||
-            parser.parseComma() ||
-            parser.parseOperand(oper2) ||
-            parser.parseComma())
-          return mlir::failure();
-        opers.push_back(oper1);
-        opers.push_back(oper2);
-      } else {
-        mlir::OpAsmParser::OperandType oper;
-        if (parser.parseOperand(oper) ||
-            parser.parseComma())
-          return mlir::failure();
-        opers.push_back(oper);
-      }
-      if (parser.parseSuccessorAndUseList(dest, destArg))
-        return mlir::failure();
-      dests.push_back(dest);
-      destArgs.push_back(destArg);
-      if (!parser.parseOptionalRSquare())
-        break;
-      if (parser.parseComma())
-        return mlir::failure();
-    }
-    result.addAttribute(AttrName, parser.getBuilder().getArrayAttr(attrs));
-    if (parser.resolveOperands(opers, type, result.operands))
-      return mlir::failure();
-    for (unsigned i = 0, count = dests.size(); i != count; ++i)
-      result.addSuccessor(dests[i], destArgs[i]);
-    return mlir::success();
-  }];
+  let parser = "return parseSelectCase(parser, result);";
 
   let printer = [{
     p << getOperationName() << ' ';
@@ -1001,41 +947,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]> {
 
   let results = (outs fir_BoxType);
 
-  let parser = [{
-    mlir::FunctionType type;
-    llvm::SmallVector<mlir::OpAsmParser::OperandType, 8> operands;
-    mlir::OpAsmParser::OperandType memref;
-    if (parser.parseOperand(memref))
-      return mlir::failure();
-    operands.push_back(memref);
-    auto &builder = parser.getBuilder();
-    if (!parser.parseOptionalLParen()) {
-      if (parser.parseOperandList(operands,
-                                  mlir::OpAsmParser::Delimiter::None) ||
-          parser.parseRParen())
-        return mlir::failure();
-      auto lens = builder.getI32IntegerAttr(operands.size());
-      result.addAttribute(lenpName(), lens);
-    }
-    if (!parser.parseOptionalComma()) {
-      mlir::OpAsmParser::OperandType dims;
-      if (parser.parseOperand(dims))
-        return mlir::failure();
-      operands.push_back(dims);
-    } else if (!parser.parseOptionalLSquare()) {
-      mlir::AffineMapAttr map;
-      if (parser.parseAttribute(map, layoutName(), result.attributes) ||
-          parser.parseRSquare())
-        return mlir::failure();
-    }
-    if (parser.parseOptionalAttrDict(result.attributes) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperands(operands, type.getInputs(),
-            parser.getNameLoc(), result.operands) ||
-        parser.addTypesToList(type.getResults(), result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
+  let parser = "return parseEmboxOp(parser, result);";
 
   let printer = [{
     p << getOperationName() << ' ';
