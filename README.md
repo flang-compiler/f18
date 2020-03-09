@@ -1,15 +1,11 @@
-<!--===- README.md
-
-   Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-   See https://llvm.org/LICENSE.txt for license information.
-   SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-
--->
-
 # Flang
 
 Flang is a ground-up implementation of a Fortran front end written in modern
-C++.
+C++. It started off as the f18 project (https://github.com/flang-compiler/f18)
+at Nvidia with an aim to replace the old flang project
+(https://github.com/flang-compiler/flang) and address its various deficiencies.
+F18 was subsequently accepted as the Fortran frontend of LLVM and rechristened
+as Flang.
 
 ## Getting Started
 
@@ -74,10 +70,7 @@ cmake -DLLVM_DIR=$LLVM -DMLIR_DIR=$MLIR ...
 where `LLVM_BUILD_DIR` is
 the top-level directory where LLVM was built.
 
-### Building f18 with GCC
-=======
 ### Building flang with GCC
->>>>>>> Adjust README for upstreaming to llvm.
 
 By default,
 cmake will search for g++ on your PATH.
