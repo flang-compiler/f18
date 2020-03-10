@@ -13,6 +13,10 @@ add_library(FortranCommon
   idioms.cpp
 )
 
+target_link_libraries(FortranCommon
+  LLVMSupport
+)
+
 install (TARGETS FortranCommon
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

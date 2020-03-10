@@ -372,7 +372,7 @@ std::optional<DynamicType> DynamicType::From(
   } else if (type.category() == semantics::DeclTypeSpec::TypeStar) {
     return DynamicType::AssumedType();
   } else {
-    common::die("DynamicType::From(DeclTypeSpec): failed");
+    llvm_unreachable("DynamicType::From(DeclTypeSpec): failed");
   }
   return std::nullopt;
 }

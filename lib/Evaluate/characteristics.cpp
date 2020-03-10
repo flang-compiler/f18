@@ -405,7 +405,7 @@ void DummyArgument::SetOptional(bool value) {
           [value](DummyProcedure &proc) {
             proc.attrs.set(DummyProcedure::Attr::Optional, value);
           },
-          [](AlternateReturn &) { DIE("cannot set optional"); },
+          [](AlternateReturn &) { llvm_unreachable("cannot set optional"); },
       },
       u);
 }
@@ -639,7 +639,7 @@ std::optional<Procedure> Procedure::Characterize(
                     return result;
                   }
                 }
-                DIE("PASS argument missing");
+                llvm_unreachable("PASS argument missing");
               }
               return result;
             } else {

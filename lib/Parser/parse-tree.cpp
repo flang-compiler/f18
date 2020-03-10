@@ -146,7 +146,7 @@ static Expr ActualArgToExpr(ActualArgSpec &arg) {
                 },
                 y.value().u);
           },
-          [&](auto &) -> Expr { common::die("unexpected type"); },
+          [&](auto &) -> Expr { llvm_unreachable("unexpected type"); },
       },
       std::get<ActualArg>(arg.t).u);
 }

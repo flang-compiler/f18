@@ -208,7 +208,7 @@ MaybeExpr ExpressionAnalyzer::Designate(DataRef &&ref) {
     if (auto *component{std::get_if<Component>(&ref.u)}) {
       return Expr<SomeType>{ProcedureDesignator{std::move(*component)}};
     } else if (!std::holds_alternative<SymbolRef>(ref.u)) {
-      DIE("unexpected alternative in DataRef");
+      llvm_unreachable("unexpected alternative in DataRef");
     } else if (!symbol.attrs().test(semantics::Attr::INTRINSIC)) {
       return Expr<SomeType>{ProcedureDesignator{symbol}};
     } else if (auto interface{context_.intrinsics().IsSpecificIntrinsicFunction(
@@ -284,7 +284,7 @@ MaybeExpr ExpressionAnalyzer::ApplySubscripts(
                 ArrayRef{std::move(c), std::move(subscripts)});
           },
           [&](auto &&) -> MaybeExpr {
-            DIE("bad base for ArrayRef");
+            llvm_unreachable("bad base for ArrayRef");
             return std::nullopt;
           },
       },
@@ -1014,7 +1014,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::StructureComponent &sc) {
       return MakeFunctionRef(
           name, ActualArguments{ActualArgument{std::move(*base)}});
     } else {
-      DIE("unexpected MiscDetails::Kind");
+      llvm_unreachable("unexpected MiscDetails::Kind");
     }
   } else {
     Say(name, "derived type required before component reference"_err_en_US);
@@ -1576,7 +1576,7 @@ static int GetPassIndex(const Symbol &proc) {
     }
     ++index;
   }
-  DIE("PASS argument name not in dummy argument list");
+  llvm_unreachable("PASS argument name not in dummy argument list");
 }
 
 // Injects an expression into an actual argument list as the "passed object"
@@ -2187,7 +2187,7 @@ MaybeExpr ExpressionAnalyzer::Analyze(const parser::Expr::Concat &x) {
           if constexpr (std::is_same_v<T, ResultType<decltype(y)>>) {
             return AsGenericExpr(Concat<T::kind>{std::move(x), std::move(y)});
           } else {
-            DIE("different types for intrinsic concat");
+            llvm_unreachable("different types for intrinsic concat");
           }
         },
         std::move(std::get<Expr<SomeCharacter>>(analyzer.MoveExpr(0).u).u),
@@ -2358,7 +2358,7 @@ static void FixMisparsedFunctionReference(
           CheckFuncRefToArrayElementRefHasSubscripts(context, funcRef);
           u = common::Indirection{funcRef.ConvertToArrayElementRef()};
         } else {
-          DIE("can't fix misparsed function as array reference");
+          llvm_unreachable("can't fix misparsed function as array reference");
         }
       }
     }
@@ -2830,7 +2830,7 @@ void ArgumentAnalyzer::Dump(std::ostream &os) {
     } else if (const Expr<SomeType> *expr{actual->UnwrapExpr()}) {
       expr->AsFortran(os << "- expr: ") << '\n';
     } else {
-      DIE("bad ActualArgument");
+      llvm_unreachable("bad ActualArgument");
     }
   }
 }

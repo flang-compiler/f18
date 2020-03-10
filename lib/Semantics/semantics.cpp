@@ -198,7 +198,7 @@ Scope &SemanticsContext::FindScope(parser::CharBlock source) {
   if (auto *scope{globalScope_.FindScope(source)}) {
     return *scope;
   } else {
-    common::die("SemanticsContext::FindScope(): invalid source location");
+    llvm_unreachable("SemanticsContext::FindScope(): invalid source location");
   }
 }
 

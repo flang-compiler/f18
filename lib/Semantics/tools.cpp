@@ -417,7 +417,7 @@ template<typename T> static void CheckMissingAnalysis(bool absent, const T &x) {
     std::ostringstream ss;
     ss << "node has not been analyzed:\n";
     parser::DumpTree(ss, x);
-    common::die(ss.str().c_str());
+    llvm_unreachable(ss.str().c_str());
   }
 }
 

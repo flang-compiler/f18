@@ -23,6 +23,7 @@
 #error g++ >= 7.2 is required
 #endif
 
+#include "llvm/Support/ErrorHandling.h"
 #include <functional>
 #include <list>
 #include <optional>
@@ -63,10 +64,8 @@ template<typename... LAMBDAS> visitors(LAMBDAS... x)->visitors<LAMBDAS...>;
 // Calls std::fprintf(stderr, ...), then abort().
 [[noreturn]] void die(const char *, ...);
 
-#define DIE(x) Fortran::common::die(x " at " __FILE__ "(%d)", __LINE__)
-
 // For switch statement default: labels.
-#define CRASH_NO_CASE DIE("no case")
+#define CRASH_NO_CASE llvm_unreachable("no case")
 
 // clang-format off
 // For switch statements whose cases have return statements for
@@ -82,7 +81,7 @@ template<typename... LAMBDAS> visitors(LAMBDAS... x)->visitors<LAMBDAS...>;
 // For cheap assertions that should be applied in production.
 // To disable, compile with '-DCHECK=(void)'
 #ifndef CHECK
-#define CHECK(x) ((x) || (DIE("CHECK(" #x ") failed"), false))
+#define CHECK(x) ((x) || (llvm_unreachable("CHECK(" #x ") failed"), false))
 #endif
 
 // User-defined type traits that default to false:

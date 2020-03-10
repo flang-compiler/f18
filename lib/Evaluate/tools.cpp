@@ -532,7 +532,7 @@ std::optional<Expr<LogicalResult>> Relate(parser::ContextualMessages &messages,
           },
           // Default case
           [&](auto &&, auto &&) {
-            DIE("invalid types for relational operator");
+            llvm_unreachable("invalid types for relational operator");
             return std::optional<Expr<LogicalResult>>{};
           },
       },

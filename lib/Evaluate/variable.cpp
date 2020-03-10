@@ -327,7 +327,7 @@ std::optional<Expr<SubscriptInteger>> Designator<T>::LEN() const {
         },
         u);
   } else {
-    common::die("Designator<non-char>::LEN() called");
+    llvm_unreachable("Designator<non-char>::LEN() called");
     return std::nullopt;
   }
 }

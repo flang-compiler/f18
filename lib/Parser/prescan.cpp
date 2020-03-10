@@ -54,7 +54,7 @@ static void NormalizeCompilerDirectiveCommentMarker(TokenSequence &dir) {
       return;
     }
   }
-  DIE("compiler directive all blank");
+  llvm_unreachable("compiler directive all blank");
 }
 
 void Prescanner::Prescan(ProvenanceRange range) {

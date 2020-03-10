@@ -654,7 +654,7 @@ static bool ConflictsWithIntrinsicOperator(
         common::visitors{
             [&](common::NumericOperator) { return IsIntrinsicNumeric(type0); },
             [&](common::LogicalOperator) { return IsIntrinsicLogical(type0); },
-            [](const auto &) -> bool { DIE("bad generic kind"); },
+            [](const auto &) -> bool { llvm_unreachable("bad generic kind"); },
         },
         kind.u);
   } else {  // binary
@@ -677,7 +677,7 @@ static bool ConflictsWithIntrinsicOperator(
               CHECK(x == GenericKind::OtherKind::Concat);
               return IsIntrinsicConcat(type0, rank0, type1, rank1);
             },
-            [](const auto &) -> bool { DIE("bad generic kind"); },
+            [](const auto &) -> bool { llvm_unreachable("bad generic kind"); },
         },
         kind.u);
   }
@@ -734,7 +734,7 @@ std::optional<parser::MessageFixedText> CheckHelper::CheckNumberOfArgs(
           [](const GenericKind::OtherKind &x) {
             CHECK(x == GenericKind::OtherKind::Concat);
           },
-          [](const auto &) { DIE("expected intrinsic operator"); },
+          [](const auto &) { llvm_unreachable("expected intrinsic operator"); },
       },
       kind.u);
   if (nargs >= min && nargs <= max) {
@@ -821,7 +821,7 @@ bool CheckHelper::CheckDefinedAssignmentArg(
             " argument '%s' must have INTENT(IN) or VALUE attribute"_err_en_US;
       }
     } else {
-      DIE("pos must be 0 or 1");
+      llvm_unreachable("pos must be 0 or 1");
     }
   } else {
     msg = "In defined assignment subroutine '%s', dummy argument '%s'"

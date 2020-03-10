@@ -93,7 +93,7 @@ private:
 // Track statement source locations and save messages.
 class MessageHandler {
 public:
-  MessageHandler() { DIE("MessageHandler: default-constructed"); }
+  MessageHandler() { llvm_unreachable("MessageHandler: default-constructed"); }
   explicit MessageHandler(SemanticsContext &c) : context_{&c} {}
   Messages &messages() { return context_->messages(); };
   const std::optional<SourceName> &currStmtSource() {
@@ -134,7 +134,7 @@ private:
 
 class BaseVisitor {
 public:
-  BaseVisitor() { DIE("BaseVisitor: default-constructed"); }
+  BaseVisitor() { llvm_unreachable("BaseVisitor: default-constructed"); }
   BaseVisitor(SemanticsContext &c, ResolveNamesVisitor &v)
     : this_{&v}, context_{&c}, messageHandler_{c} {}
   template<typename T> void Walk(const T &);
@@ -273,7 +273,7 @@ protected:
     case parser::AccessSpec::Kind::Public: return Attr::PUBLIC;
     case parser::AccessSpec::Kind::Private: return Attr::PRIVATE;
     }
-    common::die("unreachable");  // suppress g++ warning
+    llvm_unreachable("unreachable");  // suppress g++ warning
   }
   Attr IntentSpecToAttr(const parser::IntentSpec &x) {
     switch (x.v) {
@@ -281,7 +281,7 @@ protected:
     case parser::IntentSpec::Intent::Out: return Attr::INTENT_OUT;
     case parser::IntentSpec::Intent::InOut: return Attr::INTENT_INOUT;
     }
-    common::die("unreachable");  // suppress g++ warning
+    llvm_unreachable("unreachable");  // suppress g++ warning
   }
 
 private:
@@ -916,7 +916,7 @@ private:
             "Declaration of '%s' conflicts with its use as internal procedure"_err_en_US,
             symbol, "Internal procedure definition"_en_US);
       } else {
-        DIE("unexpected kind");
+        llvm_unreachable("unexpected kind");
       }
     } else if (std::is_same_v<ObjectEntityDetails, T> &&
         symbol.has<ProcEntityDetails>()) {
@@ -1360,13 +1360,19 @@ public:
   bool Pre(const parser::ProgramUnit &);
 
   // These nodes should never be reached: they are handled in ProgramUnit
-  bool Pre(const parser::MainProgram &) { DIE("unreachable"); }
-  bool Pre(const parser::FunctionSubprogram &) { DIE("unreachable"); }
-  bool Pre(const parser::SubroutineSubprogram &) { DIE("unreachable"); }
-  bool Pre(const parser::SeparateModuleSubprogram &) { DIE("unreachable"); }
-  bool Pre(const parser::Module &) { DIE("unreachable"); }
-  bool Pre(const parser::Submodule &) { DIE("unreachable"); }
-  bool Pre(const parser::BlockData &) { DIE("unreachable"); }
+  bool Pre(const parser::MainProgram &) { llvm_unreachable("unreachable"); }
+  bool Pre(const parser::FunctionSubprogram &) {
+    llvm_unreachable("unreachable");
+  }
+  bool Pre(const parser::SubroutineSubprogram &) {
+    llvm_unreachable("unreachable");
+  }
+  bool Pre(const parser::SeparateModuleSubprogram &) {
+    llvm_unreachable("unreachable");
+  }
+  bool Pre(const parser::Module &) { llvm_unreachable("unreachable"); }
+  bool Pre(const parser::Submodule &) { llvm_unreachable("unreachable"); }
+  bool Pre(const parser::BlockData &) { llvm_unreachable("unreachable"); }
 
   void NoteExecutablePartCall(Symbol::Flag, const parser::Call &);
 
@@ -1512,7 +1518,7 @@ bool AttrsVisitor::SetPassNameOn(Symbol &symbol) {
       common::visitors{
           [&](ProcEntityDetails &x) { x.set_passName(*passName_); },
           [&](ProcBindingDetails &x) { x.set_passName(*passName_); },
-          [](auto &) { common::die("unexpected pass name"); },
+          [](auto &) { llvm_unreachable("unexpected pass name"); },
       },
       symbol.details());
   return true;
@@ -1529,7 +1535,7 @@ bool AttrsVisitor::SetBindNameOn(Symbol &symbol) {
           [&](ProcEntityDetails &x) { x.set_bindName(std::move(bindName_)); },
           [&](SubprogramDetails &x) { x.set_bindName(std::move(bindName_)); },
           [&](CommonBlockDetails &x) { x.set_bindName(std::move(bindName_)); },
-          [](auto &) { common::die("unexpected bind name"); },
+          [](auto &) { llvm_unreachable("unexpected bind name"); },
       },
       symbol.details());
   return true;
@@ -1900,7 +1906,7 @@ Scope &ScopeHandler::InclusiveScope() {
       return *scope;
     }
   }
-  DIE("inclusive scope not found");
+  llvm_unreachable("inclusive scope not found");
 }
 
 void ScopeHandler::PushScope(Scope::Kind kind, Symbol *symbol) {
@@ -5400,7 +5406,7 @@ void ResolveNamesVisitor::HandleProcedureName(
     ConvertToProcEntity(*symbol);
     SetProcFlag(name, *symbol, flag);
   } else if (symbol->has<UnknownDetails>()) {
-    DIE("unexpected UnknownDetails");
+    llvm_unreachable("unexpected UnknownDetails");
   } else if (CheckUseError(name)) {
     // error was reported
   } else {

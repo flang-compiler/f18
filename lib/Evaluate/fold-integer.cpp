@@ -232,7 +232,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           sx->u);
     } else {
-      DIE("exponent argument must be real");
+      llvm_unreachable("exponent argument must be real");
     }
   } else if (name == "huge") {
     return Expr<T>{Scalar<T>::HUGE()};
@@ -329,7 +329,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           charExpr->u);
     } else {
-      DIE("first argument must be CHARACTER");
+      llvm_unreachable("first argument must be CHARACTER");
     }
   } else if (name == "int") {
     if (auto *expr{UnwrapExpr<Expr<SomeType>>(args[0])}) {
@@ -340,7 +340,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
                 IsNumericCategoryExpr<From>()) {
               return Fold(context, ConvertToType<T>(std::move(x)));
             }
-            DIE("int() argument type not valid");
+            llvm_unreachable("int() argument type not valid");
           },
           std::move(expr->u));
     }
@@ -350,7 +350,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
     if constexpr (common::HasMember<T, IntegerTypes>) {
       return Expr<T>{args[0].value().GetType()->kind()};
     } else {
-      DIE("kind() result not integral");
+      llvm_unreachable("kind() result not integral");
     }
   } else if (name == "lbound") {
     return LBOUND(context, std::move(funcRef));
@@ -383,7 +383,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           sn->u);
     } else {
-      DIE("leadz argument must be integer");
+      llvm_unreachable("leadz argument must be integer");
     }
   } else if (name == "len") {
     if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0])}) {
@@ -397,7 +397,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           charExpr->u);
     } else {
-      DIE("len() argument must be of character type");
+      llvm_unreachable("len() argument must be of character type");
     }
   } else if (name == "len_trim") {
     if (auto *charExpr{UnwrapExpr<Expr<SomeCharacter>>(args[0])}) {
@@ -411,7 +411,7 @@ Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
           },
           charExpr->u);
     } else {
-      DIE("len_trim() argument must be of character type");
+      llvm_unreachable("len_trim() argument must be of character type");
     }
   } else if (name == "maskl" || name == "maskr") {
     // Argument can be of any kind but value has to be smaller than BIT_SIZE.

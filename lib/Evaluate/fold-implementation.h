@@ -1459,7 +1459,7 @@ Expr<Type<TypeCategory::Real, KIND>> ToReal(
         } else if constexpr (IsNumericCategoryExpr<From>()) {
           result = Fold(context, ConvertToType<Result>(std::move(x)));
         } else {
-          common::die("ToReal: bad argument expression");
+          llvm_unreachable("ToReal: bad argument expression");
         }
       },
       std::move(expr.u));

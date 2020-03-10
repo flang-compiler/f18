@@ -385,7 +385,7 @@ static bool HaveCompatibleKindParameters(
     return HaveCompatibleKindParameters(
         *derivedType1, type2.GetDerivedTypeSpec());
   } else {
-    common::die("unexpected type1 category");
+    llvm_unreachable("unexpected type1 category");
   }
 }
 
@@ -400,7 +400,7 @@ static bool HaveCompatibleKindParameters(
     return HaveCompatibleKindParameters(
         *derivedType1, DEREF(type2.AsDerived()));
   } else {
-    common::die("unexpected type1 category");
+    llvm_unreachable("unexpected type1 category");
   }
 }
 

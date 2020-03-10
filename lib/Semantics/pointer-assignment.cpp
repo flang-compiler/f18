@@ -383,7 +383,7 @@ static bool CheckPointerBounds(
             return bounds.size();
           },
           [](const auto &) -> std::size_t {
-            DIE("not valid for pointer assignment");
+            llvm_unreachable("not valid for pointer assignment");
           },
       },
       assignment.u)};

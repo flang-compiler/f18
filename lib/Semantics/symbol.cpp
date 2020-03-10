@@ -636,7 +636,7 @@ Symbol &Symbol::InstantiateComponent(
         details->ReplaceType(
             InstantiateIntrinsicType(scope, *origType, context));
       } else if (origType->category() != DeclTypeSpec::ClassStar) {
-        DIE("instantiated component has type that is "
+        llvm_unreachable("instantiated component has type that is "
             "neither intrinsic, derived, nor CLASS(*)");
       }
     }

@@ -101,8 +101,9 @@ template<typename TR, typename... ArgInfo> struct CallableHostWrapper {
       hostFPE.CheckAndRestoreFloatingPointEnvironment(context);
       return result;
     } else {
-      common::die("Internal error: Host does not supports this function type."
-                  "This should not have been called for folding");
+      llvm_unreachable(
+          "Internal error: Host does not supports this function type."
+          "This should not have been called for folding");
     }
   }
   static constexpr inline auto MakeScalarCallable() { return &scalarCallable; }

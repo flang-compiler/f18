@@ -82,7 +82,7 @@ Expr<Type<TypeCategory::Real, KIND>> FoldIntrinsicFunction(
             "abs(complex(kind=%d)) cannot be folded on host"_en_US, KIND);
       }
     } else {
-      common::die(" unexpected argument type inside abs");
+      llvm_unreachable(" unexpected argument type inside abs");
     }
   } else if (name == "aimag") {
     return FoldElementalIntrinsic<T, ComplexT>(

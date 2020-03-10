@@ -105,7 +105,7 @@ int ProcedureDesignator::Rank() const {
       }
     }
   }
-  DIE("ProcedureDesignator::Rank(): no case");
+  llvm_unreachable("ProcedureDesignator::Rank(): no case");
   return 0;
 }
 
@@ -128,7 +128,7 @@ bool ProcedureDesignator::IsElemental() const {
     return intrinsic->characteristics.value().attrs.test(
         characteristics::Procedure::Attr::Elemental);
   } else {
-    DIE("ProcedureDesignator::IsElemental(): no case");
+    llvm_unreachable("ProcedureDesignator::IsElemental(): no case");
   }
   return false;
 }

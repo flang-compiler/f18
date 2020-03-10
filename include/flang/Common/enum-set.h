@@ -187,7 +187,8 @@ public:
           return {enumerator};
         }
       }
-      die("EnumSet::LeastElement(): no bit found in non-empty std::bitset");
+      llvm_unreachable(
+          "EnumSet::LeastElement(): no bit found in non-empty std::bitset");
     }
   }
 

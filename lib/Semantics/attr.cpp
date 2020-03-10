@@ -15,7 +15,7 @@ namespace Fortran::semantics {
 
 void Attrs::CheckValid(const Attrs &allowed) const {
   if (!allowed.HasAll(*this)) {
-    common::die("invalid attribute");
+    llvm_unreachable("invalid attribute");
   }
 }
 
