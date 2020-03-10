@@ -12,7 +12,6 @@
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
-#include "mlir/Transforms/SideEffectsInterface.h"
 
 using namespace fir;
 

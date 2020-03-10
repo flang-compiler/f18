@@ -439,9 +439,90 @@ fir::LoopOp fir::getForInductionVarOwner(mlir::Value val) {
 }
 
 //===----------------------------------------------------------------------===//
+// SelectOp
+//===----------------------------------------------------------------------===//
+
+static constexpr llvm::StringRef getCompareOffsetAttr() {
+  return "compare_operand_offsets";
+}
+
+static constexpr llvm::StringRef getTargetOffsetAttr() {
+  return "target_operand_offsets";
+}
+
+template <typename A>
+static A getSubOperands(unsigned pos, A allArgs,
+                        mlir::DenseIntElementsAttr ranges) {
+  unsigned start = 0;
+  for (unsigned i = 0; i < pos; ++i)
+    start += (*(ranges.begin() + i)).getZExtValue();
+  unsigned end = start + (*(ranges.begin() + pos)).getZExtValue();
+  return {std::next(allArgs.begin(), start), std::next(allArgs.begin(), end)};
+}
+
+llvm::Optional<mlir::OperandRange> fir::SelectOp::getCompareOperands(unsigned) {
+  return {};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectOp::getCompareOperands(llvm::ArrayRef<mlir::Value>, unsigned) {
+  return {};
+}
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectOp::getSuccessorOperands(unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  return {getSubOperands(oper, targetArgs(), a)};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
+                                    unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  auto segments =
+      getAttrOfType<mlir::DenseIntElementsAttr>(getOperandSegmentSizeAttr());
+  return {getSubOperands(oper, getSubOperands(2, operands, segments), a)};
+}
+
+bool fir::SelectOp::canEraseSuccessorOperand() { return true; }
+
+//===----------------------------------------------------------------------===//
 // SelectCaseOp
 //===----------------------------------------------------------------------===//
 
+llvm::Optional<mlir::OperandRange>
+fir::SelectCaseOp::getCompareOperands(unsigned cond) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getCompareOffsetAttr());
+  return {getSubOperands(cond, compareArgs(), a)};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectCaseOp::getCompareOperands(llvm::ArrayRef<mlir::Value> operands,
+                                      unsigned cond) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getCompareOffsetAttr());
+  auto segments =
+      getAttrOfType<mlir::DenseIntElementsAttr>(getOperandSegmentSizeAttr());
+  return {getSubOperands(cond, getSubOperands(1, operands, segments), a)};
+}
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectCaseOp::getSuccessorOperands(unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  return {getSubOperands(oper, targetArgs(), a)};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectCaseOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
+                                        unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  auto segments =
+      getAttrOfType<mlir::DenseIntElementsAttr>(getOperandSegmentSizeAttr());
+  return {getSubOperands(oper, getSubOperands(2, operands, segments), a)};
+}
+
+bool fir::SelectCaseOp::canEraseSuccessorOperand() { return true; }
+
+// parser for fir.select_case Op
 static mlir::ParseResult parseSelectCase(mlir::OpAsmParser &parser,
                                          mlir::OperationState &result) {
   mlir::OpAsmParser::OperandType selector;
@@ -449,21 +530,23 @@ static mlir::ParseResult parseSelectCase(mlir::OpAsmParser &parser,
   if (parseSelector(parser, result, selector, type))
     return mlir::failure();
 
-  llvm::SmallVector<mlir::Attribute, 4> attrs;
-  llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> opers;
-  llvm::SmallVector<mlir::Block *, 4> dests;
-  llvm::SmallVector<llvm::SmallVector<mlir::Value, 4>, 4> destArgs;
+  llvm::SmallVector<mlir::Attribute, 8> attrs;
+  llvm::SmallVector<mlir::OpAsmParser::OperandType, 8> opers;
+  llvm::SmallVector<mlir::Block *, 8> dests;
+  llvm::SmallVector<llvm::SmallVector<mlir::Value, 8>, 8> destArgs;
+  llvm::SmallVector<int32_t, 8> argOffs;
+  int32_t offSize = 0;
   while (true) {
     mlir::Attribute attr;
     mlir::Block *dest;
-    llvm::SmallVector<mlir::Value, 4> destArg;
+    llvm::SmallVector<mlir::Value, 8> destArg;
     llvm::SmallVector<mlir::NamedAttribute, 1> temp;
     if (parser.parseAttribute(attr, "a", temp) || isValidCaseAttr(attr) ||
         parser.parseComma())
       return mlir::failure();
     attrs.push_back(attr);
     if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
-      // do nothing
+      argOffs.push_back(0);
     } else if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
       mlir::OpAsmParser::OperandType oper1;
       mlir::OpAsmParser::OperandType oper2;
@@ -472,11 +555,15 @@ static mlir::ParseResult parseSelectCase(mlir::OpAsmParser &parser,
         return mlir::failure();
       opers.push_back(oper1);
       opers.push_back(oper2);
+      argOffs.push_back(2);
+      offSize += 2;
     } else {
       mlir::OpAsmParser::OperandType oper;
       if (parser.parseOperand(oper) || parser.parseComma())
         return mlir::failure();
       opers.push_back(oper);
+      argOffs.push_back(1);
+      ++offSize;
     }
     if (parser.parseSuccessorAndUseList(dest, destArg))
       return mlir::failure();
@@ -487,12 +574,132 @@ static mlir::ParseResult parseSelectCase(mlir::OpAsmParser &parser,
     if (parser.parseComma())
       return mlir::failure();
   }
-  result.addAttribute(fir::SelectCaseOp::AttrName,
+  result.addAttribute(fir::SelectCaseOp::getCasesAttr(),
                       parser.getBuilder().getArrayAttr(attrs));
   if (parser.resolveOperands(opers, type, result.operands))
     return mlir::failure();
-  for (unsigned i = 0, count = dests.size(); i != count; ++i)
-    result.addSuccessor(dests[i], destArgs[i]);
+  llvm::SmallVector<int32_t, 8> targOffs;
+  int32_t toffSize = 0;
+  const auto count = dests.size();
+  for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+    result.addSuccessors(dests[i]);
+    result.addOperands(destArgs[i]);
+    auto argSize = destArgs[i].size();
+    targOffs.push_back(argSize);
+    toffSize += argSize;
+  }
+  auto &bld = parser.getBuilder();
+  result.addAttribute(fir::SelectCaseOp::getOperandSegmentSizeAttr(),
+                      bld.getI32VectorAttr({1, offSize, toffSize}));
+  result.addAttribute(getCompareOffsetAttr(), bld.getI32VectorAttr(argOffs));
+  result.addAttribute(getTargetOffsetAttr(), bld.getI32VectorAttr(targOffs));
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// SelectRankOp
+//===----------------------------------------------------------------------===//
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectRankOp::getCompareOperands(unsigned) {
+  return {};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectRankOp::getCompareOperands(llvm::ArrayRef<mlir::Value>, unsigned) {
+  return {};
+}
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectRankOp::getSuccessorOperands(unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  return {getSubOperands(oper, targetArgs(), a)};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectRankOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
+                                        unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  auto segments =
+      getAttrOfType<mlir::DenseIntElementsAttr>(getOperandSegmentSizeAttr());
+  return {getSubOperands(oper, getSubOperands(2, operands, segments), a)};
+}
+
+bool fir::SelectRankOp::canEraseSuccessorOperand() { return true; }
+
+//===----------------------------------------------------------------------===//
+// SelectTypeOp
+//===----------------------------------------------------------------------===//
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectTypeOp::getCompareOperands(unsigned) {
+  return {};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectTypeOp::getCompareOperands(llvm::ArrayRef<mlir::Value>, unsigned) {
+  return {};
+}
+
+llvm::Optional<mlir::OperandRange>
+fir::SelectTypeOp::getSuccessorOperands(unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  return {getSubOperands(oper, targetArgs(), a)};
+}
+
+llvm::Optional<llvm::ArrayRef<mlir::Value>>
+fir::SelectTypeOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
+                                        unsigned oper) {
+  auto a = getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr());
+  auto segments =
+      getAttrOfType<mlir::DenseIntElementsAttr>(getOperandSegmentSizeAttr());
+  return {getSubOperands(oper, getSubOperands(2, operands, segments), a)};
+}
+
+bool fir::SelectTypeOp::canEraseSuccessorOperand() { return true; }
+
+static ParseResult parseSelectType(OpAsmParser &parser,
+                                   OperationState &result) {
+  mlir::OpAsmParser::OperandType selector;
+  mlir::Type type;
+  if (parseSelector(parser, result, selector, type))
+    return mlir::failure();
+
+  llvm::SmallVector<mlir::Attribute, 8> attrs;
+  llvm::SmallVector<mlir::Block *, 8> dests;
+  llvm::SmallVector<llvm::SmallVector<mlir::Value, 8>, 8> destArgs;
+  while (true) {
+    mlir::Attribute attr;
+    mlir::Block *dest;
+    llvm::SmallVector<mlir::Value, 8> destArg;
+    llvm::SmallVector<mlir::NamedAttribute, 1> temp;
+    if (parser.parseAttribute(attr, "a", temp) || parser.parseComma() ||
+        parser.parseSuccessorAndUseList(dest, destArg))
+      return mlir::failure();
+    attrs.push_back(attr);
+    dests.push_back(dest);
+    destArgs.push_back(destArg);
+    if (!parser.parseOptionalRSquare())
+      break;
+    if (parser.parseComma())
+      return mlir::failure();
+  }
+  auto &bld = parser.getBuilder();
+  result.addAttribute(fir::SelectTypeOp::getCasesAttr(),
+                      bld.getArrayAttr(attrs));
+  llvm::SmallVector<int32_t, 8> argOffs;
+  int32_t offSize = 0;
+  const auto count = dests.size();
+  for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+    result.addSuccessors(dests[i]);
+    result.addOperands(destArgs[i]);
+    auto argSize = destArgs[i].size();
+    argOffs.push_back(argSize);
+    offSize += argSize;
+  }
+  result.addAttribute(fir::SelectTypeOp::getOperandSegmentSizeAttr(),
+                      bld.getI32VectorAttr({1, 0, offSize}));
+  result.addAttribute(getTargetOffsetAttr(), bld.getI32VectorAttr(argOffs));
   return mlir::success();
 }
 

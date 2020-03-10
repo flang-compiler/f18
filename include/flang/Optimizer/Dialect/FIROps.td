@@ -14,9 +14,7 @@
 #ifndef FIR_DIALECT_FIR_OPS
 #define FIR_DIALECT_FIR_OPS
 
-#ifndef OP_BASE
-include "mlir/IR/OpBase.td"
-#endif
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 
 def fir_Dialect : Dialect {
   let name = "fir";
@@ -537,13 +535,22 @@ def fir_FreeMemOp : fir_Op<"freemem", []> {
   let assemblyFormat = "$heapref attr-dict `:` type($heapref)";
 }
 
-// Terminator operations
+//===----------------------------------------------------------------------===//// Terminator operations
+//===----------------------------------------------------------------------===//
 
 class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
-    fir_Op<mnemonic, !listconcat(traits, [Terminator])> {
-  let arguments = (ins Variadic<AnyType>:$args);
+    fir_Op<mnemonic, !listconcat(traits, [AttrSizedOperandSegments,
+    DeclareOpInterfaceMethods<BranchOpInterface>, Terminator])> {
+
+  let arguments = (ins
+    AnyType:$selector,
+    Variadic<AnyType>:$compareArgs,
+    Variadic<AnyType>:$targetArgs
+  );
 
   let results = (outs);
+
+  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
 
   let builders = [OpBuilder<
     "Builder *, OperationState &result, Value selector,"
@@ -554,7 +561,8 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
       result.addOperands(selector);
       result.addOperands(properOperands);
       for (auto kvp : llvm::zip(destinations, operands)) {
-        result.addSuccessor(std::get<0>(kvp), std::get<1>(kvp));
+        result.addSuccessors(std::get<0>(kvp));
+        result.addOperands(std::get<1>(kvp));
       }
       result.addAttributes(attributes);
     }]
@@ -562,34 +570,56 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
 
   string extraSwitchClassDeclaration = [{
     using Conditions = mlir::Value;
-    static constexpr auto AttrName = "cases";
+
+    static constexpr llvm::StringRef getCasesAttr() { return "case_tags"; }
 
     // The number of destination conditions that may be tested
     unsigned getNumConditions() { return getNumDest(); }
 
     // The selector is the value being tested to determine the destination
-    mlir::Value getSelector() { return getOperand(0); }
+    mlir::Value getSelector() { return selector(); }
+    mlir::Value getSelector(llvm::ArrayRef<mlir::Value> operands) {
+      return operands[0];
+    }
 
     // The number of blocks that may be branched to
     unsigned getNumDest() { return getOperation()->getNumSuccessors(); }
+
+    llvm::Optional<mlir::OperandRange> getCompareOperands(unsigned cond);
+    llvm::Optional<llvm::ArrayRef<mlir::Value>> getCompareOperands(
+        llvm::ArrayRef<mlir::Value> operands, unsigned cond);
+
+    llvm::Optional<llvm::ArrayRef<mlir::Value>> getSuccessorOperands(
+        llvm::ArrayRef<mlir::Value> operands, unsigned cond);
+
+    // Helper function to deal with Optional operand forms
+    void printSuccessorAtIndex(mlir::OpAsmPrinter &p, unsigned i) {
+      auto *succ = getSuccessor(i);
+      auto ops = getSuccessorOperands(i);
+      if (ops.hasValue())
+        p.printSuccessorAndUseList(succ, ops.getValue());
+      else
+        p.printSuccessor(succ);
+    }
   }];
 }
 
 class fir_IntegralSwitchTerminatorOp<string mnemonic,
     list<OpTrait> traits = []> : fir_SwitchTerminatorOp<mnemonic, traits> {
+
   let parser = [{
     mlir::OpAsmParser::OperandType selector;
     mlir::Type type;
     if (parseSelector(parser, result, selector, type))
       return mlir::failure();
 
-    llvm::SmallVector<mlir::Attribute, 4> ivalues;
-    llvm::SmallVector<mlir::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<mlir::Value, 4>, 4> destArgs;
+    llvm::SmallVector<mlir::Attribute, 8> ivalues;
+    llvm::SmallVector<mlir::Block *, 8> dests;
+    llvm::SmallVector<llvm::SmallVector<mlir::Value, 8>, 8> destArgs;
     while (true) {
       mlir::Attribute ivalue; // Integer or Unit
       mlir::Block *dest;
-      llvm::SmallVector<mlir::Value, 4> destArg;
+      llvm::SmallVector<mlir::Value, 8> destArg;
       llvm::SmallVector<mlir::NamedAttribute, 1> temp;
       if (parser.parseAttribute(ivalue, "i", temp) ||
           parser.parseComma() ||
@@ -603,9 +633,21 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
       if (parser.parseComma())
         return mlir::failure();
     }
-    result.addAttribute(AttrName, parser.getBuilder().getArrayAttr(ivalues));
-    for (unsigned i = 0, count = dests.size(); i != count; ++i)
-      result.addSuccessor(dests[i], destArgs[i]);
+    auto &bld = parser.getBuilder();
+    result.addAttribute(getCasesAttr(), bld.getArrayAttr(ivalues));
+    llvm::SmallVector<int32_t, 8> argOffs;
+    int32_t sumArgs = 0;
+    const auto count = dests.size();
+    for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+      result.addSuccessors(dests[i]);
+      result.addOperands(destArgs[i]);
+      auto argSize = destArgs[i].size();
+      argOffs.push_back(argSize);
+      sumArgs += argSize;
+    }
+    result.addAttribute(getOperandSegmentSizeAttr(),
+                        bld.getI32VectorAttr({1, 0, sumArgs}));
+    result.addAttribute(getTargetOffsetAttr(), bld.getI32VectorAttr(argOffs));
     return mlir::success();
   }];
 
@@ -613,8 +655,9 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
     p << " : " << getSelector().getType() << " [";
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       if (i)
         p << ", ";
       auto &attr = cases[i];
@@ -623,10 +666,11 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
       else
         p.printAttribute(attr);
       p << ", ";
-      p.printSuccessorAndUseList(getOperation(), i);
+      printSuccessorAtIndex(p, i);
     }
     p << ']';
-    p.printOptionalAttrDict(getAttrs(), {AttrName});
+    p.printOptionalAttrDict(getAttrs(), {getCasesAttr(), getCompareOffsetAttr(),
+        getTargetOffsetAttr(), getOperandSegmentSizeAttr()});
   }];
 
   let verifier = [{
@@ -634,12 +678,11 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
           getSelector().getType().isa<mlir::IndexType>() ||
           getSelector().getType().isa<fir::IntType>()))
       return emitOpError("must be an integer");
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.dyn_cast_or_null<mlir::IntegerAttr>()) {
-        // ok
-      } else if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
+      if (attr.isa<mlir::IntegerAttr>() || attr.isa<mlir::UnitAttr>()) {
         // ok
       } else {
         return emitOpError("invalid case alternative");
@@ -647,8 +690,6 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     }
     return mlir::success();
   }];
-
-  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
 
   let extraClassDeclaration = extraSwitchClassDeclaration;
 }
@@ -720,23 +761,26 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
     p << " : " << getSelector().getType() << " [";
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       if (i)
         p << ", ";
       p << cases[i] << ", ";
-      if (!cases[i].dyn_cast_or_null<mlir::UnitAttr>()) {
-        p.printOperand(getCaseArg(i, 0));
+      if (!cases[i].isa<mlir::UnitAttr>()) {
+        auto caseArgs = *getCompareOperands(i);
+        p.printOperand(*caseArgs.begin());
         p << ", ";
-        if (cases[i].dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
-          p.printOperand(getCaseArg(i, 1));
+        if (cases[i].isa<fir::ClosedIntervalAttr>()) {
+          p.printOperand(*(++caseArgs.begin()));
           p << ", ";
         }
       }
-      p.printSuccessorAndUseList(getOperation(), i);
+      printSuccessorAtIndex(p, i);
     }
     p << ']';
-    p.printOptionalAttrDict(getAttrs(), {AttrName});
+    p.printOptionalAttrDict(getAttrs(), {getCasesAttr(), getCompareOffsetAttr(),
+        getTargetOffsetAttr(), getOperandSegmentSizeAttr()});
   }];
 
   let verifier = [{
@@ -746,8 +790,9 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
           getSelector().getType().isa<fir::LogicalType>() ||
           getSelector().getType().isa<fir::CharacterType>()))
       return emitOpError("must be an integer, character, or logical");
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
       if (attr.isa<fir::PointIntervalAttr>() ||
           attr.isa<fir::LowerBoundAttr>() ||
@@ -762,18 +807,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     return mlir::success();
   }];
 
-  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
-
-  let extraClassDeclaration = extraSwitchClassDeclaration#[{
-    mlir::Value getCaseArg(unsigned dest, unsigned ele) {
-      assert(ele < 2);
-      assert(dest < getNumConditions());
-      auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-      assert(cases.size() == getNumConditions());
-      unsigned o = getCaseArgumentOffset(cases, dest);
-      return getOperand(o + 1 + ele);
-    }
-  }];
+  let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
 def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
@@ -796,62 +830,34 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     ```
   }];
 
-  let parser = [{
-    mlir::OpAsmParser::OperandType selector;
-    mlir::Type type;
-    if (parseSelector(parser, result, selector, type))
-      return mlir::failure();
-
-    llvm::SmallVector<mlir::Attribute, 4> attrs;
-    llvm::SmallVector<mlir::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<mlir::Value, 4>, 4> destArgs;
-    while (true) {
-      mlir::Attribute attr;
-      mlir::Block *dest;
-      llvm::SmallVector<mlir::Value, 4> destArg;
-      llvm::SmallVector<mlir::NamedAttribute, 1> temp;
-      if (parser.parseAttribute(attr, "a", temp) ||
-          parser.parseComma() ||
-          parser.parseSuccessorAndUseList(dest, destArg))
-        return mlir::failure();
-      attrs.push_back(attr);
-      dests.push_back(dest);
-      destArgs.push_back(destArg);
-      if (!parser.parseOptionalRSquare())
-        break;
-      if (parser.parseComma())
-        return mlir::failure();
-    }
-    result.addAttribute(AttrName, parser.getBuilder().getArrayAttr(attrs));
-    for (unsigned i = 0, count = dests.size(); i != count; ++i)
-      result.addSuccessor(dests[i], destArgs[i]);
-    return mlir::success();
-  }];
+  let parser = "return parseSelectType(parser, result);";
 
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
     p << " : " << getSelector().getType() << " [";
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       if (i)
         p << ", ";
       p << cases[i] << ", ";
-      p.printSuccessorAndUseList(getOperation(), i);
+      printSuccessorAtIndex(p, i);
     }
     p << ']';
-    p.printOptionalAttrDict(getAttrs(), {AttrName});
+    p.printOptionalAttrDict(getAttrs(), {getCasesAttr(), getCompareOffsetAttr(),
+        getTargetOffsetAttr(), getOperandSegmentSizeAttr()});
   }];
 
   let verifier = [{
     if (!(getSelector().getType().isa<fir::BoxType>()))
       return emitOpError("must be a boxed type");
-    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
-    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
+    auto count = getNumConditions();
+    for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.dyn_cast_or_null<fir::ExactTypeAttr>() ||
-          attr.dyn_cast_or_null<fir::SubclassAttr>() ||
-          attr.dyn_cast_or_null<mlir::UnitAttr>()) {
+      if (attr.isa<fir::ExactTypeAttr>() || attr.isa<fir::SubclassAttr>() ||
+          attr.isa<mlir::UnitAttr>()) {
         // ok
       } else {
         return emitOpError("invalid type-case alternative");
@@ -859,8 +865,6 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     }
     return mlir::success();
   }];
-
-  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
 
   let extraClassDeclaration = extraSwitchClassDeclaration;
 }
