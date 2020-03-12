@@ -58,7 +58,7 @@ PROJECT_LOGO           =
 # entered, it will be relative to the location where doxygen was started. If
 # left blank the current directory will be used.
 
-OUTPUT_DIRECTORY       = doxygen/
+OUTPUT_DIRECTORY       = @abs_top_builddir@/doxygen/
 
 # If the CREATE_SUBDIRS tag is set to YES then doxygen will create 4096 sub-
 # directories (in 2 levels) under the output directory of each output format and
@@ -162,7 +162,7 @@ FULL_PATH_NAMES        = YES
 # will be relative from the directory where doxygen is started.
 # This tag requires that the tag FULL_PATH_NAMES is set to YES.
 
-STRIP_FROM_PATH        =
+STRIP_FROM_PATH        = @abs_top_srcdir@/..
 
 # The STRIP_FROM_INC_PATH tag can be used to strip a user-defined part of the
 # path mentioned in the documentation of a class, which tells the reader which
@@ -171,7 +171,9 @@ STRIP_FROM_PATH        =
 # specify the list of include paths that are normally passed to the compiler
 # using the -I flag.
 
-STRIP_FROM_INC_PATH    =
+STRIP_FROM_INC_PATH    = @abs_top_srcdir@/../include
+STRIP_FROM_INC_PATH    += @abs_top_srcdir@/../lib
+STRIP_FROM_INC_PATH    += @abs_top_srcdir@/../runtime
 
 # If the SHORT_NAMES tag is set to YES, doxygen will generate much shorter (but
 # less readable) file names. This can be useful is your file systems doesn't
@@ -790,7 +792,10 @@ WARN_LOGFILE           =
 # spaces. See also FILE_PATTERNS and EXTENSION_MAPPING
 # Note: If this tag is empty the current directory is searched.
 
-INPUT                  = ../lib/ ../include/ ../runtime/
+INPUT                  = @abs_top_srcdir@/../include/ \
+			 @abs_top_srcdir@/../lib/ \
+			 @abs_top_srcdir@/../runtime/ \
+			 @abs_top_srcdir@/doxygen-mainpage.dox
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses
@@ -1376,14 +1381,14 @@ TOC_EXPAND             = NO
 # The default value is: NO.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-GENERATE_QHP           = NO
+GENERATE_QHP           = @llvm_doxygen_generate_qhp@
 
 # If the QHG_LOCATION tag is specified, the QCH_FILE tag can be used to specify
 # the file name of the resulting .qch file. The path specified is relative to
 # the HTML output folder.
 # This tag requires that the tag GENERATE_QHP is set to YES.
 
-QCH_FILE               =
+QCH_FILE               = @llvm_doxygen_qch_filename@
 
 # The QHP_NAMESPACE tag specifies the namespace to use when generating Qt Help
 # Project output. For more information please see Qt Help Project / Namespace
@@ -1391,7 +1396,7 @@ QCH_FILE               =
 # The default value is: org.doxygen.Project.
 # This tag requires that the tag GENERATE_QHP is set to YES.
 
-QHP_NAMESPACE          = org.doxygen.Project
+QHP_NAMESPACE          = @llvm_doxygen_qhp_namespace@
 
 # The QHP_VIRTUAL_FOLDER tag specifies the namespace to use when generating Qt
 # Help Project output. For more information please see Qt Help Project / Virtual
@@ -1408,7 +1413,7 @@ QHP_VIRTUAL_FOLDER     = doc
 # filters).
 # This tag requires that the tag GENERATE_QHP is set to YES.
 
-QHP_CUST_FILTER_NAME   =
+QHP_CUST_FILTER_NAME   = @llvm_doxygen_qhp_cust_filter_name@
 
 # The QHP_CUST_FILTER_ATTRS tag specifies the list of the attributes of the
 # custom filter to add. For more information please see Qt Help Project / Custom
@@ -1416,7 +1421,7 @@ QHP_CUST_FILTER_NAME   =
 # filters).
 # This tag requires that the tag GENERATE_QHP is set to YES.
 
-QHP_CUST_FILTER_ATTRS  =
+QHP_CUST_FILTER_ATTRS  = @llvm_doxygen_qhp_cust_filter_attrs@
 
 # The QHP_SECT_FILTER_ATTRS tag specifies the list of the attributes this
 # project's filter section matches. Qt Help Project / Filter Attributes (see:
@@ -1592,7 +1597,7 @@ MATHJAX_CODEFILE       =
 # The default value is: YES.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-SEARCHENGINE           = YES
+SEARCHENGINE           = @enable_searchengine@
 
 # When the SERVER_BASED_SEARCH tag is enabled the search engine will be
 # implemented using a web server instead of a web client using Javascript. There
@@ -1604,7 +1609,7 @@ SEARCHENGINE           = YES
 # The default value is: NO.
 # This tag requires that the tag SEARCHENGINE is set to YES.
 
-SERVER_BASED_SEARCH    = NO
+SERVER_BASED_SEARCH    = @enable_server_based_search@
 
 # When EXTERNAL_SEARCH tag is enabled doxygen will no longer generate the PHP
 # script for searching. Instead the search results are written to an XML file
@@ -1620,7 +1625,7 @@ SERVER_BASED_SEARCH    = NO
 # The default value is: NO.
 # This tag requires that the tag SEARCHENGINE is set to YES.
 
-EXTERNAL_SEARCH        = NO
+EXTERNAL_SEARCH        = @enable_external_search@
 
 # The SEARCHENGINE_URL should point to a search engine hosted by a web server
 # which will return the search results when EXTERNAL_SEARCH is enabled.
@@ -1631,7 +1636,7 @@ EXTERNAL_SEARCH        = NO
 # Searching" for details.
 # This tag requires that the tag SEARCHENGINE is set to YES.
 
-SEARCHENGINE_URL       =
+SEARCHENGINE_URL       = @searchengine_url@
 
 # When SERVER_BASED_SEARCH and EXTERNAL_SEARCH are both enabled the unindexed
 # search data is written to a file for indexing by an external tool. With the
@@ -1647,7 +1652,7 @@ SEARCHDATA_FILE        = searchdata.xml
 # projects and redirect the results back to the right project.
 # This tag requires that the tag SEARCHENGINE is set to YES.
 
-EXTERNAL_SEARCH_ID     =
+EXTERNAL_SEARCH_ID     = flang
 
 # The EXTRA_SEARCH_MAPPINGS tag can be used to enable searching through doxygen
 # projects other than the one defined by this configuration file, but that are
@@ -1657,7 +1662,7 @@ EXTERNAL_SEARCH_ID     =
 # EXTRA_SEARCH_MAPPINGS = tagname1=loc1 tagname2=loc2 ...
 # This tag requires that the tag SEARCHENGINE is set to YES.
 
-EXTRA_SEARCH_MAPPINGS  =
+EXTRA_SEARCH_MAPPINGS  = @extra_search_mappings@
 
 #---------------------------------------------------------------------------
 # Configuration options related to the LaTeX output
@@ -2376,7 +2381,7 @@ DIRECTORY_GRAPH        = YES
 # The default value is: png.
 # This tag requires that the tag HAVE_DOT is set to YES.
 
-DOT_IMAGE_FORMAT       = png
+DOT_IMAGE_FORMAT       = @DOT_IMAGE_FORMAT@
 
 # If DOT_IMAGE_FORMAT is set to svg, then this option can be set to YES to
 # enable generation of interactive SVG images that allow zooming and panning.
@@ -2394,7 +2399,7 @@ INTERACTIVE_SVG        = NO
 # found. If left blank, it is assumed the dot tool can be found in the path.
 # This tag requires that the tag HAVE_DOT is set to YES.
 
-DOT_PATH               =
+DOT_PATH               = @DOT@
 
 # The DOTFILE_DIRS tag can be used to specify one or more directories that
 # contain dot files that are included in the documentation (see the \dotfile
