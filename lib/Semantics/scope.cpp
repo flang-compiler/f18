@@ -51,6 +51,9 @@ std::string EquivalenceObject::AsFortran() const {
 bool Scope::IsModule() const {
   return kind_ == Kind::Module && !symbol_->get<ModuleDetails>().isSubmodule();
 }
+bool Scope::IsSubmodule() const {
+  return kind_ == Kind::Module && symbol_->get<ModuleDetails>().isSubmodule();
+}
 
 Scope &Scope::MakeScope(Kind kind, Symbol *symbol) {
   return children_.emplace_back(*this, kind, symbol);
@@ -88,6 +91,37 @@ Symbol *Scope::FindComponent(SourceName name) const {
     return parent->FindComponent(name);
   } else {
     return nullptr;
+  }
+}
+
+std::optional<SourceName> Scope::GetName() const {
+  if (const auto *sym{GetSymbol()}) {
+    return sym->name();
+  } else {
+    return std::nullopt;
+  }
+}
+
+bool Scope::Contains(const Scope &that) const {
+  for (const Scope *scope{&that};; scope = &scope->parent()) {
+    if (*scope == *this) {
+      return true;
+    }
+    if (scope->IsGlobal()) {
+      return false;
+    }
+  }
+}
+
+Symbol *Scope::CopySymbol(const Symbol &symbol) {
+  auto pair{try_emplace(symbol.name(), symbol.attrs())};
+  if (!pair.second) {
+    return nullptr;  // already exists
+  } else {
+    Symbol &result{*pair.first->second};
+    result.flags() = symbol.flags();
+    result.set_details(common::Clone(symbol.details()));
+    return &result;
   }
 }
 
@@ -244,8 +278,7 @@ Scope *Scope::FindScope(parser::CharBlock source) {
 }
 
 void Scope::AddSourceRange(const parser::CharBlock &source) {
-  for (auto *scope = this; !scope->IsGlobal();
-       scope = &scope->parent()) {
+  for (auto *scope = this; !scope->IsGlobal(); scope = &scope->parent()) {
     scope->sourceRange_.ExtendToCover(source);
   }
 }

@@ -1,3 +1,4 @@
+! RUN: %S/test_errors.sh %s %flang %t
 ! Pointer assignment constraints 10.2.2.2 (see also assign02.f90)
 
 module m
@@ -191,5 +192,11 @@ contains
     !ERROR: Must be a constant value
     logical, parameter :: l5 = is_contiguous(y(v,1)%a(1,1))
   end
+  subroutine test3(b)
+    integer, intent(inout) :: b(..)
+    !ERROR: Must be a constant value
+    integer, parameter :: i = rank(b)
+  end subroutine
+
 
 end

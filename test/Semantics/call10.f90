@@ -1,3 +1,4 @@
+! RUN: %S/test_errors.sh %s %flang %t
 ! Test 15.7 (C1583-C1590, C1592-C1599) constraints and restrictions
 ! for pure procedures.
 ! (C1591 is tested in call11.f90; C1594 in call12.f90.)
@@ -108,8 +109,8 @@ module m
       real, volatile :: v2
     end block
   end subroutine
-  !ERROR: A dummy procedure of a pure subprogram must be pure
   pure subroutine s07(p) ! C1590
+    !ERROR: A dummy procedure of a pure subprogram must be pure
     procedure(impure) :: p
   end subroutine
   ! C1591 is tested in call11.f90.

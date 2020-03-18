@@ -49,6 +49,10 @@ message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}" )
 
 find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_DIR}")
+# If LLVM links to zlib we need the imported targets so we can too.
+if(LLVM_ENABLE_ZLIB)
+  find_package(ZLIB REQUIRED)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
 
@@ -84,6 +88,15 @@ add_definitions(${LLVM_DEFINITIONS})
 set(LLVM_EXTERNAL_LIT ${LLVM_TOOLS_BINARY_DIR}/llvm-lit CACHE STRING "Command used to spawn lit")
 
 if(LINK_WITH_FIR)
+  include(TableGen)
+  include(AddMLIR)
+  find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
+  NO_DEFAULT_PATH)
+  # tco tool and FIR lib output directories
+  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)
+  # Always build tco tool
+  set(LLVM_BUILD_TOOLS ON)
   message(STATUS "Linking driver with FIR and LLVM")
   llvm_map_components_to_libnames(LLVM_COMMON_LIBS support)
   message(STATUS "LLVM libraries: ${LLVM_COMMON_LIBS}")
@@ -141,9 +154,9 @@ enable_testing()
 add_subdirectory(include/flang)
 add_subdirectory(lib)
 add_subdirectory(runtime)
-add_subdirectory(test)
+add_subdirectory(unittests)
 add_subdirectory(tools)
-add_subdirectory(test-lit)
+add_subdirectory(test)
 
 configure_file(
   ${FLANG_SOURCE_DIR}/include/flang/Config/config.h.cmake

@@ -78,6 +78,7 @@ public:
   Kind kind() const { return kind_; }
   bool IsGlobal() const { return kind_ == Kind::Global; }
   bool IsModule() const;  // only module, not submodule
+  bool IsSubmodule() const;
   bool IsDerivedType() const { return kind_ == Kind::DerivedType; }
   bool IsParameterizedDerivedType() const;
   Symbol *symbol() { return symbol_; }
@@ -85,15 +86,8 @@ public:
 
   const Symbol *GetSymbol() const;
   const Scope *GetDerivedTypeParent() const;
-
-  std::optional<SourceName> GetName() const {
-    if (const auto *sym{GetSymbol()}) {
-      return sym->name();
-    } else {
-      return std::nullopt;
-    }
-  }
-
+  std::optional<SourceName> GetName() const;
+  bool Contains(const Scope &) const;
   /// Make a scope nested in this one
   Scope &MakeScope(Kind kind, Symbol *symbol = nullptr);
 
@@ -141,6 +135,8 @@ public:
     Symbol &symbol{MakeSymbol(name, attrs, std::move(details))};
     return symbols_.emplace(name, symbol);
   }
+  // Make a copy of a symbol in this scope; nullptr if one is already there
+  Symbol *CopySymbol(const Symbol &);
 
   const std::list<EquivalenceSet> &equivalenceSets() const;
   void add_equivalenceSet(EquivalenceSet &&);

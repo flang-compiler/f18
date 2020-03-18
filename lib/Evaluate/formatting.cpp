@@ -18,8 +18,6 @@
 
 namespace Fortran::evaluate {
 
-bool formatForPGF90{false};
-
 static void ShapeAsFortran(std::ostream &o, const ConstantSubscripts &shape) {
   if (GetRank(shape) > 1) {
     o << ",shape=";
@@ -87,7 +85,7 @@ std::ostream &Constant<Type<TypeCategory::Character, KIND>>::AsFortran(
     if (j > 0) {
       o << ',';
     }
-    if (Result::kind != 1 || !formatForPGF90) {
+    if (Result::kind != 1) {
       o << Result::kind << '_';
     }
     o << parser::QuoteCharacterLiteral(value);
@@ -716,6 +714,43 @@ std::ostream &DescriptorInquiry::AsFortran(std::ostream &o) const {
     }
     return o << ')';
   }
+}
+
+std::ostream &Assignment::AsFortran(std::ostream &o) const {
+  std::visit(
+      common::visitors{
+          [&](const Assignment::Intrinsic &) {
+            rhs.AsFortran(lhs.AsFortran(o) << '=');
+          },
+          [&](const ProcedureRef &proc) { proc.AsFortran(o << "CALL "); },
+          [&](const BoundsSpec &bounds) {
+            lhs.AsFortran(o);
+            if (!bounds.empty()) {
+              char sep{'('};
+              for (const auto &bound : bounds) {
+                bound.AsFortran(o << sep) << ':';
+                sep = ',';
+              }
+              o << ')';
+            }
+            rhs.AsFortran(o << " => ");
+          },
+          [&](const BoundsRemapping &bounds) {
+            lhs.AsFortran(o);
+            if (!bounds.empty()) {
+              char sep{'('};
+              for (const auto &bound : bounds) {
+                bound.first.AsFortran(o << sep) << ':';
+                bound.second.AsFortran(o);
+                sep = ',';
+              }
+              o << ')';
+            }
+            rhs.AsFortran(o << " => ");
+          },
+      },
+      u);
+  return o;
 }
 
 INSTANTIATE_CONSTANT_TEMPLATES

@@ -1,3 +1,4 @@
+! RUN: %S/test_errors.sh %s %flang %t
 ! C709 An assumed-type entity shall be a dummy data object that does not have 
 ! the ALLOCATABLE, CODIMENSION, INTENT (OUT), POINTER, or VALUE attribute and 
 ! is not an explicit-shape array.
@@ -19,7 +20,7 @@ subroutine s()
         type(*), pointer :: arg6
         !ERROR: Assumed-type argument 'arg7' cannot have the VALUE attribute
         type(*), value :: arg7
-        !ERROR: Assumed-type argument 'arg8' must be assumed shape or assumed size array
+        !ERROR: Assumed-type array argument 'arg8' must be assumed shape, assumed size, or assumed rank
         type(*), dimension(3) :: arg8
       end subroutine inner1
 end subroutine s
