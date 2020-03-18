@@ -6,6 +6,13 @@
   
 -->
 
+# Driver and frontend
+
+See: [DriverAndFrontend.md](DriverAndFrontend.md).
+
+These control the execution of the various compiler machinery at a high
+level.
+
 # Overview of Compiler Phases
 
 Each phase produces either correct output or fatal errors.
