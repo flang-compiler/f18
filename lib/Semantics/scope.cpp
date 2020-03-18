@@ -51,6 +51,9 @@ std::string EquivalenceObject::AsFortran() const {
 bool Scope::IsModule() const {
   return kind_ == Kind::Module && !symbol_->get<ModuleDetails>().isSubmodule();
 }
+bool Scope::IsSubmodule() const {
+  return kind_ == Kind::Module && symbol_->get<ModuleDetails>().isSubmodule();
+}
 
 Scope &Scope::MakeScope(Kind kind, Symbol *symbol) {
   return children_.emplace_back(*this, kind, symbol);
@@ -107,6 +110,18 @@ bool Scope::Contains(const Scope &that) const {
     if (scope->IsGlobal()) {
       return false;
     }
+  }
+}
+
+Symbol *Scope::CopySymbol(const Symbol &symbol) {
+  auto pair{try_emplace(symbol.name(), symbol.attrs())};
+  if (!pair.second) {
+    return nullptr;  // already exists
+  } else {
+    Symbol &result{*pair.first->second};
+    result.flags() = symbol.flags();
+    result.set_details(common::Clone(symbol.details()));
+    return &result;
   }
 }
 

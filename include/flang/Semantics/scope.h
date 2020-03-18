@@ -78,6 +78,7 @@ public:
   Kind kind() const { return kind_; }
   bool IsGlobal() const { return kind_ == Kind::Global; }
   bool IsModule() const;  // only module, not submodule
+  bool IsSubmodule() const;
   bool IsDerivedType() const { return kind_ == Kind::DerivedType; }
   bool IsParameterizedDerivedType() const;
   Symbol *symbol() { return symbol_; }
@@ -134,6 +135,8 @@ public:
     Symbol &symbol{MakeSymbol(name, attrs, std::move(details))};
     return symbols_.emplace(name, symbol);
   }
+  // Make a copy of a symbol in this scope; nullptr if one is already there
+  Symbol *CopySymbol(const Symbol &);
 
   const std::list<EquivalenceSet> &equivalenceSets() const;
   void add_equivalenceSet(EquivalenceSet &&);
