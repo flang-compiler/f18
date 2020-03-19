@@ -10,10 +10,11 @@
 
 namespace Fortran::semantics {
 
-void DataChecker::CheckIfConstantExpr(const parser::Expr &parsedExpr) {
-  if (const auto *expr{GetExpr(parsedExpr)}) {
+template<typename T> void DataChecker::CheckIfConstantSubscript(const T &x) {
+  if (const auto *expr{GetExpr(x)}) {
     if (!evaluate::IsConstantExpr(*expr)) {  // C875,C881
-      context_.Say(parsedExpr.source, "Subscript must be a constant"_err_en_US);
+      context_.Say(parser::FindSourceLocation(x),
+          "Data object must have constant bounds"_err_en_US);
     }
   }
 }
@@ -22,18 +23,12 @@ void DataChecker::CheckSubscript(const parser::SectionSubscript &subscript) {
   std::visit(
       common::visitors{
           [&](const parser::SubscriptTriplet &triplet) {
-            if (const auto &subscriptStart{std::get<0>(triplet.t)}) {
-              CheckIfConstantExpr(subscriptStart->thing.thing.value());
-            }
-            if (const auto &subscriptEnd{std::get<1>(triplet.t)}) {
-              CheckIfConstantExpr(subscriptEnd->thing.thing.value());
-            }
-            if (const auto &stride{std::get<2>(triplet.t)}) {
-              CheckIfConstantExpr(stride->thing.thing.value());
-            }
+            std::apply(
+                [&](const auto &... x) { (..., CheckIfConstantSubscript(x)); },
+                triplet.t);
           },
           [&](const parser::IntExpr &intExpr) {
-            CheckIfConstantExpr(intExpr.thing.value());
+            CheckIfConstantSubscript(intExpr);
           },
       },
       subscript.u);
@@ -116,7 +111,8 @@ void DataChecker::Leave(const parser::DataStmtObject &dataObject) {
         CheckAllSubscriptsInDataRef(*dataRef, designator->source);
       }
     } else {  // C875
-      context_.Say("Data object variable must be a designator"_err_en_US);
+      context_.Say(parser::FindSourceLocation(dataObject),
+          "Data object variable must not be a function reference"_err_en_US);
     }
   }
 }

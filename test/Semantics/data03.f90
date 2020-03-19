@@ -1,5 +1,5 @@
 ! RUN: %S/test_errors.sh %s %flang %t
-!Test data constraints : C874 - C875, C878, C880, C881 
+!Testing data constraints : C874 - C875, C878 - C881 
 module m
   contains
     function f(i)
@@ -40,16 +40,16 @@ module m
       !ERROR: Data object must not be a coindexed variable
       DATA(a[i], i = 1, 5) / 5 * 1 /
       !C875
-      !ERROR: Data object variable must be a designator
+      !ERROR: Data object variable must not be a function reference
       DATA f(1) / 1 / 
       !C875
-      !ERROR: Subscript must be a constant
+      !ERROR: Data object must have constant bounds
       DATA b(ind) / 1 /
       !C875
-      !ERROR: Subscript must be a constant
+      !ERROR: Data object must have constant bounds
       DATA name( : ind) / 'Ancd' /
       !C875
-      !ERROR: Subscript must be a constant
+      !ERROR: Data object must have constant bounds
       DATA name(ind:) / 'Ancd' /
       !C878
       !ERROR: Data implied do object must be a variable
@@ -63,12 +63,12 @@ module m
       DATA(nums % one, i = 1, 5) / 5 * 1 /
       !C880
       !OK: Correct use
-      DATA(largeArray(j) % nums % one, j = 1, 10) / 100 * 1 /
+      DATA(largeArray(j) % nums % one, j = 1, 10) / 10 * 1 /
       !C880
       !OK: Correct use
-      DATA(largeNumber % numsArray(j) % one, j = 1, 10) / 100 * 1 /
+      DATA(largeNumber % numsArray(j) % one, j = 1, 10) / 10 * 1 /
       !C881
-      !ERROR: Subscript must be a constant
+      !ERROR: Data object must have constant bounds
       DATA(b(x), i = 1, 5) / 5 * 1 /
       !C881 
       !OK: Correct use
@@ -78,6 +78,6 @@ module m
       DATA((d(i, j), i = 1, 10), j = 1, 10) / 100 * 1 /
       !C881
       !OK: Correct use
-      DATA(d(i, 1), i = 1, 10) / 100 * 1 /
+      DATA(d(i, 1), i = 1, 10) / 10 * 1 /
     end 
   end

@@ -25,10 +25,9 @@ public:
 
 private:
   SemanticsContext &context_;
-  void CheckIfConstantExpr(const parser::Expr &);
+  template<typename T> void CheckIfConstantSubscript(const T &);
   void CheckSubscript(const parser::SectionSubscript &);
-  bool CheckAllSubscriptsInDataRef(
-      const parser::DataRef &, parser::CharBlock);
+  bool CheckAllSubscriptsInDataRef(const parser::DataRef &, parser::CharBlock);
 };
 }
 #endif  // FORTRAN_SEMANTICS_CHECK_DATA_H_
