@@ -89,7 +89,13 @@ set(LLVM_EXTERNAL_LIT ${LLVM_TOOLS_BINARY_DIR}/llvm-lit CACHE STRING "Command us
 
 if(LINK_WITH_FIR)
   include(TableGen)
+
+  find_package(MLIR REQUIRED CONFIG)
+  # Use SYSTEM for the same reasons as for LLVM includes
+  include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
+  list(APPEND CMAKE_MODULE_PATH ${MLIR_DIR})
   include(AddMLIR)
+
   find_program(MLIR_TABLEGEN_EXE "mlir-tblgen" ${LLVM_TOOLS_BINARY_DIR}
   NO_DEFAULT_PATH)
   # tco tool and FIR lib output directories

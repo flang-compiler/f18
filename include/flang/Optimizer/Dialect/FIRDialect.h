@@ -54,7 +54,7 @@ inline void registerFIR() {
     mlir::registerDialect<mlir::LLVM::LLVMDialect>();
     mlir::registerDialect<mlir::loop::LoopOpsDialect>();
     mlir::registerDialect<mlir::StandardOpsDialect>();
-    mlir::registerDialect<mlir::vector::VectorOpsDialect>();
+    mlir::registerDialect<mlir::vector::VectorDialect>();
     mlir::registerDialect<FIROpsDialect>();
     return true;
   }();
