@@ -159,10 +159,10 @@ implicit none
       name = 'true'
     case (.false.)
        name = 'false'
-     !ERROR: CASE value .TRUE. matches a previous CASE statement
+     !ERROR: CASE value .true._1 matches a previous CASE statement
      case (.true.)
       name = 'true'
-     !ERROR: CASE value .FALSE. matches a previous CASE statement
+     !ERROR: CASE value .false._1 matches a previous CASE statement
      case (grade5)
       name = 'true'
   end select
@@ -179,12 +179,14 @@ implicit none
         print *, "Excellent!"
      case (91:99)
         print *, "Very good!"
-     !ERROR: CASE value 81:90 matches a previous CASE statement
+     !ERROR: CASE value 81_8:90_8 matches a previous CASE statement
      case (81:90)
         print *, "Very good!"
-     !ERROR: CASE value :80 matches a previous CASE statement
-     !ERROR: CASE value :80 matches a previous CASE statement
+     !ERROR: CASE value :80_8 matches a previous CASE statement
      case (:80)
+        print *, "Well done!"
+     !ERROR: CASE value 200_8 matches a previous CASE statement
+     case (200)
         print *, "Well done!"
      case default
         print *, "Invalid marks"
@@ -195,10 +197,23 @@ implicit none
          print *, "Excellent!"
      case ('hey')
          print *, "Good"
+     !ERROR: CASE value :"hh" matches a previous CASE statement
+     case (:'hh')
+         print *, "Amazing"
+     case (:'hd')
+         print *, "Amazing"
+     case ( 'hu':)
+         print *, "Well done"
      case ('hi':'ho')
          print *, "Well done"
      !ERROR: CASE value "hj" matches a previous CASE statement
      case ('hj')
+         print *, "Well done now"
+     !ERROR: CASE value "ha" matches a previous CASE statement
+     case ('ha')
+         print *, "Well done now"
+     !ERROR: CASE value "hz" matches a previous CASE statement
+     case ('hz')
          print *, "Well done now"
      case default
          print *, "Invalid grade"

@@ -815,6 +815,29 @@ template<typename A> SymbolVector GetSymbolVector(const A &x) {
   return GetSymbolVectorHelper{}(x);
 }
 
+template<typename T> std::string GetValueAsString(T val) {
+  if constexpr (std::is_same_v<T, bool>) {
+    return Expr<Type<TypeCategory::Logical, 1>>{
+        Constant<Type<TypeCategory::Logical, 1>>{val}}
+        .AsFortran();
+  } else if constexpr (std::is_same_v<T, std::int64_t>) {
+    return Expr<Type<TypeCategory::Integer, 8>>{
+        Constant<Type<TypeCategory::Integer, 8>>{val}}
+        .AsFortran();
+  } else if constexpr (std::is_same_v<T, std::string> ||
+      std::is_same_v<T, std::u16string> || std::is_same_v<T, std::u32string>) {
+    return parser::QuoteCharacterLiteral(val);
+  } else {
+    // other unsupported types, return empty string
+    return std::string();
+  }
+}
+
+template<typename T> std::string GetValuePairAsString(T fromVal, T toVal) {
+  return ((fromVal ? GetValueAsString(fromVal.value()) : ""s) + ":"s +
+      (toVal ? GetValueAsString(toVal.value()) : ""s));
+}
+
 // GetLastTarget() returns the rightmost symbol in an object designator's
 // SymbolVector that has the POINTER or TARGET attribute, or a null pointer
 // when none is found.
