@@ -139,8 +139,18 @@ public:
   AssocEntityDetails &operator=(AssocEntityDetails &&) = default;
   const MaybeExpr &expr() const { return expr_; }
 
+  void set_rank(int rank);
+  std::optional<int> associationRank() const {
+    if (associationRank_.has_value()) {
+      return associationRank_.value();
+    } else {
+      return {};
+    }
+  }
+
 private:
   MaybeExpr expr_;
+  std::optional<int> associationRank_;
 };
 
 // An entity known to be an object.
@@ -565,6 +575,7 @@ public:
   }
 
   void SetType(const DeclTypeSpec &);
+  void SetRank(const int rank);
 
   bool IsDummy() const;
   bool IsFuncResult() const;
@@ -616,7 +627,11 @@ public:
             [](const ObjectEntityDetails &oed) { return oed.shape().Rank(); },
             [](const AssocEntityDetails &aed) {
               if (const auto &expr{aed.expr()}) {
-                return expr->Rank();
+                if (aed.associationRank().has_value()) {
+                  return aed.associationRank().value();
+                } else {
+                  return expr->Rank();
+                }
               } else {
                 return 0;
               }

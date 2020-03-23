@@ -966,12 +966,18 @@ public:
   void Post(const parser::EndAssociateStmt &);
   void Post(const parser::Association &);
   void Post(const parser::SelectTypeStmt &);
+
   void Post(const parser::SelectRankStmt &);
   bool Pre(const parser::SelectTypeConstruct &);
   void Post(const parser::SelectTypeConstruct &);
   bool Pre(const parser::SelectTypeConstruct::TypeCase &);
   void Post(const parser::SelectTypeConstruct::TypeCase &);
+  // gives blank scopes
+  bool Pre(const parser::SelectRankConstruct::RankCase &);
+  void Post(const parser::SelectRankConstruct::RankCase &);
   void Post(const parser::TypeGuardStmt::Guard &);
+  void Post(const parser::SelectRankCaseStmt::Rank &);
+
   bool Pre(const parser::ChangeTeamStmt &);
   void Post(const parser::EndChangeTeamStmt &);
   void Post(const parser::CoarrayAssociation &);
@@ -1044,6 +1050,7 @@ private:
   Symbol *MakeAssocEntity();
   void SetTypeFromAssociation(Symbol &);
   void SetAttrsFromAssociation(Symbol &);
+  void SetRankFromParserNode(Symbol &, int actualRank);
   Selector ResolveSelector(const parser::Selector &);
   void ResolveIndexName(const parser::ConcurrentControl &control);
   Association &GetCurrentAssociation();
@@ -4806,13 +4813,7 @@ bool ConstructVisitor::Pre(const parser::SelectTypeConstruct &) {
 void ConstructVisitor::Post(const parser::SelectTypeConstruct &) {
   PopAssociation();
 }
-void ConstructVisitor::Post(const parser::SelectRankStmt &x) {
-  auto &association{GetCurrentAssociation()};
-  if (const std::optional<parser::Name> &name{std::get<1>(x.t)}) {
-    MakePlaceholder(*name, MiscDetails::Kind::SelectRankAssociateName);
-    association.name = &*name;
-  }
-}
+
 void ConstructVisitor::Post(const parser::SelectTypeStmt &x) {
   auto &association{GetCurrentAssociation()};
   if (const std::optional<parser::Name> &name{std::get<1>(x.t)}) {
@@ -4836,11 +4837,28 @@ void ConstructVisitor::Post(const parser::SelectTypeStmt &x) {
   }
 }
 
+void ConstructVisitor::Post(const parser::SelectRankStmt &x) {
+  auto &association{GetCurrentAssociation()};
+  if (const std::optional<parser::Name> &name{std::get<1>(x.t)}) {
+    // This isn't a name in the current scope, it is in each SelectRankCaseStmt
+    MakePlaceholder(*name, MiscDetails::Kind::SelectRankAssociateName);
+    association.name = &*name;
+  }
+}
+
 bool ConstructVisitor::Pre(const parser::SelectTypeConstruct::TypeCase &) {
   PushScope(Scope::Kind::Block, nullptr);
   return true;
 }
 void ConstructVisitor::Post(const parser::SelectTypeConstruct::TypeCase &) {
+  PopScope();
+}
+
+bool ConstructVisitor::Pre(const parser::SelectRankConstruct::RankCase &) {
+  PushScope(Scope::Kind::Block, nullptr);
+  return true;
+}
+void ConstructVisitor::Post(const parser::SelectRankConstruct::RankCase &) {
   PopScope();
 }
 
@@ -4852,6 +4870,25 @@ void ConstructVisitor::Post(const parser::TypeGuardStmt::Guard &x) {
       symbol->SetType(*type);
     }
     SetAttrsFromAssociation(*symbol);
+  }
+}
+
+void ConstructVisitor::Post(const parser::SelectRankCaseStmt::Rank &x) {
+  if (auto *symbol{MakeAssocEntity()}) {
+    SetTypeFromAssociation(*symbol);
+    SetAttrsFromAssociation(*symbol);
+    std::visit(
+        common::visitors{
+            [&](const parser::ScalarIntConstantExpr &init) {
+              Walk(init);
+              MaybeIntExpr expr{EvaluateIntExpr(init)};
+              if (auto val{evaluate::ToInt64(expr)}) {
+                SetRankFromParserNode(*symbol, *val);
+              }
+            },
+            [&](const auto &) {},
+        },
+        x.u);
   }
 }
 
@@ -4928,6 +4965,13 @@ void ConstructVisitor::SetTypeFromAssociation(Symbol &symbol) {
       Say(symbol.name(), "Associate name '%s' must have a type"_err_en_US);
     }
   }
+}
+
+// Set the rank of symbol based on the current rankCase value extracted from
+// evaluating the parser node.
+void ConstructVisitor::SetRankFromParserNode(Symbol &symbol, int actualRank) {
+  const int dummyRank{actualRank};
+  symbol.SetRank(dummyRank);
 }
 
 // If current selector is a variable, set some of its attributes on symbol.

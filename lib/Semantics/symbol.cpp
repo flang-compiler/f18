@@ -113,6 +113,7 @@ void EntityDetails::set_type(const DeclTypeSpec &type) {
   type_ = &type;
 }
 
+void AssocEntityDetails::set_rank(const int rank) { associationRank_ = rank; }
 void EntityDetails::ReplaceType(const DeclTypeSpec &type) { type_ = &type; }
 
 void ObjectEntityDetails::set_shape(const ArraySpec &shape) {
@@ -281,6 +282,14 @@ void Symbol::SetType(const DeclTypeSpec &type) {
       details_);
 }
 
+void Symbol::SetRank(const int rank) {
+  std::visit(
+      common::visitors{
+          [&](AssocEntityDetails &x) { x.set_rank(rank); },
+          [](auto &) {},
+      },
+      details_);
+}
 bool Symbol::IsDummy() const {
   return std::visit(
       common::visitors{[](const EntityDetails &x) { return x.isDummy(); },
@@ -357,6 +366,9 @@ llvm::raw_ostream &operator<<(
 llvm::raw_ostream &operator<<(
     llvm::raw_ostream &os, const AssocEntityDetails &x) {
   os << *static_cast<const EntityDetails *>(&x);
+  if (x.associationRank().has_value()) {
+    os << " rank: " << x.associationRank().value();
+  }
   DumpExpr(os, "expr", x.expr());
   return os;
 }
