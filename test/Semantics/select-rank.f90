@@ -243,6 +243,7 @@ contains
     implicit none
     integer :: x(..)
     integer :: j
+    integer, pointer :: ptr
     SELECT RANK(x)
      RANK(1)
        print *, "RANK 1"
@@ -251,6 +252,15 @@ contains
        print *, "RANK 3"
        j = INT(0, KIND=MERGE(KIND(0), -1, RANK(x) == 3))
     END SELECT
+    SELECT RANK(ptr => x )
+     RANK(1)
+       print *, "RANK 1"
+       j = INT(0, KIND=MERGE(KIND(0), -1, RANK(ptr) == 1))
+     RANK (3)
+       print *, "RANK 3"
+       j = INT(0, KIND=MERGE(KIND(0), -1, RANK(ptr) == 3))
+    END SELECT
+
    end subroutine
 
 end program
