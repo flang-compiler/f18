@@ -4970,8 +4970,7 @@ void ConstructVisitor::SetTypeFromAssociation(Symbol &symbol) {
 // Set the rank of symbol based on the current rankCase value extracted from
 // evaluating the parser node.
 void ConstructVisitor::SetRankFromParserNode(Symbol &symbol, int actualRank) {
-  const int dummyRank{actualRank};
-  symbol.SetRank(dummyRank);
+  symbol.SetRank(actualRank);
 }
 
 // If current selector is a variable, set some of its attributes on symbol.

@@ -113,7 +113,7 @@ void EntityDetails::set_type(const DeclTypeSpec &type) {
   type_ = &type;
 }
 
-void AssocEntityDetails::set_rank(const int rank) { associationRank_ = rank; }
+void AssocEntityDetails::set_rank(int rank) { associationRank_ = rank; }
 void EntityDetails::ReplaceType(const DeclTypeSpec &type) { type_ = &type; }
 
 void ObjectEntityDetails::set_shape(const ArraySpec &shape) {
@@ -282,7 +282,7 @@ void Symbol::SetType(const DeclTypeSpec &type) {
       details_);
 }
 
-void Symbol::SetRank(const int rank) {
+void Symbol::SetRank(int rank) {
   std::visit(
       common::visitors{
           [&](AssocEntityDetails &x) { x.set_rank(rank); },

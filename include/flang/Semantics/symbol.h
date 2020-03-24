@@ -141,11 +141,7 @@ public:
 
   void set_rank(int rank);
   std::optional<int> associationRank() const {
-    if (associationRank_.has_value()) {
-      return associationRank_.value();
-    } else {
-      return {};
-    }
+      return associationRank_;
   }
 
 private:
@@ -575,7 +571,7 @@ public:
   }
 
   void SetType(const DeclTypeSpec &);
-  void SetRank(const int rank);
+  void SetRank(int rank);
 
   bool IsDummy() const;
   bool IsFuncResult() const;
