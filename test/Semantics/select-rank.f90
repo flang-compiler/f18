@@ -1,3 +1,4 @@
+! RUN: %S/test_errors.sh %s %flang %t
 !Tests for SELECT RANK Construct(R1148)
 
    !No error expected
