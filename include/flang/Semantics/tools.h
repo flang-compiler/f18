@@ -90,8 +90,8 @@ bool IsPureProcedure(const Scope &);
 bool IsBindCProcedure(const Symbol &);
 bool IsBindCProcedure(const Scope &);
 bool IsProcedure(const Symbol &);
-bool IsProcName(const Symbol &symbol);  // proc-name
-bool IsVariableName(const Symbol &symbol);  // variable-name
+bool IsProcName(const Symbol &symbol); // proc-name
+bool IsVariableName(const Symbol &symbol); // variable-name
 bool IsProcedurePointer(const Symbol &);
 bool IsFunctionResult(const Symbol &);
 bool IsFunctionResultWithSameNameAsFunction(const Symbol &);
@@ -204,12 +204,12 @@ const DeclTypeSpec &FindOrInstantiateDerivedType(Scope &, DerivedTypeSpec &&,
 // diagnostic purposes if so.
 const Symbol *FindExternallyVisibleObject(const Symbol &, const Scope &);
 
-template<typename A>
+template <typename A>
 const Symbol *FindExternallyVisibleObject(const A &, const Scope &) {
-  return nullptr;  // default base case
+  return nullptr; // default base case
 }
 
-template<typename T>
+template <typename T>
 const Symbol *FindExternallyVisibleObject(
     const evaluate::Designator<T> &designator, const Scope &scope) {
   if (const Symbol * symbol{designator.GetBaseObject().symbol()}) {
@@ -222,7 +222,7 @@ const Symbol *FindExternallyVisibleObject(
   }
 }
 
-template<typename T>
+template <typename T>
 const Symbol *FindExternallyVisibleObject(
     const evaluate::Expr<T> &expr, const Scope &scope) {
   return std::visit(
@@ -240,13 +240,13 @@ bool ExprTypeKindIsDefault(
 struct GetExprHelper {
   const SomeExpr *Get(const parser::Expr &);
   const SomeExpr *Get(const parser::Variable &);
-  template<typename T> const SomeExpr *Get(const common::Indirection<T> &x) {
+  template <typename T> const SomeExpr *Get(const common::Indirection<T> &x) {
     return Get(x.value());
   }
-  template<typename T> const SomeExpr *Get(const std::optional<T> &x) {
+  template <typename T> const SomeExpr *Get(const std::optional<T> &x) {
     return x ? Get(*x) : nullptr;
   }
-  template<typename T> const SomeExpr *Get(const T &x) {
+  template <typename T> const SomeExpr *Get(const T &x) {
     if constexpr (ConstraintTrait<T>) {
       return Get(x.thing);
     } else if constexpr (WrapperTrait<T>) {
@@ -257,7 +257,7 @@ struct GetExprHelper {
   }
 };
 
-template<typename T> const SomeExpr *GetExpr(const T &x) {
+template <typename T> const SomeExpr *GetExpr(const T &x) {
   return GetExprHelper{}.Get(x);
 }
 
@@ -265,7 +265,7 @@ const evaluate::Assignment *GetAssignment(const parser::AssignmentStmt &);
 const evaluate::Assignment *GetAssignment(
     const parser::PointerAssignmentStmt &);
 
-template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
+template <typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   if (const auto *expr{GetExpr(x)}) {
     return evaluate::ToInt64(*expr);
   } else {
@@ -273,7 +273,7 @@ template<typename T> std::optional<std::int64_t> GetIntValue(const T &x) {
   }
 }
 
-template<typename T> bool IsZero(const T &expr) {
+template <typename T> bool IsZero(const T &expr) {
   auto value{GetIntValue(expr)};
   return value && *value == 0;
 }
@@ -340,7 +340,7 @@ template<typename T> bool IsZero(const T &expr) {
 
 ENUM_CLASS(ComponentKind, Ordered, Direct, Ultimate, Potential, Scope)
 
-template<ComponentKind componentKind> class ComponentIterator {
+template <ComponentKind componentKind> class ComponentIterator {
 public:
   ComponentIterator(const DerivedTypeSpec &derived) : derived_{derived} {}
   class const_iterator {
@@ -397,7 +397,7 @@ public:
     class ComponentPathNode {
     public:
       explicit ComponentPathNode(const DerivedTypeSpec &derived)
-        : derived_{derived} {
+          : derived_{derived} {
         if constexpr (componentKind == ComponentKind::Scope) {
           const Scope &scope{DEREF(derived.scope())};
           nameIterator_ = scope.cbegin();
@@ -429,7 +429,7 @@ public:
       common::Reference<const DerivedTypeSpec> derived_;
       name_iterator nameEnd_;
       name_iterator nameIterator_;
-      const Symbol *component_{nullptr};  // until Increment()
+      const Symbol *component_{nullptr}; // until Increment()
       bool visited_{false};
       bool descended_{false};
     };
@@ -488,16 +488,16 @@ class LabelEnforce {
 public:
   LabelEnforce(SemanticsContext &context, std::set<parser::Label> &&labels,
       parser::CharBlock constructSourcePosition, const char *construct)
-    : context_{context}, labels_{labels},
-      constructSourcePosition_{constructSourcePosition}, construct_{construct} {
-  }
-  template<typename T> bool Pre(const T &) { return true; }
-  template<typename T> bool Pre(const parser::Statement<T> &statement) {
+      : context_{context}, labels_{labels},
+        constructSourcePosition_{constructSourcePosition}, construct_{
+                                                               construct} {}
+  template <typename T> bool Pre(const T &) { return true; }
+  template <typename T> bool Pre(const parser::Statement<T> &statement) {
     currentStatementSourcePosition_ = statement.source;
     return true;
   }
 
-  template<typename T> void Post(const T &) {}
+  template <typename T> void Post(const T &) {}
 
   void Post(const parser::GotoStmt &gotoStmt);
   void Post(const parser::ComputedGotoStmt &computedGotoStmt);
@@ -522,5 +522,5 @@ private:
       parser::CharBlock stmtLocation, parser::MessageFormattedText &&message,
       parser::CharBlock constructLocation);
 };
-}
-#endif  // FORTRAN_SEMANTICS_TOOLS_H_
+} // namespace Fortran::semantics
+#endif // FORTRAN_SEMANTICS_TOOLS_H_

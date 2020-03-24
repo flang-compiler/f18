@@ -14,7 +14,7 @@
 
 namespace Fortran::evaluate::value {
 
-template<int BITS, bool IS_LIKE_C = true> class Logical {
+template <int BITS, bool IS_LIKE_C = true> class Logical {
 public:
   static constexpr int bits{BITS};
 
@@ -22,16 +22,16 @@ public:
   // C's bit representation (.TRUE. -> 1, .FALSE. -> 0).
   static constexpr bool IsLikeC{BITS <= 8 || IS_LIKE_C};
 
-  constexpr Logical() {}  // .FALSE.
-  template<int B, bool C>
+  constexpr Logical() {} // .FALSE.
+  template <int B, bool C>
   constexpr Logical(Logical<B, C> x) : word_{Represent(x.IsTrue())} {}
   constexpr Logical(bool truth) : word_{Represent(truth)} {}
 
-  template<int B, bool C> constexpr Logical &operator=(Logical<B, C> x) {
+  template <int B, bool C> constexpr Logical &operator=(Logical<B, C> x) {
     word_ = Represent(x.IsTrue());
   }
 
-  template<int B, bool C>
+  template <int B, bool C>
   constexpr bool operator==(const Logical<B, C> &that) const {
     return IsTrue() == that.IsTrue();
   }
@@ -75,5 +75,5 @@ extern template class Logical<8>;
 extern template class Logical<16>;
 extern template class Logical<32>;
 extern template class Logical<64>;
-}
-#endif  // FORTRAN_EVALUATE_LOGICAL_H_
+} // namespace Fortran::evaluate::value
+#endif // FORTRAN_EVALUATE_LOGICAL_H_

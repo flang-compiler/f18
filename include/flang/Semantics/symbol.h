@@ -42,8 +42,8 @@ public:
   ModuleDetails(bool isSubmodule = false) : isSubmodule_{isSubmodule} {}
   bool isSubmodule() const { return isSubmodule_; }
   const Scope *scope() const { return scope_; }
-  const Scope *ancestor() const;  // for submodule; nullptr for module
-  const Scope *parent() const;  // for submodule; nullptr for module
+  const Scope *ancestor() const; // for submodule; nullptr for module
+  const Scope *parent() const; // for submodule; nullptr for module
   void set_scope(const Scope *);
 
 private:
@@ -78,12 +78,13 @@ public:
   void set_stmtFunction(SomeExpr &&expr) { stmtFunction_ = std::move(expr); }
 
 private:
-  bool isInterface_{false};  // true if this represents an interface-body
+  bool isInterface_{false}; // true if this represents an interface-body
   MaybeExpr bindName_;
-  std::vector<Symbol *> dummyArgs_;  // nullptr -> alternate return indicator
+  std::vector<Symbol *> dummyArgs_; // nullptr -> alternate return indicator
   Symbol *result_{nullptr};
   MaybeExpr stmtFunction_;
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const SubprogramDetails &);
+  friend llvm::raw_ostream &operator<<(
+      llvm::raw_ostream &, const SubprogramDetails &);
 };
 
 // For SubprogramNameDetails, the kind indicates whether it is the name
@@ -97,7 +98,7 @@ ENUM_CLASS(SubprogramKind, Module, Internal)
 class SubprogramNameDetails {
 public:
   SubprogramNameDetails(SubprogramKind kind, ProgramTree &node)
-    : kind_{kind}, node_{node} {}
+      : kind_{kind}, node_{node} {}
   SubprogramNameDetails() = delete;
   SubprogramKind kind() const { return kind_; }
   ProgramTree &node() const { return *node_; }
@@ -125,7 +126,8 @@ private:
   bool isFuncResult_{false};
   const DeclTypeSpec *type_{nullptr};
   MaybeExpr bindName_;
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const EntityDetails &);
+  friend llvm::raw_ostream &operator<<(
+      llvm::raw_ostream &, const EntityDetails &);
 };
 
 // Symbol is associated with a name or expression in a SELECT TYPE or ASSOCIATE.
@@ -179,8 +181,9 @@ private:
   bool initWasValidated_{false};
   ArraySpec shape_;
   ArraySpec coshape_;
-  const Symbol *commonBlock_{nullptr};  // common block this object is in
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const ObjectEntityDetails &);
+  const Symbol *commonBlock_{nullptr}; // common block this object is in
+  friend llvm::raw_ostream &operator<<(
+      llvm::raw_ostream &, const ObjectEntityDetails &);
 };
 
 // Mixin for details with passed-object dummy argument.
@@ -217,7 +220,8 @@ public:
 private:
   ProcInterface interface_;
   std::optional<const Symbol *> init_;
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const ProcEntityDetails &);
+  friend llvm::raw_ostream &operator<<(
+      llvm::raw_ostream &, const ProcEntityDetails &);
 };
 
 // These derived type details represent the characteristics of a derived
@@ -263,7 +267,8 @@ private:
   std::list<SourceName> componentNames_;
   bool sequence_{false};
   bool isForwardReferenced_{false};
-  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const DerivedTypeDetails &);
+  friend llvm::raw_ostream &operator<<(
+      llvm::raw_ostream &, const DerivedTypeDetails &);
 };
 
 class ProcBindingDetails : public WithPassArg {
@@ -272,7 +277,7 @@ public:
   const Symbol &symbol() const { return symbol_; }
 
 private:
-  SymbolRef symbol_;  // procedure bound to; may be forward
+  SymbolRef symbol_; // procedure bound to; may be forward
 };
 
 class NamelistDetails {
@@ -299,7 +304,7 @@ private:
   MaybeExpr bindName_;
 };
 
-class FinalProcDetails {};  // TODO
+class FinalProcDetails {}; // TODO
 
 class MiscDetails {
 public:
@@ -336,7 +341,7 @@ private:
 class UseDetails {
 public:
   UseDetails(const SourceName &location, const Symbol &symbol)
-    : location_{location}, symbol_{symbol} {}
+      : location_{location}, symbol_{symbol} {}
   const SourceName &location() const { return location_; }
   const Symbol &symbol() const { return symbol_; }
   const Symbol &module() const;
@@ -373,10 +378,10 @@ private:
 // defined assignment, intrinsic operator, or defined I/O.
 struct GenericKind {
   ENUM_CLASS(OtherKind, Name, DefinedOp, Assignment, Concat)
-  ENUM_CLASS(DefinedIo,  // defined io
+  ENUM_CLASS(DefinedIo, // defined io
       ReadFormatted, ReadUnformatted, WriteFormatted, WriteUnformatted)
   GenericKind() : u{OtherKind::Name} {}
-  template<typename T> GenericKind(const T &x) { u = x; }
+  template <typename T> GenericKind(const T &x) { u = x; }
   bool IsName() const { return Is(OtherKind::Name); }
   bool IsAssignment() const { return Is(OtherKind::Assignment); }
   bool IsDefinedOperator() const { return Is(OtherKind::DefinedOp); }
@@ -388,7 +393,9 @@ struct GenericKind {
       u;
 
 private:
-  template<typename T> bool Has() const { return std::holds_alternative<T>(u); }
+  template <typename T> bool Has() const {
+    return std::holds_alternative<T>(u);
+  }
   bool Is(OtherKind) const;
 };
 
@@ -453,17 +460,17 @@ std::string DetailsToString(const Details &);
 class Symbol {
 public:
   ENUM_CLASS(Flag,
-      Error,  // an error has been reported on this symbol
-      Function,  // symbol is a function
-      Subroutine,  // symbol is a subroutine
-      Implicit,  // symbol is implicitly typed
-      ModFile,  // symbol came from .mod file
-      ParentComp,  // symbol is the "parent component" of an extended type
+      Error, // an error has been reported on this symbol
+      Function, // symbol is a function
+      Subroutine, // symbol is a subroutine
+      Implicit, // symbol is implicitly typed
+      ModFile, // symbol came from .mod file
+      ParentComp, // symbol is the "parent component" of an extended type
       CrayPointer, CrayPointee,
-      LocalityLocal,  // named in LOCAL locality-spec
-      LocalityLocalInit,  // named in LOCAL_INIT locality-spec
-      LocalityShared,  // named in SHARED locality-spec
-      InDataStmt,  // initialized in a DATA statement
+      LocalityLocal, // named in LOCAL locality-spec
+      LocalityLocalInit, // named in LOCAL_INIT locality-spec
+      LocalityShared, // named in SHARED locality-spec
+      InDataStmt, // initialized in a DATA statement
 
       // OpenMP data-sharing attribute
       OmpShared, OmpPrivate, OmpLinear, OmpFirstPrivate, OmpLastPrivate,
@@ -491,21 +498,21 @@ public:
   void ReplaceName(const SourceName &);
 
   // Does symbol have this type of details?
-  template<typename D> bool has() const {
+  template <typename D> bool has() const {
     return std::holds_alternative<D>(details_);
   }
 
   // Return a non-owning pointer to details if it is type D, else nullptr.
-  template<typename D> D *detailsIf() { return std::get_if<D>(&details_); }
-  template<typename D> const D *detailsIf() const {
+  template <typename D> D *detailsIf() { return std::get_if<D>(&details_); }
+  template <typename D> const D *detailsIf() const {
     return std::get_if<D>(&details_);
   }
 
   // Return a reference to the details which must be of type D.
-  template<typename D> D &get() {
+  template <typename D> D &get() {
     return const_cast<D &>(const_cast<const Symbol *>(this)->get<D>());
   }
-  template<typename D> const D &get() const {
+  template <typename D> const D &get() const {
     const auto *p{detailsIf<D>()};
     CHECK(p);
     return *p;
@@ -573,24 +580,24 @@ public:
   bool IsSeparateModuleProc() const;
   bool IsFromModFile() const;
   bool HasExplicitInterface() const {
-    return std::visit(
-        common::visitors{
-            [](const SubprogramDetails &) { return true; },
-            [](const SubprogramNameDetails &) { return true; },
-            [&](const ProcEntityDetails &x) {
-              return attrs_.test(Attr::INTRINSIC) || x.HasExplicitInterface();
-            },
-            [](const ProcBindingDetails &x) {
-              return x.symbol().HasExplicitInterface();
-            },
-            [](const UseDetails &x) {
-              return x.symbol().HasExplicitInterface();
-            },
-            [](const HostAssocDetails &x) {
-              return x.symbol().HasExplicitInterface();
-            },
-            [](const auto &) { return false; },
-        },
+    return std::visit(common::visitors{
+                          [](const SubprogramDetails &) { return true; },
+                          [](const SubprogramNameDetails &) { return true; },
+                          [&](const ProcEntityDetails &x) {
+                            return attrs_.test(Attr::INTRINSIC) ||
+                                x.HasExplicitInterface();
+                          },
+                          [](const ProcBindingDetails &x) {
+                            return x.symbol().HasExplicitInterface();
+                          },
+                          [](const UseDetails &x) {
+                            return x.symbol().HasExplicitInterface();
+                          },
+                          [](const HostAssocDetails &x) {
+                            return x.symbol().HasExplicitInterface();
+                          },
+                          [](const auto &) { return false; },
+                      },
         details_);
   }
 
@@ -659,18 +666,19 @@ private:
   Scope *scope_{nullptr};
   Details details_;
 
-  Symbol() {}  // only created in class Symbols
+  Symbol() {} // only created in class Symbols
   const std::string GetDetailsName() const;
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const Symbol &);
-  friend llvm::raw_ostream &DumpForUnparse(llvm::raw_ostream &, const Symbol &, bool);
+  friend llvm::raw_ostream &DumpForUnparse(
+      llvm::raw_ostream &, const Symbol &, bool);
 
   // If a derived type's symbol refers to an extended derived type,
   // return the parent component's symbol.  The scope of the derived type
   // can be overridden.
   const Symbol *GetParentComponent(const Scope * = nullptr) const;
 
-  template<std::size_t> friend class Symbols;
-  template<class, std::size_t> friend struct std::array;
+  template <std::size_t> friend class Symbols;
+  template <class, std::size_t> friend struct std::array;
 };
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &, Symbol::Flag);
@@ -678,7 +686,7 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &, Symbol::Flag);
 // Manage memory for all symbols. BLOCK_SIZE symbols at a time are allocated.
 // Make() returns a reference to the next available one. They are never
 // deleted.
-template<std::size_t BLOCK_SIZE> class Symbols {
+template <std::size_t BLOCK_SIZE> class Symbols {
 public:
   Symbol &Make(const Scope &owner, const SourceName &name, const Attrs &attrs,
       Details &&details) {
@@ -703,7 +711,7 @@ private:
     }
     Symbol &result = (*currBlock_)[nextIndex_];
     if (++nextIndex_ >= BLOCK_SIZE) {
-      nextIndex_ = 0;  // allocate a new block next time
+      nextIndex_ = 0; // allocate a new block next time
     }
     return result;
   }
@@ -723,5 +731,5 @@ inline bool ProcEntityDetails::HasExplicitInterface() const {
 inline bool operator<(SymbolRef x, SymbolRef y) { return *x < *y; }
 using SymbolSet = std::set<SymbolRef>;
 
-}
-#endif  // FORTRAN_SEMANTICS_SYMBOL_H_
+} // namespace Fortran::semantics
+#endif // FORTRAN_SEMANTICS_SYMBOL_H_

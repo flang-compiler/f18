@@ -18,8 +18,8 @@ class CanonicalizationOfDoLoops {
   };
 
 public:
-  template<typename T> bool Pre(T &) { return true; }
-  template<typename T> void Post(T &) {}
+  template <typename T> bool Pre(T &) { return true; }
+  template <typename T> void Post(T &) {}
   void Post(Block &block) {
     std::vector<LabelInfo> stack;
     for (auto i{block.begin()}, end{block.end()}; i != end; ++i) {
@@ -94,7 +94,7 @@ public:
   }
 
 private:
-  template<typename T>
+  template <typename T>
   void CanonicalizeIfMatch(Block &originalBlock, std::vector<LabelInfo> &stack,
       Block::iterator &i, Statement<T> &statement) {
     if (!stack.empty() && statement.label &&
@@ -140,4 +140,4 @@ bool CanonicalizeDo(Program &program) {
   return true;
 }
 
-}
+} // namespace Fortran::parser
