@@ -12,11 +12,12 @@
 
 namespace Fortran::semantics {
 
-class SelectCaseHelper {
+template<typename T> class SelectCaseHelper {
 
 public:
   SelectCaseHelper(parser::Messages &messages, int kind, TypeCategory category)
     : kind_{kind}, category_(category), messages_{messages} {}
+  TypeCategory GetCategory() { return category_; }
 
   void ReportOverlapCaseValError(parser::CharBlock currSource,
       parser::CharBlock prevSource, const char *val) {
@@ -29,69 +30,77 @@ public:
   }
   // Before inserting the value, create a range value val:val and check if
   // it overlaps any existing value
-  template<typename T> void Insert(T val, parser::CharBlock source) {
-    SelectCaseRangeType<T> rangeValue(val, val, source);
+  void Insert(T val, parser::CharBlock source) {
+    SelectCaseRangeType rangeValue(val, val, source);
     parser::CharBlock overlappingSource;
     if (!IsRangeValueOverlapping(rangeValue, overlappingSource)) {
-      GetRangeValHandle<T>().push_back(rangeValue);
+      selectCaseRangeVals_.push_back(rangeValue);
     } else {
       ReportOverlapCaseValError(source, overlappingSource,
           Fortran::evaluate::GetValueAsString(val).c_str());
     }
   }
-  template<typename T>
   void Insert(std::optional<T> lowerVal, std::optional<T> upperVal,
       parser::CharBlock source) {
-    SelectCaseRangeType<T> rangeValue(lowerVal, upperVal, source);
+    SelectCaseRangeType rangeValue(lowerVal, upperVal, source);
+
     parser::CharBlock overlappingSource;
     if (!IsRangeValueOverlapping(rangeValue, overlappingSource)) {
-      GetRangeValHandle<T>().push_back(rangeValue);
+      selectCaseRangeVals_.push_back(rangeValue);
     } else {
       ReportOverlapCaseValError(source, overlappingSource,
           Fortran::evaluate::GetValuePairAsString(lowerVal, upperVal).c_str());
     }
   }
-  template<typename T> void InsertString(const T &x, parser::CharBlock source) {
-    if (kind_ == 1) {
+  template<typename U> void Insert(const U &x, parser::CharBlock source) {
+    if constexpr (std::is_same_v<T, bool>) {
+      if (auto val{GetBoolValue(x)}) {
+        Insert(val.value(), source);
+      }
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      if (auto val{GetIntValue(x)}) {
+        Insert(val.value(), source);
+      }
+    } else if constexpr (std::is_same_v<T, std::string>) {
       if (auto val{GetStringValue(x)}) {
         Insert(val.value(), source);
       }
-    } else if (kind_ == 2) {
+    } else if constexpr (std::is_same_v<T, std::u16string>) {
       if (auto val{GetU16StringValue(x)}) {
         Insert(val.value(), source);
       }
-    } else if (kind_ == 4) {
+    } else if constexpr (std::is_same_v<T, std::u32string>) {
       if (auto val{GetU32StringValue(x)}) {
         Insert(val.value(), source);
       }
-    } else {
-      messages_.Say(source,
-          "Character kind type of case value (=%d) is not supported"_err_en_US,
-          kind_);
     }
   }
-  template<typename T>
-  void InsertString(const T &lower, const T &upper, parser::CharBlock source) {
-    if (kind_ == 1) {
+  template<typename U>
+  void Insert(const U &lower, const U &upper, parser::CharBlock source) {
+    if constexpr (std::is_same_v<T, std::int64_t>) {
+      const auto lowerVal = lower ? GetIntValue(lower->thing) : std::nullopt;
+      const auto upperVal = upper ? GetIntValue(upper->thing) : std::nullopt;
+      Insert(lowerVal, upperVal, source);
+    } else if constexpr (std::is_same_v<T, std::string>) {
       const auto lowerVal = lower ? GetStringValue(lower->thing) : std::nullopt;
       const auto upperVal = upper ? GetStringValue(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
-    } else if (kind_ == 2) {
+    } else if constexpr (std::is_same_v<T, std::u16string>) {
       const auto lowerVal =
           lower ? GetU16StringValue(lower->thing) : std::nullopt;
       const auto upperVal =
           upper ? GetU16StringValue(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
-    } else if (kind_ == 4) {
+    } else if constexpr (std::is_same_v<T, std::u32string>) {
       const auto lowerVal =
           lower ? GetU32StringValue(lower->thing) : std::nullopt;
       const auto upperVal =
           upper ? GetU32StringValue(upper->thing) : std::nullopt;
       Insert(lowerVal, upperVal, source);
-    } else {
+    } else if constexpr (std::is_same_v<T, bool>) {
       messages_.Say(source,
-          "Character kind type of case value (=%d) is not supported"_err_en_US,
-          kind_);
+          "SELECT CASE expression of type LOGICAL must "
+          "not have range of case value"_err_en_US);
     }
   }
   bool IsValidSelectCaseType(
@@ -125,7 +134,7 @@ public:
   }
 
 private:
-  template<typename T> struct SelectCaseRangeType {
+  struct SelectCaseRangeType {
     SelectCaseRangeType(std::optional<T> fromVal, std::optional<T> toVal,
         parser::CharBlock source)
       : fromVal(fromVal), toVal(toVal), source(source) {}
@@ -133,91 +142,107 @@ private:
     std::optional<T> toVal;
     parser::CharBlock source;
   };
-  template<typename T>
-  bool IsLessThanOrEqualTo(const T &strVal, const T &upperStrVal) {
-    return (strVal.compare(upperStrVal) <= 0);
+  bool IsLessThanOrEqualTo(const T &val, const T &upperVal) {
+    if constexpr (std::is_same_v<T, bool>) {
+      return val == upperVal;
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      return val <= upperVal;
+    } else {
+      return (val.compare(upperVal) <= 0);
+    }
   }
-  bool IsLessThanOrEqualTo(
-      const bool &logicalVal, const bool &upperLogicalVal) {
-    return logicalVal == upperLogicalVal;
-  }
-  bool IsLessThanOrEqualTo(
-      const std::int64_t &intVal, const std::int64_t &upperIntVal) {
-    return intVal <= upperIntVal;
-  }
-  template<typename T>
   bool CheckOverlappingValue(
       std::optional<T> lowerVal, std::optional<T> upperVal) {
     return (!lowerVal || !upperVal ||
         IsLessThanOrEqualTo(lowerVal.value(), upperVal.value()));
   }
   // [a, b] & [c, d] overlaps if: (c<=b && a<=d)
-  template<typename T>
   bool CheckOverlappingRangeValue(std::optional<T> memberFromVal,
       std::optional<T> memberToVal, std::optional<T> rangeFromVal,
       std::optional<T> rangeToVal) {
     return (CheckOverlappingValue(memberFromVal, rangeToVal) &&
         CheckOverlappingValue(rangeFromVal, memberToVal));
   }
-  template<typename T>
-  bool IsRangeValueOverlapping(SelectCaseRangeType<T> &rangeValue,
-      parser::CharBlock &overlappingSource) {
-    auto &rangeValsHandle{GetRangeValHandle<T>()};
-    auto selectCaseRangeValsIter{std::find_if(rangeValsHandle.begin(),
-        rangeValsHandle.end(), [&rangeValue, this](const auto &mem) {
+  bool IsRangeValueOverlapping(
+      SelectCaseRangeType &rangeValue, parser::CharBlock &overlappingSource) {
+    auto selectCaseRangeValsIter{std::find_if(selectCaseRangeVals_.begin(),
+        selectCaseRangeVals_.end(), [&rangeValue, this](const auto &mem) {
           return ((!mem.fromVal && !rangeValue.fromVal) ||
               (!mem.toVal && !rangeValue.toVal) ||
               this->CheckOverlappingRangeValue(mem.fromVal, mem.toVal,
                   rangeValue.fromVal, rangeValue.toVal));
         })};
-    if (selectCaseRangeValsIter != rangeValsHandle.end()) {
+    if (selectCaseRangeValsIter != selectCaseRangeVals_.end()) {
       overlappingSource = selectCaseRangeValsIter->source;
       return true;
     }
     return false;
   }
-  template<typename T>
-  typename std::enable_if<std::is_same<T, bool>::value,
-      std::vector<SelectCaseRangeType<bool>> &>::type
-  GetRangeValHandle() {
-    return selectCaseLogicalRangeVals_;
-  }
-  template<typename T>
-  typename std::enable_if<std::is_same<T, std::int64_t>::value,
-      std::vector<SelectCaseRangeType<std::int64_t>> &>::type
-  GetRangeValHandle() {
-    return selectCaseIntRangeVals_;
-  }
-  template<typename T>
-  typename std::enable_if<std::is_same<T, std::string>::value,
-      std::vector<SelectCaseRangeType<std::string>> &>::type
-  GetRangeValHandle() {
-    return selectCaseStringRangeVals_;
-  }
-  template<typename T>
-  typename std::enable_if<std::is_same<T, std::u16string>::value,
-      std::vector<SelectCaseRangeType<std::u16string>> &>::type
-  GetRangeValHandle() {
-    return selectCaseU16StringRangeVals_;
-  }
-  template<typename T>
-  typename std::enable_if<std::is_same<T, std::u32string>::value,
-      std::vector<SelectCaseRangeType<std::u32string>> &>::type
-  GetRangeValHandle() {
-    return selectCaseU32StringRangeVals_;
-  }
 
-  std::vector<SelectCaseRangeType<bool>> selectCaseLogicalRangeVals_;
-  std::vector<SelectCaseRangeType<std::int64_t>> selectCaseIntRangeVals_;
-  std::vector<SelectCaseRangeType<std::string>> selectCaseStringRangeVals_;
-  std::vector<SelectCaseRangeType<std::u16string>>
-      selectCaseU16StringRangeVals_;
-  std::vector<SelectCaseRangeType<std::u32string>>
-      selectCaseU32StringRangeVals_;
+  std::vector<SelectCaseRangeType> selectCaseRangeVals_;
   int kind_;
   TypeCategory category_;
   parser::Messages &messages_;
 };
+
+template<typename T>
+void ProcessSelectCaseList(
+    const std::list<parser::CaseConstruct::Case> &caseList,
+    SelectCaseHelper<T> &&selectCaseStmts, parser::Messages &messages) {
+  bool defaultCaseFound{false};
+  for (const auto &cases : caseList) {
+    const auto &caseStmt{
+        std::get<parser::Statement<parser::CaseStmt>>(cases.t)};
+    const auto &caseSelector{
+        std::get<parser::CaseSelector>(caseStmt.statement.t)};
+    if (std::holds_alternative<parser::Default>(caseSelector.u)) {
+      if (!defaultCaseFound) {
+        defaultCaseFound = true;
+      } else {  // C1146 (R1140)
+        messages.Say(caseStmt.source,
+            "Not more than one of the selectors of "
+            "SELECT CASE statement may be DEFAULT"_err_en_US);
+      }
+    } else {
+      const auto &caseValueRangeList{
+          std::get<std::list<parser::CaseValueRange>>(caseSelector.u)};
+      for (const auto &caseValues : caseValueRangeList) {
+        if (const auto *constCase{
+                std::get_if<parser::Scalar<parser::ConstantExpr>>(
+                    &caseValues.u)}) {
+          if (!selectCaseStmts.IsValidSelectCaseType(
+                  constCase->thing, caseStmt.source)) {
+            continue;
+          }
+          selectCaseStmts.Insert(constCase->thing, caseStmt.source);
+        } else {
+          if (selectCaseStmts.GetCategory() ==
+              TypeCategory::Logical) {  // C1148 (R1140)
+            messages.Say(caseStmt.source,
+                "SELECT CASE expression of type LOGICAL must "
+                "not have range of case value"_err_en_US);
+            continue;
+          }
+          const auto &rangeCase{
+              std::get<parser::CaseValueRange::Range>(caseValues.u)};
+          const auto &lower{rangeCase.lower};
+          if (lower &&
+              !selectCaseStmts.IsValidSelectCaseType(
+                  lower.value().thing, caseStmt.source)) {
+            continue;
+          }
+          const auto &upper{rangeCase.upper};
+          if (upper &&
+              !selectCaseStmts.IsValidSelectCaseType(
+                  upper.value().thing, caseStmt.source)) {
+            continue;
+          }
+          selectCaseStmts.Insert(lower, upper, caseStmt.source);
+        }
+      }
+    }
+  }
+}
 
 void SelectStmtChecker::Leave(
     const parser::CaseConstruct &selectCaseConstruct) {
@@ -246,83 +271,40 @@ void SelectStmtChecker::Leave(
 
   const auto &caseList{
       std::get<std::list<parser::CaseConstruct::Case>>(selectCaseConstruct.t)};
-  bool defaultCaseFound{false};
-  // TODO: SelectCaseHelper class should be abstracted as a template.
-  // This will remove multiple data members and related member functions to get
-  // the handle to data members in SelectCaseHelper class.
-  SelectCaseHelper selectCaseStmts(context_.messages(),
-      selectCaseStmtType->kind(), selectCaseStmtType.value().category());
 
-  for (const auto &cases : caseList) {
-    const auto &caseStmt{
-        std::get<parser::Statement<parser::CaseStmt>>(cases.t)};
-    const auto &caseSelector{
-        std::get<parser::CaseSelector>(caseStmt.statement.t)};
-    if (std::holds_alternative<parser::Default>(caseSelector.u)) {
-      if (!defaultCaseFound) {
-        defaultCaseFound = true;
-      } else {  // C1146 (R1140)
-        context_.Say(caseStmt.source,
-            "Not more than one of the selectors of "
-            "SELECT CASE statement may be DEFAULT"_err_en_US);
-      }
+  if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
+    ProcessSelectCaseList(caseList,
+        SelectCaseHelper<std::int64_t>(context_.messages(),
+            selectCaseStmtType->kind(), selectCaseStmtType.value().category()),
+        context_.messages());
+  } else if (selectCaseStmtType.value().category() == TypeCategory::Logical) {
+    ProcessSelectCaseList(caseList,
+        SelectCaseHelper<bool>(context_.messages(), selectCaseStmtType->kind(),
+            selectCaseStmtType.value().category()),
+        context_.messages());
+  } else if (selectCaseStmtType.value().category() == TypeCategory::Character) {
+    if (selectCaseStmtType->kind() == 1) {
+      ProcessSelectCaseList(caseList,
+          SelectCaseHelper<std::string>(context_.messages(),
+              selectCaseStmtType->kind(),
+              selectCaseStmtType.value().category()),
+          context_.messages());
+    } else if (selectCaseStmtType->kind() == 2) {
+      ProcessSelectCaseList(caseList,
+          SelectCaseHelper<std::u16string>(context_.messages(),
+              selectCaseStmtType->kind(),
+              selectCaseStmtType.value().category()),
+          context_.messages());
+    } else if (selectCaseStmtType->kind() == 4) {
+      ProcessSelectCaseList(caseList,
+          SelectCaseHelper<std::u32string>(context_.messages(),
+              selectCaseStmtType->kind(),
+              selectCaseStmtType.value().category()),
+          context_.messages());
     } else {
-      const auto &caseValueRangeList{
-          std::get<std::list<parser::CaseValueRange>>(caseSelector.u)};
-      for (const auto &caseValues : caseValueRangeList) {
-        if (const auto *constCase{
-                std::get_if<parser::Scalar<parser::ConstantExpr>>(
-                    &caseValues.u)}) {
-          if (!selectCaseStmts.IsValidSelectCaseType(
-                  constCase->thing, caseStmt.source)) {
-            continue;
-          }
-
-          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
-            selectCaseStmts.Insert(
-                GetIntValue(constCase->thing).value(), caseStmt.source);
-          } else if (selectCaseStmtType.value().category() ==
-              TypeCategory::Character) {
-            selectCaseStmts.InsertString(constCase->thing, caseStmt.source);
-          } else {  // TypeCategory::Logical
-            selectCaseStmts.Insert(
-                GetBoolValue(constCase->thing).value(), caseStmt.source);
-          }
-        } else {
-          if (selectCaseStmtType.value().category() ==
-              TypeCategory::Logical) {  // C1148 (R1140)
-            context_.Say(caseStmt.source,
-                "SELECT CASE expression of type LOGICAL must "
-                "not have range of case value"_err_en_US);
-            continue;
-          }
-          const auto &rangeCase{
-              std::get<parser::CaseValueRange::Range>(caseValues.u)};
-          const auto &lower{rangeCase.lower};
-          if (lower &&
-              !selectCaseStmts.IsValidSelectCaseType(
-                  lower.value().thing, caseStmt.source)) {
-            continue;
-          }
-
-          const auto &upper{rangeCase.upper};
-          if (upper &&
-              !selectCaseStmts.IsValidSelectCaseType(
-                  upper.value().thing, caseStmt.source)) {
-            continue;
-          }
-
-          if (selectCaseStmtType.value().category() == TypeCategory::Integer) {
-            const auto lowerVal =
-                lower ? GetIntValue(lower->thing) : std::nullopt;
-            const auto upperVal =
-                upper ? GetIntValue(upper->thing) : std::nullopt;
-            selectCaseStmts.Insert(lowerVal, upperVal, caseStmt.source);
-          } else {  // TypeCategory::Character
-            selectCaseStmts.InsertString(lower, upper, caseStmt.source);
-          }
-        }
-      }
+      context_.Say(parsedExpr.source,
+          "Character kind type of case value (=%d) is not supported"_err_en_US,
+          selectCaseStmtType->kind());
     }
   }
 }
