@@ -56,8 +56,10 @@ const Scope *FindProgramUnitContaining(const Scope &start) {
     case Scope::Kind::Module:
     case Scope::Kind::MainProgram:
     case Scope::Kind::Subprogram:
-    case Scope::Kind::BlockData: return true;
-    default: return false;
+    case Scope::Kind::BlockData:
+      return true;
+    default:
+      return false;
     }
   });
 }
@@ -82,7 +84,7 @@ Tristate IsDefinedAssignment(
     const std::optional<evaluate::DynamicType> &lhsType, int lhsRank,
     const std::optional<evaluate::DynamicType> &rhsType, int rhsRank) {
   if (!lhsType || !rhsType) {
-    return Tristate::No;  // error or rhs is untyped
+    return Tristate::No; // error or rhs is untyped
   }
   TypeCategory lhsCat{lhsType->category()};
   TypeCategory rhsCat{rhsType->category()};
@@ -95,8 +97,8 @@ Tristate IsDefinedAssignment(
     const auto *lhsDerived{evaluate::GetDerivedTypeSpec(lhsType)};
     const auto *rhsDerived{evaluate::GetDerivedTypeSpec(rhsType)};
     if (lhsDerived && rhsDerived && *lhsDerived == *rhsDerived) {
-      return Tristate::Maybe;  // TYPE(t) = TYPE(t) can be defined or
-                               // intrinsic
+      return Tristate::Maybe; // TYPE(t) = TYPE(t) can be defined or
+                              // intrinsic
     } else {
       return Tristate::Yes;
     }
@@ -412,7 +414,8 @@ bool ExprTypeKindIsDefault(
 }
 
 // If an analyzed expr or assignment is missing, dump the node and die.
-template<typename T> static void CheckMissingAnalysis(bool absent, const T &x) {
+template <typename T>
+static void CheckMissingAnalysis(bool absent, const T &x) {
   if (absent) {
     std::string buf;
     llvm::raw_string_ostream ss{buf};
@@ -611,7 +614,7 @@ bool IsSaved(const Symbol &symbol) {
   if (scopeKind == Scope::Kind::Module || scopeKind == Scope::Kind::BlockData) {
     return true;
   } else if (scopeKind == Scope::Kind::DerivedType) {
-    return false;  // this is a component
+    return false; // this is a component
   } else if (IsNamedConstant(symbol)) {
     return false;
   } else if (symbol.attrs().test(Attr::SAVE)) {
@@ -674,6 +677,31 @@ bool IsInitialized(const Symbol &symbol) {
   return false;
 }
 
+bool HasIntrinsicTypeName(const Symbol &symbol) {
+  std::string name{symbol.name().ToString()};
+  if (name == "doubleprecision") {
+    return true;
+  } else if (name == "derived") {
+    return false;
+  } else {
+    for (int i{0}; i != common::TypeCategory_enumSize; ++i) {
+      if (name == parser::ToLowerCaseLetters(EnumToString(TypeCategory{i}))) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+bool IsSeparateModuleProcedureInterface(const Symbol *symbol) {
+  if (symbol && symbol->attrs().test(Attr::MODULE)) {
+    if (auto *details{symbol->detailsIf<SubprogramDetails>()}) {
+      return details->isInterface();
+    }
+  }
+  return false;
+}
+
 bool IsFinalizable(const Symbol &symbol) {
   if (const DeclTypeSpec * type{symbol.GetType()}) {
     if (const DerivedTypeSpec * derived{type->AsDerived()}) {
@@ -713,11 +741,9 @@ bool IsAssumedLengthCharacter(const Symbol &symbol) {
 
 // C722 and C723:  For a function to be assumed length, it must be external and
 // of CHARACTER type
-bool IsAssumedLengthExternalCharacterFunction(const Symbol &symbol) {
-  return IsAssumedLengthCharacter(symbol) &&
-      ((symbol.has<SubprogramDetails>() && symbol.owner().IsGlobal()) ||
-          (symbol.test(Symbol::Flag::Function) &&
-              symbol.attrs().test(Attr::EXTERNAL)));
+bool IsExternal(const Symbol &symbol) {
+  return (symbol.has<SubprogramDetails>() && symbol.owner().IsGlobal()) ||
+      symbol.attrs().test(Attr::EXTERNAL);
 }
 
 const Symbol *IsExternalInPureContext(
@@ -793,7 +819,7 @@ std::optional<parser::Message> WhyNotModifiable(parser::CharBlock at,
     const SomeExpr &expr, const Scope &scope, bool vectorSubscriptIsOk) {
   if (!evaluate::IsVariable(expr)) {
     return parser::Message{at, "Expression is not a variable"_en_US};
-  } else if (auto dataRef{evaluate::ExtractDataRef(expr)}) {
+  } else if (auto dataRef{evaluate::ExtractDataRef(expr, true)}) {
     if (!vectorSubscriptIsOk && evaluate::HasVectorSubscript(expr)) {
       return parser::Message{at, "Variable has a vector subscript"_en_US};
     }
@@ -816,10 +842,10 @@ class ImageControlStmtHelper {
       parser::SyncTeamStmt, parser::UnlockStmt>;
 
 public:
-  template<typename T> bool operator()(const T &) {
+  template <typename T> bool operator()(const T &) {
     return common::HasMember<T, ImageControlStmts>;
   }
-  template<typename T> bool operator()(const common::Indirection<T> &x) {
+  template <typename T> bool operator()(const common::Indirection<T> &x) {
     return (*this)(x.value());
   }
   bool operator()(const parser::AllocateStmt &stmt) {
@@ -957,7 +983,7 @@ bool IsPolymorphicAllocatable(const Symbol &symbol) {
 
 std::optional<parser::MessageFormattedText> CheckAccessibleComponent(
     const Scope &scope, const Symbol &symbol) {
-  CHECK(symbol.owner().IsDerivedType());  // symbol must be a component
+  CHECK(symbol.owner().IsDerivedType()); // symbol must be a component
   if (symbol.attrs().test(Attr::PRIVATE)) {
     if (const Scope * moduleScope{FindModuleContaining(symbol.owner())}) {
       if (!moduleScope->Contains(scope)) {
@@ -1006,19 +1032,35 @@ const DeclTypeSpec &FindOrInstantiateDerivedType(Scope &scope,
   return type;
 }
 
+const Symbol *FindSeparateModuleSubprogramInterface(const Symbol *proc) {
+  if (proc) {
+    if (const Symbol * submodule{proc->owner().symbol()}) {
+      if (const auto *details{submodule->detailsIf<ModuleDetails>()}) {
+        if (const Scope * ancestor{details->ancestor()}) {
+          const Symbol *iface{ancestor->FindSymbol(proc->name())};
+          if (IsSeparateModuleProcedureInterface(iface)) {
+            return iface;
+          }
+        }
+      }
+    }
+  }
+  return nullptr;
+}
+
 // ComponentIterator implementation
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 typename ComponentIterator<componentKind>::const_iterator
 ComponentIterator<componentKind>::const_iterator::Create(
     const DerivedTypeSpec &derived) {
   const_iterator it{};
   it.componentPath_.emplace_back(derived);
-  it.Increment();  // cue up first relevant component, if any
+  it.Increment(); // cue up first relevant component, if any
   return it;
 }
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 const DerivedTypeSpec *
 ComponentIterator<componentKind>::const_iterator::PlanComponentTraversal(
     const Symbol &component) const {
@@ -1052,12 +1094,12 @@ ComponentIterator<componentKind>::const_iterator::PlanComponentTraversal(
           return derived;
         }
       }
-    }  // intrinsic & unlimited polymorphic not traversable
+    } // intrinsic & unlimited polymorphic not traversable
   }
   return nullptr;
 }
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 static bool StopAtComponentPre(const Symbol &component) {
   if constexpr (componentKind == ComponentKind::Ordered) {
     // Parent components need to be iterated upon after their
@@ -1075,13 +1117,13 @@ static bool StopAtComponentPre(const Symbol &component) {
   }
 }
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 static bool StopAtComponentPost(const Symbol &component) {
   return componentKind == ComponentKind::Ordered &&
       component.test(Symbol::Flag::ParentComp);
 }
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 void ComponentIterator<componentKind>::const_iterator::Increment() {
   while (!componentPath_.empty()) {
     ComponentPathNode &deepest{componentPath_.back()};
@@ -1095,7 +1137,7 @@ void ComponentIterator<componentKind>::const_iterator::Increment() {
         }
       } else if (!deepest.visited()) {
         deepest.set_visited(true);
-        return;  // this is the next component to visit, after descending
+        return; // this is the next component to visit, after descending
       }
     }
     auto &nameIterator{deepest.nameIterator()};
@@ -1105,7 +1147,7 @@ void ComponentIterator<componentKind>::const_iterator::Increment() {
       deepest.set_component(*nameIterator++->second);
       deepest.set_descended(false);
       deepest.set_visited(true);
-      return;  // this is the next component to visit, before descending
+      return; // this is the next component to visit, before descending
     } else {
       const Scope &scope{deepest.GetScope()};
       auto scopeIter{scope.find(*nameIterator++)};
@@ -1115,7 +1157,7 @@ void ComponentIterator<componentKind>::const_iterator::Increment() {
         deepest.set_descended(false);
         if (StopAtComponentPre<componentKind>(component)) {
           deepest.set_visited(true);
-          return;  // this is the next component to visit, before descending
+          return; // this is the next component to visit, before descending
         } else {
           deepest.set_visited(!StopAtComponentPost<componentKind>(component));
         }
@@ -1124,7 +1166,7 @@ void ComponentIterator<componentKind>::const_iterator::Increment() {
   }
 }
 
-template<ComponentKind componentKind>
+template <ComponentKind componentKind>
 std::string
 ComponentIterator<componentKind>::const_iterator::BuildResultDesignatorName()
     const {
@@ -1314,4 +1356,4 @@ void LabelEnforce::SayWithConstruct(SemanticsContext &context,
   context.Say(stmtLocation, message)
       .Attach(constructLocation, GetEnclosingConstructMsg());
 }
-}
+} // namespace Fortran::semantics
