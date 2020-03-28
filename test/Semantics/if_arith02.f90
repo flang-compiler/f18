@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Check that only labels are allowed in arithmetic if statements.
 ! TODO: Revisit error message "expected 'ASSIGN'" etc.
 ! TODO: Revisit error message "expected one of '0123456789'"

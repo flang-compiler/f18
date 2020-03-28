@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Error tests for recursive use of derived types.
 
 program main

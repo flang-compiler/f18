@@ -14,14 +14,18 @@
 #include <cinttypes>
 #include <string>
 
+namespace llvm {
+class raw_ostream;
+}
+
 namespace Fortran::semantics {
 
 // All available attributes.
 ENUM_CLASS(Attr, ABSTRACT, ALLOCATABLE, ASYNCHRONOUS, BIND_C, CONTIGUOUS,
-    DEFERRED, ELEMENTAL, EXTERNAL, IMPURE, INTENT_IN, INTENT_INOUT, INTENT_OUT,
-    INTRINSIC, MODULE, NON_OVERRIDABLE, NON_RECURSIVE, NOPASS, OPTIONAL,
-    PARAMETER, PASS, POINTER, PRIVATE, PROTECTED, PUBLIC, PURE, RECURSIVE, SAVE,
-    TARGET, VALUE, VOLATILE)
+    DEFERRED, ELEMENTAL, EXTENDS, EXTERNAL, IMPURE, INTENT_IN, INTENT_INOUT,
+    INTENT_OUT, INTRINSIC, MODULE, NON_OVERRIDABLE, NON_RECURSIVE, NOPASS,
+    OPTIONAL, PARAMETER, PASS, POINTER, PRIVATE, PROTECTED, PUBLIC, PURE,
+    RECURSIVE, SAVE, TARGET, VALUE, VOLATILE)
 
 // Set of attributes
 class Attrs : public common::EnumSet<Attr, Attr_enumSize> {
@@ -38,13 +42,13 @@ public:
   void CheckValid(const Attrs &allowed) const;
 
 private:
-  friend std::ostream &operator<<(std::ostream &, const Attrs &);
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const Attrs &);
 };
 
 // Return string representation of attr that matches Fortran source.
 std::string AttrToString(Attr attr);
 
-std::ostream &operator<<(std::ostream &o, Attr attr);
-std::ostream &operator<<(std::ostream &o, const Attrs &attrs);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &o, Attr attr);
+llvm::raw_ostream &operator<<(llvm::raw_ostream &o, const Attrs &attrs);
 }
 #endif  // FORTRAN_SEMANTICS_ATTR_H_

@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 
 
 !ERROR: label '600' was not found

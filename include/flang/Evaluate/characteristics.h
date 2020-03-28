@@ -24,10 +24,13 @@
 #include "flang/Parser/char-block.h"
 #include "flang/Semantics/symbol.h"
 #include <optional>
-#include <ostream>
 #include <string>
 #include <variant>
 #include <vector>
+
+namespace llvm {
+class raw_ostream;
+}
 
 namespace Fortran::evaluate {
 class IntrinsicProcTable;
@@ -46,6 +49,11 @@ using common::CopyableIndirection;
 bool Distinguishable(const Procedure &, const Procedure &);
 // Are these procedures distinguishable for a generic operator or assignment?
 bool DistinguishableOpOrAssign(const Procedure &, const Procedure &);
+
+// Shapes of function results and dummy arguments have to have
+// the same rank, the same deferred dimensions, and the same
+// values for explicit dimensions when constant.
+bool ShapesAreCompatible(const Shape &, const Shape &);
 
 class TypeAndShape {
 public:
@@ -126,7 +134,7 @@ public:
       const char *thisIs = "POINTER", const char *thatIs = "TARGET",
       bool isElemental = false) const;
 
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
 
 private:
   void AcquireShape(const semantics::ObjectEntityDetails &);
@@ -155,7 +163,7 @@ struct DummyDataObject {
   }
   static std::optional<DummyDataObject> Characterize(const semantics::Symbol &);
   bool CanBePassedViaImplicitInterface() const;
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
   TypeAndShape type;
   std::vector<Expr<SubscriptInteger>> coshape;
   common::Intent intent{common::Intent::Default};
@@ -172,7 +180,7 @@ struct DummyProcedure {
   bool operator!=(const DummyProcedure &that) const { return !(*this == that); }
   static std::optional<DummyProcedure> Characterize(
       const semantics::Symbol &, const IntrinsicProcTable &);
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
   CopyableIndirection<Procedure> procedure;
   common::Intent intent{common::Intent::Default};
   Attrs attrs;
@@ -182,7 +190,7 @@ struct DummyProcedure {
 struct AlternateReturn {
   bool operator==(const AlternateReturn &) const { return true; }
   bool operator!=(const AlternateReturn &) const { return false; }
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
 };
 
 // 15.3.2.1
@@ -203,7 +211,7 @@ struct DummyArgument {
   bool IsOptional() const;
   void SetOptional(bool = true);
   bool CanBePassedViaImplicitInterface() const;
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
   // name and pass are not characteristics and so does not participate in
   // operator== but are needed to determine if procedures are distinguishable
   std::string name;
@@ -242,7 +250,7 @@ struct FunctionResult {
   void SetType(DynamicType t) { std::get<TypeAndShape>(u).set_type(t); }
   bool CanBeReturnedViaImplicitInterface() const;
 
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
 
   Attrs attrs;
   std::variant<TypeAndShape, CopyableIndirection<Procedure>> u;
@@ -283,7 +291,7 @@ struct Procedure {
   int FindPassIndex(std::optional<parser::CharBlock>) const;
   bool CanBeCalledViaImplicitInterface() const;
   bool CanOverride(const Procedure &, std::optional<int> passIndex) const;
-  std::ostream &Dump(std::ostream &) const;
+  llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
 
   std::optional<FunctionResult> functionResult;
   DummyArguments dummyArguments;

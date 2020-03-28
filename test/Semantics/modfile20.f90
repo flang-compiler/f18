@@ -1,3 +1,4 @@
+! RUN: %S/test_modfile.sh %s %f18 %t
 ! Test modfiles for entities with initialization
 module m
   integer, parameter :: k8 = 8
@@ -25,7 +26,7 @@ end
 !  integer(8),parameter::i=2_8
 !  real(4)::r
 !  character(10_4,1)::c
-!  character(10_4,1),parameter::c2=1_"qwer      "
+!  character(10_4,1),parameter::c2="qwer      "
 !  complex(8),parameter::z=(1._8,2._8)
 !  complex(8),parameter::zn=(-1._8,2._8)
 !  type::t

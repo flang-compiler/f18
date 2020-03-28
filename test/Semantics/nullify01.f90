@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test that NULLIFY works
 
 Module share

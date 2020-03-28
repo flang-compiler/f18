@@ -12,6 +12,7 @@
 #include "canonicalize-omp.h"
 #include "check-allocate.h"
 #include "check-arithmeticif.h"
+#include "check-case.h"
 #include "check-coarray.h"
 #include "check-data.h"
 #include "check-deallocate.h"
@@ -35,12 +36,13 @@
 #include "flang/Semantics/expression.h"
 #include "flang/Semantics/scope.h"
 #include "flang/Semantics/symbol.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace Fortran::semantics {
 
 using NameToSymbolMap = std::map<const char *, SymbolRef>;
-static void DoDumpSymbols(std::ostream &, const Scope &, int indent = 0);
-static void PutIndent(std::ostream &, int indent);
+static void DoDumpSymbols(llvm::raw_ostream &, const Scope &, int indent = 0);
+static void PutIndent(llvm::raw_ostream &, int indent);
 
 static void GetSymbolNames(const Scope &scope, NameToSymbolMap &symbols) {
   // Finds all symbol names in the scope without collecting duplicates.
@@ -60,44 +62,44 @@ static void GetSymbolNames(const Scope &scope, NameToSymbolMap &symbols) {
 // children are visited, Leave is called after. No two checkers may have the
 // same Enter or Leave function. Each checker must be constructible from
 // SemanticsContext and have BaseChecker as a virtual base class.
-template<typename... C> class SemanticsVisitor : public virtual C... {
+template <typename... C> class SemanticsVisitor : public virtual C... {
 public:
   using C::Enter...;
   using C::Leave...;
   using BaseChecker::Enter;
   using BaseChecker::Leave;
   SemanticsVisitor(SemanticsContext &context)
-    : C{context}..., context_{context} {}
+      : C{context}..., context_{context} {}
 
-  template<typename N> bool Pre(const N &node) {
+  template <typename N> bool Pre(const N &node) {
     if constexpr (common::HasMember<const N *, ConstructNode>) {
       context_.PushConstruct(node);
     }
     Enter(node);
     return true;
   }
-  template<typename N> void Post(const N &node) {
+  template <typename N> void Post(const N &node) {
     Leave(node);
     if constexpr (common::HasMember<const N *, ConstructNode>) {
       context_.PopConstruct();
     }
   }
 
-  template<typename T> bool Pre(const parser::Statement<T> &node) {
+  template <typename T> bool Pre(const parser::Statement<T> &node) {
     context_.set_location(node.source);
     Enter(node);
     return true;
   }
-  template<typename T> bool Pre(const parser::UnlabeledStatement<T> &node) {
+  template <typename T> bool Pre(const parser::UnlabeledStatement<T> &node) {
     context_.set_location(node.source);
     Enter(node);
     return true;
   }
-  template<typename T> void Post(const parser::Statement<T> &node) {
+  template <typename T> void Post(const parser::Statement<T> &node) {
     Leave(node);
     context_.set_location(std::nullopt);
   }
-  template<typename T> void Post(const parser::UnlabeledStatement<T> &node) {
+  template <typename T> void Post(const parser::UnlabeledStatement<T> &node) {
     Leave(node);
     context_.set_location(std::nullopt);
   }
@@ -111,12 +113,25 @@ private:
   SemanticsContext &context_;
 };
 
+class EntryChecker : public virtual BaseChecker {
+public:
+  explicit EntryChecker(SemanticsContext &context) : context_{context} {}
+  void Leave(const parser::EntryStmt &) {
+    if (!context_.constructStack().empty()) { // C1571
+      context_.Say("ENTRY may not appear in an executable construct"_err_en_US);
+    }
+  }
+
+private:
+  SemanticsContext &context_;
+};
+
 using StatementSemanticsPass1 = ExprChecker;
 using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
-    ArithmeticIfStmtChecker, AssignmentChecker, CoarrayChecker, DataChecker,
-    DeallocateChecker, DoForallChecker, IfStmtChecker, IoChecker,
-    NamelistChecker, NullifyChecker, OmpStructureChecker, PurityChecker,
-    ReturnStmtChecker, StopChecker>;
+    ArithmeticIfStmtChecker, AssignmentChecker, CaseChecker, CoarrayChecker,
+    DataChecker, DeallocateChecker, DoForallChecker, EntryChecker,
+    IfStmtChecker, IoChecker, NamelistChecker, NullifyChecker,
+    OmpStructureChecker, PurityChecker, ReturnStmtChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
@@ -132,11 +147,11 @@ SemanticsContext::SemanticsContext(
     const common::IntrinsicTypeDefaultKinds &defaultKinds,
     const common::LanguageFeatureControl &languageFeatures,
     parser::AllSources &allSources)
-  : defaultKinds_{defaultKinds}, languageFeatures_{languageFeatures},
-    allSources_{allSources},
-    intrinsics_{evaluate::IntrinsicProcTable::Configure(defaultKinds_)},
-    foldingContext_{
-        parser::ContextualMessages{&messages_}, defaultKinds_, intrinsics_} {}
+    : defaultKinds_{defaultKinds}, languageFeatures_{languageFeatures},
+      allSources_{allSources},
+      intrinsics_{evaluate::IntrinsicProcTable::Configure(defaultKinds_)},
+      foldingContext_{
+          parser::ContextualMessages{&messages_}, defaultKinds_, intrinsics_} {}
 
 SemanticsContext::~SemanticsContext() {}
 
@@ -276,21 +291,21 @@ SymbolVector SemanticsContext::GetIndexVars(IndexVarKind kind) {
 
 bool Semantics::Perform() {
   return ValidateLabels(context_, program_) &&
-      parser::CanonicalizeDo(program_) &&  // force line break
+      parser::CanonicalizeDo(program_) && // force line break
       CanonicalizeOmp(context_.messages(), program_) &&
       PerformStatementSemantics(context_, program_) &&
       ModFileWriter{context_}.WriteAll();
 }
 
-void Semantics::EmitMessages(std::ostream &os) const {
+void Semantics::EmitMessages(llvm::raw_ostream &os) const {
   context_.messages().Emit(os, cooked_);
 }
 
-void Semantics::DumpSymbols(std::ostream &os) {
+void Semantics::DumpSymbols(llvm::raw_ostream &os) {
   DoDumpSymbols(os, context_.globalScope());
 }
 
-void Semantics::DumpSymbolsSources(std::ostream &os) const {
+void Semantics::DumpSymbolsSources(llvm::raw_ostream &os) const {
   NameToSymbolMap symbols;
   GetSymbolNames(context_.globalScope(), symbols);
   for (const auto &pair : symbols) {
@@ -306,7 +321,7 @@ void Semantics::DumpSymbolsSources(std::ostream &os) const {
   }
 }
 
-void DoDumpSymbols(std::ostream &os, const Scope &scope, int indent) {
+void DoDumpSymbols(llvm::raw_ostream &os, const Scope &scope, int indent) {
   PutIndent(os, indent);
   os << Scope::EnumToString(scope.kind()) << " scope:";
   if (const auto *symbol{scope.symbol()}) {
@@ -357,9 +372,9 @@ void DoDumpSymbols(std::ostream &os, const Scope &scope, int indent) {
   --indent;
 }
 
-static void PutIndent(std::ostream &os, int indent) {
+static void PutIndent(llvm::raw_ostream &os, int indent) {
   for (int i = 0; i < indent; ++i) {
     os << "  ";
   }
 }
-}
+} // namespace Fortran::semantics

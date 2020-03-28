@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Check that a basic computed goto compiles
 
 INTEGER, DIMENSION (2) :: B

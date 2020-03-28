@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test correct use-association of a derived type.
 module m1
   implicit none

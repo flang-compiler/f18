@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test 15.5.2.7 constraints and restrictions for POINTER dummy arguments.
 
 module m

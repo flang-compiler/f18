@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test 15.5.2.8 coarray dummy arguments
 
 module m

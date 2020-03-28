@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! C726 The length specified for a character statement function or for a 
 ! statement function dummy argument of type character shall be a constant 
 ! expression.

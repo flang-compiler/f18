@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! OPTIONS: -fopenmp
 
 ! Check OpenMP 2.13.6 atomic Construct

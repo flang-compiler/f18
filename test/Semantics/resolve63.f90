@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Invalid operand types when user-defined operator is available
 module m1
   type :: t

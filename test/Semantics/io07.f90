@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 1001 format(A)
 
      !ERROR: Format statement must be labeled

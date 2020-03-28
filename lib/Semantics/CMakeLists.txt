@@ -1,10 +1,3 @@
-#===-- lib/Semantics/CMakeLists.txt ----------------------------------------===#
-#
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-#===------------------------------------------------------------------------===#
 
 add_library(FortranSemantics
   assignment.cpp
@@ -14,6 +7,7 @@ add_library(FortranSemantics
   check-allocate.cpp
   check-arithmeticif.cpp
   check-call.cpp
+  check-case.cpp
   check-coarray.cpp
   check-data.cpp
   check-deallocate.cpp
@@ -42,6 +36,8 @@ add_library(FortranSemantics
   type.cpp
   unparse-with-symbols.cpp
 )
+
+target_compile_features(FortranSemantics PUBLIC cxx_std_17)
 
 target_link_libraries(FortranSemantics
   FortranCommon

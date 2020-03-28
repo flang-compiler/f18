@@ -1,3 +1,4 @@
+! RUN: %S/test_modfile.sh %s %f18 %t
 
 ! Test UTF-8 support in character literals
 ! Note: Module files are encoded in UTF-8.
@@ -15,7 +16,7 @@ end module m
 !Expect: m.mod
 !module m
 !character(*,4),parameter::c4=4_"Hi! \344\275\240\345\245\275!"
-!character(*,1),parameter::c1=1_"Hi! \344\275\240\345\245\275!"
+!character(*,1),parameter::c1="Hi! \344\275\240\345\245\275!"
 !character(*,4),parameter::c4a(1_8:*)=[CHARACTER(KIND=4,LEN=1)::4_"\344\270\200",4_"\344\272\214",4_"\344\270\211",4_"\345\233\233",4_"\344\272\224"]
 !integer(4),parameter::lc4=7_4
 !intrinsic::len

@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test SELECT TYPE errors: C1157
 
 subroutine s1()

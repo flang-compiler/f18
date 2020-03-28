@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test coarray association in CHANGE TEAM statement
 
 subroutine s1

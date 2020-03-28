@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! 15.5.1 procedure reference constraints and restrictions
 
 subroutine s01(elem, subr)
@@ -8,9 +9,9 @@ subroutine s01(elem, subr)
     subroutine subr(dummy)
       procedure(sin) :: dummy
     end subroutine
-    !ERROR: A dummy procedure may not be ELEMENTAL
     subroutine badsubr(dummy)
       import :: elem
+      !ERROR: A dummy procedure may not be ELEMENTAL
       procedure(elem) :: dummy
     end subroutine
   end interface

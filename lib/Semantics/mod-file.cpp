@@ -20,7 +20,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <fstream>
-#include <ostream>
 #include <set>
 #include <string_view>
 #include <vector>
@@ -44,22 +43,23 @@ struct ModHeader {
 
 static std::optional<SourceName> GetSubmoduleParent(const parser::Program &);
 static SymbolVector CollectSymbols(const Scope &);
-static void PutEntity(std::ostream &, const Symbol &);
-static void PutObjectEntity(std::ostream &, const Symbol &);
-static void PutProcEntity(std::ostream &, const Symbol &);
-static void PutPassName(std::ostream &, const std::optional<SourceName> &);
-static void PutTypeParam(std::ostream &, const Symbol &);
+static void PutEntity(llvm::raw_ostream &, const Symbol &);
+static void PutObjectEntity(llvm::raw_ostream &, const Symbol &);
+static void PutProcEntity(llvm::raw_ostream &, const Symbol &);
+static void PutPassName(llvm::raw_ostream &, const std::optional<SourceName> &);
+static void PutTypeParam(llvm::raw_ostream &, const Symbol &);
 static void PutEntity(
-    std::ostream &, const Symbol &, std::function<void()>, Attrs);
-static void PutInit(std::ostream &, const Symbol &, const MaybeExpr &);
-static void PutInit(std::ostream &, const MaybeIntExpr &);
-static void PutBound(std::ostream &, const Bound &);
-static std::ostream &PutAttrs(std::ostream &, Attrs,
+    llvm::raw_ostream &, const Symbol &, std::function<void()>, Attrs);
+static void PutInit(llvm::raw_ostream &, const Symbol &, const MaybeExpr &);
+static void PutInit(llvm::raw_ostream &, const MaybeIntExpr &);
+static void PutBound(llvm::raw_ostream &, const Bound &);
+static llvm::raw_ostream &PutAttrs(llvm::raw_ostream &, Attrs,
     const MaybeExpr & = std::nullopt, std::string before = ","s,
     std::string after = ""s);
-static std::ostream &PutAttr(std::ostream &, Attr);
-static std::ostream &PutType(std::ostream &, const DeclTypeSpec &);
-static std::ostream &PutLower(std::ostream &, const std::string &);
+
+static llvm::raw_ostream &PutAttr(llvm::raw_ostream &, Attr);
+static llvm::raw_ostream &PutType(llvm::raw_ostream &, const DeclTypeSpec &);
+static llvm::raw_ostream &PutLower(llvm::raw_ostream &, const std::string &);
 static std::error_code WriteFile(
     const std::string &, const std::string &, bool = true);
 static bool FileContentsMatch(
@@ -69,8 +69,8 @@ static std::string CheckSum(const std::string_view &);
 // Collect symbols needed for a subprogram interface
 class SubprogramSymbolCollector {
 public:
-  SubprogramSymbolCollector(const Symbol &symbol)
-    : symbol_{symbol}, scope_{DEREF(symbol.scope())} {}
+  SubprogramSymbolCollector(const Symbol &symbol, const Scope &scope)
+    : symbol_{symbol}, scope_{scope} {}
   const SymbolVector &symbols() const { return need_; }
   const std::set<SourceName> &imports() const { return imports_; }
   void Collect();
@@ -143,7 +143,8 @@ void ModFileWriter::Write(const Symbol &symbol) {
 // Return the entire body of the module file
 // and clear saved uses, decls, and contains.
 std::string ModFileWriter::GetAsString(const Symbol &symbol) {
-  std::stringstream all;
+  std::string buf;
+  llvm::raw_string_ostream all{buf};
   auto &details{symbol.get<ModuleDetails>()};
   if (!details.isSubmodule()) {
     all << "module " << symbol.name();
@@ -157,13 +158,13 @@ std::string ModFileWriter::GetAsString(const Symbol &symbol) {
     all << ") " << symbol.name();
   }
   all << '\n' << uses_.str();
-  uses_.str(""s);
+  uses_.str().clear();
   all << useExtraAttrs_.str();
-  useExtraAttrs_.str(""s);
+  useExtraAttrs_.str().clear();
   all << decls_.str();
-  decls_.str(""s);
+  decls_.str().clear();
   auto str{contains_.str()};
-  contains_.str(""s);
+  contains_.str().clear();
   if (!str.empty()) {
     all << "contains\n" << str;
   }
@@ -173,7 +174,9 @@ std::string ModFileWriter::GetAsString(const Symbol &symbol) {
 
 // Put out the visible symbols from scope.
 void ModFileWriter::PutSymbols(const Scope &scope) {
-  std::stringstream typeBindings;  // stuff after CONTAINS in derived type
+  std::string buf;
+  llvm::raw_string_ostream typeBindings{
+      buf};  // stuff after CONTAINS in derived type
   for (const Symbol &symbol : CollectSymbols(scope)) {
     PutSymbol(typeBindings, symbol);
   }
@@ -186,7 +189,7 @@ void ModFileWriter::PutSymbols(const Scope &scope) {
 // Emit a symbol to decls_, except for bindings in a derived type (type-bound
 // procedures, type-bound generics, final procedures) which go to typeBindings.
 void ModFileWriter::PutSymbol(
-    std::stringstream &typeBindings, const Symbol &symbol) {
+    llvm::raw_ostream &typeBindings, const Symbol &symbol) {
   std::visit(
       common::visitors{
           [&](const ModuleDetails &) { /* should be current module */ },
@@ -301,13 +304,14 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   Attrs prefixAttrs{subprogramPrefixAttrs & attrs};
   // emit any non-prefix attributes in an attribute statement
   attrs &= ~subprogramPrefixAttrs;
-  std::stringstream ss;
+  std::string ssBuf;
+  llvm::raw_string_ostream ss{ssBuf};
   PutAttrs(ss, attrs);
   if (!ss.str().empty()) {
     decls_ << ss.str().substr(1) << "::" << symbol.name() << '\n';
   }
   bool isInterface{details.isInterface()};
-  std::ostream &os{isInterface ? decls_ : contains_};
+  llvm::raw_ostream &os{isInterface ? decls_ : contains_};
   if (isInterface) {
     os << "interface\n";
   }
@@ -331,11 +335,14 @@ void ModFileWriter::PutSubprogram(const Symbol &symbol) {
   }
   os << '\n';
 
-  // walk symbols, collect ones needed
-  ModFileWriter writer{context_};
-  std::stringstream typeBindings;
-  SubprogramSymbolCollector collector{symbol};
+  // walk symbols, collect ones needed for interface
+  const Scope &scope{
+      details.entryScope() ? *details.entryScope() : DEREF(symbol.scope())};
+  SubprogramSymbolCollector collector{symbol, scope};
   collector.Collect();
+  std::string typeBindingsBuf;
+  llvm::raw_string_ostream typeBindings{typeBindingsBuf};
+  ModFileWriter writer{context_};
   for (const Symbol &need : collector.symbols()) {
     writer.PutSymbol(typeBindings, need);
   }
@@ -359,7 +366,8 @@ static bool IsIntrinsicOp(const Symbol &symbol) {
   }
 }
 
-static std::ostream &PutGenericName(std::ostream &os, const Symbol &symbol) {
+static llvm::raw_ostream &PutGenericName(
+    llvm::raw_ostream &os, const Symbol &symbol) {
   if (IsGenericDefinedOp(symbol)) {
     return os << "operator(" << symbol.name() << ')';
   } else {
@@ -440,7 +448,7 @@ SymbolVector CollectSymbols(const Scope &scope) {
   return sorted;
 }
 
-void PutEntity(std::ostream &os, const Symbol &symbol) {
+void PutEntity(llvm::raw_ostream &os, const Symbol &symbol) {
   std::visit(
       common::visitors{
           [&](const ObjectEntityDetails &) { PutObjectEntity(os, symbol); },
@@ -454,7 +462,7 @@ void PutEntity(std::ostream &os, const Symbol &symbol) {
       symbol.details());
 }
 
-void PutShapeSpec(std::ostream &os, const ShapeSpec &x) {
+void PutShapeSpec(llvm::raw_ostream &os, const ShapeSpec &x) {
   if (x.lbound().isAssumed()) {
     CHECK(x.ubound().isAssumed());
     os << "..";
@@ -468,7 +476,8 @@ void PutShapeSpec(std::ostream &os, const ShapeSpec &x) {
     }
   }
 }
-void PutShape(std::ostream &os, const ArraySpec &shape, char open, char close) {
+void PutShape(
+    llvm::raw_ostream &os, const ArraySpec &shape, char open, char close) {
   if (!shape.empty()) {
     os << open;
     bool first{true};
@@ -484,7 +493,7 @@ void PutShape(std::ostream &os, const ArraySpec &shape, char open, char close) {
   }
 }
 
-void PutObjectEntity(std::ostream &os, const Symbol &symbol) {
+void PutObjectEntity(llvm::raw_ostream &os, const Symbol &symbol) {
   auto &details{symbol.get<ObjectEntityDetails>()};
   PutEntity(os, symbol, [&]() { PutType(os, DEREF(symbol.GetType())); },
       symbol.attrs());
@@ -494,7 +503,7 @@ void PutObjectEntity(std::ostream &os, const Symbol &symbol) {
   os << '\n';
 }
 
-void PutProcEntity(std::ostream &os, const Symbol &symbol) {
+void PutProcEntity(llvm::raw_ostream &os, const Symbol &symbol) {
   if (symbol.attrs().test(Attr::INTRINSIC)) {
     os << "intrinsic::" << symbol.name() << '\n';
     return;
@@ -520,13 +529,13 @@ void PutProcEntity(std::ostream &os, const Symbol &symbol) {
   os << '\n';
 }
 
-void PutPassName(std::ostream &os, const std::optional<SourceName> &passName) {
+void PutPassName(
+    llvm::raw_ostream &os, const std::optional<SourceName> &passName) {
   if (passName) {
     os << ",pass(" << *passName << ')';
   }
 }
-
-void PutTypeParam(std::ostream &os, const Symbol &symbol) {
+void PutTypeParam(llvm::raw_ostream &os, const Symbol &symbol) {
   auto &details{symbol.get<TypeParamDetails>()};
   PutEntity(os, symbol,
       [&]() {
@@ -538,7 +547,8 @@ void PutTypeParam(std::ostream &os, const Symbol &symbol) {
   os << '\n';
 }
 
-void PutInit(std::ostream &os, const Symbol &symbol, const MaybeExpr &init) {
+void PutInit(
+    llvm::raw_ostream &os, const Symbol &symbol, const MaybeExpr &init) {
   if (init) {
     if (symbol.attrs().test(Attr::PARAMETER) ||
         symbol.owner().IsDerivedType()) {
@@ -548,13 +558,13 @@ void PutInit(std::ostream &os, const Symbol &symbol, const MaybeExpr &init) {
   }
 }
 
-void PutInit(std::ostream &os, const MaybeIntExpr &init) {
+void PutInit(llvm::raw_ostream &os, const MaybeIntExpr &init) {
   if (init) {
     init->AsFortran(os << '=');
   }
 }
 
-void PutBound(std::ostream &os, const Bound &x) {
+void PutBound(llvm::raw_ostream &os, const Bound &x) {
   if (x.isAssumed()) {
     os << '*';
   } else if (x.isDeferred()) {
@@ -566,7 +576,7 @@ void PutBound(std::ostream &os, const Bound &x) {
 
 // Write an entity (object or procedure) declaration.
 // writeType is called to write out the type.
-void PutEntity(std::ostream &os, const Symbol &symbol,
+void PutEntity(llvm::raw_ostream &os, const Symbol &symbol,
     std::function<void()> writeType, Attrs attrs) {
   writeType();
   MaybeExpr bindName;
@@ -584,8 +594,8 @@ void PutEntity(std::ostream &os, const Symbol &symbol,
 
 // Put out each attribute to os, surrounded by `before` and `after` and
 // mapped to lower case.
-std::ostream &PutAttrs(std::ostream &os, Attrs attrs, const MaybeExpr &bindName,
-    std::string before, std::string after) {
+llvm::raw_ostream &PutAttrs(llvm::raw_ostream &os, Attrs attrs,
+    const MaybeExpr &bindName, std::string before, std::string after) {
   attrs.set(Attr::PUBLIC, false);  // no need to write PUBLIC
   attrs.set(Attr::EXTERNAL, false);  // no need to write EXTERNAL
   if (bindName) {
@@ -601,15 +611,15 @@ std::ostream &PutAttrs(std::ostream &os, Attrs attrs, const MaybeExpr &bindName,
   return os;
 }
 
-std::ostream &PutAttr(std::ostream &os, Attr attr) {
+llvm::raw_ostream &PutAttr(llvm::raw_ostream &os, Attr attr) {
   return PutLower(os, AttrToString(attr));
 }
 
-std::ostream &PutType(std::ostream &os, const DeclTypeSpec &type) {
+llvm::raw_ostream &PutType(llvm::raw_ostream &os, const DeclTypeSpec &type) {
   return PutLower(os, type.AsFortran());
 }
 
-std::ostream &PutLower(std::ostream &os, const std::string &str) {
+llvm::raw_ostream &PutLower(llvm::raw_ostream &os, const std::string &str) {
   for (char c : str) {
     os << parser::ToLowerCaseLetter(c);
   }
@@ -720,8 +730,8 @@ static std::string CheckSum(const std::string_view &contents) {
   return result;
 }
 
-static bool VerifyHeader(const char *content, std::size_t len) {
-  std::string_view sv{content, len};
+static bool VerifyHeader(llvm::ArrayRef<char> content) {
+  std::string_view sv{content.data(), content.size()};
   if (sv.substr(0, ModHeader::magicLen) != ModHeader::magic) {
     return false;
   }
@@ -759,13 +769,13 @@ Scope *ModFileReader::Read(const SourceName &name, Scope *ancestor) {
     return nullptr;
   }
   CHECK(sourceFile);
-  if (!VerifyHeader(sourceFile->content(), sourceFile->bytes())) {
+  if (!VerifyHeader(sourceFile->content())) {
     Say(name, ancestorName, "File has invalid checksum: %s"_en_US,
         sourceFile->path());
     return nullptr;
   }
-
-  parsing.Parse(nullptr);
+  llvm::raw_null_ostream NullStream;
+  parsing.Parse(NullStream);
   auto &parseTree{parsing.parseTree()};
   if (!parsing.messages().empty() || !parsing.consumedWholeFile() ||
       !parseTree) {

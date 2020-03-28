@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test for checking namelist constraints, C8103-C8105
 
 module dup

@@ -22,6 +22,10 @@
 #include <set>
 #include <string>
 
+namespace llvm {
+class raw_ostream;
+}
+
 namespace Fortran::semantics {
 
 using namespace parser::literals;
@@ -78,6 +82,7 @@ public:
   Kind kind() const { return kind_; }
   bool IsGlobal() const { return kind_ == Kind::Global; }
   bool IsModule() const;  // only module, not submodule
+  bool IsSubmodule() const;
   bool IsDerivedType() const { return kind_ == Kind::DerivedType; }
   bool IsParameterizedDerivedType() const;
   Symbol *symbol() { return symbol_; }
@@ -134,6 +139,8 @@ public:
     Symbol &symbol{MakeSymbol(name, attrs, std::move(details))};
     return symbols_.emplace(name, symbol);
   }
+  // Make a copy of a symbol in this scope; nullptr if one is already there
+  Symbol *CopySymbol(const Symbol &);
 
   const std::list<EquivalenceSet> &equivalenceSets() const;
   void add_equivalenceSet(EquivalenceSet &&);
@@ -231,7 +238,7 @@ private:
   bool CanImport(const SourceName &) const;
   const DeclTypeSpec &MakeLengthlessType(DeclTypeSpec &&);
 
-  friend std::ostream &operator<<(std::ostream &, const Scope &);
+  friend llvm::raw_ostream &operator<<(llvm::raw_ostream &, const Scope &);
 };
 }
 #endif  // FORTRAN_SEMANTICS_SCOPE_H_

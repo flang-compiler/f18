@@ -16,8 +16,8 @@
 #include "flang/Parser/message.h"
 #include "flang/Semantics/scope.h"
 #include "flang/Semantics/symbol.h"
+#include "llvm/Support/raw_ostream.h"
 #include <initializer_list>
-#include <ostream>
 
 using namespace Fortran::parser::literals;
 
@@ -37,7 +37,7 @@ static void CopyAttrs(const semantics::Symbol &src, A &dst,
 // Shapes of function results and dummy arguments have to have
 // the same rank, the same deferred dimensions, and the same
 // values for explicit dimensions when constant.
-static bool ShapesAreCompatible(const Shape &x, const Shape &y) {
+bool ShapesAreCompatible(const Shape &x, const Shape &y) {
   if (x.size() != y.size()) {
     return false;
   }
@@ -158,10 +158,9 @@ void TypeAndShape::AcquireShape(const semantics::ObjectEntityDetails &object) {
   for (const semantics::ShapeSpec &dim : object.shape()) {
     if (dim.ubound().GetExplicit()) {
       Expr<SubscriptInteger> extent{*dim.ubound().GetExplicit()};
-      if (dim.lbound().GetExplicit()) {
-        extent = std::move(extent) +
-            common::Clone(*dim.lbound().GetExplicit()) -
-            Expr<SubscriptInteger>{1};
+      if (auto lbound{dim.lbound().GetExplicit()}) {
+        extent =
+            std::move(extent) + Expr<SubscriptInteger>{1} - std::move(*lbound);
       }
       shape_.emplace_back(std::move(extent));
     } else {
@@ -180,7 +179,7 @@ void TypeAndShape::AcquireLEN() {
   }
 }
 
-std::ostream &TypeAndShape::Dump(std::ostream &o) const {
+llvm::raw_ostream &TypeAndShape::Dump(llvm::raw_ostream &o) const {
   o << type_.AsFortran(LEN_ ? LEN_->AsFortran() : "");
   attrs_.Dump(o, EnumToString);
   if (!shape_.empty()) {
@@ -262,7 +261,7 @@ bool DummyDataObject::CanBePassedViaImplicitInterface() const {
   }
 }
 
-std::ostream &DummyDataObject::Dump(std::ostream &o) const {
+llvm::raw_ostream &DummyDataObject::Dump(llvm::raw_ostream &o) const {
   attrs.Dump(o, EnumToString);
   if (intent != common::Intent::Default) {
     o << "INTENT(" << common::EnumToString(intent) << ')';
@@ -307,7 +306,7 @@ std::optional<DummyProcedure> DummyProcedure::Characterize(
   }
 }
 
-std::ostream &DummyProcedure::Dump(std::ostream &o) const {
+llvm::raw_ostream &DummyProcedure::Dump(llvm::raw_ostream &o) const {
   attrs.Dump(o, EnumToString);
   if (intent != common::Intent::Default) {
     o << "INTENT(" << common::EnumToString(intent) << ')';
@@ -316,7 +315,9 @@ std::ostream &DummyProcedure::Dump(std::ostream &o) const {
   return o;
 }
 
-std::ostream &AlternateReturn::Dump(std::ostream &o) const { return o << '*'; }
+llvm::raw_ostream &AlternateReturn::Dump(llvm::raw_ostream &o) const {
+  return o << '*';
+}
 
 DummyArgument::~DummyArgument() {}
 
@@ -418,7 +419,7 @@ bool DummyArgument::CanBePassedViaImplicitInterface() const {
   }
 }
 
-std::ostream &DummyArgument::Dump(std::ostream &o) const {
+llvm::raw_ostream &DummyArgument::Dump(llvm::raw_ostream &o) const {
   if (!name.empty()) {
     o << name << '=';
   }
@@ -504,7 +505,7 @@ bool FunctionResult::CanBeReturnedViaImplicitInterface() const {
   }
 }
 
-std::ostream &FunctionResult::Dump(std::ostream &o) const {
+llvm::raw_ostream &FunctionResult::Dump(llvm::raw_ostream &o) const {
   attrs.Dump(o, EnumToString);
   std::visit(
       common::visitors{
@@ -699,7 +700,7 @@ bool Procedure::CanBeCalledViaImplicitInterface() const {
   }
 }
 
-std::ostream &Procedure::Dump(std::ostream &o) const {
+llvm::raw_ostream &Procedure::Dump(llvm::raw_ostream &o) const {
   attrs.Dump(o, EnumToString);
   if (functionResult) {
     functionResult->Dump(o << "TYPE(") << ") FUNCTION";

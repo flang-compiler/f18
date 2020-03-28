@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test 15.5.2.9(2,3,5) dummy procedure requirements
 
 module m
@@ -27,8 +28,8 @@ module m
     real, intent(in) :: x
     elemfunc = x
   end function
-  !ERROR: A dummy procedure may not be ELEMENTAL
   subroutine selemental2(p)
+    !ERROR: A dummy procedure may not be ELEMENTAL
     procedure(elemfunc) :: p
   end subroutine
 

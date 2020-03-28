@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test that DEALLOCATE works
 
 INTEGER, PARAMETER :: maxvalue=1024

@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 implicit none
 allocatable :: x
 integer :: x

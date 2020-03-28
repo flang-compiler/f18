@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#/usr/bin/env bash
 # Compile a source file with '-funparse-with-symbols' and verify
 # we get the right symbols in the output, i.e. the output should be
 # the same as the input, except for the copyright comment.
@@ -7,7 +7,7 @@
 srcdir=$(dirname $0)
 source $srcdir/common.sh
 
-FileCheck=${FileCheck:=internal_check}
+FileCheck=internal_check
 
 function internal_check() {
   r=true
@@ -48,9 +48,9 @@ function internal_check() {
 }
 
 gr=0
-for input in ${srcdir}/$*; do
+for input in $1; do
   [[ ! -f $input ]] && die "File not found: $input"
-  CMD=$(cat ${input} | egrep '^[[:space:]]*![[:space:]]*RUN:[[:space:]]*' | sed -e 's/^[[:space:]]*![[:space:]]*RUN:[[:space:]]*//')
+  CMD=$(cat ${input} | egrep '^[[:space:]]*![[:space:]]*EXEC:[[:space:]]*' | sed -e 's/^[[:space:]]*![[:space:]]*EXEC:[[:space:]]*//')
   CMD=$(echo ${CMD} | sed -e "s:%s:${input}:g")
   if egrep -q -e '%t' <<< ${CMD} ; then
     CMD=$(echo ${CMD} | sed -e "s:%t:$temp/t:g")

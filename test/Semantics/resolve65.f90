@@ -1,3 +1,4 @@
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 ! Test restrictions on what subprograms can be used for defined assignment.
 
 module m1

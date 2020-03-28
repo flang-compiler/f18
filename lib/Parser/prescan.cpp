@@ -13,9 +13,9 @@
 #include "flang/Parser/characters.h"
 #include "flang/Parser/message.h"
 #include "flang/Parser/source.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <cstring>
-#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -63,7 +63,7 @@ void Prescanner::Prescan(ProvenanceRange range) {
   std::size_t offset{0};
   const SourceFile *source{allSources.GetSourceFile(startProvenance_, &offset)};
   CHECK(source);
-  start_ = source->content() + offset;
+  start_ = source->content().data() + offset;
   limit_ = start_ + range.size();
   nextLine_ = start_;
   const bool beganInFixedForm{inFixedForm_};
@@ -736,14 +736,15 @@ void Prescanner::FortranInclude(const char *firstQuote) {
     Say(GetProvenanceRange(garbage, p),
         "excess characters after path name"_en_US);
   }
-  std::stringstream error;
+  std::string buf;
+  llvm::raw_string_ostream error{buf};
   Provenance provenance{GetProvenance(nextLine_)};
   AllSources &allSources{cooked_.allSources()};
   const SourceFile *currentFile{allSources.GetSourceFile(provenance)};
   if (currentFile) {
     allSources.PushSearchPathDirectory(DirectoryName(currentFile->path()));
   }
-  const SourceFile *included{allSources.Open(path, &error)};
+  const SourceFile *included{allSources.Open(path, error)};
   if (currentFile) {
     allSources.PopSearchPathDirectory();
   }
