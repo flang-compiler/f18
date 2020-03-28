@@ -417,9 +417,17 @@ auto GetShapeHelper::operator()(const Symbol &symbol) const -> Result {
             } else {
               return Scalar();
             }
-          },
+          },//here
           [&](const semantics::AssocEntityDetails &assoc) {
-            return (*this)(assoc.expr());
+	    Shape shape;
+	    int n{assoc.associationRank().value()};
+    	    NamedEntity base{symbol};	
+	    for (int dimension{0}; dimension < n ; ++ dimension){
+//	      shape.emplace_back(GetExtent(context_, base, dimension));
+              shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
+			     DescriptorInquiry::Field::Rank, dimension}}});
+	    }
+	    return Result{shape};
           },
           [&](const semantics::SubprogramDetails &subp) {
             if (subp.isFunction()) {
@@ -454,7 +462,18 @@ auto GetShapeHelper::operator()(const Component &component) const -> Result {
       shape.emplace_back(GetExtent(context_, base, dimension));
     }
     return shape;
-  } else {
+  } else if (symbol.has<semantics::AssocEntityDetails>()) { //here
+    Shape shape;
+    NamedEntity base{Component{component}};
+    for (int dimension{0}; dimension < rank ; ++dimension){
+ //     shape.emplace_back(GetExtent(context_, base, dimension));
+      shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
+			     DescriptorInquiry::Field::Rank, dimension}}});
+
+    }
+    return Result{shape};
+  }
+  else {
     return (*this)(symbol);
   }
 }
