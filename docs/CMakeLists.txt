@@ -1,4 +1,5 @@
 
+find_package(Doxygen)
 if (DOXYGEN_FOUND)
 if (LLVM_ENABLE_DOXYGEN)
   set(abs_top_srcdir ${CMAKE_CURRENT_SOURCE_DIR})
@@ -79,9 +80,9 @@ if (LLVM_ENABLE_DOXYGEN)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Generating flang doxygen documentation." VERBATIM)
 
-  if (LLVM_BUILD_DOCS)
-    add_dependencies(doxygen doxygen-flang)
-  endif()
+#  if (LLVM_BUILD_DOCS)
+#   add_dependencies(doxygen doxygen-flang)
+#  endif()
 
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doxygen/html

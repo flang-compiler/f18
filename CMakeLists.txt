@@ -333,11 +333,12 @@ if (FLANG_INCLUDE_TESTS)
 endif()
 
 # TODO: Add doxygen support.
-#option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
-#       ${LLVM_INCLUDE_DOCS})
-#if (FLANG_INCLUDE_DOCS)
-#  add_subdirectory(documentation)
-#endif()
+#add_custom_target(doxygen-flang)
+option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
+	ON) #currently explicitely ON, else depends on ${LLVM_INCLUDE_DOCS} 
+if (FLANG_INCLUDE_DOCS)
+  add_subdirectory(docs)
+endif()
 
 # Custom target to install Flang libraries.
 add_custom_target(flang-libraries)
