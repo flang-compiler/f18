@@ -423,9 +423,9 @@ auto GetShapeHelper::operator()(const Symbol &symbol) const -> Result {
 	    int n{assoc.associationRank().value()};
     	    NamedEntity base{symbol};	
 	    for (int dimension{0}; dimension < n ; ++ dimension){
-//	      shape.emplace_back(GetExtent(context_, base, dimension));
-              shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
-			     DescriptorInquiry::Field::Rank, dimension}}});
+	      shape.emplace_back(GetExtent(context_, base, dimension));
+//              shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
+//			     DescriptorInquiry::Field::Extent, dimension}}});
 	    }
 	    return Result{shape};
           },
@@ -466,9 +466,9 @@ auto GetShapeHelper::operator()(const Component &component) const -> Result {
     Shape shape;
     NamedEntity base{Component{component}};
     for (int dimension{0}; dimension < rank ; ++dimension){
- //     shape.emplace_back(GetExtent(context_, base, dimension));
-      shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
-			     DescriptorInquiry::Field::Rank, dimension}}});
+      shape.emplace_back(GetExtent(context_, base, dimension));
+ //     shape.emplace_back(MaybeExtentExpr{ExtentExpr{DescriptorInquiry{NamedEntity{symbol},
+//			     DescriptorInquiry::Field::Extent, dimension}}});
 
     }
     return Result{shape};
