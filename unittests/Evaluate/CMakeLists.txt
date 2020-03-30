@@ -1,5 +1,6 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 add_library(FortranEvaluateTesting
+  STATIC
   testing.cpp
   fp-testing.cpp
 )

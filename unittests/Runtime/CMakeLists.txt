@@ -4,6 +4,7 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(RuntimeTesting
+  STATIC
   testing.cpp
   )
 
