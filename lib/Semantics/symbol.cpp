@@ -17,13 +17,13 @@
 
 namespace Fortran::semantics {
 
-template<typename T>
+template <typename T>
 static void DumpOptional(llvm::raw_ostream &os, const char *label, const T &x) {
   if (x) {
     os << ' ' << label << ':' << *x;
   }
 }
-template<typename T>
+template <typename T>
 static void DumpExpr(llvm::raw_ostream &os, const char *label,
     const std::optional<evaluate::Expr<T>> &x) {
   if (x) {
@@ -56,7 +56,7 @@ static void DumpType(llvm::raw_ostream &os, const DeclTypeSpec *type) {
   }
 }
 
-template<typename T>
+template <typename T>
 static void DumpList(llvm::raw_ostream &os, const char *label, const T &list) {
   if (!list.empty()) {
     os << ' ' << label << ':';
@@ -156,7 +156,7 @@ UseErrorDetails &UseErrorDetails::add_occurrence(
 }
 
 GenericDetails::GenericDetails(const SymbolVector &specificProcs)
-  : specificProcs_{specificProcs} {}
+    : specificProcs_{specificProcs} {}
 
 void GenericDetails::AddSpecificProc(
     const Symbol &proc, SourceName bindingName) {
@@ -248,7 +248,7 @@ void Symbol::set_details(Details &&details) {
 
 bool Symbol::CanReplaceDetails(const Details &details) const {
   if (has<UnknownDetails>()) {
-    return true;  // can always replace UnknownDetails
+    return true; // can always replace UnknownDetails
   } else {
     return std::visit(
         common::visitors{
@@ -276,15 +276,14 @@ void Symbol::ReplaceName(const SourceName &name) {
 }
 
 void Symbol::SetType(const DeclTypeSpec &type) {
-  std::visit(
-      common::visitors{
-          [&](EntityDetails &x) { x.set_type(type); },
-          [&](ObjectEntityDetails &x) { x.set_type(type); },
-          [&](AssocEntityDetails &x) { x.set_type(type); },
-          [&](ProcEntityDetails &x) { x.interface().set_type(type); },
-          [&](TypeParamDetails &x) { x.set_type(type); },
-          [](auto &) {},
-      },
+  std::visit(common::visitors{
+                 [&](EntityDetails &x) { x.set_type(type); },
+                 [&](ObjectEntityDetails &x) { x.set_type(type); },
+                 [&](AssocEntityDetails &x) { x.set_type(type); },
+                 [&](ProcEntityDetails &x) { x.interface().set_type(type); },
+                 [&](TypeParamDetails &x) { x.set_type(type); },
+                 [](auto &) {},
+             },
       details_);
 }
 
@@ -338,7 +337,7 @@ bool Symbol::IsFromModFile() const {
 }
 
 ObjectEntityDetails::ObjectEntityDetails(EntityDetails &&d)
-  : EntityDetails(d) {}
+    : EntityDetails(d) {}
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const EntityDetails &x) {
   DumpBool(os, "dummy", x.isDummy());
@@ -568,7 +567,7 @@ static const DeclTypeSpec &InstantiateIntrinsicType(Scope &scope,
     const DeclTypeSpec &spec, SemanticsContext &semanticsContext) {
   const IntrinsicTypeSpec &intrinsic{DEREF(spec.AsIntrinsic())};
   if (evaluate::ToInt64(intrinsic.kind())) {
-    return spec;  // KIND is already a known constant
+    return spec; // KIND is already a known constant
   }
   // The expression was not originally constant, but now it must be so
   // in the context of a parameterized derived type instantiation.
@@ -591,12 +590,13 @@ static const DeclTypeSpec &InstantiateIntrinsicType(Scope &scope,
   switch (spec.category()) {
   case DeclTypeSpec::Numeric:
     return scope.MakeNumericType(intrinsic.category(), KindExpr{kind});
-  case DeclTypeSpec::Logical:  //
+  case DeclTypeSpec::Logical: //
     return scope.MakeLogicalType(KindExpr{kind});
   case DeclTypeSpec::Character:
     return scope.MakeCharacterType(
         ParamValue{spec.characterTypeSpec().length()}, KindExpr{kind});
-  default: CRASH_NO_CASE;
+  default:
+    CRASH_NO_CASE;
   }
 }
 
@@ -618,7 +618,7 @@ Symbol &Symbol::InstantiateComponent(
     if (DeclTypeSpec * origType{result.GetType()}) {
       if (const DerivedTypeSpec * derived{origType->AsDerived()}) {
         DerivedTypeSpec newSpec{*derived};
-        newSpec.CookParameters(foldingContext);  // enables AddParamValue()
+        newSpec.CookParameters(foldingContext); // enables AddParamValue()
         if (test(Symbol::Flag::ParentComp)) {
           // Forward any explicit type parameter values from the
           // derived type spec under instantiation that define type parameters
@@ -739,4 +739,4 @@ bool GenericKind::Is(GenericKind::OtherKind x) const {
   return y && *y == x;
 }
 
-}
+} // namespace Fortran::semantics
