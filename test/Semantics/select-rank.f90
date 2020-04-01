@@ -1,4 +1,4 @@
-! RUN: %S/test_errors.sh %s %flang %t
+! RUN: %B/test/Semantics/test_errors.sh %s %flang %t
 !Tests for SELECT RANK Construct(R1148)
 program select_rank
    implicit none
@@ -154,7 +154,7 @@ contains
     implicit none
     integer:: x(..), a=10,b=20,j
     integer, dimension(10) :: arr = (/1,2,3,4,5/),brr
-    integer,parameter :: const_variable=10
+    integer :: const_variable=10
     integer, pointer :: ptr,nullptr=>NULL()
     type derived
          character(len = 50) :: title

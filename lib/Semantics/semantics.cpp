@@ -132,7 +132,7 @@ using StatementSemanticsPass2 = SemanticsVisitor<AllocateChecker,
     ArithmeticIfStmtChecker, AssignmentChecker, CaseChecker, CoarrayChecker,
     DataChecker, DeallocateChecker, DoForallChecker, EntryChecker,
     IfStmtChecker, IoChecker, NamelistChecker, NullifyChecker,
-    OmpStructureChecker, PurityChecker, ReturnStmtChecker, StopChecker>;
+    OmpStructureChecker, PurityChecker, ReturnStmtChecker, SelectRankConstructChecker, StopChecker>;
 
 static bool PerformStatementSemantics(
     SemanticsContext &context, parser::Program &program) {
