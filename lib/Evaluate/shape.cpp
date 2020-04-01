@@ -18,7 +18,6 @@
 #include "flang/Semantics/symbol.h"
 #include <functional>
 
-#include<iostream>
 using namespace std::placeholders;  // _1, _2, &c. for std::bind()
 
 namespace Fortran::evaluate {
