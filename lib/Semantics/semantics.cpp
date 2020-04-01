@@ -25,7 +25,7 @@
 #include "check-omp-structure.h"
 #include "check-purity.h"
 #include "check-return.h"
-#include "check-select-stmt.h"
+#include "check-select-rank.h"
 #include "check-stop.h"
 #include "mod-file.h"
 #include "resolve-labels.h"

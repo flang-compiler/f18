@@ -20,7 +20,7 @@ add_library(FortranSemantics
   check-omp-structure.cpp
   check-purity.cpp
   check-return.cpp
-  check-select-stmt.cpp
+  check-select-rank.cpp
   check-stop.cpp
   expression.cpp
   mod-file.cpp

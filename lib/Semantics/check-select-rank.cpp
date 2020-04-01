@@ -1,4 +1,4 @@
-//===-- lib/semantics/check-select-stmt.cpp -------------------------------===//
+//===-- lib/semantics/check-select-rank.cpp -------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "check-select-stmt.h"
+#include "check-select-rank.h"
 #include "flang/Common/Fortran.h"
 #include "flang/Common/idioms.h"
 #include "flang/Parser/message.h"
@@ -20,7 +20,7 @@
 
 namespace Fortran::semantics {
 
-void SelectConstructChecker::Leave(
+void SelectRankConstructChecker::Leave(
     const parser::SelectRankConstruct &selectRankConstruct) {
   const auto &selectRankStmt{
       std::get<parser::Statement<parser::SelectRankStmt>>(
@@ -77,12 +77,10 @@ void SelectConstructChecker::Leave(
                     "Not more than one of the selectors of SELECT RANK "
                     "statement may be '*'"_err_en_US);
               }
-              if (saveSelSymbol) {
-                if (IsAllocatableOrPointer(*saveSelSymbol)) {  // C1155
+              if (saveSelSymbol && IsAllocatableOrPointer(*saveSelSymbol)) {  // C1155
                   context_.Say(parser::FindSourceLocation(selectRankStmtSel),
                       "RANK (*) cannot be used when selector is "
                       "POINTER or ALLOCATABLE"_err_en_US);
-                }
               }
             },
             [&](const parser::ScalarIntConstantExpr &init) {
@@ -113,7 +111,7 @@ void SelectConstructChecker::Leave(
   }
 }
 
-const SomeExpr *SelectConstructChecker::ResolveSelector(
+const SomeExpr *SelectRankConstructChecker::ResolveSelector(
     const parser::Selector &selector) {
   return std::visit(
       common::visitors{

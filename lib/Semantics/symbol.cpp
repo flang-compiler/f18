@@ -289,12 +289,11 @@ void Symbol::SetType(const DeclTypeSpec &type) {
 }
 
 void Symbol::SetRank(int rank) {
-  std::visit(
-      common::visitors{
-          [&](AssocEntityDetails &x) { x.set_rank(rank); },
-          [](auto &) {},
-      },
-      details_);
+	if( auto *Details{std::get_if<AssocEntityDetails>(&details_)} ){
+		Details->set_rank(rank);
+	}else {
+		DIE("unexpected UnknownDetails");
+	}
 }
 bool Symbol::IsDummy() const {
   return std::visit(
@@ -363,8 +362,8 @@ llvm::raw_ostream &operator<<(
 llvm::raw_ostream &operator<<(
     llvm::raw_ostream &os, const AssocEntityDetails &x) {
   os << *static_cast<const EntityDetails *>(&x);
-  if (x.associationRank().has_value()) {
-    os << " rank: " << x.associationRank().value();
+  if (auto assocRank{x.associationRank()}) {
+	    os << " rank: " <<  *assocRank;
   }
   DumpExpr(os, "expr", x.expr());
   return os;

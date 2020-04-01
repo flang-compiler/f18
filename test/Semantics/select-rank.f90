@@ -154,7 +154,7 @@ contains
     implicit none
     integer:: x(..), a=10,b=20,j
     integer, dimension(10) :: arr = (/1,2,3,4,5/),brr
-    integer :: const_variable=10
+    integer,parameter :: const_variable=10
     integer, pointer :: ptr,nullptr=>NULL()
     type derived
          character(len = 50) :: title
@@ -176,7 +176,7 @@ contains
     !ERROR: Must be a constant value
     RANK(const_variable)
       print *, "PRINT RANK 3"
-      j = INT(0, KIND=MERGE(KIND(0), -1, RANK(ptr) == 1))
+      !j = INT(0, KIND=MERGE(KIND(0), -1, RANK(ptr) == 1))
     !ERROR: Must be a constant value
     RANK(nullptr)
       print *, "PRINT RANK 3"
@@ -184,50 +184,32 @@ contains
 
     !ERROR: Selector 'x(1) + x(2)' is not an assumed-rank array variable
     SELECT RANK (x(1) + x(2))
-    RANK(1)
-      PRINT *, "Rank 1"
-    RANK(2)
-      PRINT *, "Rank 2"
+
     END SELECT
 
     !ERROR: Selector 'x(1)' is not an assumed-rank array variable
     SELECT RANK(x(1))
-    RANK(1)
-      PRINT *, "1"
-    RANK(2)
-      PRINT *, "2"
+
     END SELECT
 
     !ERROR: Selector 'x(1:2)' is not an assumed-rank array variable
     SELECT RANK(x(1:2))
-    RANK(1)
-      PRINT *, "1"
-    RANK(2)
-      PRINT *, "2"
+
     END SELECT
 
     !ERROR: 'x' is not an object of derived type
     SELECT RANK(x(1)%x(2))
-    RANK(1)
-      PRINT *, "1"
-    RANK(2)
-      PRINT *, "2"
+
     END SELECT
 
     !ERROR: Selector 'obj1%title' is not an assumed-rank array variable
     SELECT RANK(obj1%title)
-    RANK(1)
-      PRINT *, "1"
-    RANK(2)
-      PRINT *, "2"
+
     END SELECT
 
     !ERROR: Selector 'arr(1:3)+ arr(4:5)' is not an assumed-rank array variable
     SELECT RANK(arr(1:3)+ arr(4:5))
-    RANK(1)
-      PRINT *, "1"
-    RANK(2)
-      PRINT *, "2"
+
     END SELECT
 
     SELECT RANK(ptr=>x)
@@ -237,6 +219,20 @@ contains
     RANK (1)
       PRINT *, "PRINT RANK 1"
       j = INT(0, KIND=MERGE(KIND(0), -1, RANK(ptr) == 1))
+    END SELECT
+   end subroutine
+   subroutine CALL_ME_TYPES(x)
+    implicit none
+    integer :: x(..),j
+    SELECT RANK(x)
+    !ERROR: Must have INTEGER type, but is LOGICAL(4)
+        RANK(.TRUE.)
+    !ERROR: Must have INTEGER type, but is REAL(4)
+        RANK(1.0)
+    !ERROR: Must be a constant value
+        RANK(RANK(x))
+    !ERROR: Must have INTEGER type, but is CHARACTER(1)
+        RANK("STRING")
     END SELECT
    end subroutine
    subroutine CALL_SHAPE(x)

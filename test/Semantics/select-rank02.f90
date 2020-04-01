@@ -12,7 +12,7 @@ contains
         INTEGER :: j
         select rank (arr)
             rank(2)
-                j = INT(0, KIND=MERGE(KIND(0), -1, RANK(arr) == SIZE(SHAPE(arr)))) !arr is dummy
+                j = INT(0, KIND=MERGE(KIND(0), -1, SIZE(SHAPE(arr)) == 2)) !arr is dummy
         end select
     end subroutine
     subroutine check2(arr)
@@ -23,7 +23,7 @@ contains
 
         select rank (arr)
             rank(2)
-                j = INT(0, KIND=MERGE(KIND(0), -1, RANK(arr) == SIZE(SHAPE(brr)))) !brr is local to subroutine
+                j = INT(0, KIND=MERGE(KIND(0), -1, SIZE(SHAPE(brr)) == 2)) !brr is local to subroutine
         end select
     end subroutine
     subroutine checK3(arr)
@@ -54,13 +54,9 @@ contains
         implicit none
         integer :: arr(..)
         INTEGER :: j
-        integer, dimension(2) :: k,l
-        integer,dimension(-1:10, 20:30) :: brr
         select rank (arr)
             rank(2)
-                j = LOC(brr(0,25))
-                k = maxloc(brr)
-                l = minloc(brr)
+                j = LOC(arr(1,2))
         end select
     end subroutine
 end program

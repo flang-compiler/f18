@@ -632,12 +632,12 @@ public:
             [](const ObjectEntityDetails &oed) { return oed.shape().Rank(); },
             [](const AssocEntityDetails &aed) {
               if (const auto &expr{aed.expr()}) {
-                if (aed.associationRank().has_value()) {
-                  return aed.associationRank().value();
-                } else {
-                  return expr->Rank();
-                }
-              } else {
+                if (auto assocRank{aed.associationRank()}) {
+		  return *assocRank;
+		} else {
+		    return expr->Rank();
+	    	}
+	      } else {
                 return 0;
               }
             },

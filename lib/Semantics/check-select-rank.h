@@ -1,4 +1,4 @@
-//===-- lib/semantics/check-select-stmt.h -----------------------*- C++ -*-===//
+//===-- lib/semantics/check-select-rank.h -----------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,9 +13,9 @@
 #include "flang/Semantics/semantics.h"
 
 namespace Fortran::semantics {
-class SelectConstructChecker : public virtual BaseChecker {
+class SelectRankConstructChecker : public virtual BaseChecker {
 public:
-  SelectConstructChecker(SemanticsContext &context) : context_{context} {}
+  SelectRankConstructChecker(SemanticsContext &context) : context_{context} {}
   void Leave(const parser::SelectRankConstruct &);
 
 private:

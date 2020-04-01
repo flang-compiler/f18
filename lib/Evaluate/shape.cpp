@@ -18,6 +18,7 @@
 #include "flang/Semantics/symbol.h"
 #include <functional>
 
+#include<iostream>
 using namespace std::placeholders;  // _1, _2, &c. for std::bind()
 
 namespace Fortran::evaluate {
@@ -417,15 +418,19 @@ auto GetShapeHelper::operator()(const Symbol &symbol) const -> Result {
             } else {
               return Scalar();
             }
-          },//here
+          },
           [&](const semantics::AssocEntityDetails &assoc) {
-	    Shape shape;
-	    int n{assoc.associationRank().value()};
-    	    NamedEntity base{symbol};	
-	    for (int dimension{0}; dimension < n ; ++ dimension){
-	      shape.emplace_back(GetExtent(context_, base, dimension));
-	    }
-	    return Result{shape};
+		if (!assoc.associationRank()){
+			return (*this)(assoc.expr()); 
+		} else{
+	      	  Shape shape;
+		    int n{assoc.associationRank().value()};
+	    	    NamedEntity base{symbol};	
+		    for (int dimension{0}; dimension < n ; ++ dimension){
+		      shape.emplace_back(GetExtent(context_, base, dimension));
+		    }
+		    return Result{shape};
+		}
           },
           [&](const semantics::SubprogramDetails &subp) {
             if (subp.isFunction()) {
@@ -460,7 +465,7 @@ auto GetShapeHelper::operator()(const Component &component) const -> Result {
       shape.emplace_back(GetExtent(context_, base, dimension));
     }
     return shape;
-  } else if (symbol.has<semantics::AssocEntityDetails>()) { //here
+  } else if (symbol.has<semantics::AssocEntityDetails>()) { 
     Shape shape;
     NamedEntity base{Component{component}};
     for (int dimension{0}; dimension < rank ; ++dimension){

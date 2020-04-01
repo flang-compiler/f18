@@ -991,7 +991,7 @@ public:
   void Post(const parser::SelectTypeConstruct &);
   bool Pre(const parser::SelectTypeConstruct::TypeCase &);
   void Post(const parser::SelectTypeConstruct::TypeCase &);
-  // gives blank scopes
+  // Creates Block scopes with neither symbol name nor symbol details.
   bool Pre(const parser::SelectRankConstruct::RankCase &);
   void Post(const parser::SelectRankConstruct::RankCase &);
   void Post(const parser::TypeGuardStmt::Guard &);
@@ -1069,7 +1069,6 @@ private:
   Symbol *MakeAssocEntity();
   void SetTypeFromAssociation(Symbol &);
   void SetAttrsFromAssociation(Symbol &);
-  void SetRankFromParserNode(Symbol &, int actualRank);
   Selector ResolveSelector(const parser::Selector &);
   void ResolveIndexName(const parser::ConcurrentControl &control);
   Association &GetCurrentAssociation();
@@ -5123,18 +5122,13 @@ void ConstructVisitor::Post(const parser::SelectRankCaseStmt::Rank &x) {
   if (auto *symbol{MakeAssocEntity()}) {
     SetTypeFromAssociation(*symbol);
     SetAttrsFromAssociation(*symbol);
-    std::visit(
-        common::visitors{
-            [&](const parser::ScalarIntConstantExpr &init) {
-              Walk(init);
-              MaybeIntExpr expr{EvaluateIntExpr(init)};
+    	if (const auto *init{std::get_if<parser::ScalarIntConstantExpr>(&x.u)}){
+              Walk(*init);
+              MaybeIntExpr expr{EvaluateIntExpr(*init)};
               if (auto val{evaluate::ToInt64(expr)}) {
-                SetRankFromParserNode(*symbol, *val);
+		symbol->SetRank(*val);
               }
-            },
-            [&](const auto &) {},
-        },
-        x.u);
+	}
   }
 }
 
@@ -5211,12 +5205,6 @@ void ConstructVisitor::SetTypeFromAssociation(Symbol &symbol) {
       Say(symbol.name(), "Associate name '%s' must have a type"_err_en_US);
     }
   }
-}
-
-// Set the rank of symbol based on the current rankCase value extracted from
-// evaluating the parser node.
-void ConstructVisitor::SetRankFromParserNode(Symbol &symbol, int actualRank) {
-  symbol.SetRank(actualRank);
 }
 
 // If current selector is a variable, set some of its attributes on symbol.
