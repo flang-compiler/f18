@@ -117,7 +117,7 @@ bool Scope::Contains(const Scope &that) const {
 Symbol *Scope::CopySymbol(const Symbol &symbol) {
   auto pair{try_emplace(symbol.name(), symbol.attrs())};
   if (!pair.second) {
-    return nullptr;  // already exists
+    return nullptr; // already exists
   } else {
     Symbol &result{*pair.first->second};
     result.flags() = symbol.flags();
@@ -216,7 +216,7 @@ Scope::ImportKind Scope::GetImportKind() const {
   if (symbol_ && !symbol_->attrs().test(Attr::MODULE)) {
     if (auto *details{symbol_->detailsIf<SubprogramDetails>()}) {
       if (details->isInterface()) {
-        return ImportKind::None;  // default for non-mod-proc interface body
+        return ImportKind::None; // default for non-mod-proc interface body
       }
     }
   }
@@ -254,10 +254,13 @@ bool Scope::CanImport(const SourceName &name) const {
   }
   switch (GetImportKind()) {
     SWITCH_COVERS_ALL_CASES
-  case ImportKind::None: return false;
+  case ImportKind::None:
+    return false;
   case ImportKind::All:
-  case ImportKind::Default: return true;
-  case ImportKind::Only: return importNames_.count(name) > 0;
+  case ImportKind::Default:
+    return true;
+  case ImportKind::Only:
+    return importNames_.count(name) > 0;
   }
 }
 
@@ -359,6 +362,15 @@ const Scope *Scope::GetDerivedTypeParent() const {
   return nullptr;
 }
 
+const Scope &Scope::GetDerivedTypeBase() const {
+  const Scope *child{this};
+  for (const Scope *parent{GetDerivedTypeParent()}; parent != nullptr;
+       parent = child->GetDerivedTypeParent()) {
+    child = parent;
+  }
+  return *child;
+}
+
 void Scope::InstantiateDerivedTypes(SemanticsContext &context) {
   for (DeclTypeSpec &type : declTypeSpecs_) {
     if (type.category() == DeclTypeSpec::TypeDerived ||
@@ -367,4 +379,4 @@ void Scope::InstantiateDerivedTypes(SemanticsContext &context) {
     }
   }
 }
-}
+} // namespace Fortran::semantics

@@ -1544,12 +1544,11 @@ bool AttrsVisitor::SetPassNameOn(Symbol &symbol) {
   if (!passName_) {
     return false;
   }
-  std::visit(
-      common::visitors{
-          [&](ProcEntityDetails &x) { x.set_passName(*passName_); },
-          [&](ProcBindingDetails &x) { x.set_passName(*passName_); },
-          [](auto &) { common::die("unexpected pass name"); },
-      },
+  std::visit(common::visitors{
+                 [&](ProcEntityDetails &x) { x.set_passName(*passName_); },
+                 [&](ProcBindingDetails &x) { x.set_passName(*passName_); },
+                 [](auto &) { common::die("unexpected pass name"); },
+             },
       symbol.details());
   return true;
 }
@@ -1747,23 +1746,23 @@ void ImplicitRulesVisitor::Post(const parser::ParameterStmt &) {
 }
 
 bool ImplicitRulesVisitor::Pre(const parser::ImplicitStmt &x) {
-  bool result{std::visit(
-      common::visitors{
-          [&](const std::list<ImplicitNoneNameSpec> &y) {
-            return HandleImplicitNone(y);
-          },
-          [&](const std::list<parser::ImplicitSpec> &) {
-            if (prevImplicitNoneType_) {
-              Say("IMPLICIT statement after IMPLICIT NONE or "
-                  "IMPLICIT NONE(TYPE) statement"_err_en_US);
-              return false;
-            } else {
-              implicitRules().set_isImplicitNoneType(false);
-            }
-            return true;
-          },
-      },
-      x.u)};
+  bool result{
+      std::visit(common::visitors{
+                     [&](const std::list<ImplicitNoneNameSpec> &y) {
+                       return HandleImplicitNone(y);
+                     },
+                     [&](const std::list<parser::ImplicitSpec> &) {
+                       if (prevImplicitNoneType_) {
+                         Say("IMPLICIT statement after IMPLICIT NONE or "
+                             "IMPLICIT NONE(TYPE) statement"_err_en_US);
+                         return false;
+                       } else {
+                         implicitRules().set_isImplicitNoneType(false);
+                       }
+                       return true;
+                     },
+                 },
+          x.u)};
   prevImplicit_ = currStmtSource();
   return result;
 }
@@ -2107,18 +2106,17 @@ void ScopeHandler::EraseSymbol(const parser::Name &name) {
 
 static bool NeedsType(const Symbol &symbol) {
   return !symbol.GetType() &&
-      std::visit(
-          common::visitors{
-              [](const EntityDetails &) { return true; },
-              [](const ObjectEntityDetails &) { return true; },
-              [](const AssocEntityDetails &) { return true; },
-              [&](const ProcEntityDetails &p) {
-                return symbol.test(Symbol::Flag::Function) &&
-                    !symbol.attrs().test(Attr::INTRINSIC) &&
-                    !p.interface().type() && !p.interface().symbol();
-              },
-              [](const auto &) { return false; },
-          },
+      std::visit(common::visitors{
+                     [](const EntityDetails &) { return true; },
+                     [](const ObjectEntityDetails &) { return true; },
+                     [](const AssocEntityDetails &) { return true; },
+                     [&](const ProcEntityDetails &p) {
+                       return symbol.test(Symbol::Flag::Function) &&
+                           !symbol.attrs().test(Attr::INTRINSIC) &&
+                           !p.interface().type() && !p.interface().symbol();
+                     },
+                     [](const auto &) { return false; },
+                 },
           symbol.details());
 }
 void ScopeHandler::ApplyImplicitRules(Symbol &symbol) {
@@ -2216,16 +2214,15 @@ void ScopeHandler::MakeExternal(Symbol &symbol) {
 // ModuleVisitor implementation
 
 bool ModuleVisitor::Pre(const parser::Only &x) {
-  std::visit(
-      common::visitors{
-          [&](const Indirection<parser::GenericSpec> &generic) {
-            AddUse(GenericSpecInfo{generic.value()});
-          },
-          [&](const parser::Name &name) {
-            Resolve(name, AddUse(name.source, name.source).use);
-          },
-          [&](const parser::Rename &rename) { Walk(rename); },
-      },
+  std::visit(common::visitors{
+                 [&](const Indirection<parser::GenericSpec> &generic) {
+                   AddUse(GenericSpecInfo{generic.value()});
+                 },
+                 [&](const parser::Name &name) {
+                   Resolve(name, AddUse(name.source, name.source).use);
+                 },
+                 [&](const parser::Rename &rename) { Walk(rename); },
+             },
       x.u);
   return false;
 }
@@ -2268,15 +2265,14 @@ void ModuleVisitor::Post(const parser::UseStmt &x) {
     // then add a use for each public name that was not renamed.
     std::set<SourceName> useNames;
     for (const auto &rename : *list) {
-      std::visit(
-          common::visitors{
-              [&](const parser::Rename::Names &names) {
-                useNames.insert(std::get<1>(names.t).source);
-              },
-              [&](const parser::Rename::Operators &ops) {
-                useNames.insert(std::get<1>(ops.t).v.source);
-              },
-          },
+      std::visit(common::visitors{
+                     [&](const parser::Rename::Names &names) {
+                       useNames.insert(std::get<1>(names.t).source);
+                     },
+                     [&](const parser::Rename::Operators &ops) {
+                       useNames.insert(std::get<1>(ops.t).v.source);
+                     },
+                 },
           rename.u);
     }
     for (const auto &[name, symbol] : *useModuleScope_) {
@@ -3686,18 +3682,40 @@ bool DeclarationVisitor::Pre(const parser::DerivedTypeDef &x) {
     }
   }
   Walk(std::get<std::list<parser::Statement<parser::PrivateOrSequence>>>(x.t));
+  const auto &componentDefs{
+      std::get<std::list<parser::Statement<parser::ComponentDefStmt>>>(x.t)};
+  Walk(componentDefs);
   if (derivedTypeInfo_.sequence) {
     details.set_sequence(true);
-    if (derivedTypeInfo_.extends) {
+    if (componentDefs.empty()) { // C740
       Say(stmt.source,
-          "A sequence type may not have the EXTENDS attribute"_err_en_US); // C735
+          "A sequence type must have at least one component"_err_en_US);
     }
-    if (!details.paramNames().empty()) {
+    if (!details.paramNames().empty()) { // C740
       Say(stmt.source,
-          "A sequence type may not have type parameters"_err_en_US); // C740
+          "A sequence type may not have type parameters"_err_en_US);
+    }
+    if (derivedTypeInfo_.extends) { // C735
+      Say(stmt.source,
+          "A sequence type may not have the EXTENDS attribute"_err_en_US);
+    } else {
+      for (const auto &componentName : details.componentNames()) {
+        const Symbol *componentSymbol{scope.FindComponent(componentName)};
+        if (componentSymbol && componentSymbol->has<ObjectEntityDetails>()) {
+          const auto &componentDetails{
+              componentSymbol->get<ObjectEntityDetails>()};
+          const DeclTypeSpec *componentType{componentDetails.type()};
+          if (componentType && // C740
+              !componentType->AsIntrinsic() &&
+              !componentType->IsSequenceType()) {
+            Say(componentSymbol->name(),
+                "A sequence type data component must either be of an"
+                " intrinsic type or a derived sequence type"_err_en_US);
+          }
+        }
+      }
     }
   }
-  Walk(std::get<std::list<parser::Statement<parser::ComponentDefStmt>>>(x.t));
   Walk(std::get<std::optional<parser::TypeBoundProcedurePart>>(x.t));
   Walk(std::get<parser::Statement<parser::EndTypeStmt>>(x.t));
   derivedTypeInfo_ = {};
@@ -3787,6 +3805,10 @@ bool DeclarationVisitor::Pre(const parser::PrivateStmt &) {
   return false;
 }
 bool DeclarationVisitor::Pre(const parser::SequenceStmt &) {
+  if (derivedTypeInfo_.sequence) {
+    Say("SEQUENCE may not appear more than once in"
+        " derived type components"_en_US); // C738
+  }
   derivedTypeInfo_.sequence = true;
   return false;
 }
@@ -3800,7 +3822,7 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
   if (!attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
     if (const auto *declType{GetDeclTypeSpec()}) {
       if (const auto *derived{declType->AsDerived()}) {
-        if (derivedTypeInfo_.type == &derived->typeSymbol()) { // C737
+        if (derivedTypeInfo_.type == &derived->typeSymbol()) { // C744
           Say("Recursive use of the derived type requires "
               "POINTER or ALLOCATABLE"_err_en_US);
         }
@@ -4652,7 +4674,7 @@ std::optional<DerivedTypeSpec> DeclarationVisitor::ResolveDerivedType(
       DerivedTypeDetails details;
       details.set_isForwardReferenced();
       symbol->set_details(std::move(details));
-    } else { // C883
+    } else { // C732
       Say(name, "Derived type '%s' not found"_err_en_US);
       return std::nullopt;
     }
@@ -4905,30 +4927,30 @@ bool ConstructVisitor::Pre(const parser::DataImpliedDo &x) {
 }
 
 bool ConstructVisitor::Pre(const parser::DataStmtObject &x) {
-  std::visit(
-      common::visitors{
-          [&](const Indirection<parser::Variable> &y) {
-            Walk(y.value());
-            if (const auto *designator{
-                    std::get_if<Indirection<parser::Designator>>(
-                        &y.value().u)}) {
-              if (const parser::Name *
-                  name{ResolveDesignator(designator->value())}) {
-                if (name->symbol) {
-                  name->symbol->set(Symbol::Flag::InDataStmt);
-                }
-              }
-              // TODO check C874 - C881
-            } else {
-              // TODO report C875 error: variable is not a designator here?
-            }
-          },
-          [&](const parser::DataImpliedDo &y) {
-            PushScope(Scope::Kind::ImpliedDos, nullptr);
-            Walk(y);
-            PopScope();
-          },
-      },
+  std::visit(common::visitors{
+                 [&](const Indirection<parser::Variable> &y) {
+                   Walk(y.value());
+                   if (const auto *designator{
+                           std::get_if<Indirection<parser::Designator>>(
+                               &y.value().u)}) {
+                     if (const parser::Name *
+                         name{ResolveDesignator(designator->value())}) {
+                       if (name->symbol) {
+                         name->symbol->set(Symbol::Flag::InDataStmt);
+                       }
+                     }
+                     // TODO check C874 - C881
+                   } else {
+                     // TODO report C875 error: variable is not a designator
+                     // here?
+                   }
+                 },
+                 [&](const parser::DataImpliedDo &y) {
+                   PushScope(Scope::Kind::ImpliedDos, nullptr);
+                   Walk(y);
+                   PopScope();
+                 },
+             },
       x.u);
   return false;
 }
@@ -5181,15 +5203,14 @@ void ConstructVisitor::SetAttrsFromAssociation(Symbol &symbol) {
 
 ConstructVisitor::Selector ConstructVisitor::ResolveSelector(
     const parser::Selector &x) {
-  return std::visit(
-      common::visitors{
-          [&](const parser::Expr &expr) {
-            return Selector{expr.source, EvaluateExpr(expr)};
-          },
-          [&](const parser::Variable &var) {
-            return Selector{var.GetSource(), EvaluateExpr(var)};
-          },
-      },
+  return std::visit(common::visitors{
+                        [&](const parser::Expr &expr) {
+                          return Selector{expr.source, EvaluateExpr(expr)};
+                        },
+                        [&](const parser::Variable &var) {
+                          return Selector{var.GetSource(), EvaluateExpr(var)};
+                        },
+                    },
       x.u);
 }
 
@@ -5365,13 +5386,12 @@ const parser::Name *DeclarationVisitor::ResolveVariable(
           [&](const Indirection<parser::FunctionReference> &y) {
             const auto &proc{
                 std::get<parser::ProcedureDesignator>(y.value().v.t)};
-            return std::visit(
-                common::visitors{
-                    [&](const parser::Name &z) { return &z; },
-                    [&](const parser::ProcComponentRef &z) {
-                      return ResolveStructureComponent(z.v.thing);
-                    },
-                },
+            return std::visit(common::visitors{
+                                  [&](const parser::Name &z) { return &z; },
+                                  [&](const parser::ProcComponentRef &z) {
+                                    return ResolveStructureComponent(z.v.thing);
+                                  },
+                              },
                 proc.u);
           },
       },
@@ -5964,23 +5984,21 @@ bool ResolveNamesVisitor::Pre(const parser::ImplicitStmt &x) {
 }
 
 void ResolveNamesVisitor::Post(const parser::PointerObject &x) {
-  std::visit(
-      common::visitors{
-          [&](const parser::Name &x) { ResolveName(x); },
-          [&](const parser::StructureComponent &x) {
-            ResolveStructureComponent(x);
-          },
-      },
+  std::visit(common::visitors{
+                 [&](const parser::Name &x) { ResolveName(x); },
+                 [&](const parser::StructureComponent &x) {
+                   ResolveStructureComponent(x);
+                 },
+             },
       x.u);
 }
 void ResolveNamesVisitor::Post(const parser::AllocateObject &x) {
-  std::visit(
-      common::visitors{
-          [&](const parser::Name &x) { ResolveName(x); },
-          [&](const parser::StructureComponent &x) {
-            ResolveStructureComponent(x);
-          },
-      },
+  std::visit(common::visitors{
+                 [&](const parser::Name &x) { ResolveName(x); },
+                 [&](const parser::StructureComponent &x) {
+                   ResolveStructureComponent(x);
+                 },
+             },
       x.u);
 }
 
