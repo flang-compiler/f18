@@ -1234,7 +1234,7 @@ private:
     // variables on Data-sharing attribute clauses
     std::map<const Symbol *, Symbol::Flag> objectWithDSA;
     bool withinConstruct{false};
-    std::size_t associatedLoopLevel{0};
+    int64_t associatedLoopLevel{0};
   };
   // back() is the top of the stack
   OmpContext &GetContext() {
@@ -1267,10 +1267,10 @@ private:
     return it != GetContext().objectWithDSA.end();
   }
 
-  void SetContextAssociatedLoopLevel(std::size_t level) {
+  void SetContextAssociatedLoopLevel(int64_t level) {
     GetContext().associatedLoopLevel = level;
   }
-  std::size_t GetAssociatedLoopLevelFromClauses(const parser::OmpClauseList &);
+  int64_t GetAssociatedLoopLevelFromClauses(const parser::OmpClauseList &);
 
   Symbol &MakeAssocSymbol(const SourceName &name, Symbol &prev, Scope &scope) {
     const auto pair{scope.try_emplace(name, Attrs{}, HostAssocDetails{prev})};
@@ -6434,10 +6434,10 @@ const parser::DoConstruct *OmpAttributeVisitor::GetDoConstructIf(
   return nullptr;
 }
 
-std::size_t OmpAttributeVisitor::GetAssociatedLoopLevelFromClauses(
+int64_t OmpAttributeVisitor::GetAssociatedLoopLevelFromClauses(
     const parser::OmpClauseList &x) {
-  std::size_t orderedLevel{0};
-  std::size_t collapseLevel{0};
+  int64_t orderedLevel{0};
+  int64_t collapseLevel{0};
   for (const auto &clause : x.v) {
     if (const auto *orderedClause{
             std::get_if<parser::OmpClause::Ordered>(&clause.u)}) {
@@ -6476,7 +6476,9 @@ std::size_t OmpAttributeVisitor::GetAssociatedLoopLevelFromClauses(
 //       clause has been performed (the number of nested do-loops >= n).
 void OmpAttributeVisitor::PrivatizeAssociatedLoopIndex(
     const parser::OpenMPLoopConstruct &x) {
-  std::size_t level{GetContext().associatedLoopLevel};
+  int64_t level{GetContext().associatedLoopLevel};
+  if(level <= 0)
+    return;
   Symbol::Flag ivDSA{Symbol::Flag::OmpPrivate};
   if (simdSet.test(GetContext().directive)) {
     if (level == 1) {
