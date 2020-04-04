@@ -3680,7 +3680,7 @@ bool DeclarationVisitor::Pre(const parser::DerivedTypeDef &x) {
     if (symbol->has<TypeParamDetails>() && !paramNames.count(name)) {
       SayDerivedType(name,
           "'%s' is not a type parameter of this derived type"_err_en_US,
-          currScope()); // C742
+          currScope()); // C741
     }
   }
   Walk(std::get<std::list<parser::Statement<parser::PrivateOrSequence>>>(x.t));
@@ -3821,12 +3821,34 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
       !attrs.HasAny({Attr::PUBLIC, Attr::PRIVATE})) {
     attrs.set(Attr::PRIVATE);
   }
-  if (!attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
-    if (const auto *declType{GetDeclTypeSpec()}) {
-      if (const auto *derived{declType->AsDerived()}) {
+  if (const auto *declType{GetDeclTypeSpec()}) {
+    if (const auto *derived{declType->AsDerived()}) {
+      if (!attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
         if (derivedTypeInfo_.type == &derived->typeSymbol()) { // C744
           Say("Recursive use of the derived type requires "
               "POINTER or ALLOCATABLE"_err_en_US);
+        }
+      }
+      if (!coarraySpec().empty()) { // C747
+        if (IsTeamType(derived)) {
+          Say("A coarray component may not be of type TEAM_TYPE from "
+              "ISO_FORTRAN_ENV"_err_en_US);
+        } else {
+          if (IsIsoCType(derived)) {
+            Say("A coarray component may not be of C_PTR or C_FUNPTR from "
+                "ISO_C_BINDING when an allocatable object is a "
+                "coarray"_err_en_US);
+          }
+        }
+      }
+      if (FindCoarrayUltimateComponent(*derived)) { // C748
+        if (attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
+          Say("A component whose type has a coarray ultimate component "
+              "cannot be a POINTER or ALLOCATABLE"_err_en_US);
+        }
+        if (!arraySpec().empty() || !coarraySpec().empty()) {
+          Say("A component whose type has a coarray ultimate component "
+              "cannot be an array or corray"_err_en_US);
         }
       }
     }
@@ -4742,7 +4764,7 @@ Symbol *DeclarationVisitor::MakeTypeSymbol(
     const SourceName &name, Details &&details) {
   Scope &derivedType{currScope()};
   CHECK(derivedType.IsDerivedType());
-  if (auto *symbol{FindInScope(derivedType, name)}) {
+  if (auto *symbol{FindInScope(derivedType, name)}) { // C742
     Say2(name,
         "Type parameter, component, or procedure binding '%s'"
         " already defined in this type"_err_en_US,

@@ -385,12 +385,16 @@ void CheckHelper::CheckObjectEntity(
   symbolBeingChecked_ = nullptr;
   if (!details.coshape().empty()) {
     if (IsAllocatable(symbol)) {
-      if (!details.coshape().IsDeferredShape()) { // C827
+      if (!details.coshape().IsDeferredShape()) { // C746, C827
         messages_.Say(
             "ALLOCATABLE coarray must have a deferred coshape"_err_en_US);
       }
+    } else if (symbol.owner().IsDerivedType()) { // C746
+      messages_.Say(
+          "Coarray components must be ALLOCATABLE and have a deferred "
+          "coshape"_err_en_US);
     } else {
-      if (!details.coshape().IsAssumedSize()) { // C828
+      if (!details.coshape().IsAssumedSize()) { // C746, C828
         messages_.Say(
             "Non-ALLOCATABLE coarray must have an explicit coshape"_err_en_US);
       }

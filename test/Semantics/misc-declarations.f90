@@ -9,7 +9,7 @@ module m
   !ERROR: Non-ALLOCATABLE coarray must have an explicit coshape
   real :: mustBeExplicit[:]  ! C828
   type :: hasCoarray
-    real :: coarray[*]
+    real, allocatable :: coarray[:]
   end type
   real :: coarray[*]
   type(hasCoarray) :: coarrayComponent
