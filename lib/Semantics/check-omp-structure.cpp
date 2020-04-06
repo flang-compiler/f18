@@ -260,7 +260,8 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
   //                               simd-clause
   case parser::OmpLoopDirective::Directive::TaskloopSimd: {
     PushContext(beginDir.source, OmpDirective::TASKLOOP_SIMD);
-    SetContextAllowed(taskloopAllowedClauses | simdAllowedClauses);
+    SetContextAllowed(
+        taskloopAllowedClauses | simdAllowedClauses - OmpClause::REDUCTION);
     SetContextAllowedOnce(taskloopAllowedOnceClauses | simdAllowedOnceClauses);
     SetContextAllowedExclusive(taskloopAllowedExclusiveClauses);
   } break;
@@ -311,8 +312,10 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
     PushContext(beginDir.source, OmpDirective::TARGET_PARALLEL_DO);
     SetContextAllowed(
         targetAllowedClauses | parallelAllowedClauses | doAllowedClauses);
-    SetContextAllowedOnce((targetAllowedOnceClauses |
-        parallelAllowedOnceClauses | doAllowedOnceClauses) - OmpClause::NOWAIT);
+    SetContextAllowedOnce(
+        (targetAllowedOnceClauses | parallelAllowedOnceClauses |
+            doAllowedOnceClauses) -
+        OmpClause::NOWAIT);
   } break;
 
     // 2.11.7 target-parallel-do-simd-clause -> target-clause |
@@ -321,9 +324,10 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
     PushContext(beginDir.source, OmpDirective::TARGET_PARALLEL_DO_SIMD);
     SetContextAllowed(targetAllowedClauses | parallelAllowedClauses |
         doAllowedClauses | simdAllowedClauses);
-    SetContextAllowedOnce((targetAllowedOnceClauses |
-        parallelAllowedOnceClauses | doAllowedOnceClauses |
-        simdAllowedOnceClauses) - OmpClause::NOWAIT);
+    SetContextAllowedOnce(
+        (targetAllowedOnceClauses | parallelAllowedOnceClauses |
+            doAllowedOnceClauses | simdAllowedOnceClauses) -
+        OmpClause::NOWAIT);
   } break;
 
     // 2.11.8 target-simd-clause -> target-clause |
@@ -420,8 +424,8 @@ void OmpStructureChecker::Enter(const parser::OpenMPLoopConstruct &x) {
         doAllowedOnceClauses | simdAllowedOnceClauses);
   }
 
-    // TODO others
-    break;
+  // TODO others
+  break;
   }
 }
 
