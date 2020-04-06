@@ -2,10 +2,9 @@
 
 Flang is a ground-up implementation of a Fortran front end written in modern
 C++. It started off as the f18 project (https://github.com/flang-compiler/f18)
-at Nvidia with an aim to replace the old flang project
+with an aim to replace the previous flang project
 (https://github.com/flang-compiler/flang) and address its various deficiencies.
-F18 was subsequently accepted as the Fortran frontend of LLVM and rechristened
-as Flang.
+F18 was subsequently accepted into the LLVM project and rechristened as Flang.
 
 ## Getting Started
 
@@ -128,7 +127,7 @@ add
 to the cmake command.
 Release builds execute quickly.
 
-### Build Flang
+### Build Flang out of tree
 ```
 cd ~/flang/build
 cmake -DLLVM_DIR=$LLVM -DMLIR_DIR=$MLIR ~/flang/src
