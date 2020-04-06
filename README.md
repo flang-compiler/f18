@@ -47,6 +47,10 @@ using either GNU's libstdc++ or LLVM's libc++.
 
 
 ## Building Flang out of tree
+These instructions are for building Flang separately from LLVM; if you are
+building Flang alongside LLVM then follow the standard LLVM build instructions
+and add flang to `LLVM_ENABLE_PROJECTS` instead, as detailed there.
+
 ### LLVM dependency
 
 The instructions to build LLVM can be found at
