@@ -34,9 +34,7 @@ read the [style guide](documentation/C++style.md)
 and
 also review [how flang uses modern C++ features](documentation/C++17.md).
 
-## Building Flang
-
-### Supported C++ compilers
+## Supported C++ compilers
 
 Flang is written in C++17.
 
@@ -47,6 +45,8 @@ The code has been compiled and tested with
 clang version 7.0 and 8.0
 using either GNU's libstdc++ or LLVM's libc++.
 
+
+## Building Flang out of tree
 ### LLVM dependency
 
 The instructions to build LLVM can be found at
@@ -77,11 +77,10 @@ cmake will search for g++ on your PATH.
 The g++ version must be one of the supported versions
 in order to build flang.
 
-Or,
-cmake will use the variable CXX to find the C++ compiler.
-CXX should include the full path to the compiler
-or a name that will be found on your PATH,
-e.g. g++-8.3, assuming g++-8.3 is on your PATH.
+Or, cmake will use the variable CXX to find the C++ compiler. CXX should include
+the full path to the compiler or a name that will be found on your PATH, e.g.
+g++-8.3, assuming g++-8.3 is on your PATH.
+
 ```
 export CXX=g++-8.3
 ```
@@ -100,6 +99,7 @@ CXX should include the full path to clang++
 or clang++ should be found on your PATH.
 ```
 export CXX=clang++
+```
 
 ### Installation Directory
 
