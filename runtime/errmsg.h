@@ -16,7 +16,9 @@ class Descriptor;
 enum ProcessorStatCodes {
   GenericError = 1,
   AllocatableAlreadyAllocated = 101,
+  AllocatableLengthTypeParameterMismatch,
 };
 
 int StatAndErrmsg(Descriptor *errMsg, int statCode = GenericError);
+int StatAndErrmsg(Descriptor *errMsg, int statCode, const char *message, ...);
 } // namespace Fortran::runtime

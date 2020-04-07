@@ -129,13 +129,22 @@ std::size_t Descriptor::SizeInBytes() const {
       (addendum ? addendum->SizeInBytes() : 0);
 }
 
-std::size_t Descriptor::Elements() const {
+SubscriptValue Descriptor::Elements() const {
   int n{rank()};
-  std::size_t elements{1};
+  SubscriptValue elements{1};
   for (int j{0}; j < n; ++j) {
     elements *= GetDimension(j).Extent();
   }
   return elements;
+}
+
+SubscriptValue Descriptor::SetStrides() {
+  auto stride{static_cast<SubscriptValue>(ElementBytes())};
+  int n{rank()};
+  for (int j{0}; j < n; ++j) {
+    stride = GetDimension(j).SetStride(stride);
+  }
+  return stride;
 }
 
 int Descriptor::Allocate(
@@ -151,10 +160,10 @@ void Descriptor::Initialize(char *data) const {
   if (auto *addendum{Addendum()}) {
     if (const auto *type{addendum->derivedType()}) {
       if (type->IsInitializable()) {
-        std::size_t elements{Elements()};
-        std::size_t elementBytes{ElementBytes()};
+        auto elements{Elements()};
+        auto elementBytes{ElementBytes()};
         char *data{static_cast<char *>(raw_.base_addr)};
-        for (std::size_t j{0}; j < elements; ++j) {
+        for (SubscriptValue j{0}; j < elements; ++j) {
           char *element{data + j * elementBytes};
           type->Initialize(element);
         }
@@ -213,9 +222,9 @@ void Descriptor::Destroy(
   // whole (9.7.3.2 para 9), but before the finalization of the
   // parent component.
   // This is the Fortran community's desired order of events.
-  std::size_t elements{Elements()};
-  std::size_t elementBytes{ElementBytes()};
-  for (std::size_t j{0}; j < elements; ++j) {
+  auto elements{Elements()};
+  auto elementBytes{ElementBytes()};
+  for (SubscriptValue j{0}; j < elements; ++j) {
     char *element{data + j * elementBytes};
     if (elementalFinal) {
       elementalFinal(element);

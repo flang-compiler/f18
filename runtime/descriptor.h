@@ -43,6 +43,14 @@ public:
   SubscriptValue Extent() const { return raw_.extent; }
   SubscriptValue UpperBound() const { return LowerBound() + Extent() - 1; }
   SubscriptValue ByteStride() const { return raw_.sm; }
+  void SetBounds(SubscriptValue lower, SubscriptValue upper) {
+    raw_.lower_bound = lower;
+    raw_.extent = upper - lower + 1;
+  }
+  SubscriptValue SetStride(SubscriptValue incoming) {
+    raw_.sm = incoming;
+    return incoming * raw_.extent;
+  }
 
 private:
   ISO::CFI_dim_t raw_;
@@ -154,6 +162,15 @@ public:
   ISO::CFI_cdesc_t &raw() { return raw_; }
   const ISO::CFI_cdesc_t &raw() const { return raw_; }
   std::size_t ElementBytes() const { return raw_.elem_len; }
+  SubscriptValue CharacterLength() const {
+    if (raw_.type == CFI_extension_type_char16_t) {
+      return raw_.elem_len >> 1;
+    } else if (raw_.type == CFI_extension_type_char32_t) {
+      return raw_.elem_len >> 2;
+    } else {
+      return raw_.elem_len;
+    }
+  }
   int rank() const { return raw_.rank; }
   TypeCode type() const { return TypeCode{raw_.type}; }
   int flags() const { return raw_.flags_; }
@@ -178,6 +195,8 @@ public:
   const Dimension &GetDimension(int dim) const {
     return *reinterpret_cast<const Dimension *>(&raw_.dim[dim]);
   }
+
+  SubscriptValue SetStrides();
 
   std::size_t SubscriptByteOffset(
       int dim, SubscriptValue subscriptValue) const {
@@ -260,7 +279,7 @@ public:
   // memory).
   std::size_t SizeInBytes() const;
 
-  std::size_t Elements() const;
+  SubscriptValue Elements() const;
 
   // TODO: Have these been obsoleted by allocatable.h?
   int Allocate(const SubscriptValue lb[], const SubscriptValue ub[],

@@ -46,7 +46,7 @@ OwningPtr<Descriptor> RESHAPE(const Descriptor &source, const Descriptor &shape,
   SubscriptValue lowerBound[maxRank]; // all 1's
   SubscriptValue resultExtent[maxRank];
   std::size_t shapeElementBytes{shape.ElementBytes()};
-  std::size_t resultElements{1};
+  SubscriptValue resultElements{1};
   SubscriptValue shapeSubscript{shape.GetDimension(0).LowerBound()};
   for (SubscriptValue j{0}; j < resultRank; ++j, ++shapeSubscript) {
     lowerBound[j] = 1;
@@ -59,8 +59,8 @@ OwningPtr<Descriptor> RESHAPE(const Descriptor &source, const Descriptor &shape,
   // Check that there are sufficient elements in the SOURCE=, or that
   // the optional PAD= argument is present and nonempty.
   std::size_t elementBytes{source.ElementBytes()};
-  std::size_t sourceElements{source.Elements()};
-  std::size_t padElements{pad ? pad->Elements() : 0};
+  auto sourceElements{source.Elements()};
+  auto padElements{pad ? pad->Elements() : 0};
   if (resultElements < sourceElements) {
     RUNTIME_CHECK(terminator, padElements > 0);
     RUNTIME_CHECK(terminator, pad->ElementBytes() == elementBytes);
@@ -123,8 +123,8 @@ OwningPtr<Descriptor> RESHAPE(const Descriptor &source, const Descriptor &shape,
   result->GetLowerBounds(resultSubscript);
   SubscriptValue sourceSubscript[maxRank];
   source.GetLowerBounds(sourceSubscript);
-  std::size_t resultElement{0};
-  std::size_t elementsFromSource{std::min(resultElements, sourceElements)};
+  SubscriptValue resultElement{0};
+  auto elementsFromSource{std::min(resultElements, sourceElements)};
   for (; resultElement < elementsFromSource; ++resultElement) {
     std::memcpy(result->Element<void>(resultSubscript),
         source.Element<const void>(sourceSubscript), elementBytes);
