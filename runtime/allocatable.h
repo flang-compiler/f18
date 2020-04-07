@@ -37,9 +37,8 @@ void RTNAME(AllocatableInitDerived)(
 // (If there's no STAT=, the error will be caught later anyway, but
 // this API allows the error to be caught before descriptor is modified.)
 // Return 0 on success (deallocated state), else the STAT= value.
-int RTNAME(AllocatableCheckAllocated)(Descriptor &,
-    Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
-    int sourceLine = 0);
+int RTNAME(AllocatableCheckAllocated)(
+    const Descriptor &, Descriptor *errMsg = nullptr);
 
 // For MOLD= allocation; sets bounds, cobounds, and length type
 // parameters from another descriptor.  The destination descriptor must

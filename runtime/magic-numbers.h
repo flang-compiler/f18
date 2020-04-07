@@ -19,6 +19,9 @@ These include:
    16.10.2, and 16.10.2.33)
 Codes from <errno.h>, e.g. ENOENT, are assumed to be positive
 and are used "raw" as IOSTAT values.
+
+The FORTRAN_RUNTIME_STAT_... values must be disjoint from processor-dependent
+STAT= codes in errmsg.h.
 #endif
 #ifndef FORTRAN_RUNTIME_MAGIC_NUMBERS_H_
 #define FORTRAN_RUNTIME_MAGIC_NUMBERS_H_

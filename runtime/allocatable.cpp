@@ -7,24 +7,35 @@
 //===----------------------------------------------------------------------===//
 
 #include "allocatable.h"
+#include "errmsg.h"
 #include "terminator.h"
 
 namespace Fortran::runtime {
 extern "C" {
 
-void RTNAME(AllocatableInitIntrinsic)(
-    Descriptor &, TypeCategory, int /*kind*/, int /*rank*/, int /*corank*/) {
-  // TODO
+void RTNAME(AllocatableInitIntrinsic)(Descriptor &descriptor,
+    TypeCategory category, int kind, int rank, int /*corank*/) {
+  descriptor.Establish(
+      category, kind, nullptr, rank, nullptr, CFI_attribute_allocatable);
 }
 
-void RTNAME(AllocatableInitCharacter)(Descriptor &, SubscriptValue /*length*/,
-    int /*kind*/, int /*rank*/, int /*corank*/) {
-  // TODO
+void RTNAME(AllocatableInitCharacter)(Descriptor &descriptor,
+    SubscriptValue length, int kind, int rank, int /*corank*/) {
+  descriptor.Establish(
+      kind, length, nullptr, rank, nullptr, CFI_attribute_allocatable);
 }
 
 void RTNAME(AllocatableInitDerived)(
-    Descriptor &, const DerivedType &, int /*rank*/, int /*corank*/) {
-  // TODO
+    Descriptor &descriptor, const DerivedType &type, int rank, int /*corank*/) {
+  descriptor.Establish(type, nullptr, rank, nullptr, CFI_attribute_allocatable);
+}
+
+int RTNAME(AllocatableCheckAllocated)(
+    const Descriptor &descriptor, Descriptor *errMsg) {
+  if (descriptor.raw().base_addr) {
+    return StatAndErrmsg(errMsg, AllocatableAlreadyAllocated);
+  }
+  return 0;
 }
 
 void RTNAME(AllocatableAssign)(Descriptor &to, const Descriptor & /*from*/) {}

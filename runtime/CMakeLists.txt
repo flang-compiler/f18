@@ -37,6 +37,7 @@ add_library(FortranRuntime
   edit-input.cpp
   edit-output.cpp
   environment.cpp
+  errmsg.cpp
   file.cpp
   format.cpp
   internal-unit.cpp

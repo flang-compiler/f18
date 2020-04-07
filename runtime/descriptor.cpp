@@ -51,7 +51,28 @@ void Descriptor::Establish(TypeCategory c, int kind, void *p, int rank,
   RUNTIME_CHECK(terminator,
       ISO::CFI_establish(&raw_, p, attribute, TypeCode(c, kind).raw(),
           elementBytes, rank, extent) == CFI_SUCCESS);
-  raw_.flags_ = addendum ? AddendumPresent : 0;
+  if (addendum) {
+    raw_.flags_ |= AddendumPresent;
+  }
+  DescriptorAddendum *a{Addendum()};
+  RUNTIME_CHECK(terminator, addendum == (a != nullptr));
+  if (a) {
+    new (a) DescriptorAddendum{};
+  }
+}
+
+void Descriptor::Establish(int kind, SubscriptValue length, void *p, int rank,
+    const SubscriptValue *extent, ISO::CFI_attribute_t attribute,
+    bool addendum) {
+  std::size_t elementBytes = kind * length;
+  Terminator terminator{__FILE__, __LINE__};
+  RUNTIME_CHECK(terminator,
+      ISO::CFI_establish(&raw_, p, attribute,
+          TypeCode(TypeCategory::Character, kind).raw(), elementBytes, rank,
+          extent) == CFI_SUCCESS);
+  if (addendum) {
+    raw_.flags_ |= AddendumPresent;
+  }
   DescriptorAddendum *a{Addendum()};
   RUNTIME_CHECK(terminator, addendum == (a != nullptr));
   if (a) {
@@ -282,9 +303,7 @@ bool Descriptor::SubscriptsForZeroBasedElementNumber(SubscriptValue *subscript,
 void Descriptor::Check(const Terminator &terminator) const {
   RUNTIME_CHECK(terminator, raw_.version == CFI_VERSION);
   RUNTIME_CHECK(terminator, raw_.rank <= maxRank);
-  RUNTIME_CHECK(terminator,
-      raw_.type == CFI_type_other ||
-          (raw_.type > 0 && raw_.type <= CFI_type_struct));
+  RUNTIME_CHECK(terminator, TypeCode{raw_.type}.IsValid());
 }
 
 void Descriptor::Dump(FILE *f) const {

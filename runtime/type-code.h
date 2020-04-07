@@ -25,7 +25,7 @@ public:
   int raw() const { return raw_; }
 
   constexpr bool IsValid() const {
-    return raw_ >= CFI_type_signed_char && raw_ <= CFI_type_struct;
+    return raw_ >= CFI_type_signed_char && raw_ <= CFI_extension_type_char32_t;
   }
   constexpr bool IsInteger() const {
     return raw_ >= CFI_type_signed_char && raw_ <= CFI_type_ptrdiff_t;
@@ -37,7 +37,10 @@ public:
     return raw_ >= CFI_type_float_Complex &&
         raw_ <= CFI_type_long_double_Complex;
   }
-  constexpr bool IsCharacter() const { return raw_ == CFI_type_char; }
+  constexpr bool IsCharacter() const {
+    return raw_ == CFI_type_char || raw_ == CFI_extension_type_char16_t ||
+        raw_ == CFI_extension_type_char32_t;
+  }
   constexpr bool IsLogical() const { return raw_ == CFI_type_Bool; }
   constexpr bool IsDerived() const { return raw_ == CFI_type_struct; }
 

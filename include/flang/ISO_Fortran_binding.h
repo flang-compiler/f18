@@ -79,7 +79,10 @@ typedef signed char CFI_type_t;
 #define CFI_type_Bool 31
 #define CFI_type_char 32
 #define CFI_type_cptr 33
-#define CFI_type_struct 34 /* assumed to be last in Descriptor::Check() */
+#define CFI_type_struct 34
+#define CFI_extension_type_char16_t 35
+#define CFI_extension_type_char32_t \
+  36 /* assumed to be last in TypeCode::IsValid() */
 #define CFI_type_other (-1) /* must be negative */
 
 /* Error code macros */
