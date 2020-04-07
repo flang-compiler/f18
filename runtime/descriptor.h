@@ -51,31 +51,21 @@ private:
 // The storage for this object follows the last used dim[] entry in a
 // Descriptor (CFI_cdesc_t) generic descriptor.  Space matters here, since
 // descriptors serve as POINTER and ALLOCATABLE components of derived type
-// instances.  The presence of this structure is implied by the flag
-// CFI_cdesc_t.f18Addendum, and the number of elements in the len_[]
-// array is determined by DerivedType::lenParameters().
+// instances.  The presence of this structure is implied by a flag bit in
+// CFI_cdesc_t.flags_, and the number of elements in the len_[]
+// array is specified by DerivedType::lenParameters().
 class DescriptorAddendum {
 public:
-  enum Flags {
-    StaticDescriptor = 0x001,
-    ImplicitAllocatable = 0x002, // compiler-created allocatable
-    DoNotFinalize = 0x004, // compiler temporary
-    Target = 0x008, // TARGET attribute
-  };
-
-  explicit DescriptorAddendum(
-      const DerivedType *dt = nullptr, std::uint64_t flags = 0)
-      : derivedType_{dt}, flags_{flags} {}
+  explicit DescriptorAddendum(const DerivedType *dt = nullptr)
+      : derivedType_{dt} {}
 
   const DerivedType *derivedType() const { return derivedType_; }
   DescriptorAddendum &set_derivedType(const DerivedType *dt) {
     derivedType_ = dt;
     return *this;
   }
-  std::uint64_t &flags() { return flags_; }
-  const std::uint64_t &flags() const { return flags_; }
 
-  std::size_t LenParameters() const {
+  int LenParameters() const {
     if (derivedType_) {
       return derivedType_->lenParameters();
     }
@@ -97,7 +87,7 @@ public:
 
 private:
   const DerivedType *derivedType_{nullptr};
-  std::uint64_t flags_{0};
+  // TODO: Coarray information
   TypeParameterValue len_[1]; // must be the last component
   // The LEN type parameter values can also include captured values of
   // specification expressions that were used for bounds and for LEN type
@@ -119,11 +109,16 @@ public:
   // Create() static member functions otherwise to dynamically allocate a
   // descriptor.
 
+  enum Flags {
+    AddendumPresent = 1,
+    DoNotFinalize = 2, // compiler temporary
+  };
+
   Descriptor() {
     // Minimal initialization to prevent the destructor from running amuck
     // later if the descriptor is never established.
     raw_.base_addr = nullptr;
-    raw_.f18Addendum = false;
+    raw_.flags_ = 0;
   }
   Descriptor(const Descriptor &);
 
@@ -157,7 +152,11 @@ public:
   std::size_t ElementBytes() const { return raw_.elem_len; }
   int rank() const { return raw_.rank; }
   TypeCode type() const { return TypeCode{raw_.type}; }
-
+  int flags() const { return raw_.flags_; }
+  Descriptor &set_flags(int x) {
+    raw_.flags_ = x;
+    return *this;
+  }
   Descriptor &set_base_addr(void *p) {
     raw_.base_addr = p;
     return *this;
@@ -227,14 +226,14 @@ public:
       const SubscriptValue *, const int *permutation = nullptr) const;
 
   DescriptorAddendum *Addendum() {
-    if (raw_.f18Addendum != 0) {
+    if (raw_.flags_ != 0) {
       return reinterpret_cast<DescriptorAddendum *>(&GetDimension(rank()));
     } else {
       return nullptr;
     }
   }
   const DescriptorAddendum *Addendum() const {
-    if (raw_.f18Addendum != 0) {
+    if (raw_.flags_ != 0) {
       return reinterpret_cast<const DescriptorAddendum *>(
           &GetDimension(rank()));
     } else {
@@ -242,6 +241,7 @@ public:
     }
   }
 
+  // Computes the size in bytes of a Descriptor that doesn't exist (yet).
   static constexpr std::size_t SizeInBytes(
       int rank, bool addendum = false, int lengthTypeParameters = 0) {
     std::size_t bytes{sizeof(Descriptor) - sizeof(Dimension)};
@@ -252,14 +252,19 @@ public:
     return bytes;
   }
 
+  // Computes the size in bytes of *this Descriptor (not the owned dynamic
+  // memory).
   std::size_t SizeInBytes() const;
 
   std::size_t Elements() const;
 
+  // TODO: Have these been obsoleted by allocatable.h?
   int Allocate(const SubscriptValue lb[], const SubscriptValue ub[],
       std::size_t charLen = 0); // TODO: SOURCE= and MOLD=
   int Deallocate(bool finalize = true);
+
   void Destroy(char *data, bool finalize = true) const;
+  void Destroy(bool finalize = true) const;
 
   bool IsContiguous(int leadingDimensions = maxRank) const {
     auto bytes{static_cast<SubscriptValue>(ElementBytes())};
@@ -280,6 +285,8 @@ public:
   void Dump(FILE * = stdout) const;
 
 private:
+  void Destroy(char *data, const DerivedType &, bool finalize) const;
+
   ISO::CFI_cdesc_t raw_;
 };
 static_assert(sizeof(Descriptor) == sizeof(ISO::CFI_cdesc_t));

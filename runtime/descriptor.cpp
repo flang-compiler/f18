@@ -32,7 +32,7 @@ void Descriptor::Establish(TypeCode t, std::size_t elementBytes, void *p,
   RUNTIME_CHECK(terminator,
       ISO::CFI_establish(&raw_, p, attribute, t.raw(), elementBytes, rank,
           extent) == CFI_SUCCESS);
-  raw_.f18Addendum = addendum;
+  raw_.flags_ = addendum ? AddendumPresent : 0;
   DescriptorAddendum *a{Addendum()};
   RUNTIME_CHECK(terminator, addendum == (a != nullptr));
   if (a) {
@@ -51,7 +51,7 @@ void Descriptor::Establish(TypeCategory c, int kind, void *p, int rank,
   RUNTIME_CHECK(terminator,
       ISO::CFI_establish(&raw_, p, attribute, TypeCode(c, kind).raw(),
           elementBytes, rank, extent) == CFI_SUCCESS);
-  raw_.f18Addendum = addendum;
+  raw_.flags_ = addendum ? AddendumPresent : 0;
   DescriptorAddendum *a{Addendum()};
   RUNTIME_CHECK(terminator, addendum == (a != nullptr));
   if (a) {
@@ -65,7 +65,7 @@ void Descriptor::Establish(const DerivedType &dt, void *p, int rank,
   RUNTIME_CHECK(terminator,
       ISO::CFI_establish(&raw_, p, attribute, CFI_type_struct, dt.SizeInBytes(),
           rank, extent) == CFI_SUCCESS);
-  raw_.f18Addendum = true;
+  raw_.flags_ = AddendumPresent;
   DescriptorAddendum *a{Addendum()};
   RUNTIME_CHECK(terminator, a);
   new (a) DescriptorAddendum{&dt};
@@ -127,26 +127,70 @@ int Descriptor::Allocate(
 }
 
 int Descriptor::Deallocate(bool finalize) {
-  if (raw_.base_addr) {
-    Destroy(static_cast<char *>(raw_.base_addr), finalize);
-  }
+  Destroy(finalize);
   return ISO::CFI_deallocate(&raw_);
 }
 
 void Descriptor::Destroy(char *data, bool finalize) const {
   if (data) {
     if (const DescriptorAddendum * addendum{Addendum()}) {
-      if (addendum->flags() & DescriptorAddendum::DoNotFinalize) {
-        finalize = false;
-      }
       if (const DerivedType * dt{addendum->derivedType()}) {
-        std::size_t elements{Elements()};
-        std::size_t elementBytes{ElementBytes()};
-        for (std::size_t j{0}; j < elements; ++j) {
-          dt->Destroy(data + j * elementBytes, finalize);
+        if (raw_.flags_ & DoNotFinalize) {
+          finalize = false;
         }
+        Destroy(data, *dt, finalize);
       }
     }
+  }
+}
+
+void Descriptor::Destroy(bool finalize) const {
+  Destroy(static_cast<char *>(raw_.base_addr));
+}
+
+void Descriptor::Destroy(
+    char *data, const DerivedType &type, bool finalize) const {
+  // FINAL procedures for the array (or each element thereof) must be called
+  // before the FINAL procedures of the components.
+  void (*elementalFinal)(char *){nullptr};
+  if (finalize && type.IsFinalizable()) {
+    int tbps{type.typeBoundProcedures()};
+    for (int j{0}; j < tbps; ++j) {
+      const auto &tbp{type.typeBoundProcedure(j)};
+      if (tbp.IsFinalForRank(raw_.rank)) {
+        if (auto f{reinterpret_cast<void (*)(const Descriptor *)>(
+                tbp.code.host)}) {
+          f(this);
+        }
+        elementalFinal = nullptr;
+        break;
+      }
+      if ((tbp.flags & TypeBoundProcedure::ELEMENTAL) && (tbp.finalRank & 1)) {
+        elementalFinal = reinterpret_cast<void (*)(char *)>(tbp.code.host);
+      }
+    }
+  }
+  std::size_t elements{Elements()};
+  std::size_t elementBytes{ElementBytes()};
+  for (std::size_t j{0}; j < elements; ++j) {
+    char *element{data + j * elementBytes};
+    if (elementalFinal) {
+      elementalFinal(element);
+    }
+    type.DestroyNonParentComponents(element, finalize);
+  }
+  if (type.IsExtension()) {
+    // Parent FINAL procedures must be called after the FINAL procedures
+    // of the components.
+    const Descriptor *staticParentDescriptor{
+        type.component(0).staticDescriptor()};
+    Terminator terminator{__FILE__, __LINE__};
+    RUNTIME_CHECK(terminator, staticParentDescriptor);
+    const auto *parentAddendum{staticParentDescriptor->Addendum()};
+    RUNTIME_CHECK(terminator, parentAddendum);
+    const auto *parentType{parentAddendum->derivedType()};
+    RUNTIME_CHECK(terminator, parentType);
+    Destroy(data, *parentType, finalize);
   }
 }
 
@@ -225,7 +269,8 @@ void Descriptor::Dump(FILE *f) const {
   std::fprintf(f, "  rank      %d\n", static_cast<int>(raw_.rank));
   std::fprintf(f, "  type      %d\n", static_cast<int>(raw_.type));
   std::fprintf(f, "  attribute %d\n", static_cast<int>(raw_.attribute));
-  std::fprintf(f, "  addendum  %d\n", static_cast<int>(raw_.f18Addendum));
+  std::fprintf(
+      f, "  flags_    0x%jx\n", static_cast<std::uintmax_t>(raw_.flags_));
   for (int j{0}; j < raw_.rank; ++j) {
     std::fprintf(f, "  dim[%d] lower_bound %jd\n", j,
         static_cast<std::intmax_t>(raw_.dim[j].lower_bound));
@@ -246,7 +291,6 @@ std::size_t DescriptorAddendum::SizeInBytes() const {
 void DescriptorAddendum::Dump(FILE *f) const {
   std::fprintf(
       f, "  derivedType @ %p\n", reinterpret_cast<const void *>(derivedType_));
-  std::fprintf(f, "  flags 0x%jx\n", static_cast<std::intmax_t>(flags_));
   // TODO: LEN parameter values
 }
 } // namespace Fortran::runtime

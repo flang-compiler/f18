@@ -126,7 +126,7 @@ typedef struct CFI_cdesc_t {
   CFI_rank_t rank; /* [0 .. CFI_MAX_RANK] */
   CFI_type_t type;
   CFI_attribute_t attribute;
-  unsigned char f18Addendum;
+  unsigned char flags_; /* f18 extension to standard members */
 #ifdef __cplusplus
   cfi_internal::FlexibleArray<CFI_dim_t> dim;
 #else

@@ -104,10 +104,10 @@ OwningPtr<Descriptor> RESHAPE(const Descriptor &source, const Descriptor &shape,
   }
   DescriptorAddendum *resultAddendum{result->Addendum()};
   RUNTIME_CHECK(terminator, resultAddendum);
-  resultAddendum->flags() |= DescriptorAddendum::DoNotFinalize;
+  result->set_flags(result->flags() | Descriptor::DoNotFinalize);
   if (sourceDerivedType) {
-    std::size_t lenParameters{sourceDerivedType->lenParameters()};
-    for (std::size_t j{0}; j < lenParameters; ++j) {
+    int lenParameters{sourceDerivedType->lenParameters()};
+    for (int j{0}; j < lenParameters; ++j) {
       resultAddendum->SetLenParameterValue(
           j, sourceAddendum->LenParameterValue(j));
     }
