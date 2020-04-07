@@ -148,6 +148,9 @@ public:
   const TypeParameter &kindTypeParameter(int n) const {
     return typeParameter_[n];
   }
+  const TypeParameter &lenTypeParameter(int n) const {
+    return typeParameter_[kindParameters_ + n];
+  }
 
   int components() const { return components_; }
   const Component &component(int n) const { return component_[n]; }
@@ -173,8 +176,12 @@ public:
   bool AnyPrivate() const;
   bool IsSequence() const { return (flags_ & SEQUENCE) != 0; }
   bool IsBindC() const { return (flags_ & BIND_C) != 0; }
-  bool NeedsAddendum() const { return (flags_ & NEEDS_ADDENDUM) != 0; }
-  bool IsFinalizable() const { return hasFinal_; }
+  bool IsInitializable() const {
+    return initializer_ || initTBP_ >= 0 ||
+        (flags_ & (INIT_ZERO | INIT_COMPONENT)) != 0;
+  }
+  bool IsInitZero() const { return (flags_ & INIT_ZERO) != 0; }
+  bool IsFinalizable() const { return (flags_ & FINALIZABLE) != 0; }
 
   // SAME_TYPE_AS() and EXTENDS_TYPE() intrinsic inquiry functions,
   // and a predicate for TYPE IS and CLASS IS testing in SELECT TYPE.
@@ -192,13 +199,13 @@ public:
   void DestroyScalarInstance(char *, bool finalize = true) const;
 
 private:
-  enum Flag { SEQUENCE = 1, BIND_C = 2, NEEDS_ADDENDUM = 4, FINALIZABLE = 8 };
-
-  // True when any descriptor of data of this derived type will require
-  // an addendum that points to a DerivedType for correct program operation
-  // (not just debugging) and that holds the values of LEN type parameters.
-  // Conservative.
-  bool NeedsAddendumAnalysis() const;
+  enum Flag {
+    SEQUENCE = 1,
+    BIND_C = 2,
+    FINALIZABLE = 4,
+    INIT_ZERO = 8,
+    INIT_COMPONENT = 16
+  };
 
   const char *name_{""}; // NUL-terminated constant text
   int kindParameters_{0};
@@ -212,7 +219,6 @@ private:
   const char *initializer_{nullptr};
   std::size_t bytes_{0};
   int initTBP_{-1};
-  bool hasFinal_{false};
 };
 } // namespace Fortran::runtime
 #endif // FORTRAN_RUNTIME_DERIVED_TYPE_H_

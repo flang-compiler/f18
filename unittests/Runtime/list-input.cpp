@@ -30,7 +30,8 @@ int main() {
   whole.Establish(TypeCode{CFI_type_char}, sizeof buffer[0], &buffer, 1, extent,
       CFI_attribute_pointer);
   whole.Dump();
-  whole.Check();
+  Terminator terminator{__FILE__, __LINE__};
+  whole.Check(terminator);
 
   try {
     auto cookie{IONAME(BeginInternalArrayListInput)(whole)};

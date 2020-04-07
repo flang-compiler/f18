@@ -46,7 +46,8 @@ static void multiline() {
   whole.Establish(TypeCode{CFI_type_char}, sizeof buffer[0], &buffer, 1, extent,
       CFI_attribute_pointer);
   whole.Dump();
-  whole.Check();
+  Terminator terminator{__FILE__, __LINE__};
+  whole.Check(terminator);
   Descriptor &section{staticDescriptor[1].descriptor()};
   SubscriptValue lowers[]{0}, uppers[]{3}, strides[]{1};
   section.Establish(whole.type(), whole.ElementBytes(), nullptr, 1, extent,
@@ -57,7 +58,7 @@ static void multiline() {
     return;
   }
   section.Dump();
-  section.Check();
+  section.Check(terminator);
   const char *format{"('?abcde,',T1,'>',T9,A,TL12,A,TR25,'<'//G0,25X,'done')"};
   auto cookie{IONAME(BeginInternalArrayFormattedOutput)(
       section, format, std::strlen(format))};

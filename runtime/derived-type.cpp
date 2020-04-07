@@ -27,31 +27,31 @@ DerivedType::DerivedType(const char *n, int kps, int lps,
     : name_{n}, kindParameters_{kps}, lenParameters_{lps}, typeParameter_{tp},
       components_{cs}, component_{ca}, typeBoundProcedures_{tbps},
       typeBoundProcedure_{tbp}, initializer_{init}, bytes_{sz} {
-  if (NeedsAddendumAnalysis()) {
-    flags_ |= NEEDS_ADDENDUM;
-  }
-  for (int j{0}; j < tbps; ++j) {
+  for (int j{0}; j < typeBoundProcedures_; ++j) {
     if (tbp[j].flags & TypeBoundProcedure::INITIALIZER) {
       initTBP_ = j;
     }
     if (tbp[j].finalRank ||
         (tbp[j].flags & TypeBoundProcedure::ASSUMED_RANK_FINAL)) {
-      hasFinal_ = true;
+      flags_ |= FINALIZABLE;
     }
   }
-}
-
-bool DerivedType::NeedsAddendumAnalysis() const {
-  if (kindParameters_ > 0 || lenParameters_ > 0 || typeBoundProcedures_ > 0 ||
-      initializer_ != nullptr) {
-    return true;
-  }
-  for (int j{0}; j < components_; ++j) {
-    if (component_[j].IsDescriptor()) {
-      return true;
+  if (!initializer_ && initTBP_ < 0) {
+    for (int j{0}; j < components_; ++j) {
+      if (component_[j].IsDescriptor()) {
+        flags_ |= INIT_ZERO;
+      } else if (const Descriptor *
+          staticDesc{component_[j].staticDescriptor()}) {
+        if (const DescriptorAddendum * addendum{staticDesc->Addendum()}) {
+          if (const DerivedType * type{addendum->derivedType()}) {
+            if (type->IsInitializable() && !type->IsInitZero()) {
+              flags_ |= INIT_COMPONENT;
+            }
+          }
+        }
+      }
     }
   }
-  return false;
 }
 
 void DerivedType::Initialize(char *instance) const {
@@ -66,9 +66,14 @@ void DerivedType::Initialize(char *instance) const {
       return;
     }
   }
-  for (int j{0}; j < components_; ++j) {
-    if (component_[j].IsDescriptor()) {
-      // TODO: initialize component
+  if (flags_ & INIT_ZERO) {
+    std::memset(instance, 0, bytes_);
+  }
+  if (flags_ & INIT_COMPONENT) {
+    for (int j{0}; j < components_; ++j) {
+      if (const Descriptor * staticDesc{component_[j].staticDescriptor()}) {
+        staticDesc->Initialize(&component_[j].Locate<char>(instance));
+      }
     }
   }
 }
@@ -89,7 +94,7 @@ void DerivedType::DestroyNonParentComponents(
 }
 
 void DerivedType::DestroyScalarInstance(char *instance, bool finalize) const {
-  if (finalize && hasFinal_) {
+  if (finalize && IsFinalizable()) {
     for (int j{0}; j < typeBoundProcedures_; ++j) {
       const auto &tbp{typeBoundProcedure_[j]};
       if ((tbp.flags & TypeBoundProcedure::ELEMENTAL) && (tbp.finalRank & 1)) {

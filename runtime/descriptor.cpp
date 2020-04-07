@@ -121,9 +121,25 @@ int Descriptor::Allocate(
     const SubscriptValue lb[], const SubscriptValue ub[], std::size_t charLen) {
   int result{ISO::CFI_allocate(&raw_, lb, ub, charLen)};
   if (result == CFI_SUCCESS) {
-    // TODO: derived type initialization
+    Initialize(reinterpret_cast<char *>(raw_.base_addr));
   }
   return result;
+}
+
+void Descriptor::Initialize(char *data) const {
+  if (auto *addendum{Addendum()}) {
+    if (const auto *type{addendum->derivedType()}) {
+      if (type->IsInitializable()) {
+        std::size_t elements{Elements()};
+        std::size_t elementBytes{ElementBytes()};
+        char *data{static_cast<char *>(raw_.base_addr)};
+        for (std::size_t j{0}; j < elements; ++j) {
+          char *element{data + j * elementBytes};
+          type->Initialize(element);
+        }
+      }
+    }
+  }
 }
 
 int Descriptor::Deallocate(bool finalize) {
@@ -151,7 +167,7 @@ void Descriptor::Destroy(bool finalize) const {
 void Descriptor::Destroy(
     char *data, const DerivedType &type, bool finalize) const {
   // FINAL procedures for the array (or each element thereof) must be called
-  // before the FINAL procedures of the components.
+  // before the FINAL procedures of the components.  7.5.6.2 in F'2018.
   void (*elementalFinal)(char *){nullptr};
   if (finalize && type.IsFinalizable()) {
     int tbps{type.typeBoundProcedures()};
@@ -170,6 +186,12 @@ void Descriptor::Destroy(
       }
     }
   }
+  // Subtle: The FINAL subroutines of any allocatable non-parent
+  // component are also called now as the allocatables are
+  // deallocated, after the finalization of the instance as a
+  // whole (9.7.3.2 para 9), but before the finalization of the
+  // parent component.
+  // This is the Fortran community's desired order of events.
   std::size_t elements{Elements()};
   std::size_t elementBytes{ElementBytes()};
   for (std::size_t j{0}; j < elements; ++j) {
@@ -180,8 +202,8 @@ void Descriptor::Destroy(
     type.DestroyNonParentComponents(element, finalize);
   }
   if (type.IsExtension()) {
-    // Parent FINAL procedures must be called after the FINAL procedures
-    // of the components.
+    // Parent FINAL subroutine(s) must be called after the FINAL
+    // subroutines of the components.
     const Descriptor *staticParentDescriptor{
         type.component(0).staticDescriptor()};
     Terminator terminator{__FILE__, __LINE__};
@@ -257,8 +279,12 @@ bool Descriptor::SubscriptsForZeroBasedElementNumber(SubscriptValue *subscript,
   return true;
 }
 
-void Descriptor::Check() const {
-  // TODO
+void Descriptor::Check(const Terminator &terminator) const {
+  RUNTIME_CHECK(terminator, raw_.version == CFI_VERSION);
+  RUNTIME_CHECK(terminator, raw_.rank <= maxRank);
+  RUNTIME_CHECK(terminator,
+      raw_.type == CFI_type_other ||
+          (raw_.type > 0 && raw_.type <= CFI_type_struct));
 }
 
 void Descriptor::Dump(FILE *f) const {
@@ -289,8 +315,22 @@ std::size_t DescriptorAddendum::SizeInBytes() const {
 }
 
 void DescriptorAddendum::Dump(FILE *f) const {
-  std::fprintf(
-      f, "  derivedType @ %p\n", reinterpret_cast<const void *>(derivedType_));
-  // TODO: LEN parameter values
+  if (derivedType_) {
+    std::fprintf(
+        f, "  derivedType @ %p", reinterpret_cast<const void *>(derivedType_));
+    std::fflush(f); // in case of bad pointer
+    std::fprintf(f, ": %s\n", derivedType_->name());
+    for (int j{0}; j < derivedType_->kindParameters(); ++j) {
+      std::fprintf(f, "    KIND %s = %jd\n",
+          derivedType_->kindTypeParameter(j).name(),
+          static_cast<std::intmax_t>(
+              derivedType_->kindTypeParameter(j).StaticValue()));
+    }
+    for (int j{0}; j < derivedType_->lenParameters(); ++j) {
+      std::fprintf(f, "    LEN  %s = %jd\n",
+          derivedType_->lenTypeParameter(j).name(),
+          static_cast<std::intmax_t>(len_[j]));
+    }
+  }
 }
 } // namespace Fortran::runtime

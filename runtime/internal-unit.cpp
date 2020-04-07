@@ -32,7 +32,7 @@ InternalDescriptorUnit<DIR>::InternalDescriptorUnit(
   RUNTIME_CHECK(
       terminator, that.SizeInBytes() <= d.SizeInBytes(maxRank, true, 0));
   new (&d) Descriptor{that};
-  d.Check();
+  d.Check(terminator);
   recordLength = d.ElementBytes();
   endfileRecordNumber = d.Elements() + 1;
 }

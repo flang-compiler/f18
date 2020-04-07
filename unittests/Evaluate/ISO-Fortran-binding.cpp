@@ -90,7 +90,8 @@ static void check_CFI_establish(CFI_cdesc_t *dv, void *base_addr,
       CFI_establish(dv, base_addr, attribute, type, elem_len, rank, extents)};
   Descriptor *res{reinterpret_cast<Descriptor *>(dv)};
   if (retCode == CFI_SUCCESS) {
-    res->Check();
+    Terminator terminator{__FILE__, __LINE__};
+    res->Check(terminator);
     MATCH((attribute == CFI_attribute_pointer), res->IsPointer());
     MATCH((attribute == CFI_attribute_allocatable), res->IsAllocatable());
     MATCH(rank, res->rank());

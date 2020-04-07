@@ -1,5 +1,6 @@
 #include "testing.h"
 #include "../../runtime/descriptor.h"
+#include "../../runtime/terminator.h"
 #include "../../runtime/transformational.h"
 #include <cinttypes>
 
@@ -11,7 +12,8 @@ int main() {
   static const SubscriptValue sourceExtent[]{2, 3, 4};
   auto source{Descriptor::Create(TypeCategory::Integer, sizeof(std::int32_t),
       nullptr, 3, sourceExtent, CFI_attribute_allocatable)};
-  source->Check();
+  Terminator terminator{__FILE__, __LINE__};
+  source->Check(terminator);
   MATCH(3, source->rank());
   MATCH(sizeof(std::int32_t), source->ElementBytes());
   TEST(source->IsAllocatable());
@@ -33,7 +35,7 @@ int main() {
       static_cast<int>(sizeof shapeData[0]),
       const_cast<void *>(reinterpret_cast<const void *>(shapeData)), 1,
       &shapeExtent, CFI_attribute_pointer)};
-  shape->Check();
+  shape->Check(terminator);
   MATCH(1, shape->rank());
   MATCH(2, shape->GetDimension(0).Extent());
   TEST(shape->IsPointer());
@@ -46,8 +48,8 @@ int main() {
   pad.Establish(TypeCategory::Integer, static_cast<int>(sizeof padData[0]),
       const_cast<void *>(reinterpret_cast<const void *>(padData)), 3, padExtent,
       CFI_attribute_pointer);
-  padDescriptor.Check();
-  pad.Check();
+  padDescriptor.Check(terminator);
+  pad.Check(terminator);
   MATCH(3, pad.rank());
   MATCH(2, pad.GetDimension(0).Extent());
   MATCH(2, pad.GetDimension(1).Extent());
@@ -55,7 +57,7 @@ int main() {
 
   auto result{RESHAPE(*source, *shape, &pad)};
   TEST(result.get() != nullptr);
-  result->Check();
+  result->Check(terminator);
   MATCH(sizeof(std::int32_t), result->ElementBytes());
   MATCH(2, result->rank());
   TEST(result->type().IsInteger());

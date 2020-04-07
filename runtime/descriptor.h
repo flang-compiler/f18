@@ -20,9 +20,9 @@
 
 #include "derived-type.h"
 #include "memory.h"
+#include "terminator.h"
 #include "type-code.h"
 #include "flang/ISO_Fortran_binding.h"
-#include <cassert>
 #include <cinttypes>
 #include <cstddef>
 #include <cstdio>
@@ -263,6 +263,7 @@ public:
       std::size_t charLen = 0); // TODO: SOURCE= and MOLD=
   int Deallocate(bool finalize = true);
 
+  void Initialize(char *data) const;
   void Destroy(char *data, bool finalize = true) const;
   void Destroy(bool finalize = true) const;
 
@@ -278,10 +279,9 @@ public:
     return true;
   }
 
-  void Check() const;
-
   // TODO: creation of array sections
 
+  void Check(const Terminator &) const;
   void Dump(FILE * = stdout) const;
 
 private:
@@ -318,21 +318,21 @@ public:
     return *reinterpret_cast<const Descriptor *>(storage_);
   }
 
-  void Check() {
-    assert(descriptor().rank() <= maxRank);
-    assert(descriptor().SizeInBytes() <= byteSize);
-    if (DescriptorAddendum * addendum{descriptor().Addendum()}) {
-      assert(hasAddendum);
+  void Check(const Terminator &terminator) const {
+    descriptor().Check(terminator);
+    RUNTIME_CHECK(terminator, descriptor().SizeInBytes() <= byteSize);
+    if (const DescriptorAddendum * addendum{descriptor().Addendum()}) {
+      RUNTIME_CHECK(terminator, hasAddendum);
       if (const DerivedType * dt{addendum->derivedType()}) {
-        assert(dt->lenParameters() <= maxLengthTypeParameters);
+        RUNTIME_CHECK(
+            terminator, dt->lenParameters() <= maxLengthTypeParameters);
       } else {
-        assert(maxLengthTypeParameters == 0);
+        RUNTIME_CHECK(terminator, maxLengthTypeParameters == 0);
       }
     } else {
-      assert(!hasAddendum);
-      assert(maxLengthTypeParameters == 0);
+      RUNTIME_CHECK(terminator, !hasAddendum);
+      RUNTIME_CHECK(terminator, maxLengthTypeParameters == 0);
     }
-    descriptor().Check();
   }
 
 private:
