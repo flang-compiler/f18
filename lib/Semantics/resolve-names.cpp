@@ -3835,20 +3835,25 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
               "ISO_FORTRAN_ENV"_err_en_US);
         } else {
           if (IsIsoCType(derived)) {
-            Say("A coarray component may not be of C_PTR or C_FUNPTR from "
+            Say("A coarray component may not be of type C_PTR or C_FUNPTR from "
                 "ISO_C_BINDING when an allocatable object is a "
                 "coarray"_err_en_US);
           }
         }
       }
-      if (FindCoarrayUltimateComponent(*derived)) { // C748
+      if (auto it{FindCoarrayUltimateComponent(*derived)}) { // C748
+        Message declMsg{Say(it->name(),
+            "Type '%s' has coarray ultimate component '%s' declared here"_en_US,
+            declType->AsFortran(), it.BuildResultDesignatorName())};
         if (attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
           Say("A component whose type has a coarray ultimate component "
-              "cannot be a POINTER or ALLOCATABLE"_err_en_US);
+              "may not be a POINTER or ALLOCATABLE"_err_en_US)
+              .Attach(declMsg);
         }
         if (!arraySpec().empty() || !coarraySpec().empty()) {
           Say("A component whose type has a coarray ultimate component "
-              "cannot be an array or corray"_err_en_US);
+              "may not be an array or corray"_err_en_US)
+              .Attach(declMsg);
         }
       }
     }

@@ -9,13 +9,15 @@ module m
 
   type testCoArrayType
     real, allocatable, codimension[:] :: allocatableField
-    !ERROR: Coarray components must be ALLOCATABLE and have a deferred coshape
+    !ERROR: Component 'deferredfield' is a coarray and must have the ALLOCATABLE attribute
     real, codimension[:] :: deferredField
     !ERROR: 'pointerfield' may not have the POINTER attribute because it is a coarray
-    !ERROR: Coarray components must be ALLOCATABLE and have a deferred coshape
+    !ERROR: Component 'pointerfield' is a coarray and must have the ALLOCATABLE attribute
     real, pointer, codimension[:] :: pointerField
-    !ERROR: Coarray components must be ALLOCATABLE and have a deferred coshape
+    !ERROR: Component 'realfield' is a coarray and must have the ALLOCATABLE attribute and have a deferred coshape
     real, codimension[*] :: realField
+    !ERROR: 'realfield2' is an ALLOCATABLE coarray must have a deferred coshape
+    real, allocatable, codimension[*] :: realField2
   end type testCoArrayType
 
   ! C747 If a coarray-spec appears, the component shall not be of type C_PTR or
@@ -44,12 +46,12 @@ module m
   end type team_typeCoarrayType
 
   type c_ptrCoarrayType
-    !ERROR: A coarray component may not be of C_PTR or C_FUNPTR from ISO_C_BINDING when an allocatable object is a coarray
+    !ERROR: A coarray component may not be of type C_PTR or C_FUNPTR from ISO_C_BINDING when an allocatable object is a coarray
     type(c_ptr), allocatable, codimension[:] :: field
   end type c_ptrCoarrayType
 
   type c_funptrCoarrayType
-    !ERROR: A coarray component may not be of C_PTR or C_FUNPTR from ISO_C_BINDING when an allocatable object is a coarray
+    !ERROR: A coarray component may not be of type C_PTR or C_FUNPTR from ISO_C_BINDING when an allocatable object is a coarray
     type(c_funptr), allocatable, codimension[:] :: field
   end type c_funptrCoarrayType
 
@@ -62,11 +64,11 @@ module m
 
   type testType
     type(coarrayType) :: goodField
-    !ERROR: A component whose type has a coarray ultimate component cannot be a POINTER or ALLOCATABLE
+    !ERROR: A component whose type has a coarray ultimate component may not be a POINTER or ALLOCATABLE
     type(coarrayType), pointer :: pointerField
-    !ERROR: A component whose type has a coarray ultimate component cannot be a POINTER or ALLOCATABLE
+    !ERROR: A component whose type has a coarray ultimate component may not be a POINTER or ALLOCATABLE
     type(coarrayType), allocatable :: allocatableField
-    !ERROR: A component whose type has a coarray ultimate component cannot be an array or corray
+    !ERROR: A component whose type has a coarray ultimate component may not be an array or corray
     type(coarrayType), dimension(3) :: arrayField
   end type testType
 
