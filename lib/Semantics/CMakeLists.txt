@@ -1,5 +1,4 @@
-
-add_library(FortranSemantics
+add_library(SemanticsObjects OBJECT
   assignment.cpp
   attr.cpp
   canonicalize-do.cpp
@@ -37,16 +36,4 @@ add_library(FortranSemantics
   unparse-with-symbols.cpp
 )
 
-target_compile_features(FortranSemantics PUBLIC cxx_std_17)
-
-target_link_libraries(FortranSemantics
-  FortranCommon
-  FortranEvaluate
-  LLVMSupport
-)
-
-install (TARGETS FortranSemantics
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+target_compile_features(SemanticsObjects PUBLIC cxx_std_17)

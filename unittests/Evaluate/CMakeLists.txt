@@ -42,9 +42,7 @@ add_executable(expression-test
 
 target_link_libraries(expression-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranSemantics
-  FortranParser
+  FortranEvaluateSemantics
   LLVMSupport
 )
 
@@ -54,8 +52,7 @@ add_executable(integer-test
 
 target_link_libraries(integer-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranSemantics
+  FortranEvaluateSemantics
   LLVMSupport
 )
 
@@ -65,10 +62,7 @@ add_executable(intrinsics-test
 
 target_link_libraries(intrinsics-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranDecimal
-  FortranSemantics
-  FortranParser
+  FortranEvaluateSemantics
   FortranRuntime
   LLVMSupport
 )
@@ -79,8 +73,7 @@ add_executable(logical-test
 
 target_link_libraries(logical-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranSemantics
+  FortranEvaluateSemantics
   LLVMSupport
 )
 
@@ -95,9 +88,7 @@ add_executable(real-test
 
 target_link_libraries(real-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranDecimal
-  FortranSemantics
+  FortranEvaluateSemantics
   LLVMSupport
 )
 
@@ -107,8 +98,7 @@ add_executable(reshape-test
 
 target_link_libraries(reshape-test
   FortranEvaluateTesting
-  FortranSemantics
-  FortranEvaluate
+  FortranEvaluateSemantics
   FortranRuntime
   LLVMSupport
 )
@@ -119,8 +109,8 @@ add_executable(ISO-Fortran-binding-test
 
 target_link_libraries(ISO-Fortran-binding-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranSemantics
+  FortranParser
+  FortranEvaluateSemantics
   FortranRuntime
   LLVMSupport
 )
@@ -131,8 +121,7 @@ add_executable(folding-test
 
 target_link_libraries(folding-test
   FortranEvaluateTesting
-  FortranEvaluate
-  FortranSemantics
+  FortranEvaluateSemantics
   LLVMSupport
 )
 

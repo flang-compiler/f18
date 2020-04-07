@@ -1,5 +1,4 @@
-
-add_library(FortranEvaluate
+add_library(EvaluateObjects OBJECT
   call.cpp
   characteristics.cpp
   check-expression.cpp
@@ -27,28 +26,4 @@ add_library(FortranEvaluate
   variable.cpp
 )
 
-target_compile_features(FortranEvaluate PUBLIC cxx_std_17)
-
-target_link_libraries(FortranEvaluate
-  FortranCommon
-  FortranDecimal
-  FortranParser
-)
-
-install (TARGETS FortranEvaluate
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
-
-if (LIBPGMATH_DIR)
-  # If pgmath library is found, it can be used for constant folding.
-  find_library(LIBPGMATH pgmath PATHS ${LIBPGMATH_DIR})
-  if(LIBPGMATH)
-    add_compile_definitions(LINK_WITH_LIBPGMATH)
-    target_link_libraries(FortranEvaluate ${LIBPGMATH})
-    message(STATUS "Found libpgmath: ${LIBPGMATH}")
-  else()
-    message(STATUS "Libpgmath not found in: ${LIBPGMATH_DIR}")
-  endif()
-endif()
+target_compile_features(EvaluateObjects PUBLIC cxx_std_17)

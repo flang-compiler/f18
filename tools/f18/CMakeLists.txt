@@ -8,8 +8,7 @@ target_compile_features(f18 PRIVATE cxx_std_17)
 target_link_libraries(f18
   PRIVATE
   FortranParser
-  FortranEvaluate
-  FortranSemantics
+  FortranEvaluateSemantics
   FortranLower
   LLVMSupport
 )
