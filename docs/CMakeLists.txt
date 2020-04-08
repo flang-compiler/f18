@@ -84,7 +84,7 @@ if (LLVM_ENABLE_DOXYGEN)
    add_dependencies(doxygen doxygen-flang)
   endif()
 
-  if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
+  if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY AND LLVM_BUILD_DOCS)
     install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doxygen/html
       DESTINATION docs/html)
   endif()
