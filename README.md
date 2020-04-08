@@ -231,11 +231,11 @@ create `docs/Dialect/FIRLangRef.md` in f18 build directory.
 ## Generate Doxygen-based Documentation
 
 To generate doxygen-style documentation from source code 
-- Pass `-DLLVM_ENABLE_DOXYGEN=ON -DFLANG_INCLUDE_DOCS=ON` to the cmake command.
+- Pass `-DLLVM_BUILD_DOCS=ON -DLLVM_ENABLE_DOXYGEN=ON -DFLANG_INCLUDE_DOCS=ON` to the cmake command.
 
 ```
 cd ~/f18/build
-cmake -DLLVM_DIR=$LLVM -DMLIR_DIR=$MLIR -DLLVM_ENABLE_DOXYGEN=ON -DFLANG_INCLUDE_DOCS=ON ~/f18/src
+cmake -DLLVM_DIR=$LLVM -DMLIR_DIR=$MLIR -DLLVM_BUILD_DOCS=ON -DLLVM_ENABLE_DOXYGEN=ON -DFLANG_INCLUDE_DOCS=ON ~/f18/src
 make doxygen-flang
 ```
 
