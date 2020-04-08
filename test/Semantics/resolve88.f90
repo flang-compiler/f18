@@ -64,11 +64,11 @@ module m
 
   type testType
     type(coarrayType) :: goodField
-    !ERROR: A component whose type has a coarray ultimate component may not be a POINTER or ALLOCATABLE
+    !ERROR: A component with a POINTER or ALLOCATABLE attribute may not be of a type with a coarray ultimate component (named '%goodcoarrayfield')
     type(coarrayType), pointer :: pointerField
-    !ERROR: A component whose type has a coarray ultimate component may not be a POINTER or ALLOCATABLE
+    !ERROR: A component with a POINTER or ALLOCATABLE attribute may not be of a type with a coarray ultimate component (named '%goodcoarrayfield')
     type(coarrayType), allocatable :: allocatableField
-    !ERROR: A component whose type has a coarray ultimate component may not be an array or corray
+    !ERROR: An array or coarray component may not be of a type with a coarray  ultimate component (named '%goodcoarrayfield')
     type(coarrayType), dimension(3) :: arrayField
   end type testType
 

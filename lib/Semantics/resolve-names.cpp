@@ -3842,18 +3842,23 @@ void DeclarationVisitor::Post(const parser::ComponentDecl &x) {
         }
       }
       if (auto it{FindCoarrayUltimateComponent(*derived)}) { // C748
-        Message declMsg{Say(it->name(),
-            "Type '%s' has coarray ultimate component '%s' declared here"_en_US,
-            declType->AsFortran(), it.BuildResultDesignatorName())};
+        std::string ultimateName{it.BuildResultDesignatorName()};
         if (attrs.HasAny({Attr::POINTER, Attr::ALLOCATABLE})) {
-          Say("A component whose type has a coarray ultimate component "
-              "may not be a POINTER or ALLOCATABLE"_err_en_US)
-              .Attach(declMsg);
+          evaluate::AttachDeclaration(
+              Say(name.source,
+                  "A component with a POINTER or ALLOCATABLE attribute may not "
+                  "be of a type with a coarray ultimate component (named "
+                  "'%s')"_err_en_US,
+                  ultimateName),
+              derived->typeSymbol());
         }
         if (!arraySpec().empty() || !coarraySpec().empty()) {
-          Say("A component whose type has a coarray ultimate component "
-              "may not be an array or corray"_err_en_US)
-              .Attach(declMsg);
+          evaluate::AttachDeclaration(
+              Say(name.source,
+                  "An array or coarray component may not be of a type with a "
+                  "coarray  ultimate component (named '%s')"_err_en_US,
+                  ultimateName),
+              derived->typeSymbol());
         }
       }
     }
