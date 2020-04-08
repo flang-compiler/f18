@@ -5,19 +5,6 @@
 
 ! Rules I should know when working with coarrays and derived type:
 
-! C736: If EXTENDS appears and the type being defined has a coarray ultimate
-! component, its parent type shall have a coarray ultimate component.
-
-! C746: (R737) If a coarray-spec appears, it shall be a deferred-coshape-spec-list
-! and the component shall have the ALLOCATABLE attribute.
-
-! C747: If a coarray-spec appears, the component shall not be of type C_PTR or
-! C_FUNPTR from the intrinsic module ISO_C_BINDING (18.2), or of type TEAM_TYPE from the
-! intrinsic module ISO_FORTRAN_ENV (16.10.2).
-
-! C748: A data component whose type has a coarray ultimate component shall be a
-! nonpointer nonallocatable scalar and shall not be a coarray.
-
 ! 7.5.4.3 Coarray components
 ! 7.5.6 Final subroutines: C786
 
@@ -38,7 +25,6 @@ subroutine C937(var)
 
   type B
     type(A) y
-    type(B), pointer :: forward
     real :: u
   end type
 
@@ -47,7 +33,7 @@ subroutine C937(var)
   end type
 
   type D
-    type(A), pointer :: potential
+    type(A) :: potential
   end type
 
 
@@ -65,9 +51,6 @@ subroutine C937(var)
   !        => if var can be defined, it can only be unlimited polymorphic
 
   ! Also, as per C826 or C852, var can only be an allocatable, not a pointer
-
-  ! OK, x is not an ultimate component
-  allocate(D:: var)
 
   !ERROR: Type-spec in ALLOCATE must not specify a type with a coarray ultimate component
   allocate(A:: var)

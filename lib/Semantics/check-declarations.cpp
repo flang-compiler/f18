@@ -384,15 +384,24 @@ void CheckHelper::CheckObjectEntity(
   CheckAssumedTypeEntity(symbol, details);
   symbolBeingChecked_ = nullptr;
   if (!details.coshape().empty()) {
+    bool isDeferredShape{details.coshape().IsDeferredShape()};
     if (IsAllocatable(symbol)) {
-      if (!details.coshape().IsDeferredShape()) { // C827
-        messages_.Say(
-            "ALLOCATABLE coarray must have a deferred coshape"_err_en_US);
+      if (!isDeferredShape) { // C827
+        messages_.Say("'%s' is an ALLOCATABLE coarray must have a deferred"
+                      " coshape"_err_en_US,
+            symbol.name());
       }
+    } else if (symbol.owner().IsDerivedType()) { // C746
+      std::string deferredMsg{
+          isDeferredShape ? "" : " and have a deferred coshape"};
+      messages_.Say("Component '%s' is a coarray and must have the ALLOCATABLE"
+                    " attribute%s"_err_en_US,
+          symbol.name(), deferredMsg);
     } else {
       if (!details.coshape().IsAssumedSize()) { // C828
-        messages_.Say(
-            "Non-ALLOCATABLE coarray must have an explicit coshape"_err_en_US);
+        messages_.Say("Component '%s' is a non-ALLOCATABLE coarray must have"
+                      " an explicit coshape"_err_en_US,
+            symbol.name());
       }
     }
   }
@@ -465,7 +474,7 @@ void CheckHelper::CheckObjectEntity(
           symbol.name());
     }
   }
-}
+} // namespace Fortran::semantics
 
 // The six different kinds of array-specs:
 //   array-spec     -> explicit-shape-list | deferred-shape-list
