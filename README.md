@@ -167,11 +167,11 @@ flang_site_config and flang_config. And they can be set as shown bellow:
 If flang was built with `-DFLANG_INCLUDE_TESTS=On` (`On` by default), it is possible to
 generate unittests.
 
-To run all of the `flang unit tests` use the check-flang-unit target:
+To run all of the flang unit tests use the `check-flang-unit` target:
 ```
 make check-flang-unit
 ```
-To run all of the `flang regression tests` use the check-flang target:
+To run all of the flang regression tests use the `check-flang` target:
 ```
 make check-flang
 ```
