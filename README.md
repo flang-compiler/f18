@@ -3,7 +3,7 @@
 F18 is now part of LLVM and it is called Flang in the LLVM repository.
 
 The code from this repository can now be found at
-https://github.com/llvm/llvm-project/tree/master/flang/
+https://github.com/llvm/llvm-project/tree/main/flang/
 
 # Migration
 
@@ -26,10 +26,10 @@ the LLVM monorepo:
 ```
 $ git remote set-url origin git@github.com:llvm/llvm-project.git
 $ git fetch origin
-$ git rebase origin/master -i
+$ git rebase origin/main -i
 ```
 
-Cherry-picking commits should also work, if you checkout the master branch from
+Cherry-picking commits should also work, if you checkout the main branch from
 the monorepo you can `git cherry-pick <sha1>` from your (rewritten) branches.
 
 You can also export patches with `git format-patch <range>` and re-apply it on
